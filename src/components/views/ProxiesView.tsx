@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Upload, Search, RefreshCw,
   Trash2, Globe, Server, Activity, ChevronUp, ChevronDown, Check, X,
-  AlertCircle
+  AlertCircle, Edit2, Save
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -82,6 +82,10 @@ export function ProxiesView() {
   const [bulkRows, setBulkRows]   = useState<ReturnType<typeof parseBulkProxies>>([]);
   const [bulkBusy, setBulkBusy]   = useState(false);
 
+  // Edit inline
+  const [editProxyId, setEditProxyId] = useState<string | null>(null);
+  const [editValues, setEditValues]   = useState({ url: '', label: '' });
+
   /* ── Load ── */
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
@@ -125,6 +129,44 @@ export function ProxiesView() {
     await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
     addToast('Đã xoá proxy', 'info');
     loadData();
+  };
+
+  const saveEdit = async () => {
+    if (!editProxyId) return;
+    const r = await fetch(`/api/d1/proxies/${editProxyId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editValues),
+    });
+    if (!r.ok) {
+      addToast('Lỗi khi lưu proxy', 'error');
+    } else {
+      addToast('Đã cập nhật proxy', 'success');
+      setEditProxyId(null);
+      loadData();
+    }
+  };
+
+  const addSlot = async (proxyId: string) => {
+    const r = await fetch(`/api/d1/proxies/${proxyId}/slots`, { method: 'POST' });
+    if (r.ok) { addToast('Đã thêm slot', 'success'); loadData(); }
+    else addToast('Lỗi thêm slot', 'error');
+  };
+
+  const removeSlot = async (slotId: string, isBusy: boolean) => {
+    if (isBusy) {
+      if (!confirm('Slot này ĐANG ĐƯỢC DÙNG. Ngắt kết nối và xoá?')) return;
+    } else {
+      if (!confirm('Xoá slot trống này?')) return;
+    }
+    const r = await fetch(`/api/d1/slots/${slotId}`, { method: 'DELETE' });
+    if (r.ok) { addToast('Đã xoá slot', 'info'); loadData(); }
+  };
+
+  const resetSlot = async (slotId: string) => {
+    if (!confirm('Giải phóng slot (ngắt kết nối)?')) return;
+    const r = await fetch(`/api/d1/slots/${slotId}/reset`, { method: 'POST' });
+    if (r.ok) { addToast('Đã giải phóng slot', 'success'); loadData(); }
   };
 
   // ── Bulk import ──
@@ -224,43 +266,85 @@ export function ProxiesView() {
             {filtered.map(p => {
               const pSlots = slots.filter(s => s.proxy_id === p.id).sort((a,b) => a.slot_index - b.slot_index);
               const busyCount = pSlots.filter(s => s.connection_id).length;
+              const isEditing = editProxyId === p.id;
+              
               return (
-                <div key={p.id} style={{ background: 'var(--glass)', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border)', transition: 'border-color .2s' }}>
+                <div key={p.id} style={{ background: isEditing ? 'var(--glass-2)' : 'var(--glass)', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border)', transition: 'border-color .2s' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--indigo-2)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>{p.url}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {p.label && <span style={{ background: 'var(--glass-2)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>{p.label}</span>}
-                        <span>Nguồn: {p.source}</span>
-                        <span>•</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Activity size={10} color={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'var(--green)' : 'var(--amber)') : 'var(--text-3)'} />
-                          Ping: {p.last_latency_ms || '?'}ms
-                        </span>
-                      </div>
+                    <div style={{ flex: 1, minWidth: 0, marginRight: 16 }}>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                          <input className="inp inp-sm" style={{ flex: 2 }} value={editValues.url} onChange={e => setEditValues(v => ({ ...v, url: e.target.value }))} autoFocus />
+                          <input className="inp inp-sm" style={{ flex: 1 }} value={editValues.label} onChange={e => setEditValues(v => ({ ...v, label: e.target.value }))} placeholder="Label..." />
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--indigo-2)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>{p.url}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {p.label && <span style={{ background: 'var(--glass-2)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>{p.label}</span>}
+                            <span>Nguồn: {p.source}</span>
+                            <span>•</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Activity size={10} color={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'var(--green)' : 'var(--amber)') : 'var(--text-3)'} />
+                              Ping: {p.last_latency_ms || '?'}ms
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <button className="btn-icon danger" title="Xóa Proxy" onClick={() => deleteProxy(p.id)} style={{ flexShrink: 0, marginLeft: 16 }}>
-                      <Trash2 size={14} />
-                    </button>
+                    
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {isEditing ? (
+                        <>
+                          <button className="btn-icon" title="Hủy" onClick={() => setEditProxyId(null)}>
+                            <X size={14} />
+                          </button>
+                          <button className="btn-icon btn-primary" title="Lưu lại" onClick={saveEdit}>
+                            <Save size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="btn-icon" title="Chỉnh sửa Proxy" onClick={() => { setEditProxyId(p.id); setEditValues({ url: p.url, label: p.label || '' }); }}>
+                            <Edit2 size={14} />
+                          </button>
+                          <button className="btn-icon danger" title="Xóa Proxy" onClick={() => deleteProxy(p.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                     {pSlots.map(s => {
                       const isBusy = !!s.connection_id;
                       return (
-                        <div key={s.id} title={isBusy ? `Đang dùng bởi ${s.connection_id}` : 'Trống'}
+                        <div key={s.id} 
+                             title={isBusy ? `Đang dùng bởi ${s.connection_id}\n\n• Click Trái: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống\n• Click: Xóa slot'}
+                             onClick={(e) => {
+                               if (isBusy && !e.altKey) resetSlot(s.id);
+                               else removeSlot(s.id, isBusy);
+                             }}
                              style={{ 
                                width: 26, height: 26, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                               fontSize: 10, fontWeight: 700, cursor: 'default',
+                               fontSize: 10, fontWeight: 700, cursor: 'pointer',
                                background: isBusy ? 'var(--cyan-dim)' : 'var(--glass-3)', 
                                color: isBusy ? 'var(--cyan)' : 'var(--text-3)',
-                               border: `1px solid ${isBusy ? 'rgba(6, 182, 212, 0.3)' : 'var(--border-2)'}`,
-                               boxShadow: isBusy ? '0 0 10px rgba(6, 182, 212, 0.1)' : 'none'
-                             }}>
+                               border: `1px solid ${isBusy ? 'rgba(6, 182, 212, 0.3)' : 'transparent'}`,
+                               boxShadow: isBusy ? '0 0 10px rgba(6, 182, 212, 0.1)' : 'none',
+                               transition: 'all .15s'
+                             }}
+                             onMouseOver={e => e.currentTarget.style.borderColor = isBusy ? 'rgba(6, 182, 212, 0.6)' : 'var(--border)'}
+                             onMouseOut={e => e.currentTarget.style.borderColor = isBusy ? 'rgba(6, 182, 212, 0.3)' : 'transparent'}
+                             >
                           {s.slot_index}
                         </div>
                       );
                     })}
+                    <button className="btn-icon" onClick={() => addSlot(p.id)} title="Thêm slot" style={{ width: 26, height: 26, padding: 0 }}>
+                      <Plus size={12} />
+                    </button>
                   </div>
                 </div>
               );

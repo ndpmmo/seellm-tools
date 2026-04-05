@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2026-04-05
+
+### Added
+- **Proxy Management Interactive (v2.0)**:
+  - Cho phép chỉnh sửa URL và Label trực tiếp trên từng proxy đã tồn tại (Inline Edit).
+  - Thêm chức năng **Gia tăng Slot (Add Slot)** riêng biệt cho từng proxy mà không cần tạo lại.
+  - Hỗ trợ **Xóa Slot trống** bằng click chuột trái, và **Xóa Slot bận** khi dùng tổ hợp Alt+Click.
+  - Chức năng **Giải phóng Slot (Reset)** hỗ trợ gỡ nhanh connection_id bị kẹt ra khỏi slot ngay trên giao diện.
+  - Cải thiện UI hàng đợi slot: Trạng thái hiển thị sống động hơn (màu sắc, bóng đổ, hiệu ứng hover).
+
+
+
 ## [0.0.1] - 2026-04-06
 
 ### Added
