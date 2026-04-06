@@ -19,6 +19,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import vaultRouter from './server/routes/vault.js';
+
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -315,7 +317,11 @@ app.prepare().then(() => {
     } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
+  // ── Vault API (SQLite) ──────────────────────────────────────────────────
+  ex.use('/api/vault', vaultRouter);
+
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
+
   ex.use('/api/d1', async (req, res) => {
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {

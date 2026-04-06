@@ -3,7 +3,7 @@ import React from 'react';
 import {
   Users, Globe, Link2, LayoutDashboard, FileImage, Terminal,
   FileText, Play, Settings, Zap, Bot, ExternalLink,
-  CheckCircle2, XCircle, Clock, Wifi, WifiOff
+  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon
 } from 'lucide-react';
 import { AppProvider, useApp } from './AppContext';
 import { ToastContainer } from './Views';
@@ -16,6 +16,11 @@ import { LogFilesView }    from './views/LogFilesView';
 import { AccountsView }    from './views/AccountsView';
 import { ProxiesView }     from './views/ProxiesView';
 import { ConnectionsView } from './views/ConnectionsView';
+import { ChangelogView }   from './views/ChangelogView';
+
+// --- Vault Views ---
+import { VaultAccountsView } from './views/vault/VaultAccountsView';
+import { VaultProxiesView }  from './views/vault/VaultProxiesView';
 
 // ── Nav Item ─────────────────────────────────────────────
 function NavItem({
@@ -52,7 +57,7 @@ function Sidebar() {
         <div className="brand-icon">🛠️</div>
         <div>
           <div className="brand-name">SeeLLM Tools</div>
-          <div className="brand-ver">v2.0 · D1 Hub</div>
+          <div className="brand-ver">v3.0 · Vault Beta</div>
         </div>
       </div>
 
@@ -60,18 +65,24 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <div className="nav-section-label">Tổng quan</div>
         <NavItem id="dashboard"   icon={LayoutDashboard} label="Dashboard"    badge={running} badgeColor="g" />
-        <NavItem id="screenshots" icon={FileImage}       label="Screenshots" />
         <NavItem id="terminal"    icon={Terminal}        label="Terminal Logs" badge={errors}  badgeColor="r" />
         <NavItem id="logfiles"    icon={FileText}        label="Log Files" />
+        <NavItem id="screenshots" icon={FileImage}       label="Screenshots" />
 
-        <div className="nav-section-label">Quản lý Cloud (D1)</div>
-        <NavItem id="accounts"    icon={Users}  label="Accounts" />
+        <div className="nav-section-label">Vault (Local)</div>
+        <NavItem id="vault-accounts" icon={Users} label="Accounts" />
+        <NavItem id="vault-proxies"  icon={Globe} label="Proxies" />
+        <NavItem id="vault-keys"     icon={Zap}   label="API Keys" />
+
+        <div className="nav-section-label">D1 Cloud (D1)</div>
+        <NavItem id="accounts"    icon={Bot}    label="Codex Accts" />
         <NavItem id="proxies"     icon={Globe}  label="Proxy Pool" />
         <NavItem id="connections" icon={Link2}  label="Connections" />
 
         <div className="nav-section-label">Công cụ</div>
-        <NavItem id="scripts"  icon={Play}     label="Scripts" />
-        <NavItem id="settings" icon={Settings} label="Cài đặt" />
+        <NavItem id="scripts"   icon={Play}        label="Scripts" />
+        <NavItem id="settings"  icon={Settings}    label="Cài đặt" />
+        <NavItem id="changelog" icon={HistoryIcon} label="Change Logs" />
 
         <div className="nav-section-label">Tài nguyên</div>
         <div className="nav-btn" onClick={() => window.open('https://github.com/jo-inc/camofox-browser', '_blank')}>
@@ -103,7 +114,10 @@ function Sidebar() {
 // ── Topbar ────────────────────────────────────────────────
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   dashboard:   { title: 'Dashboard',    desc: 'Tổng quan hệ thống và trạng thái realtime' },
-  accounts:    { title: 'Accounts',     desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
+  'vault-accounts': { title: 'Vault Accounts', desc: 'Quản lý tài khoản cá nhân đa nhà cung cấp · Local Vault' },
+  'vault-proxies':  { title: 'Vault Proxies',  desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
+  'vault-keys':     { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
+  accounts:    { title: 'Codex Accounts', desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
   proxies:     { title: 'Proxy Pool',   desc: 'Quản lý Proxy Pool Automation · D1 Cloud Edge' },
   connections: { title: 'Connections',  desc: 'Danh sách token đã xác thực · D1 Cloud Edge' },
   screenshots: { title: 'Screenshots',  desc: 'Ảnh chụp màn hình từ các phiên login' },
@@ -111,12 +125,14 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
   logfiles:    { title: 'Log Files',    desc: 'Danh sách file log đã được lưu' },
   scripts:     { title: 'Scripts',      desc: 'Các scripts tích hợp sẵn' },
   settings:    { title: 'Cài đặt',      desc: 'Cấu hình hệ thống · Tools & Gateway' },
+  changelog:   { title: 'Change Logs',   desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
 };
 
 const PAGE_ICONS: Record<string, React.ElementType> = {
   dashboard: LayoutDashboard, accounts: Users, proxies: Globe,
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
+  changelog: HistoryIcon,
 };
 
 function Topbar() {
@@ -157,15 +173,24 @@ function ContentRouter() {
   const { view } = useApp();
   return (
     <>
-      {view === 'dashboard'   && <DashboardView />}
+      {view === 'dashboard'      && <DashboardView />}
+      
+      {/* Vault */}
+      {view === 'vault-accounts' && <VaultAccountsView />}
+      {view === 'vault-proxies'  && <VaultProxiesView />}
+      {view === 'vault-keys'     && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
+      
+      {/* D1 */}
       {view === 'accounts'    && <AccountsView />}
       {view === 'proxies'     && <ProxiesView />}
       {view === 'connections' && <ConnectionsView />}
+      
       {view === 'screenshots' && <ScreenshotsView />}
       {view === 'terminal'    && <TerminalView />}
       {view === 'logfiles'    && <LogFilesView />}
       {view === 'scripts'     && <ScriptsView />}
       {view === 'settings'    && <SettingsView />}
+      {view === 'changelog'   && <ChangelogView />}
     </>
   );
 }

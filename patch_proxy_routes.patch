@@ -1,0 +1,86 @@
+--- ../seellm-gateway/worker/src/index.ts
++++ ../seellm-gateway/worker/src/index.ts
+@@ -628,6 +628,81 @@
+       return json({ ok: true, id });
+     }
+ 
++    if (request.method === "PATCH" && url.pathname.startsWith("/proxies/") && !url.pathname.includes("/slots")) {
++      const id = url.pathname.replace("/proxies/", "");
++      if (!id) return json({ error: "Missing ID" }, { status: 400 });
++      const payload = (await request.json()) as any;
++      const now = new Date().toISOString();
++      const existing = await env.SEELLM_GATEWAY_DB.prepare("SELECT * FROM codex_proxies WHERE id = ?").bind(id).first<Record<string, unknown>>();
++      if (!existing) return json({ error: "Not found" }, { status: 404 });
++      
++      const url_val = payload.url !== undefined ? payload.url : existing.url;
++      const label_val = payload.label !== undefined ? payload.label : existing.label;
++      
++      const record = {
++        ...existing,
++        url: url_val,
++        label: label_val,
++        updated_at: now,
++        version: Date.now()
++      };
++      await upsertProxy(env, record as unknown as SyncRecord);
++      await updateCursor(env, now);
++      return json({ ok: true, id });
++    }
++
++    if (request.method === "POST" && url.pathname.includes("/slots") && url.pathname.startsWith("/proxies/")) {
++      // /proxies/:id/slots
++      const proxy_id = url.pathname.split("/")[2];
++      if (!proxy_id) return json({ error: "Missing Proxy ID" }, { status: 400 });
++      
++      const now = new Date().toISOString();
++      const version = Date.now();
++      
++      const existingProxy = await env.SEELLM_GATEWAY_DB.prepare("SELECT * FROM codex_proxies WHERE id = ?").bind(proxy_id).first<{slot_count: number}>();
++      if (!existingProxy) return json({ error: "Proxy not found" }, { status: 404 });
++      
++      const existingSlots = await env.SEELLM_GATEWAY_DB.prepare("SELECT MAX(slot_index) as max_idx FROM codex_proxy_slots WHERE proxy_id = ?").bind(proxy_id).first<{max_idx: number}>();
++      const nextIndex = (existingSlots?.max_idx !== null && existingSlots?.max_idx !== undefined) ? existingSlots.max_idx + 1 : 0;
++      
++      const slot_id = `${proxy_id}_${nextIndex}_${Date.now()}`;
++      const slotRecord = {
++        id: slot_id,
++        proxy_id,
++        slot_index: nextIndex,
++        connection_id: null,
++        updated_at: now,
++        version
++      };
++      await upsertProxySlot(env, slotRecord as unknown as SyncRecord);
++      
++      await env.SEELLM_GATEWAY_DB.prepare("UPDATE codex_proxies SET slot_count = slot_count + 1, updated_at = ?, version = ? WHERE id = ?")
++        .bind(now, version, proxy_id).run();
++      
++      await updateCursor(env, now);
++      return json({ ok: true, id: slot_id });
++    }
++
++    if (request.method === "DELETE" && url.pathname.startsWith("/slots/")) {
++      const slot_id = url.pathname.replace("/slots/", "");
++      if (!slot_id) return json({ error: "Missing Slot ID" }, { status: 400 });
++      const now = new Date().toISOString();
++      const version = Date.now();
++      await env.SEELLM_GATEWAY_DB.prepare("UPDATE codex_proxy_slots SET deleted_at = ?, updated_at = ?, version = ? WHERE id = ?")
++        .bind(now, now, version, slot_id).run();
++      // Note: we don't strictly decrement slot_count on proxy to avoid race conditions, or just trust the count of active slots.
++      await updateCursor(env, now);
++      return json({ ok: true, id: slot_id });
++    }
++
++    if (request.method === "POST" && url.pathname.startsWith("/slots/") && url.pathname.endsWith("/reset")) {
++      const slot_id = url.pathname.replace("/slots/", "").replace("/reset", "");
++      if (!slot_id) return json({ error: "Missing Slot ID" }, { status: 400 });
++      const now = new Date().toISOString();
++      await env.SEELLM_GATEWAY_DB.prepare("UPDATE codex_proxy_slots SET connection_id = NULL, updated_at = ?, version = ? WHERE id = ?")
++        .bind(now, Date.now(), slot_id).run();
++      await updateCursor(env, now);
++      return json({ ok: true, id: slot_id });
++    }
++
+     if (request.method === "POST" && url.pathname === "/sync/push") {
+       const payload = (await request.json()) as PushPayload;
+       const now = new Date().toISOString();
