@@ -294,6 +294,17 @@ app.prepare().then(() => {
     } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
+  ex.get('/api/changelog', async (_, res) => {
+    try {
+      if (existsSync(path.join(__dirname, 'CHANGELOG.md'))) {
+        const text = readFileSync(path.join(__dirname, 'CHANGELOG.md'), 'utf-8');
+        res.json({ ok: true, content: text });
+      } else {
+        res.json({ ok: false, error: 'File not found' });
+      }
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Vault API (SQLite) ──────────────────────────────────────────────────
   ex.use('/api/vault', vaultRouter);
 

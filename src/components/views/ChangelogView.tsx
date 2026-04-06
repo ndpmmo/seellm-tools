@@ -10,14 +10,14 @@ export function ChangelogView() {
   useEffect(() => {
     async function loadChangelog() {
       try {
-        const res = await fetch('/CHANGELOG.md'); // Next.js standard if in public or server.js serving it
-        if (!res.ok) {
-           // Fallback to a hardcoded version if the file isn't directly fetchable via browser at root
-           // Since I can't be sure server.js serves root files, I'll fetch and provide a nice UI
-           const text = `# SeeLLM Tools Changelog\n\n## [0.0.1] - 2026-04-06\n\n### Added\n- **Khởi tạo dự án SeeLLM Tools**: Dashboard quản lý trung tâm.\n- **Tích hợp Cloudflare D1**: Kết nối REST API ở Worker.\n- **Giao diện Accounts v2**: Thống kê, Thêm hàng loạt, CRUD.\n- **Giao diện Proxy Pool v2**: Thống kê Slots, Thêm hàng loạt.\n- **Design System v2.0**: Dark Theme glassmorphism & Lucide Icons.`;
-           setContent(text);
+        const res = await fetch('/api/changelog');
+        const data = await res.json();
+        if (data.ok) {
+          setContent(data.content);
         } else {
-          setContent(await res.text());
+          // Fallback if file missing
+          const text = `# SeeLLM Tools Changelog\n\n## [0.0.5] - 2026-04-06\n### Added\n- **Cloud Vault Sync**: Real-time cloud synchronization.`;
+          setContent(text);
         }
       } catch (e) {
         setError('Không thể tải file CHANGELOG.md');
