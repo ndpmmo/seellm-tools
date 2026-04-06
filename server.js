@@ -17,9 +17,11 @@ import {
 } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
+import { loadConfig, saveConfig } from './server/db/config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import vaultRouter from './server/routes/vault.js';
+import { vault } from './server/db/vault.js';
+import { SyncManager } from './server/services/syncManager.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -30,36 +32,11 @@ const SCRIPTS_DIR    = path.join(__dirname, 'scripts');
 const DATA_DIR       = path.join(__dirname, 'data');
 const SCREENSHOTS_DIR = path.join(DATA_DIR, 'screenshots');
 const LOGS_DIR       = path.join(DATA_DIR, 'logs');
-const CONFIG_PATH    = path.join(__dirname, 'tools.config.json');
 
 // Ensure dirs exist
 [DATA_DIR, SCREENSHOTS_DIR, LOGS_DIR].forEach(d => {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
 });
-
-// ─── Config ──────────────────────────────────────────────────────────────────
-function loadConfig() {
-  const defaults = {
-    camofoxPath:   '/Users/ndpmmo/Documents/Tools/camofox-browser',
-    camofoxPort:   3000,
-    camofoxApi:    'http://localhost:9377',
-    gatewayUrl:    'http://localhost:20128',
-    workerAuthToken: '',
-    d1WorkerUrl:    '',
-    d1SyncSecret:   '',
-    pollIntervalMs: 15000,
-    maxThreads:    3,
-  };
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      const p = raw.camofoxPort || defaults.camofoxPort;
-      return { ...defaults, ...raw, camofoxApi: raw.camofoxApi || `http://localhost:${p}` };
-    }
-  } catch {}
-  return defaults;
-}
-function saveConfig(c) { writeFileSync(CONFIG_PATH, JSON.stringify(c, null, 2)); }
 
 // ─── Processes ───────────────────────────────────────────────────────────────
 const processes = {};
@@ -319,6 +296,17 @@ app.prepare().then(() => {
 
   // ── Vault API (SQLite) ──────────────────────────────────────────────────
   ex.use('/api/vault', vaultRouter);
+
+  // Initial Sync Pull from D1 Cloud (Background)
+  SyncManager.pullVault().then(data => {
+    if (data) {
+      console.log('[Startup] Syncing vault from D1 Cloud...');
+      data.accounts.forEach(a => vault.upsertAccount(a, true)); // skipSync=true to avoid feedback loop
+      data.proxies.forEach(p => vault.upsertProxy(p, true));
+      data.keys.forEach(k => vault.upsertApiKey(k, true));
+      console.log('[Startup] Cloud Vault sync complete.');
+    }
+  }).catch(e => console.error('[Startup] Sync failed:', e.message));
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 

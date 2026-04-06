@@ -67,6 +67,8 @@ function initSchema() {
       last_tested TEXT,
       latency_ms  INTEGER,
       notes       TEXT,
+      updated_at  TEXT NOT NULL,
+      deleted_at  TEXT,
       created_at  TEXT NOT NULL
     );
 
@@ -81,6 +83,8 @@ function initSchema() {
       daily_limit   INTEGER,
       monthly_limit INTEGER,
       notes         TEXT,
+      updated_at    TEXT NOT NULL,
+      deleted_at    TEXT,
       created_at    TEXT NOT NULL
     );
 
@@ -134,7 +138,7 @@ export const vault = {
     return vault.getAccounts().find(x => x.id === id);
   },
 
-  upsertAccount: (data) => {
+  upsertAccount: (data, skipSync = false) => {
     const id = data.id || `acc_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
     const existing = db.prepare('SELECT id FROM vault_accounts WHERE id = ?').get(id);
@@ -163,34 +167,40 @@ export const vault = {
         updated_at    = excluded.updated_at
     `);
 
+    const record = {
+      id, provider: data.provider || 'openai', label: data.label || '', 
+      email: data.email || '', 
+      password: data.password ? encrypt(data.password) : (existing ? existing.password : null),
+      two_fa_secret: data.two_fa_secret ? encrypt(data.two_fa_secret) : (existing ? existing.two_fa_secret : null),
+      proxy_url: data.proxy_url || null, 
+      cookies: JSON.stringify(data.cookies || []),
+      access_token: data.access_token ? encrypt(data.access_token) : (existing ? existing.access_token : null),
+      refresh_token: data.refresh_token ? encrypt(data.refresh_token) : (existing ? existing.refresh_token : null),
+      status: data.status || 'idle', notes: data.notes || '',
+      tags: JSON.stringify(data.tags || []),
+      exported_to: data.exported_to || null, exported_at: data.exported_at || null,
+      created_at: existing ? existing.created_at : now, updated_at: now
+    };
+
     stmt.run(
-      id,
-      data.provider || 'openai',
-      data.label || '',
-      data.email || '',
-      data.password ? encrypt(data.password) : (existing ? undefined : null),
-      data.two_fa_secret ? encrypt(data.two_fa_secret) : (existing ? undefined : null),
-      data.proxy_url || null,
-      JSON.stringify(data.cookies || []),
-      data.access_token ? encrypt(data.access_token) : (existing ? undefined : null),
-      data.refresh_token ? encrypt(data.refresh_token) : (existing ? undefined : null),
-      data.status || 'idle',
-      data.notes || '',
-      JSON.stringify(data.tags || []),
-      data.exported_to || null,
-      data.exported_at || null,
-      existing ? existing.created_at : now,
-      now
+      record.id, record.provider, record.label, record.email, record.password,
+      record.two_fa_secret, record.proxy_url, record.cookies, record.access_token,
+      record.refresh_token, record.status, record.notes, record.tags,
+      record.exported_to, record.exported_at, record.created_at, record.updated_at
     );
-    return id;
+    return record;
   },
 
-  deleteAccount: (id) => db.prepare('DELETE FROM vault_accounts WHERE id = ?').run(id),
+  deleteAccount: (id, skipSync = false) => {
+    const now = dayjs().toISOString();
+    db.prepare('UPDATE vault_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
+    return db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+  },
 
   // CRUD PROXIES
   getProxies: () => db.prepare('SELECT * FROM vault_proxies ORDER BY created_at DESC').all(),
   
-  upsertProxy: (data) => {
+  upsertProxy: (data, skipSync = false) => {
     const id = data.id || `prx_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
     const stmt = db.prepare(`
@@ -206,17 +216,29 @@ export const vault = {
         is_active   = excluded.is_active,
         last_tested = excluded.last_tested,
         latency_ms  = excluded.latency_ms,
-        notes       = excluded.notes
+        notes       = excluded.notes,
+        updated_at  = excluded.updated_at
     `);
+    const record = {
+      id, label: data.label || '', url: data.url, type: data.type || 'http', 
+      country: data.country || null, provider: data.provider || null, 
+      is_active: data.is_active ?? 1, last_tested: data.last_tested || null,
+      latency_ms: data.latency_ms || null, notes: data.notes || '', 
+      updated_at: now, created_at: now
+    };
     stmt.run(
-      id, data.label || '', data.url, data.type || 'http', data.country || null,
-      data.provider || null, data.is_active ?? 1, data.last_tested || null,
-      data.latency_ms || null, data.notes || '', now
+      record.id, record.label, record.url, record.type, record.country,
+      record.provider, record.is_active, record.last_tested,
+      record.latency_ms, record.notes, record.updated_at, record.created_at
     );
-    return id;
+    return record;
   },
 
-  deleteProxy: (id) => db.prepare('DELETE FROM vault_proxies WHERE id = ?').run(id),
+  deleteProxy: (id, skipSync = false) => {
+    const now = dayjs().toISOString();
+    db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
+    return db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+  },
 
   // CRUD API KEYS
   getApiKeys: () => {
@@ -230,7 +252,7 @@ export const vault = {
     return decryptVal ? { ...k, key_value: decrypt(k.key_value) } : { ...k, key_value: '****************' };
   },
 
-  upsertApiKey: (data) => {
+  upsertApiKey: (data, skipSync = false) => {
     const id = data.id || `key_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
     const stmt = db.prepare(`
@@ -247,13 +269,24 @@ export const vault = {
         monthly_limit = excluded.monthly_limit,
         notes         = excluded.notes
     `);
+    const record = {
+      id, provider: data.provider, label: data.label || '', 
+      api_key: encrypt(data.api_key), base_url: data.base_url || null, 
+      is_active: data.is_active ?? 1, daily_limit: data.daily_limit || null,
+      monthly_limit: data.monthly_limit || null, notes: data.notes || '', 
+      updated_at: now, created_at: now
+    };
     stmt.run(
-      id, data.provider, data.label || '', encrypt(data.key_value),
-      data.base_url || null, data.is_active ?? 1, data.daily_limit || null,
-      data.monthly_limit || null, data.notes || '', now
+      record.id, record.provider, record.label, record.api_key,
+      record.base_url, record.is_active, record.daily_limit,
+      record.monthly_limit, record.notes, record.updated_at, record.created_at
     );
-    return id;
+    return record;
   },
 
-  deleteApiKey: (id) => db.prepare('DELETE FROM vault_api_keys WHERE id = ?').run(id)
+  deleteApiKey: (id, skipSync = false) => {
+    const now = dayjs().toISOString();
+    db.prepare('UPDATE vault_api_keys SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
+    return db.prepare('SELECT * FROM vault_api_keys WHERE id = ?').get(id);
+  }
 };
