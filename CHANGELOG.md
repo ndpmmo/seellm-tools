@@ -1,16 +1,34 @@
 # Changelog
 
+Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
+
 ## [0.0.5] - 2026-04-06
 ### Added
-- **Cloud Vault Sync (Milestone 3)**: Real-time background synchronization between local Vault (SQLite) and Cloudflare D1.
-- Global accessibility: Sync personal accounts, proxies, and API keys across multiple SeeLLM Tools instances.
-- Initial sync pull at startup to hydrate local database from D1 Cloud.
-- Conflict prevention using version tracking (`updated_at`).
+- **Đồng bộ Cloud Vault (Milestone 3)**: Tích hợp đồng bộ hóa dữ liệu thời gian thực giữa Local Vault (SQLite) và Cloudflare D1.
+- **Tính năng Truy cập mọi nơi**: Tự động đồng bộ tài khoản cá nhân, proxy và API keys giữa nhiều thực thể SeeLLM Tools khác nhau.
+- **Initial Sync Pull**: Cơ chế tự động tải dữ liệu từ D1 Cloud khi khởi động máy để cập nhật database local.
+- **Versioning**: Sử dụng tracking `updated_at` và `deleted_at` để quản lý xung đột dữ liệu khi đồng bộ.
+
 ### Changed
-- Refactored server configuration into a shared utility (`config.js`).
-- Improved mutation hooks to trigger D1 pushes automatically.
+- **Refactor Config**: Chuyển đổi cơ chế quản lý cấu hình sang module dùng chung `config.js`.
+- **Hỗ trợ Sync**: Cập nhật các route API Vault để tự động kích hoạt tiến trình đồng bộ ngầm khi có thay đổi dữ liệu.
 
 ## [0.0.3] - 2026-04-06
-- Added Vault (Local) storage with SQLite.
-- Interactive Proxy/Slot management.
-- AES-256 encryption for secrets.
+### Added
+- **Hạ tầng Vault (Local)**: Khởi tạo cơ sở dữ liệu SQLite local để lưu trữ tài khoản cá nhân.
+- **Bảo mật AES-256**: Triển khai mã hóa dữ liệu nhạy cảm (Password, Token, 2FA) dựa trên Machine ID của máy chủ.
+- **Quản lý Proxy Interactive**: Thêm giao diện chỉnh sửa URL/Label và quản lý Slot cho proxy trực tiếp từ Dashboard.
+- **Sidebar v3.0**: Tái cấu trúc thanh điều hướng thành 4 phần: Tổng quan, Vault (Cá nhân), D1 Cloud (Dùng chung) và Công cụ.
+
+### Fixed
+- **Camofox Monitor**: Sửa lỗi `ReferenceError: stopMemoryReporter` khi dừng tiến trình Camofox.
+
+## [0.0.2] - 2026-04-05
+### Added
+- Giao diện Dashboard hiện đại với Dark Mode và Glassmorphism.
+- Tích hợp biểu đồ giám sát tài nguyên thời gian thực.
+- Cải thiện UX cho bảng danh sách tài khoản và proxy.
+
+## [0.0.1] - 2026-04-03
+### Added
+- Bản phát hành đầu tiên: Hỗ trợ quản lý tài khoản Codex, kết nối D1 Cloud và giao diện điều khiển trung tâm.
