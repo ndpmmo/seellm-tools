@@ -327,9 +327,12 @@ app.prepare().then(() => {
       return res.status(400).json({ error: "Missing D1 config (url or secret)" });
     }
     
-    // In app.use, req.url contains the rest of the path, e.g., /inspect/accounts
-    const targetPath = req.url.startsWith('/') ? req.url.slice(1) : req.url;
-    const targetUrl = `${cfg.d1WorkerUrl}/${targetPath}`;
+    // Làm sạch đường dẫn để tránh lỗi // (double slashes)
+    const cleanBaseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
+    const cleanPath = req.url.replace(/^\/+/, '');
+    const targetUrl = `${cleanBaseUrl}/${cleanPath}`;
+    
+    console.log(`[D1 Proxy] Forwarding ${req.method} ${req.url} -> ${targetUrl}`);
     
     try {
       const headers = {
@@ -349,11 +352,28 @@ app.prepare().then(() => {
         fetchOpts.body = JSON.stringify(req.body);
       }
       
-      const r = await fetch(targetUrl, fetchOpts);
-      const data = await r.json().catch(() => null);
-      res.status(r.status).json(data || { error: "Invalid JSON from D1" });
+      const r = await fetch(targetUrl, fetchOpts).catch(err => {
+        throw new Error(`Cloudflare Connection Error: ${err.message}`);
+      });
+      
+      const text = await r.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        console.error(`[D1 Proxy] Invalid JSON from ${targetUrl}. Status: ${r.status}. Preview: ${text.slice(0, 50)}`);
+      }
+      
+      res.setHeader('Content-Type', 'application/json');
+      res.status(r.status).json(data || { 
+        ok: false, 
+        error: `Invalid JSON from D1 (Status: ${r.status})`, 
+        raw: text.slice(0, 100) 
+      });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      console.error(`[D1 Proxy] Fatal Error:`, e.message);
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

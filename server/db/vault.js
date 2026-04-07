@@ -2,9 +2,11 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import cryptlib from 'cryptlib';
-import { machineIdSync } from 'node-machine-id';
+import nodeMachineId from 'node-machine-id';
+const { machineIdSync } = nodeMachineId;
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
+import crypto from 'crypto';
 
 /* ─── Setup ─────────────────────────────────────────────────────────────── */
 
@@ -15,19 +17,37 @@ const DB_PATH = path.join(DATA_DIR, 'vault.db');
 const db = new Database(DB_PATH);
 
 // Simple encryption using machineId as part of the salt
-const mid = machineIdSync();
+// Securely get machine ID for encryption, with fallback for missing system tools
+let mid_val = 'seellm-node-default-mid';
+try {
+  if (process.platform === 'darwin' && !process.env.PATH.includes('/usr/sbin')) {
+    process.env.PATH = `${process.env.PATH}:/usr/sbin`;
+  }
+  mid_val = machineIdSync();
+} catch (e) {
+  console.warn('[Vault] Machine ID Error (fallback used):', e.message);
+}
+
+const mid = mid_val;
 const SALT = 'seellm_vault_v3_salt';
-const KEY  = cryptlib.getHash(mid + SALT, 'sha256').slice(0, 32);
-const IV   = cryptlib.getHash(SALT + mid, 'sha256').slice(0, 16);
+
+// Use standard Node.js crypto to generate stable key/iv across all versions
+const KEY = crypto.createHash('sha256').update(mid + SALT).digest('hex').slice(0, 32);
+const IV  = crypto.createHash('sha256').update(SALT + mid).digest('hex').slice(0, 16);
 
 function encrypt(text) {
   if (!text) return null;
-  return cryptlib.encrypt(text, KEY, IV);
+  // Initialize cryptlib instance to access methods
+  return new cryptlib().encrypt(text, KEY, IV);
 }
 
 function decrypt(cipher) {
   if (!cipher) return null;
-  try { return cryptlib.decrypt(cipher, KEY, IV); } catch { return '***[DECRYPT_ERROR]***'; }
+  try {
+    return new cryptlib().decrypt(cipher, KEY, IV);
+  } catch (e) {
+    return '***[DECRYPT_ERROR]***';
+  }
 }
 
 /* ─── Migrations ────────────────────────────────────────────────────────── */

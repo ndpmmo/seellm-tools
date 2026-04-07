@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import path from 'path';
 
-const CONFIG_PATH = path.resolve('config.json');
+const CONFIG_PATH = existsSync(path.resolve('tools.config.json')) 
+  ? path.resolve('tools.config.json') 
+  : path.resolve('config.json');
 
 export function loadConfig() {
   const defaults = {
