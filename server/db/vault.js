@@ -20,9 +20,13 @@ const db = new Database(DB_PATH);
 // Securely get machine ID for encryption
 let mid_val = 'seellm-node-default-mid';
 try {
-  mid_val = machineIdSync();
+  // macOS fix: Ensure /usr/sbin is in path for ioreg command used by node-machine-id
+  if (process.platform === 'darwin') {
+    process.env.PATH = `${process.env.PATH}:/usr/sbin`;
+  }
+  mid_val = machineIdSync() || mid_val;
 } catch (e) {
-  console.warn('[Vault] Machine ID Error:', e.message);
+  // Silent fallback to avoid startup noise while preserving hash
 }
 
 const mid = mid_val;

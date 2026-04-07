@@ -85,7 +85,8 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
   proc.stdout.on('data', d => pushLog('stdout', d));
   proc.stderr.on('data', d => pushLog('stderr', d));
   proc.on('exit', (code, signal) => {
-    entry.status = code === 0 ? 'stopped' : 'error';
+    // code is 0 for normal exit, null for exit via signal (SIGTERM/SIGKILL)
+    entry.status = (code === 0 || code === null) ? 'stopped' : 'error';
     entry.exitCode = code;
     entry.stoppedAt = new Date().toISOString();
     pushLog('system', `Thoát với code ${code} (signal: ${signal})`);

@@ -7,6 +7,7 @@ Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools*
 - **Instant Cloud Deletion**: Kích hoạt cơ chế đồng bộ xóa tức thì (`pushVault('delete')`). Khi bạn xóa tài khoản/proxy ở Tools, Cloud D1 sẽ được cập nhật ngay lập tức.
 - **Smart Auth Assistant**: Bổ sung tự động `loginUrl` và `codeVerifier` chuẩn giao thức PKCE cho Codex khi thêm tài khoản, giúp Worker đăng nhập trơn tru mà không cần cấu hình tay.
 - **Worker Flow Simplification**: Tái cấu trúc Auto-Login Worker để coi Gateway/Cloud là nguồn lệnh duy nhất, tách bạch hoàn toàn khỏi kho lưu trữ Vault để tăng tốc độ phản hồi.
+- **macOS ioreg Compatibility**: Sửa lỗi `ioreg: command not found` bằng cách nạp đường dẫn tuyệt đối cho Machine ID trên Mac, ổn định cơ chế mã hóa.
 
 ## [0.0.8] - 2026-04-07
 ### Added
