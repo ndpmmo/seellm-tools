@@ -229,6 +229,7 @@ export function AccountsView() {
                 <th style={th}>Mật khẩu</th>
                 <th style={th}>2FA</th>
                 <th style={th}>Status</th>
+                <th style={th}>Usage</th>
                 <th style={th}>Proxy</th>
                 <th style={th}>Cập nhật</th>
                 <th style={{ ...th, textAlign: 'right', minWidth: 90 }}></th>
@@ -236,7 +237,7 @@ export function AccountsView() {
             </thead>
             <tbody>
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
               )}
               {filtered.map(it => {
                 const ed = editId === it.id;
@@ -267,6 +268,54 @@ export function AccountsView() {
 
                     {/* Status */}
                     <td style={td}><StatusBadge status={it.status} /></td>
+
+                    {/* Usage */}
+                    <td style={{ ...td, minWidth: 140 }}>
+                      {(it.discovered_limit || it.quotas_json) ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {it.discovered_limit ? (
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 3 }}>
+                                <span>{( ( (it.current_tokens_in||0) + (it.current_tokens_out||0) ) / 1000).toFixed(1)}k tokens</span>
+                                <span>{ (it.discovered_limit / 1000).toFixed(0) }k limit</span>
+                              </div>
+                              <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{ 
+                                  height: '100%', 
+                                  background: ((it.current_tokens_in||0) + (it.current_tokens_out||0)) / it.discovered_limit > 0.8 ? 'var(--rose)' : 'var(--indigo-glow)', 
+                                  width: `${Math.min(100, (((it.current_tokens_in||0) + (it.current_tokens_out||0)) / it.discovered_limit) * 100)}%` 
+                                }} />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Live Quotas (Session, Weekly, etc) */}
+                          {it.quotas_json && (() => {
+                            try {
+                              const qs = typeof it.quotas_json === 'string' ? JSON.parse(it.quotas_json) : it.quotas_json;
+                              if (!Array.isArray(qs)) return null;
+                              return (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {qs.map((q: any, i: number) => {
+                                    const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
+                                    const color = pct > 80 ? 'var(--rose)' : (pct > 50 ? 'var(--amber)' : 'var(--emerald)');
+                                    return (
+                                      <div key={i} title={`${q.name}: ${q.used}/${q.total}`} 
+                                           style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}33`, background: `${color}11`, color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                        <div style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
+                                        {q.name}: {Math.round(100 - pct)}%
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            } catch (e) { return null; }
+                          })()}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-4)', fontSize: 12 }}>Unknown</span>
+                      )}
+                    </td>
 
                     {/* Proxy */}
                     <td style={{ ...td, minWidth: 140 }}>

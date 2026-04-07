@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X, 
   AlertCircle, ChevronDown, ChevronUp, Users, Tag, 
-  Database, Shield, Globe, Key, FileText, Layout
+  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 
@@ -43,11 +43,14 @@ export function VaultAccountsView() {
 
   const [uiState, setUiState] = useState({
     isAdding: false,
+    isBulk: false,
+    bulkText: '',
     editId: null as string | null,
     provider: 'openai',
     label: '',
     email: '',
     password: '',
+    twoFaSecret: '',
     proxy: '',
     tags: [] as string[],
     notes: '',
@@ -80,6 +83,7 @@ export function VaultAccountsView() {
           label: uiState.label,
           email: uiState.email,
           password: uiState.password === '********' ? undefined : uiState.password,
+          two_fa_secret: uiState.twoFaSecret,
           proxy_url: uiState.proxy,
           notes: uiState.notes,
           tags: uiState.tags,
@@ -88,7 +92,7 @@ export function VaultAccountsView() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(uiState.editId ? '✅ Đã cập nhật' : '✅ Đã thêm vào Vault', 'success');
-      setUiState(s => ({ ...s, isAdding: false, editId: null, email: '', password: '', label: '', notes: '', tags: [] }));
+      setUiState(s => ({ ...s, isAdding: false, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '', notes: '', tags: [] }));
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
@@ -100,18 +104,55 @@ export function VaultAccountsView() {
     load();
   };
 
+  const bulkSave = async () => {
+    if (!uiState.bulkText.trim()) return;
+    const lines = uiState.bulkText.split('\n').filter(l => l.trim().includes('|'));
+    if (lines.length === 0) return addToast('Định dạng không đúng (email|pass|2fa)', 'error');
+    
+    setLoading(true);
+    let count = 0;
+    try {
+      for (const line of lines) {
+        const [email, pass, tfa] = line.trim().split('|');
+        if (!email || !pass) continue;
+        await fetch('/api/vault/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: uiState.provider,
+            email: email.trim(),
+            password: pass.trim(),
+            two_fa_secret: tfa?.trim() || '',
+            status: 'ready'
+          })
+        });
+        count++;
+      }
+      addToast(`✅ Đã nhập thành công ${count} tài khoản`, 'success');
+      setUiState(s => ({ ...s, isAdding: false, isBulk: false, bulkText: '' }));
+      load();
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startEdit = (it: any) => {
-    setUiState({
+    setUiState(s => ({
+      ...s,
       isAdding: true,
+      isBulk: false,
       editId: it.id,
-      provider: it.provider,
+      provider: it.provider || 'openai',
       label: it.label || '',
       email: it.email || '',
       password: '********',
+      twoFaSecret: it.two_fa_secret || '',
       proxy: it.proxy_url || '',
       tags: it.tags || [],
       notes: it.notes || '',
-    });
+    }));
   };
 
   return (
@@ -123,10 +164,16 @@ export function VaultAccountsView() {
           <Search size={15} style={{ position: 'absolute', left: 14, color: 'var(--text-3)' }} />
           <input className="inp" style={{ paddingLeft: 42 }} placeholder="Tìm trong Vault (Email, Label...)" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <button className="btn btn-primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, editId: null, email: '', password: '', label: '' }))} style={{ height: 46, padding: '0 24px' }}>
-          {uiState.isAdding ? <X size={18} /> : <Plus size={18} />} 
-          <span style={{ marginLeft: 8 }}>{uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={() => setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null }))} style={{ height: 46 }}>
+             {uiState.isBulk ? <X size={18} /> : <FileUp size={18} />} 
+             <span style={{ marginLeft: 8 }}>Nhập hàng loạt</span>
+          </button>
+          <button className="btn btn-primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' }))} style={{ height: 46, padding: '0 24px' }}>
+            {uiState.isAdding ? <X size={18} /> : <Plus size={18} />} 
+            <span style={{ marginLeft: 8 }}>{uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}</span>
+          </button>
+        </div>
       </div>
 
       {/* ═══ FORM ═══ */}
@@ -156,14 +203,47 @@ export function VaultAccountsView() {
                 <input className="inp" type="password" placeholder="••••••••" value={uiState.password} onChange={e => setUiState(s => ({ ...s, password: e.target.value }))} />
               </div>
               <div className="form-group">
+                <label className="label">Hai yếu tố (2FA Secret)</label>
+                <input className="inp" placeholder="Mã bí mật 2FA (Tùy chọn)" value={uiState.twoFaSecret} onChange={e => setUiState(s => ({ ...s, twoFaSecret: e.target.value }))} />
+              </div>
+              <div className="form-group">
                 <label className="label">Proxy URL (Tùy chọn)</label>
                 <input className="inp" placeholder="http://user:pass@host:port" value={uiState.proxy} onChange={e => setUiState(s => ({ ...s, proxy: e.target.value }))} />
               </div>
-              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gridColumn: 'span 2' }}>
                 <button className="btn btn-primary" onClick={save} style={{ width: '100%', height: 42 }}>
                   <Save size={16} /> <span style={{ marginLeft: 8 }}>Lưu vào Vault</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ BULK FORM ═══ */}
+      {uiState.isBulk && (
+        <div className="card" style={{ marginBottom: 20, animation: 'slideDown .3s ease' }}>
+          <div className="card-head">
+            <span className="card-title"><CopyPlus size={14} /> Nhập tài khoản hàng loạt</span>
+          </div>
+          <div className="card-body" style={{ padding: '20px 24px' }}>
+            <div className="form-group" style={{ marginBottom: 15 }}>
+               <label className="label">Nhà cung cấp (Provider) cho danh sách này</label>
+               <select className="inp" style={{ maxWidth: 200 }} value={uiState.provider} onChange={e => setUiState(s => ({ ...s, provider: e.target.value }))}>
+                  {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+               </select>
+            </div>
+            <div className="form-group">
+               <label className="label">Danh sách tài khoản (Định dạng: email|pass hoặc email|pass|2fa)</label>
+               <textarea className="inp mono" rows={8} 
+                 placeholder="user1@gmail.com|pass123&#10;user2@gmail.com|pass456|2FASECRETXXX..." 
+                 value={uiState.bulkText} onChange={e => setUiState(s => ({ ...s, bulkText: e.target.value }))}
+               />
+            </div>
+            <div style={{ marginTop: 15, display: 'flex', justifyContent: 'flex-end' }}>
+               <button className="btn btn-primary" onClick={bulkSave} disabled={loading}>
+                 <Save size={16} /> {loading ? 'Đang xử lý...' : 'Bắt đầu nhập vào Vault'}
+               </button>
             </div>
           </div>
         </div>
