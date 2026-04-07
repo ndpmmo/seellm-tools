@@ -70,4 +70,37 @@ router.delete('/api-keys/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// --- AUTOMATION ENDPOINTS (For Worker) ---
+router.get('/accounts/pending', (req, res) => {
+  try {
+    const task = vault.getPendingTask();
+    if (task) {
+      vault.updateAccountStatus(task.id, 'processing');
+      res.json({ ok: true, task });
+    } else {
+      res.json({ ok: true, task: null });
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/accounts/result', (req, res) => {
+  const { id, status, message, result } = req.body;
+  try {
+    if (status === 'success') {
+      // Lưu lại cookies/token nếu có
+      vault.upsertAccount({
+        id,
+        status: 'ready',
+        notes: message,
+        access_token: result?.access_token,
+        refresh_token: result?.refresh_token,
+        cookies: result?.cookies
+      });
+    } else {
+      vault.updateAccountStatus(id, 'error', message);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

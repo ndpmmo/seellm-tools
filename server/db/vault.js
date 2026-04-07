@@ -17,35 +17,29 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = path.join(DATA_DIR, 'vault.db');
 const db = new Database(DB_PATH);
 
-// Simple encryption using machineId as part of the salt
-// Securely get machine ID for encryption, with fallback for missing system tools
+// Securely get machine ID for encryption
 let mid_val = 'seellm-node-default-mid';
 try {
-  if (process.platform === 'darwin' && !process.env.PATH.includes('/usr/sbin')) {
-    process.env.PATH = `${process.env.PATH}:/usr/sbin`;
-  }
   mid_val = machineIdSync();
 } catch (e) {
-  console.warn('[Vault] Machine ID Error (fallback used):', e.message);
+  console.warn('[Vault] Machine ID Error:', e.message);
 }
 
 const mid = mid_val;
 const SALT = 'seellm_vault_v3_salt';
 
-// Use standard Node.js crypto to generate stable key/iv across all versions
 const KEY = crypto.createHash('sha256').update(mid + SALT).digest('hex').slice(0, 32);
 const IV  = crypto.createHash('sha256').update(SALT + mid).digest('hex').slice(0, 16);
 
 function encrypt(text) {
   if (!text) return null;
-  // Initialize cryptlib instance to access methods
-  return new cryptlib().encrypt(text, KEY, IV);
+  return cryptlib.encrypt(text, KEY, IV);
 }
 
 function decrypt(cipher) {
   if (!cipher) return null;
   try {
-    return new cryptlib().decrypt(cipher, KEY, IV);
+    return cryptlib.decrypt(cipher, KEY, IV);
   } catch (e) {
     return '***[DECRYPT_ERROR]***';
   }
@@ -162,7 +156,28 @@ export const vault = {
   upsertAccount: (data, skipSync = false) => {
     const id = data.id || `acc_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
-    const existing = db.prepare('SELECT id FROM vault_accounts WHERE id = ?').get(id);
+    const existing = db.prepare('SELECT id, created_at, password, two_fa_secret, access_token, refresh_token FROM vault_accounts WHERE id = ?').get(id);
+
+    // Auto-generate OAuth URL for Codex if it's a new account or missing auth data
+    let authData = { notes: data.notes || '' };
+    if (data.provider === 'codex' && (!existing || data.status === 'pending' || data.status === 'relogin')) {
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+      const state = crypto.randomBytes(32).toString('base64url');
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+        redirect_uri: "http://localhost:1455/auth/callback",
+        scope: "openid profile email offline_access",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        id_token_add_organizations: "true",
+        codex_cli_simplified_flow: "true",
+        originator: "codex_cli_rs",
+        state,
+      });
+      authData.notes = `OAuth URL: https://auth.openai.com/oauth/authorize?${params.toString()}\nVerifier: ${codeVerifier}`;
+    }
 
     const stmt = db.prepare(`
       INSERT INTO vault_accounts (
@@ -189,7 +204,9 @@ export const vault = {
     `);
 
     const record = {
-      id, provider: data.provider || 'openai', label: data.label || '', 
+      id, 
+      provider: data.provider || 'openai', 
+      label: data.label || '', 
       email: data.email || '', 
       password: data.password ? encrypt(data.password) : (existing ? existing.password : null),
       two_fa_secret: data.two_fa_secret ? encrypt(data.two_fa_secret) : (existing ? existing.two_fa_secret : null),
@@ -197,7 +214,8 @@ export const vault = {
       cookies: JSON.stringify(data.cookies || []),
       access_token: data.access_token ? encrypt(data.access_token) : (existing ? existing.access_token : null),
       refresh_token: data.refresh_token ? encrypt(data.refresh_token) : (existing ? existing.refresh_token : null),
-      status: data.status || 'idle', notes: data.notes || '',
+      status: (data.status || 'idle').toLowerCase(),
+      notes: authData.notes,
       tags: JSON.stringify(data.tags || []),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now
@@ -221,7 +239,11 @@ export const vault = {
   deleteAccount: (id, skipSync = false) => {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
-    return db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    const record = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    if (!skipSync && record) {
+      SyncManager.pushVault('account', record).catch(() => {});
+    }
+    return record;
   },
 
   // CRUD PROXIES
@@ -270,7 +292,11 @@ export const vault = {
   deleteProxy: (id, skipSync = false) => {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
-    return db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+    const record = db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+    if (!skipSync && record) {
+      SyncManager.pushVault('proxy', record).catch(() => {});
+    }
+    return record;
   },
 
   // CRUD API KEYS
@@ -321,5 +347,37 @@ export const vault = {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_api_keys SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
     return db.prepare('SELECT * FROM vault_api_keys WHERE id = ?').get(id);
+  },
+
+  // AUTOMATION HELPERS
+  getPendingTask: () => {
+    const a = db.prepare("SELECT * FROM vault_accounts WHERE status = 'pending' OR status = 'relogin' ORDER BY created_at ASC LIMIT 1").get();
+    if (!a) return null;
+
+    let loginUrl = null;
+    let codeVerifier = null;
+    if (a.notes && a.notes.includes('OAuth URL: ')) {
+      const urlMatch = a.notes.match(/OAuth URL: (https:\/\/[^\n]+)/);
+      const verMatch = a.notes.match(/Verifier: ([^\n]+)/);
+      if (urlMatch) loginUrl = urlMatch[1];
+      if (verMatch) codeVerifier = verMatch[1];
+    }
+
+    return {
+      ...a,
+      password:      decrypt(a.password),
+      two_fa_secret: decrypt(a.two_fa_secret),
+      access_token:  decrypt(a.access_token),
+      refresh_token: decrypt(a.refresh_token),
+      tags:          JSON.parse(a.tags || '[]'),
+      cookies:       JSON.parse(a.cookies || '[]'),
+      loginUrl,
+      codeVerifier
+    };
+  },
+
+  updateAccountStatus: (id, status, error = null) => {
+    const now = dayjs().toISOString();
+    db.prepare('UPDATE vault_accounts SET status = ?, notes = ?, updated_at = ? WHERE id = ?').run(status, error || '', now, id);
   }
 };

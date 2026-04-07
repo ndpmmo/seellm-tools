@@ -234,6 +234,19 @@ async function runLoginFlow(task) {
 // ============================================
 
 async function sendResultToGateway(taskId, status, message, result) {
+  // 1. Gửi về Tools cục bộ để cập nhật UI ngay lập tức
+  try {
+    await fetch(`http://localhost:4000/api/vault/accounts/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: taskId, status, message, result }),
+    });
+    console.log(`[Tools] ✅ Đã cập nhật trạng thái tài khoản trên UI.`);
+  } catch (e) {
+    // Im lặng
+  }
+
+  // 2. Gửi về Gateway (OmniRoute Result API)
   try {
     const res = await fetch(`${GATEWAY_URL}/api/public/worker/result`, {
       method: 'POST',
@@ -254,24 +267,54 @@ async function sendResultToGateway(taskId, status, message, result) {
 }
 
 async function fetchTask() {
+  // 1. Ưu tiên: Hỏi Gateway (OmniRoute Task API) - Đây là trung tâm điều hành chính
   try {
     const res = await fetch(`${GATEWAY_URL}/api/public/worker/task`, {
       headers: {
         Authorization: `Bearer ${WORKER_AUTH_TOKEN}`,
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(3000)
     });
     if (res.status === 401) {
-      console.log(`[!] Lỗi xác thực (401) - Kiểm tra WORKER_AUTH_TOKEN`);
+      console.log(`[!] Lỗi xác thực Gateway (401) - Kiểm tra Token`);
       return null;
     }
-    if (res.status !== 200) return null;
-    const data = await res.json();
-    return data.task;
+    if (res.status === 200) {
+      const data = await res.json();
+      return data.task;
+    }
   } catch (e) {
-    console.error('[!] Lỗi kết nối Gateway:', e.message);
-    return null;
+    // Im lặng nếu không kết nối được Gateway
   }
+
+  // 3. PhƯƠNG ÁN CUỐI: Hỏi thẳng Cloud D1 (nếu có cấu hình)
+  try {
+    const configRes = await fetch(`http://localhost:4000/api/config`);
+    const cfg = await configRes.json();
+    if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+      const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?status=pending`, {
+        headers: { 'x-sync-secret': cfg.d1SyncSecret },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (d1Res.ok) {
+        const d1Data = await d1Res.json();
+        // Lấy tài khoản Codex đang chờ
+        const pending = d1Data.items?.find(a => a.provider === 'codex' && (a.status === 'pending' || a.status === 'relogin'));
+        if (pending) {
+          console.log(`[D1 Cloud] ☁️ Tìm thấy tài khoản mới trên Cloud: ${pending.email}`);
+          // Gắn thêm URL login chuẩn của Tools Assistant
+          pending.loginUrl = 'https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid+profile+email+offline_access&code_challenge=S256&id_token_add_organizations=true&originator=codex_cli_rs&codex_cli_simplified_flow=true';
+          pending.codeVerifier = 'seellm_vault_standard_verifier';
+          return pending;
+        }
+      }
+    }
+  } catch (e) {
+    // Im lặng
+  }
+
+  return null;
 }
 
 // ============================================

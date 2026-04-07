@@ -396,7 +396,10 @@ app.prepare().then(() => {
   });
 
   // ── Next.js fallback ─────────────────────────────────────────────────────
-  ex.all(/(.*)/, (req, res) => handle(req, res, parse(req.url, true)));
+  ex.all(/(.*)/, (req, res) => {
+    const parsedUrl = new URL(req.url, `http://${hostname}:${PORT}`);
+    return handle(req, res, parsedUrl);
+  });
 
   // ── HTTP + Socket.io ─────────────────────────────────────────────────────
   const httpServer = createServer(ex);

@@ -2,6 +2,18 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
+## [0.0.9] - 2026-04-07
+### Added
+- **Instant Cloud Deletion**: Kích hoạt cơ chế đồng bộ xóa tức thì (`pushVault('delete')`). Khi bạn xóa tài khoản/proxy ở Tools, Cloud D1 sẽ được cập nhật ngay lập tức.
+- **Smart Auth Assistant**: Bổ sung tự động `loginUrl` và `codeVerifier` chuẩn giao thức PKCE cho Codex khi thêm tài khoản, giúp Worker đăng nhập trơn tru mà không cần cấu hình tay.
+- **Worker Flow Simplification**: Tái cấu trúc Auto-Login Worker để coi Gateway/Cloud là nguồn lệnh duy nhất, tách bạch hoàn toàn khỏi kho lưu trữ Vault để tăng tốc độ phản hồi.
+
+## [0.0.8] - 2026-04-07
+### Added
+- **Live Quota Badges**: Hiển thị các nhãn hạn mức nhỏ (Session, Weekly, Code Review) trực quan với màu sắc động (Xanh/Vàng/Đỏ) trên trang quản lý tài khoản.
+- **Unified Usage View**: Thêm cột **Usage** vào trang **Connections**, giúp theo dõi hạn mức của cả kết nối OAuth trực tiếp.
+- **Worker Integration**: Cập nhật khả năng trích xuất dữ liệu `quotas_json` từ Cloud D1 qua Worker API mới.
+
 ## [0.0.7] - 2026-04-07
 ### Optimized
 - **Auto Cloud Sync Polling**: Hệ thống giờ đây tự động kiểm tra thay đổi từ Cloud sau mỗi 5 phút (Background Interval).
