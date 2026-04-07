@@ -308,16 +308,34 @@ app.prepare().then(() => {
   // ── Vault API (SQLite) ──────────────────────────────────────────────────
   ex.use('/api/vault', vaultRouter);
 
-  // Initial Sync Pull from D1 Cloud (Background)
-  SyncManager.pullVault().then(data => {
-    if (data) {
-      console.log('[Startup] Syncing vault from D1 Cloud...');
-      data.accounts.forEach(a => vault.upsertAccount(a, true)); // skipSync=true to avoid feedback loop
-      data.proxies.forEach(p => vault.upsertProxy(p, true));
-      data.keys.forEach(k => vault.upsertApiKey(k, true));
-      console.log('[Startup] Cloud Vault sync complete.');
+  // ── Cloud Vault Synchronization Loop ───────────────────────────────────
+  let lastVaultSyncCursor = '1970-01-01T00:00:00.000Z';
+
+  async function doVaultSync() {
+    try {
+      const data = await SyncManager.pullVault(lastVaultSyncCursor);
+      if (data && data.cursor > lastVaultSyncCursor) {
+        console.log(`[Sync] New cloud updates found. Cursor: ${data.cursor}`);
+        
+        // Cập nhật SQLite Local (dùng skipSync=true để tránh vòng lặp feedback)
+        data.accounts.forEach(a => vault.upsertAccount(a, true));
+        data.proxies.forEach(p => vault.upsertProxy(p, true));
+        data.keys.forEach(k => vault.upsertApiKey(k, true));
+        
+        lastVaultSyncCursor = data.cursor;
+        console.log('[Sync] Vault updated from cloud successfully.');
+        
+        // Thông báo cho UI qua Socket.io nếu cần
+        io?.emit('vault:synced', { cursor: lastVaultSyncCursor });
+      }
+    } catch (e) {
+      console.error('[Sync] Loop failed:', e.message);
     }
-  }).catch(e => console.error('[Startup] Sync failed:', e.message));
+  }
+
+  // Initial Sync and Start Loop (Every 5 minutes)
+  doVaultSync();
+  setInterval(doVaultSync, 5 * 60 * 1000);
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 

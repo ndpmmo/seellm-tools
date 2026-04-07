@@ -38,25 +38,30 @@ export const SyncManager = {
     }
   },
 
-  async pullVault() {
+  async pullVault(since = '1970-01-01T00:00:00.000Z') {
     const cfg = loadConfig();
-    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return;
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return null;
 
     try {
-      console.log('[SyncManager] Pulling vault data from D1...');
-      const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=0`, {
+      console.log(`[SyncManager] Pulling vault changes since ${since}...`);
+      const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}`, {
         headers: { 'x-sync-secret': cfg.d1SyncSecret }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'D1 pull failed');
 
-      return {
-        accounts: data.vaultAccounts || [],
-        proxies:  data.vaultProxies || [],
-        keys:     data.vaultKeys || []
-      };
+      // Check if we have new data
+      if (data.ok && data.cursor && data.cursor > since) {
+        return {
+          cursor:   data.cursor,
+          accounts: data.data?.vaultAccounts || [],
+          proxies:  data.data?.vaultProxies || [],
+          keys:     data.data?.vaultKeys || []
+        };
+      }
+      return null;
     } catch (e) {
-      console.error('[SyncManager] Initial pull failed:', e.message);
+      console.error('[SyncManager] Pull failed:', e.message);
       return null;
     }
   }

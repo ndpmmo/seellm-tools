@@ -7,6 +7,7 @@ const { machineIdSync } = nodeMachineId;
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import crypto from 'crypto';
+import { SyncManager } from '../services/syncManager.js';
 
 /* ─── Setup ─────────────────────────────────────────────────────────────── */
 
@@ -208,6 +209,12 @@ export const vault = {
       record.refresh_token, record.status, record.notes, record.tags,
       record.exported_to, record.exported_at, record.created_at, record.updated_at
     );
+
+    // [Real-time Push]
+    if (!skipSync) {
+      SyncManager.pushVault('account', record).catch(() => {});
+    }
+
     return record;
   },
 
@@ -251,6 +258,12 @@ export const vault = {
       record.provider, record.is_active, record.last_tested,
       record.latency_ms, record.notes, record.updated_at, record.created_at
     );
+
+    // [Real-time Push]
+    if (!skipSync) {
+      SyncManager.pushVault('proxy', record).catch(() => {});
+    }
+
     return record;
   },
 
