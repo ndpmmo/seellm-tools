@@ -166,9 +166,22 @@ export const vault = {
   getAccountFull: (id) => vault.getAccount(id),
 
   upsertAccount: (data, skipSync = false) => {
-    const id = data.id || `acc_${uuidv4().slice(0, 8)}`;
+    let id = data.id || `acc_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
-    const existing = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    let existing = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+
+    // Fallback: nếu không tìm thấy by ID nhưng có email → tìm by email
+    // Tránh tạo duplicate khi Gateway dùng ID khác cho cùng 1 email
+    if (!existing && data.email && data.email.trim()) {
+      const byEmail = db.prepare(
+        'SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL LIMIT 1'
+      ).get(data.email.trim());
+      if (byEmail) {
+        id = byEmail.id; // Dùng ID local thay vì ID từ D1
+        existing = byEmail;
+        console.log(`[Vault] Matched by email: ${data.email} → using local ID ${id}`);
+      }
+    }
 
     // Mapping D1 schema `last_error` to Tools schema `notes`
     let rawNotes = data.notes !== undefined ? data.notes : 

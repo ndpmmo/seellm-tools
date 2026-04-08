@@ -96,29 +96,60 @@ export const SyncManager = {
       // Check if we have new data
       if (data.ok && data.cursor && data.cursor > since) {
         // Hợp nhất dữ liệu song song (do Gateway đẩy lên codex_managed_accounts)
+        // QUAN TRỌNG: import khẩu { vault } để tra cứu local accounts
+        let localVault;
+        try {
+          const m = await import('../db/vault.js');
+          localVault = m.vault;
+        } catch(e) { localVault = null; }
+
         const accounts = [...(data.data?.vaultAccounts || [])];
         const gatewayAccounts = data.data?.managedAccounts || [];
         for (const ga of gatewayAccounts) {
-          const existing = accounts.find(a => a.id === ga.id);
+          // Ưu tiên match by ID, sau đó by email (tránh tạo duplicate khi Gateway dùng ID khác)
+          let existing = accounts.find(a => a.id === ga.id);
+          if (!existing && ga.email) {
+            existing = accounts.find(a => a.email && a.email.toLowerCase() === ga.email.toLowerCase());
+          }
+          
+          // Nếu local DB có account cùng email nhưng chưa trong list, thêm vào
+          if (!existing && ga.email && localVault) {
+            const localByEmail = localVault.db.prepare(
+              'SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL LIMIT 1'
+            ).get(ga.email);
+            if (localByEmail) {
+              // Merge status từ Gateway vào local account (giữ nguyên ID local)
+              existing = {
+                ...localByEmail,
+                tags: JSON.parse(localByEmail.tags || '[]'),
+              };
+              accounts.push(existing);
+            }
+          }
+
           if (!existing) {
-            accounts.push({
-              id: ga.id,
-              provider: ga.provider || 'codex',
-              email: ga.email,
-              password: ga.password,
-              two_fa_secret: ga.two_fa_secret,
-              proxy_url: ga.proxy_url,
-              status: ga.status,
-              notes: ga.last_error,
-              updated_at: ga.updated_at,
-              deleted_at: ga.deleted_at
-            });
+            // Chỉ tạo mới nếu account thực sự chưa tồn tại ở bất kỳ đâu
+            // Và phải có email hợp lệ để tránh rác
+            if (ga.email && ga.email.trim()) {
+              accounts.push({
+                id: ga.id,
+                provider: ga.provider || 'codex',
+                email: ga.email,
+                password: ga.password,           // Có thể null nếu từ Gateway
+                two_fa_secret: ga.two_fa_secret, // Có thể null
+                proxy_url: ga.proxy_url,
+                status: ga.status,
+                notes: ga.last_error,
+                updated_at: ga.updated_at,
+                deleted_at: ga.deleted_at
+              });
+            }
           } else {
-            // Apply updates from Gateway if they are newer
+            // Apply updates từ Gateway nếu mới hơn (chỉ cập nhật status, không ghi đè password)
             try {
               if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
-                existing.status = ga.status;
-                existing.notes = ga.last_error;
+                existing.status = ga.status || existing.status;
+                existing.notes = ga.last_error || existing.notes;
                 existing.deleted_at = ga.deleted_at;
                 existing.updated_at = ga.updated_at;
               }
