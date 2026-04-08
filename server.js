@@ -320,7 +320,22 @@ app.prepare().then(() => {
         console.log(`[Sync] New cloud updates found. Cursor: ${data.cursor}`);
         
         // Cập nhật SQLite Local (dùng skipSync=true để tránh vòng lặp feedback)
-        data.accounts.forEach(a => vault.upsertAccount(a, true));
+        // QUAN TRỌNG: Bảo vệ account local đang active khỏi bị "xóa ảo" do D1 deleted_at
+        data.accounts.forEach(a => {
+          if (a.deleted_at) {
+            // Kiểm tra local có đang hoạt động không (có email, không có deleted_at)
+            const localRecord = vault.db.prepare(
+              'SELECT deleted_at FROM vault_accounts WHERE id = ?'
+            ).get(a.id);
+
+            // Nếu local record không bị xóa → SKIP việc ghi đè deleted_at từ D1
+            if (localRecord && !localRecord.deleted_at) {
+              console.log(`[Sync] ⚠️ Bỏ qua deleted_at từ D1 cho account ${a.email || a.id} (local đang active)`);
+              a.deleted_at = null; // Reset để upsert không xóa local record
+            }
+          }
+          vault.upsertAccount(a, true);
+        });
         data.proxies.forEach(p => vault.upsertProxy(p, true));
         data.keys.forEach(k => vault.upsertApiKey(k, true));
         
