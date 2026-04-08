@@ -143,45 +143,26 @@ router.delete('/api-keys/:id', async (req, res) => {
 
 router.get('/accounts/task', async (req, res) => {
   try {
-    const cfg = loadConfig();
+    // CHỈ dùng local vault — D1 fallback bị loại bỏ để tránh tạo account không có data
+    // Đảm bảo lấy TẤT CẢ accounts kể cả deleted để kiểm tra
+    const allAccounts = vault.db.prepare(
+      `SELECT * FROM vault_accounts WHERE provider='codex' ORDER BY updated_at DESC`
+    ).all();
 
-    // 1. Tìm trong local vault trước
-    const allAccounts = vault.getAccountsFull();
-    let task = allAccounts.find(a =>
-      a.provider === 'codex' &&
+    // Tìm account pending/relogin, chưa bị xóa, có email
+    const task = allAccounts.find(a =>
       (a.status === 'pending' || a.status === 'relogin') &&
-      !a.deleted_at
+      !a.deleted_at &&
+      a.email && a.email.trim()
     );
-
-    // 2. Nếu local không có → check D1
-    if (!task && cfg.d1WorkerUrl && cfg.d1SyncSecret) {
-      try {
-        const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?limit=200`, {
-          headers: { 'x-sync-secret': cfg.d1SyncSecret },
-          signal: AbortSignal.timeout(3000),
-        });
-        if (d1Res.ok) {
-          const d1Data = await d1Res.json();
-          const candidate = (d1Data.items || []).find(a => {
-            if (a.deleted_at) return false;
-            if (a.status !== 'pending' && a.status !== 'relogin') return false;
-            const local = vault.getAccountFull(a.id);
-            if (local && (local.status === 'processing' || local.status === 'ready')) return false;
-            return true;
-          });
-          if (candidate) {
-            const local = vault.getAccountFull(candidate.id);
-            task = local ? { ...candidate, ...local } : candidate;
-          }
-        }
-      } catch (e) {
-        console.log(`[Task] D1 check failed: ${e.message}`);
-      }
-    }
 
     if (!task) return res.json({ ok: true, task: null });
 
-    // 3. Lấy/tạo PKCE (chỉ generate 1 lần per account, dùng lại nếu poll lại)
+    // Parse JSON fields
+    task.tags    = JSON.parse(task.tags    || '[]');
+    task.cookies = JSON.parse(task.cookies || '[]');
+
+    // Lấy/tạo PKCE (chỉ generate 1 lần per account ID, dùng lại nếu poll lại)
     let pkce = pkceStore.get(task.id);
     if (!pkce || (Date.now() - pkce.createdAt > 10 * 60 * 1000)) {
       pkce = { ...generateCodexOAuthUrl(), createdAt: Date.now() };
@@ -191,8 +172,10 @@ router.get('/accounts/task', async (req, res) => {
       console.log(`[Task] ♻️  PKCE cũ: ${task.email} | verifier: ${pkce.codeVerifier.substring(0, 8)}...`);
     }
 
-    // 4. Lock task
-    vault.db.prepare(`UPDATE vault_accounts SET status='processing', updated_at=datetime('now') WHERE id=?`).run(task.id);
+    // Lock task
+    vault.db.prepare(
+      `UPDATE vault_accounts SET status='processing', updated_at=datetime('now') WHERE id=?`
+    ).run(task.id);
 
     return res.json({ ok: true, task: {
       id:           task.id,
@@ -237,29 +220,52 @@ router.post('/accounts/result', async (req, res) => {
       try {
         const tokens = await exchangeCodeForTokens(result.code, verifierToUse);
 
+        // Tìm local account trước để đảm bảo email không bị mất
+        // Ưu tiên: tìm by ID → tìm by email trong D1 PKCE store → dùng email từ task
+        let localAccount = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+        if (!localAccount) {
+          // Tìm trong toàn bộ local kể cả deleted
+          const allLocal = vault.db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
+          // Chọn account có cùng provider và không có token khác
+          localAccount = allLocal.find(a => a.provider === 'codex' && !localAccount?.access_token);
+          console.log(`[Result] ⚠️ ID ${id} not found local, using: ${localAccount?.email || 'NONE'}`);
+        }
+
+        // Nếu tìm thấy local account với ID khác, dùng ID local
+        const targetId = localAccount?.id || id;
+        const targetEmail = localAccount?.email || tokens.email || '';
+
+        // Restore deleted_at = null nếu account bị xóa ảo
+        if (localAccount?.deleted_at) {
+          vault.db.prepare('UPDATE vault_accounts SET deleted_at = NULL WHERE id = ?').run(targetId);
+          console.log(`[Result] 🔄 Restored account ${targetEmail} (was deleted_at)`);
+        }
+
         vault.upsertAccount({
-          id,
+          id:            targetId,
           status:        'ready',
           notes:         '',
           access_token:  tokens.access_token,
           refresh_token: tokens.refresh_token,
-          email:         tokens.email || undefined,
+          email:         targetEmail || undefined,
         });
 
         // Xóa PKCE khỏi store sau khi xử lý xong
         pkceStore.delete(id);
+        pkceStore.delete(targetId);
 
         // Đồng bộ lên D1 NGAY LẬP TỨC
-        const fullRecord = vault.getAccountFull(id);
-        if (fullRecord) {
+        const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(targetId);
+        if (fullRecord && fullRecord.email) {
           console.log(`[Result] 🚀 Syncing to D1: ${fullRecord.email}`);
           await SyncManager.pushVault('account', fullRecord);
+        } else {
+          console.error(`[Result] ❌ Cannot sync: fullRecord missing email! id=${targetId}`);
         }
 
-        console.log(`[Result] ✅ Account ${id} ready with tokens`);
+        console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
       } catch (exchangeErr) {
         console.error(`[Result] ❌ Exchange failed: ${exchangeErr.message}`);
-        // Ghi critical error log
         try {
           const logPath = path.resolve('data', 'critical_errors.log');
           fs.appendFileSync(logPath, `[${new Date().toISOString()}] exchange_failed id=${id}: ${exchangeErr.message}\n`);
