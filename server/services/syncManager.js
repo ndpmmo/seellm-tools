@@ -64,22 +64,24 @@ export const SyncManager = {
     if (type === 'account') {
       payload.vaultAccounts = [{ ...data, updated_at: data.updated_at || now }];
       
-      // Push đồng thời sang schema Gateway để Gateway nhìn thấy
-      payload.managedAccounts = [{
-        id: data.id,
-        provider: data.provider || 'codex',
-        email: data.email,
-        password: data.password,
-        two_fa_secret: data.two_fa_secret,
-        proxy_url: data.proxy_url,
-        proxy_id: null,
-        status: data.status,
-        last_error: data.notes,
-        last_sync_at: now,
-        updated_at: now,
-        deleted_at: data.deleted_at || null,
-        version,
-      }];
+      // Push đồng thời sang schema Gateway để Gateway nhìn thấy (chỉ khi không phải 'idle' hoặc bị xóa)
+      if (data.status !== 'idle' || data.deleted_at) {
+        payload.managedAccounts = [{
+          id: data.id,
+          provider: data.provider || 'codex',
+          email: data.email,
+          password: data.password,
+          two_fa_secret: data.two_fa_secret,
+          proxy_url: data.proxy_url,
+          proxy_id: null,
+          status: data.status,
+          last_error: data.notes,
+          last_sync_at: now,
+          updated_at: now,
+          deleted_at: data.deleted_at || null,
+          version,
+        }];
+      }
       
       if (data.refresh_token) {
         payload.connections = [{

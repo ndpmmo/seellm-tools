@@ -112,7 +112,7 @@ export function VaultAccountsView() {
       const r = await fetch(`/api/vault/accounts/${id}/retry`, { method: 'POST' });
       const d = await r.json();
       if (d.error) throw new Error(d.error);
-      addToast(`🔄 Đã reset ${email} → pending, Worker sẽ thử lại`, 'info');
+      addToast(`🚀 Đã gửi lệnh Deploy/Retry cho ${email}`, 'success');
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
@@ -146,7 +146,7 @@ export function VaultAccountsView() {
             email: email.trim(),
             password: pass.trim(),
             two_fa_secret: tfa?.trim() || '',
-            status: 'ready'
+            status: 'idle' // Lưu kho, không tự động login
           })
         });
         count++;
@@ -325,7 +325,10 @@ export function VaultAccountsView() {
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        {(it.status === 'error' || it.status === 'idle') && it.provider === 'codex' && (
+                        {it.status === 'idle' && it.provider === 'codex' && (
+                          <button className="btn-icon" title="Deploy to Codex" onClick={() => retry(it.id, it.email)} style={{ color: 'var(--green)' }}><Globe size={13} /></button>
+                        )}
+                        {(it.status === 'error') && it.provider === 'codex' && (
                           <button className="btn-icon" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></button>
                         )}
                         <button className="btn-icon" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>

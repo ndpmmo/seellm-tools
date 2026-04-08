@@ -2,6 +2,11 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
+## [0.1.5] - 2026-04-09
+### Refactored
+- **Cold Storage Concept**: Bóc tách chức năng giữa `Vault Accounts` (Kho lưu trữ lạnh) và `Codex Accounts`/Gateway (Trạm kết nối đang vận hành). Các tài khoản thêm vào Vault giờ đây theo mặc định sẽ ở trạng thái `Idle` (chỉ lưu trữ và đồng bộ dự phòng lên Cloud) mà không tự động chạy Worker.
+- **Deploy to Codex Button**: Thêm tính năng `Deploy to Codex` cụ thể tại màn hình Vault Accounts. Công cụ Bot Worker chỉ xử lý đăng nhập và mở cổng API cho Gateway khi người dùng chủ ý ra lệnh bấm kết nối.
+
 ## [0.1.4] - 2026-04-09
 ### Optimized
 - **Real-time Proxy Pool Mirroring**: Tích hợp thêm các bộ chặn (Interceptors) cho tác vụ `POST /api/d1/proxies/add` và `DELETE /api/d1/proxies/:id` giúp cho công cụ tự động phản chiếu trạng thái Proxy trực tiếp từ Gateway UI xuống Local Vault ngay lập tức, không còn độ trễ.
