@@ -315,6 +315,19 @@ async function runLoginFlow(task) {
       const curUrl = checkSnap.url || '';
       const html = (checkSnap.snapshot || '').toLowerCase();
 
+      // 🚫 Phát hiện màn hình yêu cầu số điện thoại (Phone number required)
+      if (
+        html.includes('phone number required') ||
+        html.includes('add a phone number') ||
+        html.includes('phone number') && html.includes('one-time code') ||
+        curUrl.includes('phone') && (html.includes('verify') || html.includes('continue'))
+      ) {
+        console.log(`[${task.email}] 📵 Phát hiện màn hình yêu cầu SĐT → Báo thất bại ngay`);
+        await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+        await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
+        return; // Thoát sớm, không chờ timeout
+      }
+
       // Nếu thấy màn hình Consent (Uỷ quyền)
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
         console.log(`[${task.email}] Thấy màn hình Consent → Bấm Continue/Allow...`);

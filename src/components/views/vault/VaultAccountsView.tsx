@@ -8,7 +8,16 @@ import {
 import { useApp } from '../../AppContext';
 
 /* ── Helpers ── */
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, notes }: { status: string; notes?: string }) {
+  // Trường hợp đặc biệt: lỗi yêu cầu số điện thoại
+  if (status === 'error' && notes && notes.startsWith('NEED_PHONE')) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: '#f9731620', color: '#f97316', border: '1px solid #f9731625' }}>
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+        📵 Cần SĐT
+      </span>
+    );
+  }
   const m: Record<string, { color: string; bg: string; label: string }> = {
     ready:      { color: 'var(--green)',   bg: 'var(--green-dim)',  label: 'Ready' },
     idle:       { color: 'var(--text-3)', bg: 'var(--glass)',      label: 'Idle' },
@@ -325,7 +334,7 @@ export function VaultAccountsView() {
                         <span style={{ fontSize: 13, textTransform: 'capitalize' }}>{it.provider}</span>
                       </div>
                     </td>
-                    <td style={{ padding: '14px 20px' }}><StatusBadge status={it.status} /></td>
+                    <td style={{ padding: '14px 20px' }}><StatusBadge status={it.status} notes={it.notes} /></td>
                     <td style={{ padding: '14px 20px' }}>
                       {it.exported_to ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--green)' }}>
