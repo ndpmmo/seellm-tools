@@ -168,7 +168,7 @@ export const vault = {
   upsertAccount: (data, skipSync = false) => {
     const id = data.id || `acc_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
-    const existing = db.prepare('SELECT id, created_at, password, two_fa_secret, access_token, refresh_token FROM vault_accounts WHERE id = ?').get(id);
+    const existing = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
 
     // Mapping D1 schema `last_error` to Tools schema `notes`
     let rawNotes = data.notes !== undefined ? data.notes : 

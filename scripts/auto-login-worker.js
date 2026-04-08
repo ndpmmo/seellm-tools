@@ -260,20 +260,44 @@ async function runLoginFlow(task) {
       if (!account.twoFaSecret) {
         console.log(`[${task.email}] ⚠️ Cần 2FA nhưng không có secret, chờ thủ công hoặc timeout.`);
       } else {
-        const otp = getTOTP(account.twoFaSecret);
-        console.log(`[${task.email}] Nhập OTP: ${otp}`);
-        
         const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"], input[inputmode="numeric"]';
-        // Đôi khi cần click vào ô nhập trước
         try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(e) {}
-        
+
+        // Sinh OTP MỚI ngay lúc này để đảm bảo còn thời hạn (TOTP hết hạn sau 30s)
+        const otp = getTOTP(account.twoFaSecret);
+        console.log(`[${task.email}] 🔢 Nhập OTP: ${otp} (còn ${30 - (Math.floor(Date.now()/1000) % 30)}s)`);
+
         await camofoxPost(`/tabs/${tabId}/type`, {
           userId: USER_ID,
           selector: mfaSelector,
           text: otp,
         });
         await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-        await new Promise(r => setTimeout(r, 8000));
+        await new Promise(r => setTimeout(r, 6000));
+
+        // Kiểm tra nếu vẫn còn ở màn 2FA (OTP bị từ chối, thử lại với mã mới)
+        const afterMFASnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        const afterMFAText = (afterMFASnap.snapshot || '').toLowerCase();
+        const afterMFAUrl  = (afterMFASnap.url || '').toLowerCase();
+        const stillAtMFA   = afterMFAText.includes('one-time code') || afterMFAText.includes('authenticator') ||
+                             afterMFAText.includes('enter the code') || afterMFAUrl.includes('mfa');
+        if (stillAtMFA) {
+          // Chờ chu kỳ TOTP mới (tối đa 35s) rồi thử lại
+          const secsRemaining = 30 - (Math.floor(Date.now()/1000) % 30);
+          console.log(`[${task.email}] ⚠️ OTP bị từ chối, chờ ${secsRemaining}s cho chu kỳ mới...`);
+          await new Promise(r => setTimeout(r, (secsRemaining + 2) * 1000));
+
+          const otp2 = getTOTP(account.twoFaSecret);
+          console.log(`[${task.email}] 🔄 Retry OTP: ${otp2}`);
+          try {
+            await camofoxPost(`/tabs/${tabId}/triple-click`, { userId: USER_ID, selector: mfaSelector });
+          } catch(e) {
+            try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(_) {}
+          }
+          await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
+          await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+          await new Promise(r => setTimeout(r, 6000));
+        }
       }
       await saveStep(tabId, 'sau_2fa');
     }
@@ -349,17 +373,23 @@ async function sendResultToGateway(task, status, message, result) {
   const taskId = task.id;
   const source = task.source || 'd1';
 
-  // LUÔN LUÔN báo về Tools để cập nhật UI Local, 
-  // nhưng nếu source KHÔNG PHẢI là 'tools', ta XOÁ `result` để Tools KHÔNG tự ý exchange token.
+  // LUÔN báo về Tools để cập nhật UI Local.
+  // Gửi kèm result (code + codeVerifier) nếu có, để Tools exchange token và lưu vào D1.
   try {
-    const toolsResult = source === 'tools' ? result : null;
-    await fetch(`http://localhost:4000/api/vault/accounts/result`, {
+    // Nếu result có codeVerifier thì luôn gửi, bất kể source — Tools sẽ tự exchange.
+    const toolsResult = (result && result.codeVerifier) ? result : 
+                        (source === 'tools' ? result : null);
+    const toolsRes = await fetch(`http://localhost:4000/api/vault/accounts/result`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: taskId, status, message, result: toolsResult }),
+      signal: AbortSignal.timeout(10000),
     });
-    console.log(`[Tools] ✅ Đã báo cáo trạng thái tài khoản trên UI Local.`);
-  } catch (e) {}
+    const toolsBody = await toolsRes.text();
+    console.log(`[Tools] ✅ Đã báo cáo (HTTP ${toolsRes.status}): ${toolsBody.substring(0, 100)}`);
+  } catch (e) {
+    console.log(`[Tools] ⚠️ Không gửi được result: ${e.message}`);
+  }
 
   if (source === 'gateway') {
     // Chỉ báo cáo có kèm result về Gateway nếu task lấy từ Gateway
@@ -448,7 +478,8 @@ async function fetchTask() {
     console.log(`[Tools] Không kết nối được: ${e.message}`);
   }
 
-  // 3. Dự phòng cuối: Hỏi thẳng Cloud D1 (KHÔNG có codeVerifier!)
+  // 3. Dự phòng cuối: Hỏi thẳng Cloud D1 qua Tools (để lấy PKCE từ Tools)
+  // Chỉ dùng direct D1 nếu Tools server KHÔNG online (không có codeVerifier thì token exchange LUÔN thất bại)
   try {
     const configRes = await fetch(`http://localhost:4000/api/config`, {
       signal: AbortSignal.timeout(2000)
@@ -457,7 +488,7 @@ async function fetchTask() {
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
       return null;
     }
-    const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?limit=500`, {
+    const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?limit=200`, {
       headers: { 'x-sync-secret': cfg.d1SyncSecret },
       signal: AbortSignal.timeout(4000)
     });
@@ -468,9 +499,12 @@ async function fetchTask() {
     console.log(`[D1 Cloud] Tổng accounts: ${allItems.length}, tìm pending...`);
     const pending = allItems.find(a => (a.status === 'pending' || a.status === 'relogin'));
     if (pending) {
-      console.log(`[D1 Cloud] ☁️ Tìm thấy task: ${pending.email} (${pending.status}) - ⚠️ KHÔNG có codeVerifier!`);
-      // Fallback URL không có PKCE — sẽ thất bại ở exchange token
-      pending.loginUrl = pending.loginUrl || 'https://chatgpt.com/auth/login';
+      // Nếu D1 có loginUrl với codeVerifier embedded thì dùng, ngược lại bỏ qua
+      if (!pending.codeVerifier && !pending.loginUrl?.includes('code_challenge=')) {
+        console.log(`[D1 Cloud] ⚠️ Task ${pending.email} không có codeVerifier → BỎ QUA (sẽ thất bại exchange token)`);
+        return null;
+      }
+      console.log(`[D1 Cloud] ☁️ Tìm thấy task: ${pending.email} (${pending.status})`);
       pending.source = 'd1';
       return pending;
     }
