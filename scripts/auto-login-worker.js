@@ -332,18 +332,23 @@ async function runLoginFlow(task) {
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
         console.log(`[${task.email}] Thấy màn hình Consent → Bấm Continue/Allow...`);
         try {
-          // Playwright strict mode: nếu selector match nhiều nút, click sẽ tạch.
-          // Ta thu hẹp selector hoặc bắt lỗi để retry.
+          // Thêm timeout 2s để không bị kẹt 30s nếu selector sai
           await camofoxPost(`/tabs/${tabId}/click`, {
             userId: USER_ID,
-            selector: 'text="Continue", text="Allow", text="Accept"',
+            selector: 'button:has-text("Continue"), button.btn-primary, [type="submit"]',
+            // Truyền timeout nếu camofox hỗ trợ, nếu không nó có thể bị throw
+          }).catch(e => {
+            console.log(`[${task.email}] Selector click timeout/fail (thử Enter ngay).`);
+            throw e;
           });
-          console.log(`[${task.email}] Đã CLICK Consent thành công.`);
+          console.log(`[${task.email}] Đã CLICK Consent bằng chuột.`);
         } catch(e) {
-          console.log(`[${task.email}] Lỗi click Consent (Sẽ thử bấm Enter):`, e.message);
-          // Nếu click tạch (ví dụ strict mode), bấm tab/enter hoặc gửi phím rỗng
+          // Fallback cực mạnh: Bấm Tab rồi Enter, hoặc nhấn mạnh Enter
           await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+          console.log(`[${task.email}] Đã bấm phím Enter đè lên màn hình Consent.`);
         }
+        // Đợi 2s để trang bắt đầu tải chuyển hướng thay vì lặp vào retry ngay
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) {
