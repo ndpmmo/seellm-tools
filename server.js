@@ -372,6 +372,46 @@ app.prepare().then(() => {
   startupSync();
   setInterval(doVaultSync, 15 * 60 * 1000); // 15 phút (Đã có Interceptors xử lý tức thời)
 
+  // ── D1 Event Bus Poller (Zero-Config Realtime Sync) ──
+  let lastEventCheck = new Date(Date.now() - 60000).toISOString();
+  setInterval(async () => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return;
+    try {
+      const res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/sync/events?since=${encodeURIComponent(lastEventCheck)}`, {
+        headers: { 'x-sync-secret': cfg.d1SyncSecret },
+        signal: AbortSignal.timeout(10000)
+      });
+      const data = await res.json();
+      if (!data.ok || !data.events?.length) {
+        lastEventCheck = new Date().toISOString();
+        return;
+      }
+
+      let hasChanges = false;
+      for (const event of data.events) {
+        if (event.event_type === 'ACCOUNT_DELETED') {
+          try {
+            const payload = JSON.parse(event.payload);
+            const updated = vault.db.prepare(
+              "UPDATE vault_accounts SET status=?, updated_at=? WHERE id=? AND status != 'idle'"
+            ).run('idle', new Date().toISOString(), payload.accountId);
+            
+            if (updated.changes > 0) {
+              console.log(`[EventBus] 🔄 Gateway đã xóa ${payload.email} → Chuyển về idle`);
+              hasChanges = true;
+            }
+          } catch(err) {}
+        }
+      }
+      
+      if (hasChanges && io) {
+        io.emit('vault:update');
+      }
+      lastEventCheck = new Date().toISOString();
+    } catch(e) { /* Bỏ qua lỗi mạng */ }
+  }, 30 * 1000); // 30s
+  // ───────────────────────────────────────────────────
   // [SELF-HEALING] Định kỳ 3 tiếng một lần quét toàn phần (Full-Sync)
   setInterval(async () => {
     console.log(`[Sync] 🩺 Bắt đầu quét Self-Healing (Toàn phần)...`);
