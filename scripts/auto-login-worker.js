@@ -411,22 +411,28 @@ async function sendResultToGateway(task, status, message, result) {
       console.error('[Gateway Error] Không thể kết nối VPS:', e.message);
     }
   } else {
-    // Nếu task đến từ Tools hoặc D1 Cloud trực tiếp, thì báo cáo trạng thái cho D1 Cloud (để cập nhật DB tổng)
-    // Lưu ý: Tools endpoint /accounts/task bản chất là D1 task nhưng được gắn thêm PKCE.
-    try {
-      const configRes = await fetch('http://localhost:4000/api/config', { signal: AbortSignal.timeout(2000) });
-      const cfg = await configRes.json();
-      if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
-        await fetch(`${cfg.d1WorkerUrl}/accounts/${taskId}`, {
-          method: 'PATCH',
-          headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status, last_error: message, updated_at: new Date().toISOString() }),
-          signal: AbortSignal.timeout(4000),
-        });
-        console.log(`[D1 Cloud] ✅ Cập nhật status → ${status}`);
+    // Nếu task đến từ D1 Cloud trực tiếp (source='d1'), cập nhật status cho D1
+    // Nếu source='tools': Tools đã tự push 'ready' lên D1 qua SyncManager → KHÔNG PATCH thêm
+    if (source !== 'tools') {
+      try {
+        const configRes = await fetch('http://localhost:4000/api/config', { signal: AbortSignal.timeout(2000) });
+        const cfg = await configRes.json();
+        if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+          // Dùng 'ready' thay vì 'success' để Gateway hiển thị đúng
+          const d1Status = status === 'success' ? 'ready' : status;
+          await fetch(`${cfg.d1WorkerUrl}/accounts/${taskId}`, {
+            method: 'PATCH',
+            headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: d1Status, last_error: message, updated_at: new Date().toISOString() }),
+            signal: AbortSignal.timeout(4000),
+          });
+          console.log(`[D1 Cloud] ✅ Cập nhật status → ${d1Status}`);
+        }
+      } catch (e) {
+        console.log(`[D1 Cloud] ⚠️ Không cập nhật được D1: ${e.message}`);
       }
-    } catch (e) {
-      console.log(`[D1 Cloud] ⚠️ Không cập nhật được D1: ${e.message}`);
+    } else {
+      console.log(`[D1 Cloud] ℹ️ Source=tools → Tools đã push 'ready', bỏ qua PATCH D1.`);
     }
   }
 }

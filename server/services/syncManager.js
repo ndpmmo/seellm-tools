@@ -114,10 +114,17 @@ export const SyncManager = {
           
           // Nếu local DB có account cùng email nhưng chưa trong list, thêm vào
           if (!existing && ga.email && localVault) {
+            // Tìm Kể CẢ deleted — tránh tạo duplicate khi local bị deleted_at tạm thời
             const localByEmail = localVault.db.prepare(
-              'SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL LIMIT 1'
+              'SELECT * FROM vault_accounts WHERE email = ? LIMIT 1'
             ).get(ga.email);
             if (localByEmail) {
+              // Reset deleted_at nếu bị xóa ảo — đây là account thực cần giữ lại
+              if (localByEmail.deleted_at) {
+                localVault.db.prepare('UPDATE vault_accounts SET deleted_at=NULL WHERE id=?').run(localByEmail.id);
+                console.log(`[pullVault] 🔄 Restored deleted account: ${localByEmail.email}`);
+                localByEmail.deleted_at = null;
+              }
               // Merge status từ Gateway vào local account (giữ nguyên ID local)
               existing = {
                 ...localByEmail,
@@ -150,7 +157,12 @@ export const SyncManager = {
               if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
                 existing.status = ga.status || existing.status;
                 existing.notes = ga.last_error || existing.notes;
-                existing.deleted_at = ga.deleted_at;
+                // Bảo vệ: không ghi đè deleted_at lên local account đang active
+                if (ga.deleted_at && !existing.deleted_at) {
+                  console.log(`[pullVault] ⚠️ Bỏ qua deleted_at từ Gateway cho ${existing.email} (local active)`);
+                } else {
+                  existing.deleted_at = ga.deleted_at;
+                }
                 existing.updated_at = ga.updated_at;
               }
             } catch(e) {}
