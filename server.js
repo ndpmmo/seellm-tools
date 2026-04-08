@@ -388,7 +388,54 @@ app.prepare().then(() => {
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 
+  // ▶ Intercept: POST /api/d1/accounts/add → mirror vào local vault ngay
+  // Lý do: task endpoint chỉ đọc local, user thêm từ "Codex Accts" tab thì phải đồng bộ ngay.
+  ex.post('/api/d1/accounts/add', async (req, res, next) => {
+    // Để request chạy bình thường (proxy đến D1), sau đó mirror vào local
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return next();
+
+    const body = req.body || {};
+    if (!body.email || !String(body.email).includes('@')) return next();
+
+    try {
+      // Gọi D1 để tạo record
+      const d1Res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/accounts/add`, {
+        method: 'POST',
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+      const d1Data = await d1Res.json();
+
+      // Mirror vào local vault ngay lập tức (dùng ID từ D1 để đồng nhất)
+      if (d1Data.ok && d1Data.id) {
+        const existing = vault.db.prepare('SELECT id FROM vault_accounts WHERE email = ?').get(body.email);
+        if (!existing) {
+          vault.upsertAccount({
+            id:           d1Data.id,
+            email:        body.email,
+            password:     body.password || '',
+            two_fa_secret: body.twoFaSecret || '',
+            proxy_url:    body.proxyUrl || null,
+            status:       'pending',
+          });
+          console.log(`[D1 Proxy] ✅ Mirrored to local: ${body.email} (id=${d1Data.id})`);
+        } else {
+          console.log(`[D1 Proxy] ℹ️ Account đã tồn tại local: ${body.email} → bỏ qua mirror`);
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(d1Res.status).json(d1Data);
+    } catch (e) {
+      console.error(`[D1 Proxy] accounts/add interceptor error:`, e.message);
+      return next(); // Fallback về generic proxy
+    }
+  });
+
   ex.use('/api/d1', async (req, res) => {
+
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
       return res.status(400).json({ error: "Missing D1 config (url or secret)" });
