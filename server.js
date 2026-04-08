@@ -469,16 +469,21 @@ app.prepare().then(() => {
     }
   });
 
-  // ▶ Intercept: DELETE /api/d1/accounts/:id → mirror deletion vào local vault ngay
+  // ▶ Intercept: DELETE /api/d1/accounts/:id → ngắt kết nối Codex, thu hồi về kho lạnh (idle)
   ex.delete('/api/d1/accounts/:id', async (req, res, next) => {
     try {
       const { id } = req.params;
-      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa account từ UI (Gateway). ID: ${id}`);
+      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa Codex account. ID: ${id} → Thu hồi về Vault (idle)`);
       if (id) {
-        // Xoá local (không skipSync vì muốn tool đồng bộ lên cloud, dù sao cloud cũng đang xóa)
-        vault.deleteAccount(id, false); 
+        const existing = vault.db.prepare('SELECT id, email, status FROM vault_accounts WHERE id = ?').get(id);
+        if (existing && existing.status !== 'idle') {
+          // Chỉ thu hồi về idle, KHÔNG xóa — Vault là kho lưu trữ độc lập
+          vault.db.prepare('UPDATE vault_accounts SET status = ?, updated_at = ? WHERE id = ?')
+            .run('idle', new Date().toISOString(), id);
+          console.log(`[D1 Proxy] 🔄 Account ${existing.email} → idle (vẫn còn trong Vault)`);
+        }
       }
-      return next(); // Cho phép proxy qua D1 để xoá trên backend kia
+      return next(); // Vẫn cho proxy qua D1 để xóa khỏi Codex Cloud
     } catch(e) {
       return next();
     }
