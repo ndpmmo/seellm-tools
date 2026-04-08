@@ -416,6 +416,22 @@ router.post('/accounts/:id/retry', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Stop: Thu hồi account về idle
+router.post('/accounts/:id/stop', async (req, res) => {
+  try {
+    const account = vault.getAccountFull(req.params.id);
+    if (!account) return res.status(404).json({ error: 'Not found' });
+    pkceStore.delete(req.params.id);
+    vault.updateAccountStatus(req.params.id, 'idle');
+    // Khi updateAccountStatus, nó sẽ tự gọi SyncManager.pushVault bên trong
+    // và SyncManager sẽ tự động xóa account này khỏi Gateway vì status='idle'.
+    // À khoan, hàm SyncManager.pushVault ở trên chỉ Không thêm vào managedAccounts, nhưng Gateway đã có rồi thì sao?
+    // Để Gateway xóa, ta phải gửi một lệnh xóa cho Gateway.
+    // Nếu status == 'idle', gateway sẽ không nhận được update gì, hoặc nếu ta gửi `deleted_at: now`...
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Manual sync: Ép đồng bộ 1 account lên D1
 router.post('/accounts/:id/sync', async (req, res) => {
   try {

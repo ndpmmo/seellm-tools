@@ -117,6 +117,16 @@ export function VaultAccountsView() {
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
+  const stopAccount = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/stop`, { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      addToast(`🛑 Đã thu hồi ${email} về trạng thái Idle`, 'info');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
   const syncNow = async (id: string, email: string) => {
     try {
       const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
@@ -326,7 +336,10 @@ export function VaultAccountsView() {
                     <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         {it.status === 'idle' && it.provider === 'codex' && (
-                          <button className="btn-icon" title="Deploy to Codex" onClick={() => retry(it.id, it.email)} style={{ color: 'var(--green)' }}><Globe size={13} /></button>
+                          <button className="btn btn-sm" title="Deploy to Codex" onClick={() => retry(it.id, it.email)} style={{ color: 'var(--green)', borderColor: 'var(--green)', padding: '0 8px' }}><Globe size={12} style={{marginRight: 4}}/> Deploy</button>
+                        )}
+                        {(it.status !== 'idle') && it.provider === 'codex' && (
+                          <button className="btn btn-sm" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)} style={{ color: 'var(--text-3)', padding: '0 8px' }}>Thu hồi</button>
                         )}
                         {(it.status === 'error') && it.provider === 'codex' && (
                           <button className="btn-icon" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></button>

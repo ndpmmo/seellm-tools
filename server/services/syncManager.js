@@ -64,7 +64,7 @@ export const SyncManager = {
     if (type === 'account') {
       payload.vaultAccounts = [{ ...data, updated_at: data.updated_at || now }];
       
-      // Push đồng thời sang schema Gateway để Gateway nhìn thấy (chỉ khi không phải 'idle' hoặc bị xóa)
+      // Push đồng thời sang schema Gateway để Gateway nhìn thấy
       if (data.status !== 'idle' || data.deleted_at) {
         payload.managedAccounts = [{
           id: data.id,
@@ -79,6 +79,16 @@ export const SyncManager = {
           last_sync_at: now,
           updated_at: now,
           deleted_at: data.deleted_at || null,
+          version,
+        }];
+      } else if (data.status === 'idle') {
+        // Gửi lệnh xóa cho Gateway nhưng Vault vẫn giữ nguyên (Thu hồi kho lạnh)
+        payload.managedAccounts = [{
+          id: data.id,
+          provider: data.provider || 'codex',
+          email: data.email,
+          updated_at: now,
+          deleted_at: now, // Soft-delete ở Gateway
           version,
         }];
       }
@@ -97,7 +107,7 @@ export const SyncManager = {
           rate_limit_protection: 0,
           provider_specific_data: null,
           updated_at: now,
-          deleted_at: data.deleted_at || null,
+          deleted_at: (data.status === 'idle') ? now : (data.deleted_at || null),
           version,
         }];
       }
