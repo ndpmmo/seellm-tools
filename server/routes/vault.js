@@ -335,6 +335,7 @@ router.post('/accounts/result', async (req, res) => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                  id: fullRecord.id, // Gửi ID gốc để Gateway không đẻ ID mới
                   tokens: {
                     ...tokens,
                     email: fullRecord.email, // THIẾU BƯỚC NÀY: Gửi kèm email để Gateway nhận diện

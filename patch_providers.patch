@@ -1,0 +1,11 @@
+--- ../seellm-gateway/src/lib/db/providers.ts
++++ ../seellm-gateway/src/lib/db/providers.ts
+@@ -118,7 +118,7 @@
+   }
+ 
+   const connection: Record<string, any> = {
+-    id: uuidv4(),
++    id: data.id || uuidv4(),
+     provider: data.provider,
+     authType: data.authType || "oauth",
+     name: connectionName,

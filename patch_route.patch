@@ -1,0 +1,19 @@
+--- ../seellm-gateway/src/app/api/oauth/[provider]/[action]/route.ts
++++ ../seellm-gateway/src/app/api/oauth/[provider]/[action]/route.ts
+@@ -213,7 +213,7 @@
+     }
+ 
+     if (action === "import") {
+-      const { tokens: rawTokens, provider: bodyProvider } = body;
++      const { tokens: rawTokens, provider: bodyProvider, id: providedId } = body;
+       const targetProvider = bodyProvider || provider;
+ 
+       if (!rawTokens || (!rawTokens.access_token && !rawTokens.accessToken)) {
+@@ -249,6 +249,7 @@
+ 
+       if (!connection) {
+         connection = await createProviderConnection({
++          id: providedId,
+           provider: targetProvider,
+           authType: "oauth",
+           ...tokens,
