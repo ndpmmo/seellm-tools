@@ -1,0 +1,15 @@
+--- CHANGELOG.md
++++ CHANGELOG.md
+@@ -2,6 +2,12 @@
+ 
+ Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
+ 
++## [0.1.2] - 2026-04-09
++### Fixed
++- **Bi-directional Deletion Sync**: Cập nhật interceptor để bắt tín hiệu xóa tự động (`DELETE /api/d1/accounts/:id`), đẩy trực tiếp vào local vault ngăn chặn tình trạng xoá trên Cloudflare D1 nhưng không mất ở hệ thống cục bộ.
++- **Active Directory Removal**: Giải tỏa "Protective Logic" chặn đồng bộ trên máy nhánh khiến các thay đổi ghi đè khi đồng bộ tài khoản giữa hai máy bị hỏng.
++
++
+ ## [0.1.1] - 2026-04-08
+ ### Added
+ - **Instant Account Mirroring**: Thêm Interceptor cho `POST /api/d1/accounts/add`. Khi người dùng thêm tài khoản qua tab "Codex Accts", tài khoản sẽ được mirror ngay lập tức vào local vault, giúp Worker tìm thấy task và sinh PKCE tức thì mà không cần đợi chu kỳ sync 5 phút.

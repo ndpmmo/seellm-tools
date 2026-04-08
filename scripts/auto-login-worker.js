@@ -117,6 +117,9 @@ async function waitForSelector(tabId, userId, selectorPatterns, timeoutMs = 2500
 }
 
 async function runLoginFlow(task) {
+  const accountId = task.id;
+  console.log(`\n[${new Date().toLocaleTimeString()}] [*] Bắt đầu xử lý đăng nhập cho: ${task.email}`);
+  console.log(`[${new Date().toLocaleTimeString()}] [1] Khởi tạo trình duyệt Camofox...`);
   const account = task;
   const USER_ID = `seellm_worker_${task.id}`;
   let tabId;
@@ -153,22 +156,23 @@ async function runLoginFlow(task) {
     // 1. Mở tab với proxy
     const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
     console.log(`[1] Mở URL: ${loginUrl}`);
-    const { tabId: tid } = await camofoxPost('/tabs', {
+    const { tabId: tid, userAgent: browserUA } = await camofoxPost('/tabs', {
       userId: USER_ID,
       sessionKey: `codex_${task.id}`,
       url: loginUrl,
       proxy: account.proxyUrl || account.proxy || undefined,
       // --- CẤU HÌNH ẨN DANH NÂNG CAO & SẠCH TUYỆT ĐỐI ---
-      persistent: false,       // KHÔNG lưu lại bất kỳ dữ liệu gì sau khi đóng (Sạch 100%)
-      os: 'macos',             // Ép vân tay hệ điều hành MacOS
+      persistent: false,
+      os: 'macos',
       screen: { width: 1440, height: 900 }, 
       humanize: true,          
       headless: false,         
-      randomFonts: true,       // Ngẫu nhiên hóa danh sách Font chữ (Chống Fingerprinting)
-      canvas: 'random',        // Ngẫu nhiên hóa vân tay đồ họa Canvas
+      randomFonts: true,
+      canvas: 'random',
     });
     tabId = tid;
-    console.log(`[1] Tab mở thành công: ${tabId}`);
+    const userAgent = browserUA;
+    console.log(`[1] Tab mở thành công: ${tabId} (UA: ${userAgent?.substring(0, 30)}...)`);
     
     // Chờ trang tải và Cloudflare (15 giây)
     await new Promise(r => setTimeout(r, 15000));
@@ -343,7 +347,8 @@ async function runLoginFlow(task) {
       console.log(`[${task.email}] ✅ SUCCESS! Code: ${code?.substring(0, 20)}...`);
       await sendResultToGateway(task, 'success', 'Đã lấy được code thành công', {
         code,
-        codeVerifier: account.codeVerifier,
+        codeVerifier: task.codeVerifier || account.codeVerifier,
+        userAgent: userAgent,
         finalUrl: redirectUrl,
       });
     } else {
@@ -438,7 +443,22 @@ async function sendResultToGateway(task, status, message, result) {
 }
 
 async function fetchTask() {
-  // 1. Ưu tiên: Hỏi Gateway (OmniRoute Task API)
+  // 1. Ưu tiên cao nhất: Hỏi Tools Server (Local source of truth cho PKCE & Redirect URI)
+  try {
+    const res = await fetch(`http://localhost:4000/api/vault/accounts/task`, {
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.task) {
+        console.log(`[Tools] ✅ Tìm thấy task: ${data.task.email}`);
+        data.task.source = 'tools';
+        return data.task;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Dự phòng: Hỏi Gateway (OmniRoute Task API) - Chỉ dùng nếu Tools không có task
   try {
     const res = await fetch(`${GATEWAY_URL}/api/public/worker/task`, {
       headers: {
@@ -458,34 +478,10 @@ async function fetchTask() {
         data.task.source = 'gateway';
         return data.task;
       }
-      console.log(`[Gateway] Không có task pending`);
     }
-  } catch (e) {
-    console.log(`[Gateway] Không kết nối được: ${e.message}`);
-  }
-
-  // 2. Hỏi Tools Server (có PKCE baked-in, đảm bảo codeVerifier hợp lệ)
-  try {
-    const res = await fetch(`http://localhost:4000/api/vault/accounts/task`, {
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.task) {
-        console.log(`[Tools] ✅ Tìm thấy task: ${data.task.email} (codeVerifier: ${data.task.codeVerifier ? 'CÓ' : 'KHÔNG'})`);
-        data.task.source = 'tools';
-        return data.task;
-      }
-      console.log(`[Tools] Không có task pending`);
-    } else {
-      console.log(`[Tools] Lỗi HTTP ${res.status}: ${await res.text()}`);
-    }
-  } catch (e) {
-    console.log(`[Tools] Không kết nối được: ${e.message}`);
-  }
+  } catch (e) {}
 
   // 3. Dự phòng cuối: Hỏi thẳng Cloud D1 qua Tools (để lấy PKCE từ Tools)
-  // Chỉ dùng direct D1 nếu Tools server KHÔNG online (không có codeVerifier thì token exchange LUÔN thất bại)
   try {
     const configRes = await fetch(`http://localhost:4000/api/config`, {
       signal: AbortSignal.timeout(2000)
@@ -502,22 +498,17 @@ async function fetchTask() {
 
     const d1Data = await d1Res.json();
     const allItems = (d1Data.items || []).filter(a => !a.deleted_at);
-    console.log(`[D1 Cloud] Tổng accounts: ${allItems.length}, tìm pending...`);
     const pending = allItems.find(a => (a.status === 'pending' || a.status === 'relogin'));
     if (pending) {
-      // Nếu D1 có loginUrl với codeVerifier embedded thì dùng, ngược lại bỏ qua
       if (!pending.codeVerifier && !pending.loginUrl?.includes('code_challenge=')) {
-        console.log(`[D1 Cloud] ⚠️ Task ${pending.email} không có codeVerifier → BỎ QUA (sẽ thất bại exchange token)`);
+        // console.log(`[D1 Cloud] ⚠️ Task ${pending.email} không có codeVerifier → BỎ QUA`);
         return null;
       }
       console.log(`[D1 Cloud] ☁️ Tìm thấy task: ${pending.email} (${pending.status})`);
       pending.source = 'd1';
       return pending;
     }
-    console.log(`[D1 Cloud] Không có account nào đang pending`);
-  } catch (e) {
-    console.log(`[D1 Cloud] Lỗi: ${e.message}`);
-  }
+  } catch (e) {}
 
   return null;
 }

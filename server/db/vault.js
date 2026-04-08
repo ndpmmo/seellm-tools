@@ -170,16 +170,22 @@ export const vault = {
     const now = dayjs().toISOString();
     let existing = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
 
-    // Fallback: nếu không tìm thấy by ID nhưng có email → tìm by email
-    // Tránh tạo duplicate khi Gateway dùng ID khác cho cùng 1 email
+    // Fallback: nếu không tìm thấy by ID nhưng có email → tìm by email (KỂ CẢ ĐÃ XÓA)
+    // Tránh tạo duplicate khi người dùng xóa và thêm lại, hoặc Sync từ Gateway về
     if (!existing && data.email && data.email.trim()) {
       const byEmail = db.prepare(
-        'SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL LIMIT 1'
+        'SELECT * FROM vault_accounts WHERE email = ? LIMIT 1'
       ).get(data.email.trim());
       if (byEmail) {
-        id = byEmail.id; // Dùng ID local thay vì ID từ D1
+        id = byEmail.id; // Tái sử dụng ID cũ để D1 thực hiện UPDATE thay vì INSERT
         existing = byEmail;
-        console.log(`[Vault] Matched by email: ${data.email} → using local ID ${id}`);
+        console.log(`[Vault] Reusing ID for email ${data.email} → ID: ${id}`);
+        
+        // Nếu bản ghi cũ đang bị xóa ảo, khôi phục lại
+        if (byEmail.deleted_at) {
+          db.prepare('UPDATE vault_accounts SET deleted_at = NULL WHERE id = ?').run(id);
+          existing.deleted_at = null;
+        }
       }
     }
 
@@ -188,27 +194,38 @@ export const vault = {
                    (data.last_error !== undefined ? data.last_error : 
                    (data.lastError !== undefined ? data.lastError : (existing ? existing.notes : '')));
     
-    const finalStatus = (data.status || 'idle').toLowerCase();
+    let finalStatus = (data.status || 'idle').toLowerCase();
+    
+    // [Protective Logic] Nếu local đang processing, không cho cloud ghi đè về pending
+    if (existing && existing.status === 'processing' && finalStatus === 'pending') {
+      finalStatus = 'processing'; 
+    }
     
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data
     let authData = { notes: rawNotes || '' };
-    if (data.provider === 'codex' && (!existing || finalStatus === 'pending' || finalStatus === 'relogin')) {
-      const codeVerifier = crypto.randomBytes(32).toString('base64url');
-      const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-      const state = crypto.randomBytes(32).toString('base64url');
-      const params = new URLSearchParams({
-        response_type: "code",
-        client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
-        redirect_uri: "http://localhost:1455/auth/callback",
-        scope: "openid profile email offline_access",
-        code_challenge: codeChallenge,
-        code_challenge_method: "S256",
-        id_token_add_organizations: "true",
-        codex_cli_simplified_flow: "true",
-        originator: "codex_cli_rs",
-        state,
-      });
-      authData.notes = `OAuth URL: https://auth.openai.com/oauth/authorize?${params.toString()}\nVerifier: ${codeVerifier}`;
+    if (data.provider === 'codex' && (finalStatus === 'pending' || finalStatus === 'relogin')) {
+      const hasVerifier = existing?.notes?.includes('Verifier: ');
+      if (!hasVerifier || finalStatus === 'relogin') {
+        const codeVerifier = crypto.randomBytes(32).toString('base64url');
+        const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+        const state = crypto.randomBytes(32).toString('base64url');
+        const params = new URLSearchParams({
+          response_type: "code",
+          client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+          redirect_uri: "http://localhost:1455/auth/callback",
+          scope: "openid profile email offline_access",
+          code_challenge: codeChallenge,
+          code_challenge_method: "S256",
+          id_token_add_organizations: "true",
+          codex_cli_simplified_flow: "true",
+          originator: "codex_cli_rs",
+          state,
+        });
+        authData.notes = `OAuth URL: https://auth.openai.com/oauth/authorize?${params.toString()}\nVerifier: ${codeVerifier}`;
+      } else {
+        // Bảo toàn notes cũ nếu đã có PKCE
+        authData.notes = rawNotes || (existing ? existing.notes : '');
+      }
     } else if (finalStatus === 'ready' || finalStatus === 'idle') {
       authData.notes = ''; // Wipe error history visually if account recovered fully
     }
@@ -238,6 +255,12 @@ export const vault = {
         deleted_at    = excluded.deleted_at
     `);
 
+    const parseJSON = (val) => {
+      if (!val) return [];
+      if (typeof val === 'object') return val;
+      try { return JSON.parse(val); } catch (e) { return []; }
+    };
+
     const record = {
       id, 
       provider: data.provider !== undefined ? data.provider : (existing ? existing.provider : 'codex'), 
@@ -246,12 +269,12 @@ export const vault = {
       password: data.password !== undefined ? data.password : (existing ? existing.password : null),
       two_fa_secret: data.two_fa_secret !== undefined ? data.two_fa_secret : (existing ? existing.two_fa_secret : null),
       proxy_url: data.proxy_url !== undefined ? data.proxy_url : (existing ? existing.proxy_url : null), 
-      cookies: JSON.stringify(data.cookies || (existing ? JSON.parse(existing.cookies || '[]') : [])),
+      cookies: JSON.stringify(parseJSON(data.cookies || (existing ? existing.cookies : '[]'))),
       access_token: data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null),
       refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
       status: finalStatus,
       notes: (authData.notes === null || authData.notes === 'null') ? '' : authData.notes,
-      tags: JSON.stringify(data.tags || (existing ? JSON.parse(existing.tags || '[]') : [])),
+      tags: JSON.stringify(parseJSON(data.tags || (existing ? existing.tags : '[]'))),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,
       deleted_at: data.deleted_at || (existing ? existing.deleted_at : null)

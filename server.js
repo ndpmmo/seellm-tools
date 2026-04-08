@@ -307,8 +307,7 @@ app.prepare().then(() => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Vault API (SQLite) ──────────────────────────────────────────────────
-  ex.use('/api/vault', vaultRouter);
+  // ── Vault API (SQLite) — đã mount ở dòng trên rồi, không mount lại ──────
 
   // ── Cloud Vault Synchronization Loop ───────────────────────────────────
   const CURSOR_FILE = path.join(__dirname, 'data', 'sync_cursor.json');
@@ -339,20 +338,7 @@ app.prepare().then(() => {
         console.log(`[Sync] New cloud updates found. Cursor: ${data.cursor}`);
         
         // Cập nhật SQLite Local (dùng skipSync=true để tránh vòng lặp feedback)
-        // QUAN TRỌNG: Bảo vệ account local đang active khỏi bị "xóa ảo" do D1 deleted_at
         data.accounts.forEach(a => {
-          if (a.deleted_at) {
-            // Kiểm tra local có đang hoạt động không (có email, không có deleted_at)
-            const localRecord = vault.db.prepare(
-              'SELECT deleted_at, status FROM vault_accounts WHERE id = ?'
-            ).get(a.id);
-
-            // Nếu local record không bị xóa hoặc đang ready/pending → SKIP việc ghi đè deleted_at
-            if (localRecord && (!localRecord.deleted_at || ['ready','pending'].includes(localRecord.status))) {
-              console.log(`[Sync] ⚠️ Bỏ qua deleted_at từ D1 cho account ${a.email || a.id} (local active)`);
-              a.deleted_at = null; // Reset để upsert không xóa local record
-            }
-          }
           vault.upsertAccount(a, true);
         });
         data.proxies.forEach(p => vault.upsertProxy(p, true));
@@ -388,10 +374,9 @@ app.prepare().then(() => {
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 
-  // ▶ Intercept: POST /api/d1/accounts/add → mirror vào local vault ngay
+  // ▶ Intercept: POST /api/d1/accounts/add → ngăn chặn duplicate và mirror vào local vault
   // Lý do: task endpoint chỉ đọc local, user thêm từ "Codex Accts" tab thì phải đồng bộ ngay.
   ex.post('/api/d1/accounts/add', async (req, res, next) => {
-    // Để request chạy bình thường (proxy đến D1), sau đó mirror vào local
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return next();
 
@@ -399,7 +384,30 @@ app.prepare().then(() => {
     if (!body.email || !String(body.email).includes('@')) return next();
 
     try {
-      // Gọi D1 để tạo record
+      // 1. Kiểm tra xem local đã có email này chưa (kể cả đã xóa)
+      const existing = vault.db.prepare('SELECT id FROM vault_accounts WHERE email = ? LIMIT 1').get(body.email);
+      
+      if (existing) {
+        console.log(`[D1 Proxy] 🛑 Ngăn chặn Duplicate Account từ UI. Đã có ID: ${existing.id}`);
+        // Reset trạng thái thủ công bằng db.prepare để ép bỏ qua protective logic của upsertAccount
+        vault.db.prepare(`
+          UPDATE vault_accounts 
+          SET deleted_at = NULL, status = 'pending', notes = '', password = ?, two_fa_secret = ?, proxy_url = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(body.password || '', body.twoFaSecret || '', body.proxyUrl || null, existing.id);
+        
+        // Gọi upsertAccount lần nữa để sinh PKCE và đồng bộ D1 (skipSync=false)
+        vault.upsertAccount({
+            id: existing.id, 
+            provider: 'codex', 
+            email: body.email, 
+            status: 'pending'
+        }, false);
+
+        return res.json({ ok: true, id: existing.id });
+      }
+
+      // 2. Chạy bình thường nếu là account thực sự MỚI
       const d1Res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/accounts/add`, {
         method: 'POST',
         headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
@@ -410,20 +418,16 @@ app.prepare().then(() => {
 
       // Mirror vào local vault ngay lập tức (dùng ID từ D1 để đồng nhất)
       if (d1Data.ok && d1Data.id) {
-        const existing = vault.db.prepare('SELECT id FROM vault_accounts WHERE email = ?').get(body.email);
-        if (!existing) {
-          vault.upsertAccount({
-            id:           d1Data.id,
-            email:        body.email,
-            password:     body.password || '',
-            two_fa_secret: body.twoFaSecret || '',
-            proxy_url:    body.proxyUrl || null,
-            status:       'pending',
-          });
-          console.log(`[D1 Proxy] ✅ Mirrored to local: ${body.email} (id=${d1Data.id})`);
-        } else {
-          console.log(`[D1 Proxy] ℹ️ Account đã tồn tại local: ${body.email} → bỏ qua mirror`);
-        }
+        vault.upsertAccount({
+          id:           d1Data.id,
+          provider:     'codex',
+          email:        body.email,
+          password:     body.password || '',
+          two_fa_secret: body.twoFaSecret || '',
+          proxy_url:    body.proxyUrl || null,
+          status:       'pending',
+        });
+        console.log(`[D1 Proxy] ✅ Mirrored New Account to local: ${body.email} (id=${d1Data.id})`);
       }
 
       res.setHeader('Content-Type', 'application/json');
@@ -431,6 +435,21 @@ app.prepare().then(() => {
     } catch (e) {
       console.error(`[D1 Proxy] accounts/add interceptor error:`, e.message);
       return next(); // Fallback về generic proxy
+    }
+  });
+
+  // ▶ Intercept: DELETE /api/d1/accounts/:id → mirror deletion vào local vault ngay
+  ex.delete('/api/d1/accounts/:id', async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa account từ UI (Gateway). ID: ${id}`);
+      if (id) {
+        // Xoá local (không skipSync vì muốn tool đồng bộ lên cloud, dù sao cloud cũng đang xóa)
+        vault.deleteAccount(id, false); 
+      }
+      return next(); // Cho phép proxy qua D1 để xoá trên backend kia
+    } catch(e) {
+      return next();
     }
   });
 

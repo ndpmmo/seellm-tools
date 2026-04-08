@@ -34,27 +34,59 @@ function generateCodexOAuthUrl() {
 }
 
 /* ─── Token Exchange ─────────────────────────────────────────────────────── */
-async function exchangeCodeForTokens(code, codeVerifier) {
-  console.log(`[OAuth] 🔄 Exchanging code: ${code.substring(0, 10)}... verifier: ${codeVerifier.substring(0, 10)}...`);
-  const res = await fetch('https://auth.openai.com/oauth/token', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type:    'authorization_code',
-      client_id:     'app_EMoamEEZ73f0CkXaXp7hrann',
-      code,
-      redirect_uri:  'http://localhost:1455/auth/callback',
-      code_verifier: codeVerifier,
-    }).toString(),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    console.error(`[OAuth] ❌ Exchange failed (${res.status}):`, text);
-    throw new Error(`Token exchange failed (${res.status}): ${text}`);
+async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
+  const { userAgent, proxyUrl } = options;
+  const maxRetries = 2;
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[OAuth] 🔄 Thử lại lần ${attempt} sau 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      console.log(`[OAuth] 🔄 Exchanging code: ${code.substring(0, 10)}... verifier: ${codeVerifier.substring(0, 10)}...`);
+      
+      const res = await fetch('https://auth.openai.com/oauth/token', {
+        method:  'POST',
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent':    userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+          'Origin':        'https://auth.openai.com',
+          'Referer':       'https://auth.openai.com/',
+          'Accept':        'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        body: new URLSearchParams({
+          grant_type:    'authorization_code',
+          client_id:     'app_EMoamEEZ73f0CkXaXp7hrann',
+          code,
+          redirect_uri:  'http://localhost:1455/auth/callback',
+          code_verifier: codeVerifier,
+        }).toString(),
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        console.error(`[OAuth] ❌ Attempt ${attempt} failed (${res.status}):`, text);
+        lastError = new Error(`Token exchange failed (${res.status}): ${text}`);
+        
+        // Nếu lỗi là do code expired/user error, có thể thử lại 1 lần nếu là lỗi mạng nhất thời
+        if (res.status >= 500) continue; 
+        if (text.includes('user_error') && attempt < 1) continue; 
+        
+        throw lastError;
+      }
+
+      const data = JSON.parse(text);
+      console.log(`[OAuth] ✅ Exchange SUCCESS`);
+      return data;
+    } catch (err) {
+      lastError = err;
+      if (attempt === maxRetries) throw err;
+    }
   }
-  const data = JSON.parse(text);
-  console.log(`[OAuth] ✅ Exchange SUCCESS`);
-  return data;
 }
 
 /* ─── In-memory PKCE store: account_id → {url, codeVerifier, createdAt} ─── */
@@ -158,9 +190,23 @@ router.get('/accounts/task', async (req, res) => {
 
     if (!task) return res.json({ ok: true, task: null });
 
-    // Parse JSON fields
-    task.tags    = JSON.parse(task.tags    || '[]');
-    task.cookies = JSON.parse(task.cookies || '[]');
+    // Parse JSON fields safely (handle double/triple encoding)
+    const safeParse = (val) => {
+      if (!val) return [];
+      let current = val;
+      // Thử parse tối đa 3 lần nếu kết quả vẫn là chuỗi (đề phòng double stringify)
+      for (let i = 0; i < 3; i++) {
+        try {
+          const parsed = typeof current === 'string' ? JSON.parse(current) : current;
+          if (Array.isArray(parsed) || typeof parsed === 'object') return parsed;
+          current = parsed;
+        } catch (e) { break; }
+      }
+      return Array.isArray(current) ? current : [];
+    };
+
+    task.tags    = safeParse(task.tags);
+    task.cookies = safeParse(task.cookies);
 
     // Lấy/tạo PKCE (chỉ generate 1 lần per account ID, dùng lại nếu poll lại)
     let pkce = pkceStore.get(task.id);
@@ -176,6 +222,12 @@ router.get('/accounts/task', async (req, res) => {
     vault.db.prepare(
       `UPDATE vault_accounts SET status='processing', updated_at=datetime('now') WHERE id=?`
     ).run(task.id);
+
+    // Đồng bộ ngay lập tức trạng thái processing lên cloud để tránh bị pull đè ngược lại
+    const lockedTask = vault.db.prepare('SELECT * FROM vault_accounts WHERE id=?').get(task.id);
+    if (lockedTask) {
+      SyncManager.pushVault('account', lockedTask).catch(() => {});
+    }
 
     return res.json({ ok: true, task: {
       id:           task.id,
@@ -207,18 +259,31 @@ router.post('/accounts/result', async (req, res) => {
 
     console.log(`[Result] Account ${id}: status=${status}`);
 
-    if (status === 'success' && result?.code && result?.codeVerifier) {
+    if (status === 'success' && result?.code) {
       // ─── Path 1: Code + Verifier → Exchange token ─────────────────────────
       console.log(`[Result] 🔄 Exchanging code for account ${id}...`);
 
-      // Lấy PKCE từ in-memory store (ưu tiên) hoặc dùng verifier từ result
-      const storedPkce = pkceStore.get(id);
-      const verifierToUse = (storedPkce && result.codeVerifier === storedPkce.codeVerifier)
-        ? storedPkce.codeVerifier
-        : result.codeVerifier;
+      // 1. Tìm Verifier: Ưu tiên từ Worker > pkceStore > Database Notes
+      let verifierToUse = result.codeVerifier;
+      if (!verifierToUse) {
+        const storedPkce = pkceStore.get(id);
+        if (storedPkce) verifierToUse = storedPkce.codeVerifier;
+      }
+      if (!verifierToUse) {
+        const account = vault.getAccountFull(id);
+        if (account?.notes?.includes('Verifier: ')) {
+          verifierToUse = account.notes.split('Verifier: ')[1].split('\n')[0].trim();
+        }
+      }
+
+      if (!verifierToUse) {
+        throw new Error('Missing code_verifier (not in result, store, or notes)');
+      }
 
       try {
-        const tokens = await exchangeCodeForTokens(result.code, verifierToUse);
+        const tokens = await exchangeCodeForTokens(result.code, verifierToUse, {
+          userAgent: result.userAgent || null,
+        });
 
         // Tìm local account trước để đảm bảo email không bị mất
         // Ưu tiên: tìm by ID → tìm by email trong D1 PKCE store → dùng email từ task
@@ -227,8 +292,8 @@ router.post('/accounts/result', async (req, res) => {
           // Tìm trong toàn bộ local kể cả deleted
           const allLocal = vault.db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
           // Chọn account có cùng provider và không có token khác
-          localAccount = allLocal.find(a => a.provider === 'codex' && !localAccount?.access_token);
-          console.log(`[Result] ⚠️ ID ${id} not found local, using: ${localAccount?.email || 'NONE'}`);
+          localAccount = allLocal.find(a => a.provider === 'codex' && !a.access_token);
+          console.log(`[Result] ⚠️ ID ${id} not found local, dùng: ${localAccount?.email || 'NONE'}`);
         }
 
         // Nếu tìm thấy local account với ID khác, dùng ID local
@@ -262,17 +327,18 @@ router.post('/accounts/result', async (req, res) => {
 
           // ── Gửi token lên Gateway local (provider_connections) ────────────
           // Gateway KHÔNG pull connections từ D1, nó chỉ đọc local SQLite của nó.
-          // Cần gọi Gateway /api/oauth/codex/exchange để nó tự lưu vào provider_connections.
+          // Chúng ta gửi trực tiếp tokens sang action 'import' của Gateway.
           const cfg = loadConfig();
           if (cfg.gatewayUrl) {
             try {
-              const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/exchange`, {
+              const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/import`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  code: result.code,
-                  redirectUri: 'http://localhost:1455/auth/callback',
-                  codeVerifier: verifierToUse,
+                  tokens: {
+                    ...tokens,
+                    email: fullRecord.email, // THIẾU BƯỚC NÀY: Gửi kèm email để Gateway nhận diện
+                  },
                 }),
                 signal: AbortSignal.timeout(15000),
               });
@@ -280,7 +346,7 @@ router.post('/accounts/result', async (req, res) => {
               if (gwRes.ok && gwData.success) {
                 console.log(`[Result] 🌐 Gateway đã nhận account: ${gwData.connection?.email || fullRecord.email}`);
               } else {
-                console.warn(`[Result] ⚠️ Gateway exchange failed: ${JSON.stringify(gwData).substring(0, 150)}`);
+                console.warn(`[Result] ⚠️ Gateway import failed: ${JSON.stringify(gwData).substring(0, 150)}`);
               }
             } catch (gwErr) {
               console.warn(`[Result] ⚠️ Không kết nối được Gateway: ${gwErr.message}`);
@@ -337,19 +403,6 @@ router.post('/accounts/result', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  UTILITY ENDPOINTS                                                         */
 /* ══════════════════════════════════════════════════════════════════════════ */
-
-// Legacy: Worker cũ dùng /accounts/pending
-router.get('/accounts/pending', (req, res) => {
-  try {
-    const task = vault.getPendingTask();
-    if (task) {
-      vault.updateAccountStatus(task.id, 'processing');
-      res.json({ ok: true, task });
-    } else {
-      res.json({ ok: true, task: null });
-    }
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 
 // Retry: Reset account về pending
 router.post('/accounts/:id/retry', async (req, res) => {

@@ -2,6 +2,22 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
+## [0.1.2] - 2026-04-09
+### Fixed
+- **Bi-directional Deletion Sync**: Cập nhật interceptor để bắt tín hiệu xóa tự động (`DELETE /api/d1/accounts/:id`), đẩy trực tiếp vào local vault ngăn chặn tình trạng xoá trên Cloudflare D1 nhưng không mất ở hệ thống cục bộ.
+- **Active Directory Removal**: Giải tỏa "Protective Logic" chặn đồng bộ trên máy nhánh khiến các thay đổi ghi đè khi đồng bộ tài khoản giữa hai máy bị hỏng.
+
+
+## [0.1.1] - 2026-04-08
+### Added
+- **Instant Account Mirroring**: Thêm Interceptor cho `POST /api/d1/accounts/add`. Khi người dùng thêm tài khoản qua tab "Codex Accts", tài khoản sẽ được mirror ngay lập tức vào local vault, giúp Worker tìm thấy task và sinh PKCE tức thì mà không cần đợi chu kỳ sync 5 phút.
+- **Direct Gateway Token Push**: Sau khi Exchange Token thành công, SeeLLM Tools sẽ tự động đẩy (Push) token trực tiếp sang SeeLLM Gateway (local) thông qua action `import` mới. Điều này đảm bảo Gateway luôn có kết nối mới nhất mà không bị lỗi dùng lại mã `code`.
+
+### Fixed
+- **Sync Persistence**: Triển khai tệp `data/sync_cursor.json` để lưu trữ điểm đồng bộ cuối cùng. Sau khi restart, Tools sẽ không còn phải tải lại toàn bộ lịch sử từ năm 1970, giúp giảm tải cho D1 Cloud.
+- **Startup Sync Catch-up**: Bổ sung vòng lặp đồng bộ lúc khởi động (Startup Loop), tự động pull nhiều lần cho đến khi bắt kịp hoàn toàn dữ liệu mới nhất trên Cloud.
+- **Active Record Protection**: Tăng cường bộ lọc trong `SyncManager`, ngăn chặn việc dữ liệu "xóa ảo" (`deleted_at`) từ Cloud ghi đè lên các tài khoản đang hoạt động (Ready/Pending) tại máy local.
+
 ## [0.1.0] - 2026-04-08
 ### Fixed
 - **Sync Pipeline Stabilization**: Sửa lỗi nghiêm trọng khiến `req.body` bị `undefined` tại endpoint `/accounts/result`, giúp Worker có thể gửi kết quả login về Tools thành công.
