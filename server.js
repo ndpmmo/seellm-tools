@@ -311,7 +311,26 @@ app.prepare().then(() => {
   ex.use('/api/vault', vaultRouter);
 
   // ── Cloud Vault Synchronization Loop ───────────────────────────────────
-  let lastVaultSyncCursor = '1970-01-01T00:00:00.000Z';
+  const CURSOR_FILE = path.join(__dirname, 'data', 'sync_cursor.json');
+
+  function loadCursor() {
+    try {
+      if (existsSync(CURSOR_FILE)) {
+        const { cursor } = JSON.parse(readFileSync(CURSOR_FILE, 'utf-8'));
+        if (cursor && cursor > '1970') return cursor;
+      }
+    } catch (_) {}
+    return '1970-01-01T00:00:00.000Z';
+  }
+
+  function saveCursor(cursor) {
+    try {
+      writeFileSync(CURSOR_FILE, JSON.stringify({ cursor, savedAt: new Date().toISOString() }));
+    } catch (_) {}
+  }
+
+  let lastVaultSyncCursor = loadCursor();
+  console.log(`[SyncManager] Pulling vault changes since ${lastVaultSyncCursor}...`);
 
   async function doVaultSync() {
     try {
@@ -325,12 +344,12 @@ app.prepare().then(() => {
           if (a.deleted_at) {
             // Kiểm tra local có đang hoạt động không (có email, không có deleted_at)
             const localRecord = vault.db.prepare(
-              'SELECT deleted_at FROM vault_accounts WHERE id = ?'
+              'SELECT deleted_at, status FROM vault_accounts WHERE id = ?'
             ).get(a.id);
 
-            // Nếu local record không bị xóa → SKIP việc ghi đè deleted_at từ D1
-            if (localRecord && !localRecord.deleted_at) {
-              console.log(`[Sync] ⚠️ Bỏ qua deleted_at từ D1 cho account ${a.email || a.id} (local đang active)`);
+            // Nếu local record không bị xóa hoặc đang ready/pending → SKIP việc ghi đè deleted_at
+            if (localRecord && (!localRecord.deleted_at || ['ready','pending'].includes(localRecord.status))) {
+              console.log(`[Sync] ⚠️ Bỏ qua deleted_at từ D1 cho account ${a.email || a.id} (local active)`);
               a.deleted_at = null; // Reset để upsert không xóa local record
             }
           }
@@ -340,18 +359,31 @@ app.prepare().then(() => {
         data.keys.forEach(k => vault.upsertApiKey(k, true));
         
         lastVaultSyncCursor = data.cursor;
+        saveCursor(lastVaultSyncCursor); // Persist cursor để restart không cần re-pull từ đầu
         console.log('[Sync] Vault updated from cloud successfully.');
         
         // Thông báo cho UI qua Socket.io nếu cần
         io?.emit('vault:synced', { cursor: lastVaultSyncCursor });
+        return true; // có data mới
       }
     } catch (e) {
       console.error('[Sync] Loop failed:', e.message);
     }
+    return false;
   }
 
-  // Initial Sync and Start Loop (Every 5 minutes)
-  doVaultSync();
+  // Startup: pull nhiều lần cho đến khi caught up (tối đa 10 lần)
+  async function startupSync() {
+    let hasMore = true;
+    let rounds = 0;
+    while (hasMore && rounds < 10) {
+      hasMore = await doVaultSync();
+      rounds++;
+    }
+    if (rounds > 1) console.log(`[Sync] Startup caught up after ${rounds} pulls.`);
+  }
+
+  startupSync();
   setInterval(doVaultSync, 5 * 60 * 1000);
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
