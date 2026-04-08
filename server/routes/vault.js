@@ -428,20 +428,24 @@ router.post('/accounts/:id/stop', async (req, res) => {
 });
 
 // Webhook: Gateway gọi về đây khi xóa account trên Gateway UI
-// Mục tiêu: Xóa ngay local vault để UI Tools phản ánh chính xác mà không cần chờ 15 phút sync
+// Mục tiêu: KHÔNG xóa khỏi Vault — chỉ thu hồi về 'idle' (ngắt kết nối Codex, giữ nguyên dữ liệu kho)
 router.post('/accounts/:id/webhook-delete', async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = vault.db.prepare('SELECT id, email FROM vault_accounts WHERE id = ? AND deleted_at IS NULL').get(id);
+    const existing = vault.db.prepare('SELECT id, email, status FROM vault_accounts WHERE id = ?').get(id);
     if (!existing) {
-      return res.json({ ok: true, skipped: true, reason: 'not found or already deleted' });
+      return res.json({ ok: true, skipped: true, reason: 'not found in vault' });
     }
-    // Dùng deleteAccount nhưng KHÔNG đẩy lại lên D1 (skipSync=true) vì Gateway đã xóa D1 rồi
-    vault.deleteAccount(id, true);
-    console.log(`[Webhook] 🗑️ Gateway yêu cầu xóa account ${existing.email} (${id}) → Đã xóa Local Vault`);
-    res.json({ ok: true, deleted: id });
+    if (existing.status === 'idle') {
+      return res.json({ ok: true, skipped: true, reason: 'already idle' });
+    }
+    // Thu hồi về kho lạnh thay vì xóa — Vault là kho độc lập
+    vault.updateAccountStatus(id, 'idle');
+    pkceStore.delete(id);
+    console.log(`[Webhook] 🔄 Gateway xóa account ${existing.email} → Thu hồi về Vault (idle)`);
+    res.json({ ok: true, reverted: id, newStatus: 'idle' });
   } catch (e) {
-    console.error(`[Webhook] ❌ Lỗi xóa account từ Gateway webhook:`, e.message);
+    console.error(`[Webhook] ❌ Lỗi xử lý webhook-delete:`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
