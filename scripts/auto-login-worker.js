@@ -200,16 +200,15 @@ async function runLoginFlow(task) {
     });
     await saveStep(tabId, 'da_dien_email');
 
-    console.log(`[3] Bấm nút Continue...`);
-    // Thử click nút cụ thể thay vì Enter triệu hồi timeout
+    console.log(`[3] Bấm nút Continue (bằng Enter)...`);
+    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    // Backup click nếu Enter không hoạt động
     try {
       await camofoxPost(`/tabs/${tabId}/click`, {
         userId: USER_ID,
-        selector: 'button[type="submit"], button:has-text("Continue"), button:has-text("Tiếp tục")',
+        selector: 'button[type="submit"]',
       });
-    } catch(e) {
-      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-    }
+    } catch(e) {}
     
     await new Promise(r => setTimeout(r, 6000));
     await saveStep(tabId, 'sau_email');
@@ -231,15 +230,15 @@ async function runLoginFlow(task) {
     });
     await saveStep(tabId, 'da_dien_password');
 
-    console.log(`[5] Gửi mật khẩu...`);
+    console.log(`[5] Gửi mật khẩu (bằng Enter)...`);
+    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    // Backup click nếu Enter không kích hoạt form
     try {
       await camofoxPost(`/tabs/${tabId}/click`, {
         userId: USER_ID,
-        selector: 'button[type="submit"], button:has-text("Continue"), button:has-text("Tiếp tục"), button:has-text("Log in")',
+        selector: 'button[type="submit"]',
       });
-    } catch(e) {
-      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-    }
+    } catch(e) {}
     
     await new Promise(r => setTimeout(r, 10000));
     await saveStep(tabId, 'sau_password');
