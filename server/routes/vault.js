@@ -259,6 +259,36 @@ router.post('/accounts/result', async (req, res) => {
         if (fullRecord && fullRecord.email) {
           console.log(`[Result] 🚀 Syncing to D1: ${fullRecord.email}`);
           await SyncManager.pushVault('account', fullRecord);
+
+          // ── Gửi token lên Gateway local (provider_connections) ────────────
+          // Gateway KHÔNG pull connections từ D1, nó chỉ đọc local SQLite của nó.
+          // Cần gọi Gateway /api/oauth/codex/exchange để nó tự lưu vào provider_connections.
+          const cfg = loadConfig();
+          if (cfg.gatewayUrl) {
+            try {
+              const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/exchange`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  code: result.code,
+                  redirectUri: 'http://localhost:1455/auth/callback',
+                  codeVerifier: verifierToUse,
+                }),
+                signal: AbortSignal.timeout(15000),
+              });
+              const gwData = await gwRes.json();
+              if (gwRes.ok && gwData.success) {
+                console.log(`[Result] 🌐 Gateway đã nhận account: ${gwData.connection?.email || fullRecord.email}`);
+              } else {
+                console.warn(`[Result] ⚠️ Gateway exchange failed: ${JSON.stringify(gwData).substring(0, 150)}`);
+              }
+            } catch (gwErr) {
+              console.warn(`[Result] ⚠️ Không kết nối được Gateway: ${gwErr.message}`);
+            }
+          } else {
+            console.log(`[Result] ℹ️ GatewayUrl chưa cấu hình — bỏ qua push tới Gateway local.`);
+          }
+          // ─────────────────────────────────────────────────────────────────
         } else {
           console.error(`[Result] ❌ Cannot sync: fullRecord missing email! id=${targetId}`);
         }
