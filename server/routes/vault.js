@@ -405,13 +405,14 @@ router.post('/accounts/result', async (req, res) => {
 /*  UTILITY ENDPOINTS                                                         */
 /* ══════════════════════════════════════════════════════════════════════════ */
 
-// Retry: Reset account về pending
+// Retry / Deploy to Codex: Reset account về pending và tạo PKCE mới để Worker login
 router.post('/accounts/:id/retry', async (req, res) => {
   try {
     const account = vault.getAccountFull(req.params.id);
     if (!account) return res.status(404).json({ error: 'Not found' });
     pkceStore.delete(req.params.id); // Xóa PKCE cũ để generate lại
-    vault.updateAccountStatus(req.params.id, 'pending');
+    // Gọi upsertAccount thay vì updateAccountStatus để PKCE được sinh ra trong quá trình upsert
+    vault.upsertAccount({ ...account, status: 'pending' });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
