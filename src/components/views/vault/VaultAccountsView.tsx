@@ -3,21 +3,24 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X, 
   AlertCircle, ChevronDown, ChevronUp, Users, Tag, 
-  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp
+  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 
 /* ── Helpers ── */
 function StatusBadge({ status }: { status: string }) {
   const m: Record<string, { color: string; bg: string; label: string }> = {
-    ready:   { color: 'var(--green)', bg: 'var(--green-dim)', label: 'Ready' },
-    idle:    { color: 'var(--text-3)', bg: 'var(--glass)', label: 'Idle' },
-    error:   { color: 'var(--rose)',  bg: 'var(--rose-dim)',  label: 'Error' },
+    ready:      { color: 'var(--green)',   bg: 'var(--green-dim)',  label: 'Ready' },
+    idle:       { color: 'var(--text-3)', bg: 'var(--glass)',      label: 'Idle' },
+    error:      { color: 'var(--rose)',   bg: 'var(--rose-dim)',   label: 'Error' },
+    pending:    { color: '#f59e0b',       bg: '#f59e0b20',         label: 'Pending' },
+    processing: { color: '#6366f1',       bg: '#6366f120',         label: 'Processing' },
   };
   const s = m[status] || { color: 'var(--text-3)', bg: 'var(--glass)', label: status };
+  const isPulsing = status === 'pending' || status === 'processing';
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}25` }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', animation: isPulsing ? 'pulse 1.2s ease-in-out infinite' : 'none' }} />
       {s.label}
     </span>
   );
@@ -102,6 +105,26 @@ export function VaultAccountsView() {
     await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
     addToast('Đã xoá', 'info');
     load();
+  };
+
+  const retry = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/retry`, { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      addToast(`🔄 Đã reset ${email} → pending, Worker sẽ thử lại`, 'info');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const syncNow = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      addToast(`☁️ Đã ép đồng bộ ${email} lên D1 thành công`, 'success');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
   };
 
   const bulkSave = async () => {
@@ -302,6 +325,10 @@ export function VaultAccountsView() {
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {(it.status === 'error' || it.status === 'idle') && it.provider === 'codex' && (
+                          <button className="btn-icon" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></button>
+                        )}
+                        <button className="btn-icon" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>
                         <button className="btn-icon" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></button>
                         <button className="btn-icon danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></button>
                       </div>

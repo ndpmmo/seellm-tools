@@ -80,12 +80,53 @@ async function camofoxDelete(endpoint) {
 // LOGIN FLOW
 // ============================================
 
+/** Đợi selector xuất hiện trên trang bằng cách poll snapshot định kỳ (Smart Observer) */
+async function waitForSelector(tabId, userId, selectorPatterns, timeoutMs = 25000) {
+  const start = Date.now();
+  console.log(`[Wait] Đợi selector: ${selectorPatterns.join(', ')}...`);
+  while (Date.now() - start < timeoutMs) {
+    const snap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${userId}`);
+    const html = (snap.snapshot || '').toLowerCase();
+    
+    // [AUTO-HEALING] Quét các mã lỗi phổ biến trên màn hình để cắt ngang thay vì chờ chết
+    if (html.includes('email is required') || html.includes('enter a valid email')) {
+      throw new Error("Lỗi UI: Email không hợp lệ hoặc bị trống.");
+    }
+    if (html.includes('wrong email') || html.includes('we could not find your account')) {
+      throw new Error("Lỗi UI: Account không tồn tại.");
+    }
+    if (html.includes('wrong password') || html.includes('incorrect password')) {
+      throw new Error("Lỗi UI: Sai mật khẩu.");
+    }
+    if (html.includes('suspicious login behavior') || html.includes('we have detected suspicious')) {
+      throw new Error("Lỗi UI: IP Proxy bị đánh dấu Suspicious.");
+    }
+    if (html.includes('access denied')) {
+      throw new Error("Lỗi UI: Access Denied (Cloudflare Block / IP Block).");
+    }
+
+    for (const pat of selectorPatterns) {
+      if (html.includes(pat.toLowerCase())) {
+        console.log(`[Wait] ✅ Thấy selector khớp mẫu: ${pat}`);
+        return true;
+      }
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return false;
+}
+
 async function runLoginFlow(task) {
   const account = task;
   const USER_ID = `seellm_worker_${task.id}`;
   let tabId;
 
   console.log(`\n===========================================`);
+  if (!account.email || account.email.trim() === '') {
+    console.log(`[!] Lỗi: Tài khoản ID ${task.id} không có Email. Bỏ qua.`);
+    console.log(`===========================================`);
+    throw new Error('Missing Email Address in record');
+  }
   console.log(`[*] Bắt đầu xử lý: ${account.email}`);
   console.log(`===========================================`);
 
@@ -110,32 +151,74 @@ async function runLoginFlow(task) {
 
   try {
     // 1. Mở tab với proxy
+    const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
+    console.log(`[1] Mở URL: ${loginUrl}`);
     const { tabId: tid } = await camofoxPost('/tabs', {
       userId: USER_ID,
       sessionKey: `codex_${task.id}`,
-      url: account.loginUrl || account.authUrl || 'https://auth.openai.com/',
+      url: loginUrl,
       proxy: account.proxyUrl || account.proxy || undefined,
+      // --- CẤU HÌNH ẨN DANH NÂNG CAO & SẠCH TUYỆT ĐỐI ---
+      persistent: false,       // KHÔNG lưu lại bất kỳ dữ liệu gì sau khi đóng (Sạch 100%)
+      os: 'macos',             // Ép vân tay hệ điều hành MacOS
+      screen: { width: 1440, height: 900 }, 
+      humanize: true,          
+      headless: false,         
+      randomFonts: true,       // Ngẫu nhiên hóa danh sách Font chữ (Chống Fingerprinting)
+      canvas: 'random',        // Ngẫu nhiên hóa vân tay đồ họa Canvas
     });
     tabId = tid;
     console.log(`[1] Tab mở thành công: ${tabId}`);
-    await new Promise(r => setTimeout(r, 8000));
+    
+    // Chờ trang tải và Cloudflare (15 giây)
+    await new Promise(r => setTimeout(r, 15000));
     await saveStep(tabId, 'khoi_dong');
 
-    // 2. Điền email
+    // 2. Nhận diện và Xử lý trang Email
+    const emailSelectors = ['username', 'email-input', 'email', 'identifier'];
+    const hasEmailField = await waitForSelector(tabId, USER_ID, emailSelectors, 30000);
+    
+    if (!hasEmailField) {
+      // Có thể đang kẹt ở màn hình Welcome hoặc Cloudflare
+      console.log(`[2] ⚠️ Không thấy ô Email ngay lập tức, thử bấm "Log in" nếu có...`);
+      try {
+        await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button:has-text("Log in"), a:has-text("Log in")' });
+        await new Promise(r => setTimeout(r, 5000));
+      } catch(e) {}
+    }
+
     console.log(`[2] Điền email: ${account.email}`);
+    const emailInputSelector = 'input[name="username"], #username, input[type="email"], #email-input, input[name="email-input"], input[name="email"]';
     await camofoxPost(`/tabs/${tabId}/type`, {
       userId: USER_ID,
-      selector: 'input[name="username"], #username, input[type="email"]',
+      selector: emailInputSelector,
       text: account.email,
     });
     await saveStep(tabId, 'da_dien_email');
 
-    console.log(`[3] Bấm Continue (Email)...`);
-    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-    await new Promise(r => setTimeout(r, 5000));
+    console.log(`[3] Bấm nút Continue...`);
+    // Thử click nút cụ thể thay vì Enter triệu hồi timeout
+    try {
+      await camofoxPost(`/tabs/${tabId}/click`, {
+        userId: USER_ID,
+        selector: 'button[type="submit"], button:has-text("Continue"), button:has-text("Tiếp tục")',
+      });
+    } catch(e) {
+      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    }
+    
+    await new Promise(r => setTimeout(r, 6000));
     await saveStep(tabId, 'sau_email');
 
-    // 3. Điền password
+    // 3. Đợi và điền Password
+    const hasPasswordField = await waitForSelector(tabId, USER_ID, ['password', 'passwd'], 25000);
+    if (!hasPasswordField) {
+      // OpenAI thi thoảng bắt chọn "Personal account" hoặc có màn hình trung gian
+      console.log(`[4] ⚠️ Chưa thấy ô Password, thử bấm Enter lần nữa hoặc click lân cận...`);
+      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+      await new Promise(r => setTimeout(r, 5000));
+    }
+
     console.log(`[4] Điền password...`);
     await camofoxPost(`/tabs/${tabId}/type`, {
       userId: USER_ID,
@@ -144,130 +227,182 @@ async function runLoginFlow(task) {
     });
     await saveStep(tabId, 'da_dien_password');
 
-    console.log(`[5] Bấm Continue (Password)...`);
-    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-    await new Promise(r => setTimeout(r, 8000));
+    console.log(`[5] Gửi mật khẩu...`);
+    try {
+      await camofoxPost(`/tabs/${tabId}/click`, {
+        userId: USER_ID,
+        selector: 'button[type="submit"], button:has-text("Continue"), button:has-text("Tiếp tục"), button:has-text("Log in")',
+      });
+    } catch(e) {
+      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    }
+    
+    await new Promise(r => setTimeout(r, 10000));
     await saveStep(tabId, 'sau_password');
 
-    // 4. Xử lý 2FA nếu cần
-    const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-    const snapText = snapData.snapshot || '';
-    if (snapText.includes('code') || snapText.includes('2FA') || snapText.includes('authenticator')) {
+    // 4. Xử lý 2FA (Bổ sung poll thông minh hơn)
+    let isAtMFA = false;
+    for (let j = 0; j < 5; j++) {
+      const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+      const snap2Url = (snapData.url || '').toLowerCase();
+      const snapText = (snapData.snapshot || '').toLowerCase();
+      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('verify') || 
+                snapText.includes('one-time code') || snapText.includes('authenticator') ||
+                snapText.includes('enter the code');
+      
+      if (isAtMFA) break;
+      if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break; // Đã qua màn 2FA
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    if (isAtMFA) {
+      console.log(`[${task.email}] 🛡️ Đang ở màn hình 2FA/MFA...`);
       if (!account.twoFaSecret) {
-        console.log(`[${task.email}] ⚠️ Cần 2FA nhưng không có secret, bỏ qua...`);
+        console.log(`[${task.email}] ⚠️ Cần 2FA nhưng không có secret, chờ thủ công hoặc timeout.`);
       } else {
         const otp = getTOTP(account.twoFaSecret);
-        console.log(`[${task.email}] 2FA → OTP: ${otp}`);
+        console.log(`[${task.email}] Nhập OTP: ${otp}`);
+        
+        const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"], input[inputmode="numeric"]';
+        // Đôi khi cần click vào ô nhập trước
+        try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(e) {}
+        
         await camofoxPost(`/tabs/${tabId}/type`, {
           userId: USER_ID,
-          selector: 'input[autocomplete="one-time-code"], input[type="text"]',
+          selector: mfaSelector,
           text: otp,
         });
         await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-        await new Promise(r => setTimeout(r, 10000));
-        await saveStep(tabId, 'sau_2fa');
+        await new Promise(r => setTimeout(r, 8000));
       }
+      await saveStep(tabId, 'sau_2fa');
     }
 
-    // 5. Xử lý màn hình Consent (Bao gồm cả chọn Workspace cho tk Business)
-    const consentSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-    if (consentSnap.url?.includes('consent')) {
-      console.log(`[${task.email}] Consent screen → Xử lý ủy quyền / chọn Workspace...`);
-      
-      // Nếu có yêu cầu chọn workspace theo cấu hình của tài khoản (tuỳ chọn)
-      if (account.workspaceName) {
-        console.log(`[${task.email}] Đang cố gắng chọn workspace: ${account.workspaceName}`);
+    // 5. Đợi redirect về trang Consent hoặc Success
+    console.log(`[${task.email}] Đang theo dõi redirect về localhost hoặc mã Code...`);
+    let redirectUrl = null;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+      const curUrl = checkSnap.url || '';
+      const html = (checkSnap.snapshot || '').toLowerCase();
+
+      // Nếu thấy màn hình Consent (Uỷ quyền)
+      if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
+        console.log(`[${task.email}] Thấy màn hình Consent → Bấm Continue/Allow...`);
         try {
           await camofoxPost(`/tabs/${tabId}/click`, {
             userId: USER_ID,
-            selector: `text=${account.workspaceName}`,
+            selector: 'button:has-text("Allow"), button:has-text("Continue"), button:has-text("Tiếp tục"), button[type="submit"]',
           });
-          await new Promise(r => setTimeout(r, 2000));
-        } catch(e) {
-          console.log(`[${task.email}] Không tìm thấy workspace: ${account.workspaceName}, dùng mặc định.`);
-        }
+        } catch(e) {}
       }
 
-      console.log(`[${task.email}] Bấm nút Continue / Tiếp tục...`);
-      await camofoxPost(`/tabs/${tabId}/click`, {
-        userId: USER_ID,
-        selector: 'button:has-text("Allow"), button:has-text("Continue"), button:has-text("Tiếp tục"), button[type="submit"]',
-      });
-      await new Promise(r => setTimeout(r, 8000));
-      await saveStep(tabId, 'sau_consent');
+      if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) {
+        redirectUrl = curUrl;
+        console.log(`[${task.email}] ✅ Tìm thấy đích: ${curUrl}`);
+        break;
+      }
+      
+      // Nếu kẹt ở màn hình login (OpenAI đôi khi quay vòng)
+      if (i > 5 && (curUrl.includes('login') || html.includes('forgot password'))) {
+        console.log(`[${task.email}] ⚠️ Có vẻ bị kẹt ở Login, thử Enter lần nữa...`);
+        await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+      }
     }
 
-    // 6. Lấy authorization code từ URL redirect
-    const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-    console.log(`[${task.email}] URL cuối:`, finalSnap.url);
+    await saveStep(tabId, 'ket_thuc_flow');
 
-    if (finalSnap.url?.includes('code=')) {
-      const code = new URL(finalSnap.url).searchParams.get('code');
-      console.log(`[${task.email}] ✅ Lấy được Code: ${code?.substring(0, 20)}...`);
-      await sendResultToGateway(task.id, 'success', 'Đã lấy được code thành công', {
+    if (redirectUrl && redirectUrl.includes('code=')) {
+      const urlObj = new URL(redirectUrl);
+      const code = urlObj.searchParams.get('code');
+      console.log(`[${task.email}] ✅ SUCCESS! Code: ${code?.substring(0, 20)}...`);
+      await sendResultToGateway(task, 'success', 'Đã lấy được code thành công', {
         code,
         codeVerifier: account.codeVerifier,
-        finalUrl: finalSnap.url,
+        finalUrl: redirectUrl,
       });
-      console.log(`[${task.email}] 🏁 HOÀN TẤT.`);
     } else {
-      console.log(`[${task.email}] ❌ THẤT BẠI: Không thấy Code trong URL cuối.`);
-      await sendResultToGateway(task.id, 'error', 'Không tìm thấy code trong URL redirect', {
-        finalUrl: finalSnap.url,
+      console.log(`[${task.email}] ❌ THẤT BẠI: Không thấy Code sau 40s.`);
+      await sendResultToGateway(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', {
+        finalUrl: redirectUrl || 'unknown',
       });
     }
   } catch (err) {
     console.error(`[!] Lỗi xử lý ${account.email}:`, err.message);
-    await sendResultToGateway(task.id, 'error', err.message, null);
+    await sendResultToGateway(task, 'error', `Lỗi Worker: ${err.message}`, null);
   } finally {
     if (tabId) {
       try {
         await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`);
-        console.log(`[Camofox] 🧹 Đã đóng tab ${tabId}`);
+        console.log(`[Camofox] 🧹 Đóng tab ${tabId}`);
       } catch (_) {}
     }
   }
 }
 
 // ============================================
-// GATEWAY COMMUNICATION
+// COMMUNICATION
 // ============================================
 
-async function sendResultToGateway(taskId, status, message, result) {
-  // 1. Gửi về Tools cục bộ để cập nhật UI ngay lập tức
+async function sendResultToGateway(task, status, message, result) {
+  const taskId = task.id;
+  const source = task.source || 'd1';
+
+  // LUÔN LUÔN báo về Tools để cập nhật UI Local, 
+  // nhưng nếu source KHÔNG PHẢI là 'tools', ta XOÁ `result` để Tools KHÔNG tự ý exchange token.
   try {
+    const toolsResult = source === 'tools' ? result : null;
     await fetch(`http://localhost:4000/api/vault/accounts/result`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: taskId, status, message, result }),
+      body: JSON.stringify({ id: taskId, status, message, result: toolsResult }),
     });
-    console.log(`[Tools] ✅ Đã cập nhật trạng thái tài khoản trên UI.`);
-  } catch (e) {
-    // Im lặng
-  }
+    console.log(`[Tools] ✅ Đã báo cáo trạng thái tài khoản trên UI Local.`);
+  } catch (e) {}
 
-  // 2. Gửi về Gateway (OmniRoute Result API)
-  try {
-    const res = await fetch(`${GATEWAY_URL}/api/public/worker/result`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${WORKER_AUTH_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ id: taskId, status, message, result }),
-    });
-    if (res.ok) {
-      console.log(`[Gateway] ✅ Gửi kết quả (${status}) thành công.`);
-    } else {
-      console.log(`[Gateway] ❌ API từ chối: HTTP ${res.status}`);
+  if (source === 'gateway') {
+    // Chỉ báo cáo có kèm result về Gateway nếu task lấy từ Gateway
+    try {
+      const res = await fetch(`${GATEWAY_URL}/api/public/worker/result`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${WORKER_AUTH_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: taskId, status, message, result }),
+      });
+      if (res.ok) {
+        console.log(`[Gateway] ✅ Gửi kết quả (${status}) thành công.`);
+      } else {
+        console.log(`[Gateway] ❌ API từ chối: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      console.error('[Gateway Error] Không thể kết nối VPS:', e.message);
     }
-  } catch (e) {
-    console.error('[Gateway Error] Không thể kết nối VPS:', e.message);
+  } else {
+    // Nếu task đến từ Tools hoặc D1 Cloud trực tiếp, thì báo cáo trạng thái cho D1 Cloud (để cập nhật DB tổng)
+    // Lưu ý: Tools endpoint /accounts/task bản chất là D1 task nhưng được gắn thêm PKCE.
+    try {
+      const configRes = await fetch('http://localhost:4000/api/config', { signal: AbortSignal.timeout(2000) });
+      const cfg = await configRes.json();
+      if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+        await fetch(`${cfg.d1WorkerUrl}/accounts/${taskId}`, {
+          method: 'PATCH',
+          headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, last_error: message, updated_at: new Date().toISOString() }),
+          signal: AbortSignal.timeout(4000),
+        });
+        console.log(`[D1 Cloud] ✅ Cập nhật status → ${status}`);
+      }
+    } catch (e) {
+      console.log(`[D1 Cloud] ⚠️ Không cập nhật được D1: ${e.message}`);
+    }
   }
 }
 
 async function fetchTask() {
-  // 1. Ưu tiên: Hỏi Gateway (OmniRoute Task API) - Đây là trung tâm điều hành chính
+  // 1. Ưu tiên: Hỏi Gateway (OmniRoute Task API)
   try {
     const res = await fetch(`${GATEWAY_URL}/api/public/worker/task`, {
       headers: {
@@ -282,36 +417,66 @@ async function fetchTask() {
     }
     if (res.status === 200) {
       const data = await res.json();
-      return data.task;
+      if (data.task) {
+        console.log(`[Gateway] ✅ Tìm thấy task: ${data.task.email}`);
+        data.task.source = 'gateway';
+        return data.task;
+      }
+      console.log(`[Gateway] Không có task pending`);
     }
   } catch (e) {
-    // Im lặng nếu không kết nối được Gateway
+    console.log(`[Gateway] Không kết nối được: ${e.message}`);
   }
 
-  // 3. PhƯƠNG ÁN CUỐI: Hỏi thẳng Cloud D1 (nếu có cấu hình)
+  // 2. Hỏi Tools Server (có PKCE baked-in, đảm bảo codeVerifier hợp lệ)
   try {
-    const configRes = await fetch(`http://localhost:4000/api/config`);
-    const cfg = await configRes.json();
-    if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
-      const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?status=pending`, {
-        headers: { 'x-sync-secret': cfg.d1SyncSecret },
-        signal: AbortSignal.timeout(3000)
-      });
-      if (d1Res.ok) {
-        const d1Data = await d1Res.json();
-        // Lấy tài khoản Codex đang chờ
-        const pending = d1Data.items?.find(a => a.provider === 'codex' && (a.status === 'pending' || a.status === 'relogin'));
-        if (pending) {
-          console.log(`[D1 Cloud] ☁️ Tìm thấy tài khoản mới trên Cloud: ${pending.email}`);
-          // Gắn thêm URL login chuẩn của Tools Assistant
-          pending.loginUrl = 'https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid+profile+email+offline_access&code_challenge=S256&id_token_add_organizations=true&originator=codex_cli_rs&codex_cli_simplified_flow=true';
-          pending.codeVerifier = 'seellm_vault_standard_verifier';
-          return pending;
-        }
+    const res = await fetch(`http://localhost:4000/api/vault/accounts/task`, {
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.task) {
+        console.log(`[Tools] ✅ Tìm thấy task: ${data.task.email} (codeVerifier: ${data.task.codeVerifier ? 'CÓ' : 'KHÔNG'})`);
+        data.task.source = 'tools';
+        return data.task;
       }
+      console.log(`[Tools] Không có task pending`);
+    } else {
+      console.log(`[Tools] Lỗi HTTP ${res.status}: ${await res.text()}`);
     }
   } catch (e) {
-    // Im lặng
+    console.log(`[Tools] Không kết nối được: ${e.message}`);
+  }
+
+  // 3. Dự phòng cuối: Hỏi thẳng Cloud D1 (KHÔNG có codeVerifier!)
+  try {
+    const configRes = await fetch(`http://localhost:4000/api/config`, {
+      signal: AbortSignal.timeout(2000)
+    });
+    const cfg = await configRes.json();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return null;
+    }
+    const d1Res = await fetch(`${cfg.d1WorkerUrl}/inspect/accounts?limit=500`, {
+      headers: { 'x-sync-secret': cfg.d1SyncSecret },
+      signal: AbortSignal.timeout(4000)
+    });
+    if (!d1Res.ok) return null;
+
+    const d1Data = await d1Res.json();
+    const allItems = (d1Data.items || []).filter(a => !a.deleted_at);
+    console.log(`[D1 Cloud] Tổng accounts: ${allItems.length}, tìm pending...`);
+    const pending = allItems.find(a => (a.status === 'pending' || a.status === 'relogin'));
+    if (pending) {
+      console.log(`[D1 Cloud] ☁️ Tìm thấy task: ${pending.email} (${pending.status}) - ⚠️ KHÔNG có codeVerifier!`);
+      // Fallback URL không có PKCE — sẽ thất bại ở exchange token
+      pending.loginUrl = pending.loginUrl || 'https://chatgpt.com/auth/login';
+      pending.source = 'd1';
+      return pending;
+    }
+    console.log(`[D1 Cloud] Không có account nào đang pending`);
+  } catch (e) {
+    console.log(`[D1 Cloud] Lỗi: ${e.message}`);
   }
 
   return null;
@@ -321,26 +486,38 @@ async function fetchTask() {
 // POLLING LOOP
 // ============================================
 let activeThreads = 0;
+const processingIds = new Set(); // Chặn duplicate tasks
 
 async function pollTasks() {
   if (activeThreads >= MAX_THREADS) return;
   try {
     const task = await fetchTask();
-    if (task?.id) {
-      activeThreads++;
-      console.log(`[Worker] 🚀 Luồng mới: ${task.email} (${activeThreads}/${MAX_THREADS})`);
-      runLoginFlow(task)
-        .then(() => {
-          activeThreads--;
-          console.log(`[Worker] ✅ Hoàn tất ${task.email}. Còn trống: ${MAX_THREADS - activeThreads}`);
-          if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 1000);
-        })
-        .catch(err => {
-          activeThreads--;
-          console.error(`[Worker] ❌ Lỗi luồng ${task.email}:`, err.message);
-        });
-      if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 2000);
+    if (!task?.id) return;
+
+    // Chặn cùng 1 account bị xử lý 2 lần
+    if (processingIds.has(task.id)) {
+      console.log(`[Worker] ⏭️ Bỏ qua ${task.email} - đang được xử lý rồi`);
+      return;
     }
+
+    processingIds.add(task.id);
+    activeThreads++;
+    console.log(`[Worker] 🚀 Luồng mới: ${task.email} (${activeThreads}/${MAX_THREADS})`);
+
+    runLoginFlow(task)
+      .then(() => {
+        activeThreads = Math.max(0, activeThreads - 1);
+        processingIds.delete(task.id);
+        console.log(`[Worker] ✅ Hoàn tất ${task.email}. Còn trống: ${MAX_THREADS - activeThreads}`);
+        if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 1000);
+      })
+      .catch(err => {
+        activeThreads = Math.max(0, activeThreads - 1);
+        processingIds.delete(task.id);
+        console.error(`[Worker] ❌ Lỗi luồng ${task.email}:`, err.message);
+      });
+
+    if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 2000);
   } catch (err) {
     console.error('[!] Lỗi poll tasks:', err.message);
   }

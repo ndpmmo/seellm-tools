@@ -1,9 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import cryptlib from 'cryptlib';
-import nodeMachineId from 'node-machine-id';
-const { machineIdSync } = nodeMachineId;
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import crypto from 'crypto';
@@ -17,37 +14,9 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = path.join(DATA_DIR, 'vault.db');
 const db = new Database(DB_PATH);
 
-// Securely get machine ID for encryption
-let mid_val = 'seellm-node-default-mid';
-try {
-  // macOS fix: Ensure /usr/sbin is in path for ioreg command used by node-machine-id
-  if (process.platform === 'darwin') {
-    process.env.PATH = `${process.env.PATH}:/usr/sbin`;
-  }
-  mid_val = machineIdSync() || mid_val;
-} catch (e) {
-  // Silent fallback to avoid startup noise while preserving hash
-}
-
-const mid = mid_val;
-const SALT = 'seellm_vault_v3_salt';
-
-const KEY = crypto.createHash('sha256').update(mid + SALT).digest('hex').slice(0, 32);
-const IV  = crypto.createHash('sha256').update(SALT + mid).digest('hex').slice(0, 16);
-
-function encrypt(text) {
-  if (!text) return null;
-  return cryptlib.encrypt(text, KEY, IV);
-}
-
-function decrypt(cipher) {
-  if (!cipher) return null;
-  try {
-    return cryptlib.decrypt(cipher, KEY, IV);
-  } catch (e) {
-    return '***[DECRYPT_ERROR]***';
-  }
-}
+// No encryption - store all values as plain text per user preference
+const encrypt = (text) => text || null;
+const decrypt = (cipher) => cipher || null;
 
 /* ─── Migrations ────────────────────────────────────────────────────────── */
 
@@ -119,7 +88,21 @@ function initSchema() {
   `);
 }
 
+function applyMigrations() {
+  const tables = ['vault_accounts', 'vault_proxies', 'vault_api_keys'];
+  for (const t of tables) {
+    try {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN deleted_at TEXT`);
+    } catch (e) {
+      // Bỏ qua nếu cột đã tồn tại
+    }
+  }
+}
+
+/* ─── Exported API ──────────────────────────────────────────────────────── */
+
 initSchema();
+applyMigrations();
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
@@ -128,7 +111,15 @@ export const vault = {
 
   // CRUD ACCOUNTS
   getAccounts: () => {
-    const list = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
+    let rawList;
+    try {
+      rawList = db.prepare('SELECT * FROM vault_accounts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all();
+    } catch(e) {
+      if (e.message.includes('no such column')) {
+        rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
+      } else throw e;
+    }
+    const list = rawList.filter(a => a.email && a.email.trim() !== '');
     return list.map(a => ({
       ...a,
       password:      '********', // masked by default
@@ -140,31 +131,55 @@ export const vault = {
     }));
   },
 
-  getAccount: (id, decryptFull = false) => {
+  getAccount: (id) => {
     const a = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (!a) return null;
-    if (decryptFull) {
-      return {
-        ...a,
-        password:      decrypt(a.password),
-        two_fa_secret: decrypt(a.two_fa_secret),
-        access_token:  decrypt(a.access_token),
-        refresh_token: decrypt(a.refresh_token),
-        tags:          JSON.parse(a.tags || '[]'),
-        cookies:       JSON.parse(a.cookies || '[]')
-      };
-    }
-    return vault.getAccounts().find(x => x.id === id);
+    return {
+      ...a,
+      password:      a.password,
+      two_fa_secret: a.two_fa_secret,
+      access_token:  a.access_token,
+      refresh_token: a.refresh_token,
+      tags:          JSON.parse(a.tags || '[]'),
+      cookies:       JSON.parse(a.cookies || '[]')
+    };
   },
+
+  // Lấy danh sách tài khoản với credentials (dùng cho Task endpoint)
+  getAccountsFull: () => {
+    let rawList;
+    try {
+      rawList = db.prepare('SELECT * FROM vault_accounts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all();
+    } catch(e) {
+      if (e.message.includes('no such column')) {
+        rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
+      } else throw e;
+    }
+    const list = rawList.filter(a => a.email && a.email.trim() !== '');
+    return list.map(a => ({
+      ...a,
+      tags:    JSON.parse(a.tags || '[]'),
+      cookies: JSON.parse(a.cookies || '[]')
+    }));
+  },
+
+  getAccountFull: (id) => vault.getAccount(id),
 
   upsertAccount: (data, skipSync = false) => {
     const id = data.id || `acc_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
     const existing = db.prepare('SELECT id, created_at, password, two_fa_secret, access_token, refresh_token FROM vault_accounts WHERE id = ?').get(id);
 
+    // Mapping D1 schema `last_error` to Tools schema `notes`
+    let rawNotes = data.notes !== undefined ? data.notes : 
+                   (data.last_error !== undefined ? data.last_error : 
+                   (data.lastError !== undefined ? data.lastError : (existing ? existing.notes : '')));
+    
+    const finalStatus = (data.status || 'idle').toLowerCase();
+    
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data
-    let authData = { notes: data.notes || '' };
-    if (data.provider === 'codex' && (!existing || data.status === 'pending' || data.status === 'relogin')) {
+    let authData = { notes: rawNotes || '' };
+    if (data.provider === 'codex' && (!existing || finalStatus === 'pending' || finalStatus === 'relogin')) {
       const codeVerifier = crypto.randomBytes(32).toString('base64url');
       const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
       const state = crypto.randomBytes(32).toString('base64url');
@@ -181,14 +196,16 @@ export const vault = {
         state,
       });
       authData.notes = `OAuth URL: https://auth.openai.com/oauth/authorize?${params.toString()}\nVerifier: ${codeVerifier}`;
+    } else if (finalStatus === 'ready' || finalStatus === 'idle') {
+      authData.notes = ''; // Wipe error history visually if account recovered fully
     }
 
     const stmt = db.prepare(`
       INSERT INTO vault_accounts (
         id, provider, label, email, password, two_fa_secret, proxy_url, 
         cookies, access_token, refresh_token, status, notes, tags, 
-        exported_to, exported_at, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        exported_to, exported_at, created_at, updated_at, deleted_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
         label         = excluded.label,
@@ -204,32 +221,34 @@ export const vault = {
         tags          = excluded.tags,
         exported_to   = excluded.exported_to,
         exported_at   = excluded.exported_at,
-        updated_at    = excluded.updated_at
+        updated_at    = excluded.updated_at,
+        deleted_at    = excluded.deleted_at
     `);
 
     const record = {
       id, 
-      provider: data.provider || 'openai', 
-      label: data.label || '', 
-      email: data.email || '', 
-      password: data.password ? encrypt(data.password) : (existing ? existing.password : null),
-      two_fa_secret: data.two_fa_secret ? encrypt(data.two_fa_secret) : (existing ? existing.two_fa_secret : null),
-      proxy_url: data.proxy_url || null, 
-      cookies: JSON.stringify(data.cookies || []),
-      access_token: data.access_token ? encrypt(data.access_token) : (existing ? existing.access_token : null),
-      refresh_token: data.refresh_token ? encrypt(data.refresh_token) : (existing ? existing.refresh_token : null),
-      status: (data.status || 'idle').toLowerCase(),
-      notes: authData.notes,
-      tags: JSON.stringify(data.tags || []),
+      provider: data.provider !== undefined ? data.provider : (existing ? existing.provider : 'codex'), 
+      label: data.label !== undefined ? data.label : (existing ? existing.label : ''), 
+      email: data.email !== undefined ? data.email : (existing ? existing.email : ''), 
+      password: data.password !== undefined ? data.password : (existing ? existing.password : null),
+      two_fa_secret: data.two_fa_secret !== undefined ? data.two_fa_secret : (existing ? existing.two_fa_secret : null),
+      proxy_url: data.proxy_url !== undefined ? data.proxy_url : (existing ? existing.proxy_url : null), 
+      cookies: JSON.stringify(data.cookies || (existing ? JSON.parse(existing.cookies || '[]') : [])),
+      access_token: data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null),
+      refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
+      status: finalStatus,
+      notes: (authData.notes === null || authData.notes === 'null') ? '' : authData.notes,
+      tags: JSON.stringify(data.tags || (existing ? JSON.parse(existing.tags || '[]') : [])),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
-      created_at: existing ? existing.created_at : now, updated_at: now
+      created_at: existing ? existing.created_at : now, updated_at: now,
+      deleted_at: data.deleted_at || (existing ? existing.deleted_at : null)
     };
 
     stmt.run(
       record.id, record.provider, record.label, record.email, record.password,
       record.two_fa_secret, record.proxy_url, record.cookies, record.access_token,
       record.refresh_token, record.status, record.notes, record.tags,
-      record.exported_to, record.exported_at, record.created_at, record.updated_at
+      record.exported_to, record.exported_at, record.created_at, record.updated_at, record.deleted_at
     );
 
     // [Real-time Push]

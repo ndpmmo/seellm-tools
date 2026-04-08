@@ -2,6 +2,13 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
+## [0.1.0] - 2026-04-08
+### Fixed
+- **Sync Pipeline Stabilization**: Sửa lỗi nghiêm trọng khiến `req.body` bị `undefined` tại endpoint `/accounts/result`, giúp Worker có thể gửi kết quả login về Tools thành công.
+- **PKCE Persistence**: Triển khai `pkceStore` trong bộ nhớ để giữ cố định mã xác thực PKCE cho mỗi tài khoản, loại bỏ hoàn toàn lỗi `400 invalid_request` khi Worker poll task nhiều lần.
+- **Ghost Record Elimination**: Hoàn thiện cơ chế dọn rác 2 chiều. Thêm hỗ trợ `deleted_at` cho D1 Cloud và bộ lọc email rác trong `SyncManager`, đảm bảo dữ liệu "ma" không bao giờ quay trở lại sau khi xóa.
+- **Improved Reliability**: Bổ sung tự động import `path` và `fs` thiếu hụt, cùng cơ chế ghi log lỗi critical cho các trường hợp Exchange Token thất bại.
+
 ## [0.0.9] - 2026-04-07
 ### Added
 - **Instant Cloud Deletion**: Kích hoạt cơ chế đồng bộ xóa tức thì (`pushVault('delete')`). Khi bạn xóa tài khoản/proxy ở Tools, Cloud D1 sẽ được cập nhật ngay lập tức.

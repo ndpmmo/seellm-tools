@@ -4,7 +4,7 @@ import {
   Plus, Upload, Search, RefreshCw,
   Copy, Check, Pencil, Trash2, RotateCcw,
   Save, X, AlertCircle, ChevronDown, ChevronUp,
-  Users, CheckCircle, Clock, XCircle, Globe,
+  Users, CheckCircle, Clock, XCircle, Globe, Database
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 
@@ -133,6 +133,15 @@ export function AccountsView() {
   const openEdit = (it: any) => { setEditId(it.id); setEditPass(it.password || ''); setEdit2fa(it.two_fa_secret || ''); setEditProxy(it.proxy_url || ''); };
   const saveEdit = async () => { if (!editId) return; setEditSaving(true); await patch(`/api/d1/accounts/${editId}`, { password: editPass, twoFaSecret: edit2fa, proxyUrl: editProxy }); addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load(); };
   const cancelEdit = () => setEditId(null);
+  const bypassSync = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      addToast(`☁️ Đã ép đồng bộ ${email} lên D1`, 'success');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch {} } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
   /* ── base cell style ── */
@@ -342,6 +351,7 @@ export function AccountsView() {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button className="btn-icon" title="Ép đồng bộ lên D1" onClick={() => bypassSync(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>
                           <button className="btn-icon" title="Sửa" onClick={() => openEdit(it)}><Pencil size={13} /></button>
                           <button className="btn-icon success" title="Re-run → pending" onClick={() => reset(it.id)}><RotateCcw size={13} /></button>
                           <button className="btn-icon danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></button>

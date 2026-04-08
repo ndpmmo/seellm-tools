@@ -179,12 +179,13 @@ function listLogFiles() {
 }
 
 // ─── Next.js ─────────────────────────────────────────────────────────────────
-const app  = next({ dev, hostname, port: PORT });
+const app  = next({ dev, hostname: 'localhost', port: PORT });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const ex = express();
-  ex.use(express.json());
+  ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
+  ex.use('/api/vault', vaultRouter);
 
   // Serve screenshots + logs as static files
   ex.use('/data/screenshots', express.static(SCREENSHOTS_DIR));
@@ -397,10 +398,7 @@ app.prepare().then(() => {
   });
 
   // ── Next.js fallback ─────────────────────────────────────────────────────
-  ex.all(/(.*)/, (req, res) => {
-    const parsedUrl = new URL(req.url, `http://${hostname}:${PORT}`);
-    return handle(req, res, parsedUrl);
-  });
+  ex.all(/(.*)/, (req, res) => handle(req, res));
 
   // ── HTTP + Socket.io ─────────────────────────────────────────────────────
   const httpServer = createServer(ex);
@@ -419,11 +417,11 @@ app.prepare().then(() => {
   // Watch screenshot directory for realtime updates
   watchScreenshots();
 
-  httpServer.listen(PORT, hostname, () => {
+  httpServer.listen(PORT, () => {
     console.log(`
 ╔══════════════════════════════════════════════╗
 ║  🛠️  SeeLLM Tools                             ║
-║  http://${hostname}:${PORT}                           ║
+║  http://localhost:${PORT}                        ║
 ║                                              ║
 ║  data/screenshots → Live Screenshot View     ║
 ║  data/logs        → Log Files                ║

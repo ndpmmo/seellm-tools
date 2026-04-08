@@ -11,11 +11,53 @@ export const SyncManager = {
       return;
     }
 
+    const now = new Date().toISOString();
+    const version = Date.now(); // CF Worker cần version > 0 để vượt qua WHERE version check
+
     // Wrap the record into the PushPayload format expected by the worker
     const payload = {};
-    if (type === 'account') payload.vaultAccounts = [data];
-    if (type === 'proxy')   payload.vaultProxies = [data];
-    if (type === 'key')     payload.vaultKeys = [data];
+    if (type === 'account') {
+      payload.vaultAccounts = [{ ...data, updated_at: data.updated_at || now }];
+      
+      // Push đồng thời sang schema Gateway để Gateway nhìn thấy
+      payload.managedAccounts = [{
+        id: data.id,
+        provider: data.provider || 'codex',
+        email: data.email,
+        password: data.password,
+        two_fa_secret: data.two_fa_secret,
+        proxy_url: data.proxy_url,
+        proxy_id: null,
+        status: data.status,
+        last_error: data.notes,
+        last_sync_at: now,
+        updated_at: now,
+        deleted_at: data.deleted_at || null,
+        version,  // ← QUAN TRỌNG: CF Worker kiểm tra version để quyết định có ghi đè không
+      }];
+      
+      // Khai sinh Connector lên Cloud nếu Tools đã lấy được Token thành công
+      if (data.refresh_token) {
+        payload.connections = [{
+          id: data.id,
+          provider: data.provider || 'codex',
+          email: data.email,
+          name: data.email ? data.email.split('@')[0] : data.id,
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+          proxy_url: data.proxy_url,
+          workspace_id: null,
+          is_active: (data.status === 'ready' || data.status === 'success') ? 1 : 0,
+          rate_limit_protection: 0,
+          provider_specific_data: null,
+          updated_at: now,
+          deleted_at: data.deleted_at || null,
+          version,  // ← QUAN TRỌNG: không có dòng này, record bị bỏ qua hoàn toàn
+        }];
+      }
+    }
+    if (type === 'proxy') payload.vaultProxies = [{ ...data, updated_at: data.updated_at || now }];
+    if (type === 'key')   payload.vaultKeys   = [{ ...data, updated_at: data.updated_at || now }];
 
     try {
       console.log(`[SyncManager] Pushing ${type} to D1...`);
@@ -31,10 +73,11 @@ export const SyncManager = {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'D1 push failed');
       
-      console.log(`[SyncManager] Successfully synced ${type} to D1.`);
+      const counts = result.counts || {};
+      console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections||0}, managedAccounts=${counts.managedAccounts||0}, vaultAccounts=${counts.vaultAccounts||0}`);
       return result;
     } catch (e) {
-      console.error(`[SyncManager] Error syncing ${type}:`, e.message);
+      console.error(`[SyncManager] ❌ Error syncing ${type}:`, e.message);
     }
   },
 
@@ -52,9 +95,64 @@ export const SyncManager = {
 
       // Check if we have new data
       if (data.ok && data.cursor && data.cursor > since) {
+        // Hợp nhất dữ liệu song song (do Gateway đẩy lên codex_managed_accounts)
+        const accounts = [...(data.data?.vaultAccounts || [])];
+        const gatewayAccounts = data.data?.managedAccounts || [];
+        for (const ga of gatewayAccounts) {
+          const existing = accounts.find(a => a.id === ga.id);
+          if (!existing) {
+            accounts.push({
+              id: ga.id,
+              provider: ga.provider || 'codex',
+              email: ga.email,
+              password: ga.password,
+              two_fa_secret: ga.two_fa_secret,
+              proxy_url: ga.proxy_url,
+              status: ga.status,
+              notes: ga.last_error,
+              updated_at: ga.updated_at,
+              deleted_at: ga.deleted_at
+            });
+          } else {
+            // Apply updates from Gateway if they are newer
+            try {
+              if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
+                existing.status = ga.status;
+                existing.notes = ga.last_error;
+                existing.deleted_at = ga.deleted_at;
+                existing.updated_at = ga.updated_at;
+              }
+            } catch(e) {}
+          }
+        }
+
+        // ─── Filter rác: chỉ nhập accounts có email thực ───────────────────
+        const JUNK_EMAILS = ['ghost@gmail.com', 'test@seellm.local', ''];
+        const validAccounts = accounts.filter(a => {
+          const email = (a.email || '').trim();
+          if (!email) return false;
+          if (JUNK_EMAILS.includes(email.toLowerCase())) return false;
+          return true;
+        });
+
+        // Hợp nhất Token từ Connections (nếu Gateway rotate token thì Tools phải nắm được)
+        const gatewayConnections = data.data?.connections || [];
+        for (const conn of gatewayConnections) {
+          const existing = validAccounts.find(a => a.id === conn.id);
+          if (existing) {
+            existing.access_token = conn.access_token || existing.access_token;
+            existing.refresh_token = conn.refresh_token || existing.refresh_token;
+            try {
+              if (conn.updated_at && (!existing.updated_at || new Date(conn.updated_at) > new Date(existing.updated_at))) {
+                existing.updated_at = conn.updated_at;
+              }
+            } catch(e) {}
+          }
+        }
+
         return {
           cursor:   data.cursor,
-          accounts: data.data?.vaultAccounts || [],
+          accounts: validAccounts,
           proxies:  data.data?.vaultProxies || [],
           keys:     data.data?.vaultKeys || []
         };
