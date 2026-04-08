@@ -214,15 +214,18 @@ export const SyncManager = {
               });
             }
           } else {
-            // Apply updates từ Gateway nếu mới hơn (chỉ cập nhật status, không ghi đè password)
-            try {
+              try {
               if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
-                existing.status = ga.status || existing.status;
-                existing.notes = ga.last_error || existing.notes;
-                // Bảo vệ: không ghi đè deleted_at lên local account đang active
+                // Khi Gateway gửi deleted_at (đã xóa account), chuyển về idle thay vì bỏ qua
+                // Vault là kho độc lập — xóa ở Gateway = thu hồi về kho lạnh (idle)
                 if (ga.deleted_at && !existing.deleted_at) {
-                  console.log(`[pullVault] ⚠️ Bỏ qua deleted_at từ Gateway cho ${existing.email} (local active)`);
+                  console.log(`[pullVault] 🔄 Gateway đã xóa ${existing.email} → Chuyển về idle (Vault giữ nguyên)`);
+                  existing.status = 'idle';
+                  existing.notes = '';
+                  // Không áp dụng deleted_at vào local — Vault chỉ đổi status, không xóa record
                 } else {
+                  existing.status = ga.status || existing.status;
+                  existing.notes = ga.last_error || existing.notes;
                   existing.deleted_at = ga.deleted_at;
                 }
                 existing.updated_at = ga.updated_at;
