@@ -423,13 +423,27 @@ router.post('/accounts/:id/stop', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Not found' });
     pkceStore.delete(req.params.id);
     vault.updateAccountStatus(req.params.id, 'idle');
-    // Khi updateAccountStatus, nó sẽ tự gọi SyncManager.pushVault bên trong
-    // và SyncManager sẽ tự động xóa account này khỏi Gateway vì status='idle'.
-    // À khoan, hàm SyncManager.pushVault ở trên chỉ Không thêm vào managedAccounts, nhưng Gateway đã có rồi thì sao?
-    // Để Gateway xóa, ta phải gửi một lệnh xóa cho Gateway.
-    // Nếu status == 'idle', gateway sẽ không nhận được update gì, hoặc nếu ta gửi `deleted_at: now`...
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Webhook: Gateway gọi về đây khi xóa account trên Gateway UI
+// Mục tiêu: Xóa ngay local vault để UI Tools phản ánh chính xác mà không cần chờ 15 phút sync
+router.post('/accounts/:id/webhook-delete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = vault.db.prepare('SELECT id, email FROM vault_accounts WHERE id = ? AND deleted_at IS NULL').get(id);
+    if (!existing) {
+      return res.json({ ok: true, skipped: true, reason: 'not found or already deleted' });
+    }
+    // Dùng deleteAccount nhưng KHÔNG đẩy lại lên D1 (skipSync=true) vì Gateway đã xóa D1 rồi
+    vault.deleteAccount(id, true);
+    console.log(`[Webhook] 🗑️ Gateway yêu cầu xóa account ${existing.email} (${id}) → Đã xóa Local Vault`);
+    res.json({ ok: true, deleted: id });
+  } catch (e) {
+    console.error(`[Webhook] ❌ Lỗi xóa account từ Gateway webhook:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Manual sync: Ép đồng bộ 1 account lên D1
