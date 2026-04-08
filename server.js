@@ -372,6 +372,37 @@ app.prepare().then(() => {
   startupSync();
   setInterval(doVaultSync, 5 * 60 * 1000);
 
+  // [SELF-HEALING] Định kỳ 3 tiếng một lần quét toàn phần (Full-Sync)
+  setInterval(async () => {
+    console.log(`[Sync] 🩺 Bắt đầu quét Self-Healing (Toàn phần)...`);
+    try {
+      const data = await SyncManager.pullVault(0); // Quét lại từ năm 1970
+      if (data) {
+        let accountsRepaired = 0;
+        data.accounts.forEach(a => {
+          const localRecord = vault.db.prepare('SELECT updated_at FROM vault_accounts WHERE id = ?').get(a.id);
+          // Chỉ lấy về nếu local không có, hoặc D1 mới hơn (chênh lệch > 1s để tránh sai số miliseconds)
+          if (!localRecord || (new Date(a.updated_at).getTime() - new Date(localRecord.updated_at).getTime() > 1000)) {
+            vault.upsertAccount(a, true);
+            accountsRepaired++;
+          }
+        });
+        
+        let proxiesRepaired = 0;
+        data.proxies.forEach(p => {
+          const localRecord = vault.db.prepare('SELECT updated_at FROM vault_proxies WHERE id = ?').get(p.id);
+          if (!localRecord || (new Date(p.updated_at).getTime() - new Date(localRecord.updated_at).getTime() > 1000)) {
+            vault.upsertProxy(p, true);
+            proxiesRepaired++;
+          }
+        });
+        console.log(`[Sync] 🩺 Self-Healing hoàn tất. Sửa lỗi: ${accountsRepaired} account, ${proxiesRepaired} proxy.`);
+      }
+    } catch (e) {
+      console.error(`[Sync] 🩺 Self-Healing thất bại:`, e.message);
+    }
+  }, 3 * 60 * 60 * 1000);
+
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 
   // ▶ Intercept: POST /api/d1/accounts/add → ngăn chặn duplicate và mirror vào local vault
@@ -448,6 +479,54 @@ app.prepare().then(() => {
         vault.deleteAccount(id, false); 
       }
       return next(); // Cho phép proxy qua D1 để xoá trên backend kia
+    } catch(e) {
+      return next();
+    }
+  });
+
+  // ▶ Intercept: POST /api/d1/proxies/add → mirror new proxy vào local vault
+  ex.post('/api/d1/proxies/add', async (req, res, next) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return next();
+    const body = req.body || {};
+    if (!body.url) return next();
+
+    try {
+      const d1Res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/proxies/add`, {
+        method: 'POST',
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+      const d1Data = await d1Res.json();
+      
+      if (d1Data.ok && d1Data.id) {
+        vault.upsertProxy({
+          id: d1Data.id,
+          url: body.url,
+          label: body.label || '',
+          type: body.url.startsWith('socks5://') ? 'socks5' : 'http',
+        });
+        console.log(`[D1 Proxy] ✅ Mirrored New Proxy to local: ${body.url} (id=${d1Data.id})`);
+      }
+      
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(d1Res.status).json(d1Data);
+    } catch (e) {
+      console.error(`[D1 Proxy] proxies/add interceptor error:`, e.message);
+      return next();
+    }
+  });
+
+  // ▶ Intercept: DELETE /api/d1/proxies/:id → mirror proxy deletion
+  ex.delete('/api/d1/proxies/:id', async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa proxy từ UI (Gateway). ID: ${id}`);
+      if (id) {
+        vault.deleteProxy(id, false); 
+      }
+      return next();
     } catch(e) {
       return next();
     }

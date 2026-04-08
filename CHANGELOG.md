@@ -2,6 +2,12 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
+## [0.1.4] - 2026-04-09
+### Optimized
+- **Real-time Proxy Pool Mirroring**: Tích hợp thêm các bộ chặn (Interceptors) cho tác vụ `POST /api/d1/proxies/add` và `DELETE /api/d1/proxies/:id` giúp cho công cụ tự động phản chiếu trạng thái Proxy trực tiếp từ Gateway UI xuống Local Vault ngay lập tức, không còn độ trễ.
+- **Database Self-Healing**: Bổ sung tiến trình tự động quét "chữa lành" chạy ngầm mỗi 3 tiếng. Hệ thống sẽ kết nối với D1 Cloud để tải toàn bộ bảng ghi từ mốc ban đầu (Cursor 0) và tự sửa chữa những tài khoản/proxy bị lệch nội dung hoặc sai hỏng thời gian.
+
+
 ## [0.1.3] - 2026-04-09
 ### Fixed
 - **Unique Identity Sync**: Khắc phục triệt để lỗi mất đồng bộ ID khi import tài khoản sang Gateway. Tools hiện gởi kèm ID nội bộ sang Gateway để đảm bảo hai bên nhìn cùng một đối tượng, ngăn chặn tình trạng đứt gãy Database.
