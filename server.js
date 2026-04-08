@@ -370,7 +370,7 @@ app.prepare().then(() => {
   }
 
   startupSync();
-  setInterval(doVaultSync, 5 * 60 * 1000);
+  setInterval(doVaultSync, 15 * 60 * 1000); // 15 phút (Đã có Interceptors xử lý tức thời)
 
   // [SELF-HEALING] Định kỳ 3 tiếng một lần quét toàn phần (Full-Sync)
   setInterval(async () => {

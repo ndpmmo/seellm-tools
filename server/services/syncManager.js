@@ -3,16 +3,61 @@ import { loadConfig } from '../db/config.js';
 /**
  * SyncManager handles pushing Vault data to Cloudflare D1
  */
+// Bộ nhớ đệm để tránh đẩy trùng dữ liệu không đổi (Save D1 Writes)
+const lastPushCache = new Map();
+// Đợi gom các yêu cầu đẩy (Debouncing)
+const debounceTimeouts = new Map();
+
+/**
+ * SyncManager handles pushing Vault data to Cloudflare D1
+ */
 export const SyncManager = {
-  async pushVault(type, data) {
+  async pushVault(type, data, force = false) {
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
       console.log('[SyncManager] Skip: D1 Cloud not configured.');
       return;
     }
 
+    // --- KIỂM TRA DUPLICATE (SAVE WRITES) ---
+    // Tạo mã định danh cho nội dung: email + status + token + deleted_at
+    const fingerprint = `${data.email}|${data.status}|${data.refresh_token ? 'HAVE_TOKEN' : 'NO_TOKEN'}|${data.deleted_at}`;
+    const cacheKey = `${type}:${data.id}`;
+    
+    if (!force && lastPushCache.get(cacheKey) === fingerprint) {
+      // console.log(`[SyncManager] 💤 Bỏ qua Push (Nội dung không đổi): ${data.email || data.id}`);
+      return;
+    }
+
+    // --- DEBOUNCING (SAVE WRITES) ---
+    // Nếu có nhiều yêu cầu đẩy cho cùng 1 account trong thời gian ngắn (ví dụ worker đổi status liên tục)
+    // Chúng ta sẽ đợi 45 giây để gom lại nén thành 1 lần đẩy duy nhất.
+    if (!force) {
+      if (debounceTimeouts.has(cacheKey)) {
+        clearTimeout(debounceTimeouts.get(cacheKey));
+      }
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(async () => {
+          debounceTimeouts.delete(cacheKey);
+          const result = await this._executePush(type, data, fingerprint);
+          resolve(result);
+        }, 45000); // Đợi 45 giây cho đợt gom kế tiếp
+        debounceTimeouts.set(cacheKey, timeout);
+      });
+    }
+
+    return await this._executePush(type, data, fingerprint);
+  },
+
+  async _executePush(type, data, fingerprint) {
+    const cfg = loadConfig();
     const now = new Date().toISOString();
-    const version = Date.now(); // CF Worker cần version > 0 để vượt qua WHERE version check
+    const version = Date.now();
+    const cacheKey = `${type}:${data.id}`;
+
+    // Cập nhật cache trước khi thực hiện
+    lastPushCache.set(cacheKey, fingerprint);
 
     // Wrap the record into the PushPayload format expected by the worker
     const payload = {};
@@ -33,10 +78,9 @@ export const SyncManager = {
         last_sync_at: now,
         updated_at: now,
         deleted_at: data.deleted_at || null,
-        version,  // ← QUAN TRỌNG: CF Worker kiểm tra version để quyết định có ghi đè không
+        version,
       }];
       
-      // Khai sinh Connector lên Cloud nếu Tools đã lấy được Token thành công
       if (data.refresh_token) {
         payload.connections = [{
           id: data.id,
@@ -52,7 +96,7 @@ export const SyncManager = {
           provider_specific_data: null,
           updated_at: now,
           deleted_at: data.deleted_at || null,
-          version,  // ← QUAN TRỌNG: không có dòng này, record bị bỏ qua hoàn toàn
+          version,
         }];
       }
     }
@@ -60,7 +104,7 @@ export const SyncManager = {
     if (type === 'key')   payload.vaultKeys   = [{ ...data, updated_at: data.updated_at || now }];
 
     try {
-      console.log(`[SyncManager] Pushing ${type} to D1...`);
+      console.log(`[SyncManager] ☁️ Pushing ${type} to D1: ${data.email || data.id}`);
       const res = await fetch(`${cfg.d1WorkerUrl}/sync/push`, {
         method: 'POST',
         headers: {
@@ -75,6 +119,12 @@ export const SyncManager = {
       
       const counts = result.counts || {};
       console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections||0}, managedAccounts=${counts.managedAccounts||0}, vaultAccounts=${counts.vaultAccounts||0}`);
+      
+      // Nếu là lệnh xóa, dọn cache
+      if (data.deleted_at) {
+        lastPushCache.delete(cacheKey);
+      }
+      
       return result;
     } catch (e) {
       console.error(`[SyncManager] ❌ Error syncing ${type}:`, e.message);
