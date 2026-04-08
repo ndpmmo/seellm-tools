@@ -319,11 +319,18 @@ async function runLoginFlow(task) {
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
         console.log(`[${task.email}] Thấy màn hình Consent → Bấm Continue/Allow...`);
         try {
+          // Playwright strict mode: nếu selector match nhiều nút, click sẽ tạch.
+          // Ta thu hẹp selector hoặc bắt lỗi để retry.
           await camofoxPost(`/tabs/${tabId}/click`, {
             userId: USER_ID,
-            selector: 'button:has-text("Allow"), button:has-text("Continue"), button:has-text("Tiếp tục"), button[type="submit"]',
+            selector: 'text="Continue", text="Allow", text="Accept"',
           });
-        } catch(e) {}
+          console.log(`[${task.email}] Đã CLICK Consent thành công.`);
+        } catch(e) {
+          console.log(`[${task.email}] Lỗi click Consent (Sẽ thử bấm Enter):`, e.message);
+          // Nếu click tạch (ví dụ strict mode), bấm tab/enter hoặc gửi phím rỗng
+          await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+        }
       }
 
       if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) {
@@ -384,20 +391,20 @@ async function sendResultToGateway(task, status, message, result) {
     // Nếu result có codeVerifier thì luôn gửi, bất kể source — Tools sẽ tự exchange.
     const toolsResult = (result && result.codeVerifier) ? result : 
                         (source === 'tools' ? result : null);
-    const toolsRes = await fetch(`http://localhost:4000/api/vault/accounts/result`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: taskId, status, message, result: toolsResult }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const toolsBody = await toolsRes.text();
-    console.log(`[Tools] ✅ Đã báo cáo (HTTP ${toolsRes.status}): ${toolsBody.substring(0, 100)}`);
-  } catch (e) {
-    console.log(`[Tools] ⚠️ Không gửi được result: ${e.message}`);
-  }
+      const toolsRes = await fetch(`http://localhost:4000/api/vault/accounts/result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: taskId, status, message, result: toolsResult }),
+        signal: AbortSignal.timeout(45000), // Thời gian đợi Gateway DB sync xong (thường 2-3s nhưng có thể nghẽn tới 15s)
+      });
+      const toolsBody = await toolsRes.text();
+      console.log(`[Tools] ✅ Đã báo cáo (HTTP ${toolsRes.status}): ${toolsBody.substring(0, 100)}`);
+    } catch (e) {
+      console.log(`[Tools] ⚠️ Không gửi được result: ${e.message}`);
+    }
 
-  if (source === 'gateway') {
-    // Chỉ báo cáo có kèm result về Gateway nếu task lấy từ Gateway
+    if (source === 'gateway') {
+      // Chỉ báo cáo có kèm result về Gateway nếu task lấy từ Gateway
     try {
       const res = await fetch(`${GATEWAY_URL}/api/public/worker/result`, {
         method: 'POST',
