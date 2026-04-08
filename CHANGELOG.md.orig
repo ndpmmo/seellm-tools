@@ -2,11 +2,6 @@
 
 Tất cả các thay đổi đáng chú ý đối với dự án **SeeLLM Tools** sẽ được ghi lại trong tệp này.
 
-## [0.1.3] - 2026-04-09
-### Fixed
-- **Unique Identity Sync**: Khắc phục triệt để lỗi mất đồng bộ ID khi import tài khoản sang Gateway. Tools hiện gởi kèm ID nội bộ sang Gateway để đảm bảo hai bên nhìn cùng một đối tượng, ngăn chặn tình trạng đứt gãy Database.
-
-
 ## [0.1.2] - 2026-04-09
 ### Fixed
 - **Bi-directional Deletion Sync**: Cập nhật interceptor để bắt tín hiệu xóa tự động (`DELETE /api/d1/accounts/:id`), đẩy trực tiếp vào local vault ngăn chặn tình trạng xoá trên Cloudflare D1 nhưng không mất ở hệ thống cục bộ.
