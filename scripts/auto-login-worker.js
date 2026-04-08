@@ -468,8 +468,12 @@ async function sendResultToGateway(task, status, message, result) {
 
 async function fetchTask() {
   // 1. Ưu tiên cao nhất: Hỏi Tools Server (Local source of truth cho PKCE & Redirect URI)
+  // Truyền danh sách ID đang xử lý để Server chọn task KHÁC nhau cho từng thread
+  const excludeParam = processingIds.size > 0
+    ? `?exclude=${[...processingIds].join(',')}`
+    : '';
   try {
-    const res = await fetch(`http://localhost:4000/api/vault/accounts/task`, {
+    const res = await fetch(`http://localhost:4000/api/vault/accounts/task${excludeParam}`, {
       signal: AbortSignal.timeout(3000)
     });
     if (res.ok) {

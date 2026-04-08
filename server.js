@@ -380,7 +380,7 @@ app.prepare().then(() => {
     try {
       const res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/sync/events?since=${encodeURIComponent(lastEventCheck)}`, {
         headers: { 'x-sync-secret': cfg.d1SyncSecret },
-        signal: AbortSignal.timeout(10000)
+        signal: AbortSignal.timeout(30000)
       });
       const data = await res.json();
       if (!data.ok || !data.events?.length) {
@@ -408,7 +408,8 @@ app.prepare().then(() => {
       if (hasChanges && io) {
         io.emit('vault:update');
       }
-      lastEventCheck = new Date().toISOString();
+      // Trừ lùi 5 giây để tránh mất event do chênh lệch mili-giây hoặc clock drift giữa VPS/Local/Cloud
+      lastEventCheck = new Date(Date.now() - 5000).toISOString();
     } catch(e) { /* Bỏ qua lỗi mạng */ }
   }, 30 * 1000); // 30s
   // ───────────────────────────────────────────────────
@@ -483,7 +484,7 @@ app.prepare().then(() => {
         method: 'POST',
         headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(30000),
       });
       const d1Data = await d1Res.json();
 
@@ -521,6 +522,8 @@ app.prepare().then(() => {
           vault.db.prepare('UPDATE vault_accounts SET status = ?, updated_at = ? WHERE id = ?')
             .run('idle', new Date().toISOString(), id);
           console.log(`[D1 Proxy] 🔄 Account ${existing.email} → idle (vẫn còn trong Vault)`);
+          // 📡 Thông báo UI cập nhật ngay lập tức (trước đây thiếu bước này)
+          if (io) io.emit('vault:update');
         }
       }
       return next(); // Vẫn cho proxy qua D1 để xóa khỏi Codex Cloud
@@ -528,6 +531,7 @@ app.prepare().then(() => {
       return next();
     }
   });
+
 
   // ▶ Intercept: POST /api/d1/proxies/add → mirror new proxy vào local vault
   ex.post('/api/d1/proxies/add', async (req, res, next) => {
@@ -541,7 +545,7 @@ app.prepare().then(() => {
         method: 'POST',
         headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(30000),
       });
       const d1Data = await d1Res.json();
       
@@ -599,10 +603,7 @@ app.prepare().then(() => {
         headers['Content-Type'] = 'application/json';
       }
       
-      const fetchOpts = {
-        method: req.method,
-        headers,
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(30000),
       };
       
       if (req.method !== 'GET' && req.method !== 'HEAD' && Object.keys(req.body || {}).length > 0) {

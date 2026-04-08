@@ -176,16 +176,19 @@ router.delete('/api-keys/:id', async (req, res) => {
 router.get('/accounts/task', async (req, res) => {
   try {
     // CHỈ dùng local vault — D1 fallback bị loại bỏ để tránh tạo account không có data
-    // Đảm bảo lấy TẤT CẢ accounts kể cả deleted để kiểm tra
     const allAccounts = vault.db.prepare(
       `SELECT * FROM vault_accounts WHERE provider='codex' ORDER BY updated_at DESC`
     ).all();
 
-    // Tìm account pending/relogin, chưa bị xóa, có email
+    // Danh sách ID đang được xử lý bởi các thread khác (worker gửi qua query string)
+    const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
+
+    // Tìm account pending/relogin chưa bị xóa, có email, và KHÔNG trong danh sách exclude
     const task = allAccounts.find(a =>
       (a.status === 'pending' || a.status === 'relogin') &&
       !a.deleted_at &&
-      a.email && a.email.trim()
+      a.email && a.email.trim() &&
+      !excludeIds.includes(a.id) // 🔑 Đây là điều kiện then chốt cho đa luồng
     );
 
     if (!task) return res.json({ ok: true, task: null });
@@ -194,7 +197,6 @@ router.get('/accounts/task', async (req, res) => {
     const safeParse = (val) => {
       if (!val) return [];
       let current = val;
-      // Thử parse tối đa 3 lần nếu kết quả vẫn là chuỗi (đề phòng double stringify)
       for (let i = 0; i < 3; i++) {
         try {
           const parsed = typeof current === 'string' ? JSON.parse(current) : current;
