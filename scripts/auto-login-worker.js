@@ -373,6 +373,7 @@ async function runLoginFlow(task) {
         code,
         codeVerifier: task.codeVerifier || account.codeVerifier,
         userAgent: userAgent,
+        proxyUrl: account.proxyUrl || account.proxy || undefined,
         finalUrl: redirectUrl,
       });
     } else {

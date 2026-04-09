@@ -36,7 +36,7 @@ function ProcCard({ p }: { p: ProcessInfo }) {
 }
 
 export function DashboardView() {
-  const { processes, startCamofox, startWorker, connected, pingCamofox, pingGateway, liveShot, setView, sessions } = useApp();
+  const { processes, startCamofox, startWorker, connected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
   const procs   = Object.values(processes);
   const running = procs.filter(p => p.status==='running').length;
   const errors  = procs.filter(p => p.status==='error').length;
@@ -119,25 +119,32 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* Live screenshot */}
-      {liveShot && (
+      {/* Live screenshots */}
+      {Object.keys(liveShots).length > 0 && (
         <div className="card">
           <div className="card-head">
-            <span className="card-title">📸 Live Browser View</span>
+            <span className="card-title">📸 Live Browser View ({Object.keys(liveShots).length})</span>
             <button className="btn btn-ghost btn-sm" onClick={() => setView('screenshots')}>Xem tất cả →</button>
           </div>
-          <div className="card-body" style={{ display:'flex', justifyContent:'center' }}>
-            <div className="live-screen" style={{ maxWidth:700 }}>
-              <div className="live-badge"><span className="live-dot" />LIVE</div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`${liveShot.url}?t=${Date.now()}`} alt="Live" />
+          <div className="card-body">
+            <div className="live-grid">
+              {Object.entries(liveShots).map(([sessionId, shot]) => (
+                <div key={sessionId} className="live-entry-container">
+                  <div className="live-screen clickable" style={{ maxWidth: 400 }} onClick={() => setView('screenshots')}>
+                    <div className="live-badge"><span className="live-dot" />LIVE</div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`${shot.url}?t=${Date.now()}`} alt="Live" />
+                  </div>
+                  <div className="live-info" style={{ marginTop: 4 }}>
+                    <div className="live-label" style={{ fontSize: 12 }}>{sessionId.replace(/^run_/, '').split('_')[0]}</div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-          <div style={{ padding:'8px 16px 12px', fontSize:11, color:'var(--text-3)', fontFamily:'JetBrains Mono,monospace' }}>
-            {liveShot.filename}
           </div>
         </div>
       )}
+
 
       {/* Processes */}
       {procs.length > 0 && (

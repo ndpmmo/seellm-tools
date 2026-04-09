@@ -36,58 +36,75 @@ function generateCodexOAuthUrl() {
 /* ─── Token Exchange ─────────────────────────────────────────────────────── */
 async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
   const { userAgent, proxyUrl } = options;
-  const maxRetries = 2;
-  let lastError;
+  const targetUrl = 'https://auth.openai.com/oauth/token';
+  const postData  = new URLSearchParams({
+    grant_type:    'authorization_code',
+    client_id:     'app_EMoamEEZ73f0CkXaXp7hrann',
+    code,
+    redirect_uri:  'http://localhost:1455/auth/callback',
+    code_verifier: codeVerifier,
+  }).toString();
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  const ua = userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
+
+  console.log(`[OAuth] 🔄 Exchanging code for account... (Proxy: ${proxyUrl ? 'YES' : 'NO'})`);
+
+  // --- TRƯỜNG HỢP CÓ PROXY: Dùng CURL để đảm bảo ổn định IP ---
+  if (proxyUrl) {
     try {
-      if (attempt > 0) {
-        console.log(`[OAuth] 🔄 Thử lại lần ${attempt} sau 2s...`);
-        await new Promise(r => setTimeout(r, 2000));
-      }
+      const { execSync } = await import('node:child_process');
+      const curlCmd = [
+        'curl', '-s', '-X', 'POST',
+        '-H', '"Content-Type: application/x-www-form-urlencoded"',
+        '-H', `"User-Agent: ${ua}"`,
+        '-H', '"Origin: https://auth.openai.com"',
+        '-H', '"Referer: https://auth.openai.com/"',
+        '-H', '"Accept: application/json"',
+        '--proxy', `"${proxyUrl}"`,
+        '--data', `"${postData}"`,
+        `"${targetUrl}"`
+      ].join(' ');
 
-      console.log(`[OAuth] 🔄 Exchanging code: ${code.substring(0, 10)}... verifier: ${codeVerifier.substring(0, 10)}...`);
+      const responseText = execSync(curlCmd, { encoding: 'utf8', timeout: 15000 });
+      const data = JSON.parse(responseText);
+
+      if (data.error) {
+        throw new Error(`OpenAI Error: ${data.error_description || data.error.message || JSON.stringify(data.error)}`);
+      }
       
-      const res = await fetch('https://auth.openai.com/oauth/token', {
-        method:  'POST',
-        headers: { 
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent':    userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-          'Origin':        'https://auth.openai.com',
-          'Referer':       'https://auth.openai.com/',
-          'Accept':        'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-        body: new URLSearchParams({
-          grant_type:    'authorization_code',
-          client_id:     'app_EMoamEEZ73f0CkXaXp7hrann',
-          code,
-          redirect_uri:  'http://localhost:1455/auth/callback',
-          code_verifier: codeVerifier,
-        }).toString(),
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        console.error(`[OAuth] ❌ Attempt ${attempt} failed (${res.status}):`, text);
-        lastError = new Error(`Token exchange failed (${res.status}): ${text}`);
-        
-        // Nếu lỗi là do code expired/user error, có thể thử lại 1 lần nếu là lỗi mạng nhất thời
-        if (res.status >= 500) continue; 
-        if (text.includes('user_error') && attempt < 1) continue; 
-        
-        throw lastError;
-      }
-
-      const data = JSON.parse(text);
-      console.log(`[OAuth] ✅ Exchange SUCCESS`);
+      console.log(`[OAuth] ✅ Exchange SUCCESS (via Proxy)`);
       return data;
     } catch (err) {
-      lastError = err;
-      if (attempt === maxRetries) throw err;
+      console.warn(`[OAuth] ⚠️ Curl Exchange failed: ${err.message}`);
+      // Fallback xuống fetch nếu curl lỗi
     }
   }
+
+  // --- TRƯỜNG HỢP KHÔNG PROXY HOẶC CURL LỖI ---
+  const res = await fetch(targetUrl, {
+    method:  'POST',
+    headers: { 
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent':    ua,
+      'Origin':        'https://auth.openai.com',
+      'Referer':       'https://auth.openai.com/',
+      'Accept':        'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    body: postData,
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    console.error(`[OAuth] ❌ Exchange failed (${res.status}):`, text);
+    throw new Error(`Token exchange failed (${res.status}): ${text}`);
+  }
+
+  const data = JSON.parse(text);
+  console.log(`[OAuth] ✅ Exchange SUCCESS`);
+  return data;
 }
+
 
 /* ─── In-memory PKCE store: account_id → {url, codeVerifier, createdAt} ─── */
 // Giữ PKCE cố định cho 1 account cho đến khi hoàn thành (tránh 400 invalid_request)
@@ -267,6 +284,7 @@ router.post('/accounts/result', async (req, res) => {
 
       // 1. Tìm Verifier: Ưu tiên từ Worker > pkceStore > Database Notes
       let verifierToUse = result.codeVerifier;
+      const proxyToUse = result.proxyUrl || undefined;
       if (!verifierToUse) {
         const storedPkce = pkceStore.get(id);
         if (storedPkce) verifierToUse = storedPkce.codeVerifier;
@@ -285,6 +303,7 @@ router.post('/accounts/result', async (req, res) => {
       try {
         const tokens = await exchangeCodeForTokens(result.code, verifierToUse, {
           userAgent: result.userAgent || null,
+          proxyUrl: proxyToUse
         });
 
         // Tìm local account trước để đảm bảo email không bị mất

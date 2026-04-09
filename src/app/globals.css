@@ -716,5 +716,72 @@ html, body {
 /* ── Misc ─────────────────────────────────────────── */
 .live-screen { width: 100%; max-width: 880px; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; background: var(--bg-3); position: relative; }
 .live-screen img { width: 100%; display: block; }
-.live-badge { position: absolute; top: 10px; left: 10px; background: rgba(244,63,94,.85); color: #fff; font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 99px; display: flex; align-items: center; gap: 5px; }
+.live-badge { position: absolute; top: 10px; left: 10px; background: rgba(244,63,94,.85); color: #fff; font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 99px; display: flex; align-items: center; gap: 5px; z-index: 2; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: pulse 1s infinite; }
+
+/* Multi-thread Live View */
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+  padding: 4px;
+}
+.live-entry-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.live-screen.clickable {
+  cursor: zoom-in;
+  transition: transform 0.2s, border-color 0.2s;
+  aspect-ratio: 16/10;
+}
+.live-screen.clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--rose);
+  box-shadow: 0 8px 24px rgba(244,63,94,0.15);
+}
+.live-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  z-index: 5;
+  transition: all 0.15s;
+  opacity: 0.4;
+}
+.live-screen:hover .live-close-btn {
+  opacity: 1;
+}
+.live-close-btn:hover {
+  background: var(--rose);
+  border-color: var(--rose);
+}
+.live-info {
+  padding: 0 4px;
+}
+.live-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 2px;
+}
+

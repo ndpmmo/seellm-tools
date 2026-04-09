@@ -31,7 +31,7 @@ interface IApp {
   view:       string;
   sessions:   Session[];
   logFiles:   LogFile[];
-  liveShot:   Screenshot|null;
+  liveShots:   Record<string, Screenshot>; // sessionId -> latest screenshot
   selectedLog: string|null;
   toasts:     Toast[];
   setView:       (v: string) => void;
@@ -60,7 +60,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [view,        setView]        = useState('dashboard');
   const [sessions,    setSessions]    = useState<Session[]>([]);
   const [logFiles,    setLogFiles]    = useState<LogFile[]>([]);
-  const [liveShot,    setLiveShot]    = useState<Screenshot|null>(null);
+  const [liveShots,   setLiveShots]   = useState<Record<string, Screenshot>>({});
   const [selectedLog, setSelectedLog] = useState<string|null>(null);
   const [toasts,      setToasts]      = useState<Toast[]>([]);
 
@@ -118,7 +118,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Live screenshot pushed from server when new file appears
     socket.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string }) => {
-      setLiveShot({ filename: data.filename, url: data.url });
+      setLiveShots(prev => ({
+        ...prev,
+        [data.sessionId]: { filename: data.filename, url: data.url }
+      }));
       // Refresh sessions so gallery updates
       fetch('/api/sessions').then(r=>r.json()).then(setSessions).catch(()=>{});
     });
@@ -209,7 +212,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       processes, config, connected, view, sessions, logFiles,
-      liveShot, selectedLog, toasts,
+      liveShots, selectedLog, toasts,
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,

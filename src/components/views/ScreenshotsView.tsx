@@ -62,9 +62,12 @@ function SessionCard({ session }: { session: Session }) {
 }
 
 export function ScreenshotsView() {
-  const { sessions, liveShot, refreshSessions } = useApp();
+  const { sessions, liveShots, refreshSessions } = useApp();
   const [loading, setLoading] = useState(false);
   const [lightbox, setLightbox] = useState<{ url:string; filename:string }|null>(null);
+  
+  // Local state to hide finished live sessions manually
+  const [hiddenLive, setHiddenLive] = useState<Set<string>>(new Set());
 
   const refresh = async () => {
     setLoading(true);
@@ -72,40 +75,58 @@ export function ScreenshotsView() {
     setLoading(false);
   };
 
+  const activeLiveEntries = Object.entries(liveShots).filter(([id]) => !hiddenLive.has(id));
+
   return (
     <div className="content">
-      {/* Live view */}
-      {liveShot && (
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title" style={{ color:'var(--rose)' }}>
-              <span style={{ animation:'blink 1s infinite', display:'inline-block' }}>●</span>&nbsp;Live Session
-            </span>
-            <span style={{ fontSize:11, color:'var(--text-3)', fontFamily:'JetBrains Mono,monospace' }}>
-              Đang cập nhật realtime
-            </span>
+      {/* Live Channels Grid */}
+      <div className="card">
+        <div className="card-head">
+          <span className="card-title" style={{ color:'var(--rose)' }}>
+            <span style={{ animation:'blink 1s infinite', display:'inline-block' }}>●</span>&nbsp;Live Browser View ({activeLiveEntries.length})
+          </span>
+          <div style={{ display:'flex', gap:8 }}>
+            {activeLiveEntries.length > 0 && (
+              <button className="btn btn-ghost btn-xs" onClick={() => setHiddenLive(new Set(Object.keys(liveShots)))}>
+                Dọn dẹp tất cả
+              </button>
+            )}
           </div>
-          <div className="card-body" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
-            <div className="live-screen" style={{ cursor:'zoom-in' }} onClick={() => setLightbox(liveShot)}>
-              <div className="live-badge"><span className="live-dot"/>LIVE</div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`${liveShot.url}?t=${Date.now()}`} alt="live" />
+        </div>
+        <div className="card-body">
+          {activeLiveEntries.length === 0 ? (
+            <div className="live-placeholder">
+              <div className="big">🦊</div>
+              <div>Hiện không có luồng nào đang hoạt động</div>
+              <div style={{ fontSize:11, color:'var(--text-3)' }}>Khởi động Worker để theo dõi đa luồng realtime</div>
             </div>
-            <div style={{ fontSize:11, color:'var(--text-3)', fontFamily:'JetBrains Mono,monospace' }}>{liveShot.filename}</div>
-          </div>
+          ) : (
+            <div className="live-grid">
+              {activeLiveEntries.map(([sessionId, shot]) => (
+                <div key={sessionId} className="live-entry-container">
+                   <div className="live-screen clickable" onClick={() => setLightbox(shot)}>
+                    <div className="live-badge">
+                      <span className="live-dot"/>LIVE
+                    </div>
+                    <button 
+                      className="live-close-btn" 
+                      onClick={(e) => { e.stopPropagation(); setHiddenLive(prev => new Set([...prev, sessionId])); }}
+                      title="Ẩn luồng này"
+                    >✕</button>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`${shot.url}?t=${Date.now()}`} alt="live" />
+                  </div>
+                  <div className="live-info">
+                    <div className="live-label">{sessionId.replace(/^run_/, '').split('_')[0]}</div>
+                    <div className="live-sub">{shot.filename}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {!liveShot && (
-        <div className="card">
-          <div className="card-head"><span className="card-title">📸 Live View</span></div>
-          <div className="live-placeholder">
-            <div className="big">🦊</div>
-            <div>Chưa có session nào đang hoạt động</div>
-            <div style={{ fontSize:11, color:'var(--text-3)' }}>Khởi động Worker để xem màn hình browser realtime</div>
-          </div>
-        </div>
-      )}
 
       {/* Session History */}
       <div className="card">

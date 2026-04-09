@@ -603,6 +603,9 @@ app.prepare().then(() => {
         headers['Content-Type'] = 'application/json';
       }
       
+      const fetchOpts = {
+        method: req.method,
+        headers,
         signal: AbortSignal.timeout(30000),
       };
       
