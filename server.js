@@ -629,14 +629,18 @@ app.prepare().then(() => {
             console.log(`[D1 Proxy] ☁️ Direct PATCH OK: is_active=${newIsActive} for ${existing.email}`);
 
             // 3. (Smart Sync) Gõ cửa Gateway để bảo Gateway kéo dữ liệu ngay lập tức
-            if (cfg.gatewayUrl) {
+            if (cfg.gatewayUrl && cfg.d1SyncSecret) {
               fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'x-sync-secret': cfg.d1SyncSecret,
+                },
                 signal: AbortSignal.timeout(3000),
               }).then(gr => {
                 if (gr.ok) console.log(`[Smart Sync] 🚀 Đã gửi trigger tới Gateway để pull data`);
               }).catch(err => console.error(`[Smart Sync] ⚠️ Gửi trigger tới Gateway lỗi:`, err.message));
+            } else if (cfg.gatewayUrl && !cfg.d1SyncSecret) {
+              console.warn(`[Smart Sync] ⚠️ Thiếu d1SyncSecret — bỏ qua trigger tới Gateway`);
             }
 
           } else {

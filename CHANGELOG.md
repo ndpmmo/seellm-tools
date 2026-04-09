@@ -1,5 +1,18 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.6] - 2026-04-10
+
+### Fixed
+- **Tools → Gateway toggle propagation**:
+  - Updated Smart Sync trigger call to include `x-sync-secret` when Tools notifies Gateway after toggling account `is_active`.
+  - This fixes the case where toggle from `http://localhost:4000/#accounts` changed D1 state but Gateway `providers/codex#connections` did not refresh immediately.
+- **Trigger safety diagnostics**:
+  - Added explicit warning log when `gatewayUrl` exists but `d1SyncSecret` is missing, so skipped trigger calls are visible in server logs.
+
+### Changed
+- **Smart Sync request contract**:
+  - `POST /api/sync/trigger` from Tools now uses secret-auth headers instead of anonymous JSON-only POST calls.
+
 ## [Unreleased] - 2026-04-10
 
 ### Added
