@@ -28,10 +28,10 @@ const hostname = 'localhost';
 const PORT = parseInt(process.env.PORT || '4000', 10);
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
-const SCRIPTS_DIR    = path.join(__dirname, 'scripts');
-const DATA_DIR       = path.join(__dirname, 'data');
+const SCRIPTS_DIR = path.join(__dirname, 'scripts');
+const DATA_DIR = path.join(__dirname, 'data');
 const SCREENSHOTS_DIR = path.join(DATA_DIR, 'screenshots');
-const LOGS_DIR       = path.join(DATA_DIR, 'logs');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 // Ensure dirs exist
 [DATA_DIR, SCREENSHOTS_DIR, LOGS_DIR].forEach(d => {
@@ -136,7 +136,7 @@ function listSessions() {
             .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
             .sort()
             .map(f => ({ filename: f, url: `/data/screenshots/${d}/${f}` }));
-        } catch {}
+        } catch { }
         const stat = statSync(dir);
         return { id: d, dir: d, imageCount: images.length, images, mtime: stat.mtime };
       })
@@ -151,8 +151,8 @@ function watchScreenshots() {
       if (filename && /\.(png|jpg|jpeg|webp)$/i.test(filename)) {
         const parts = filename.split(path.sep);
         const sessionId = parts[0];
-        const imgFile   = parts[parts.length - 1];
-        
+        const imgFile = parts[parts.length - 1];
+
         let email = sessionId;
         try {
           // Thử tra cứu email từ local Vault dựa trên sessionId (chính là account ID)
@@ -160,7 +160,7 @@ function watchScreenshots() {
           if (accRow && accRow.email) {
             email = accRow.email;
           }
-        } catch(e) {}
+        } catch (e) { }
 
         io?.emit('screenshot:new', {
           sessionId,
@@ -190,7 +190,7 @@ function listLogFiles() {
 }
 
 // ─── Next.js ─────────────────────────────────────────────────────────────────
-const app  = next({ dev, hostname: 'localhost', port: PORT });
+const app = next({ dev, hostname: 'localhost', port: PORT });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
@@ -200,10 +200,10 @@ app.prepare().then(() => {
 
   // Serve screenshots + logs as static files
   ex.use('/data/screenshots', express.static(SCREENSHOTS_DIR));
-  ex.use('/data/logs',        express.static(LOGS_DIR));
+  ex.use('/data/logs', express.static(LOGS_DIR));
 
   // ── Config ──────────────────────────────────────────────────────────────
-  ex.get('/api/config',  (_, res) => res.json(loadConfig()));
+  ex.get('/api/config', (_, res) => res.json(loadConfig()));
   ex.post('/api/config', (req, res) => {
     const cfg = { ...loadConfig(), ...req.body };
     saveConfig(cfg);
@@ -329,14 +329,14 @@ app.prepare().then(() => {
         const { cursor } = JSON.parse(readFileSync(CURSOR_FILE, 'utf-8'));
         if (cursor && cursor > '1970') return cursor;
       }
-    } catch (_) {}
+    } catch (_) { }
     return '1970-01-01T00:00:00.000Z';
   }
 
   function saveCursor(cursor) {
     try {
       writeFileSync(CURSOR_FILE, JSON.stringify({ cursor, savedAt: new Date().toISOString() }));
-    } catch (_) {}
+    } catch (_) { }
   }
 
   let lastVaultSyncCursor = loadCursor();
@@ -347,18 +347,18 @@ app.prepare().then(() => {
       const data = await SyncManager.pullVault(lastVaultSyncCursor);
       if (data && data.cursor > lastVaultSyncCursor) {
         console.log(`[Sync] New cloud updates found. Cursor: ${data.cursor}`);
-        
+
         // Cập nhật SQLite Local (dùng skipSync=true để tránh vòng lặp feedback)
         data.accounts.forEach(a => {
           vault.upsertAccount(a, true);
         });
         data.proxies.forEach(p => vault.upsertProxy(p, true));
         data.keys.forEach(k => vault.upsertApiKey(k, true));
-        
+
         lastVaultSyncCursor = data.cursor;
         saveCursor(lastVaultSyncCursor); // Persist cursor để restart không cần re-pull từ đầu
         console.log('[Sync] Vault updated from cloud successfully.');
-        
+
         // Thông báo cho UI qua Socket.io nếu cần
         io?.emit('vault:synced', { cursor: lastVaultSyncCursor });
         return true; // có data mới
@@ -407,16 +407,16 @@ app.prepare().then(() => {
           try {
             const payload = JSON.parse(event.payload);
             console.log(`[EventBus] ℹ️ Gateway đã xóa ${payload.email || payload.accountId} khỏi D1`);
-          } catch(err) {}
+          } catch (err) { }
         }
       }
-      
+
       if (hasChanges && io) {
         io.emit('vault:update');
       }
       // Trừ lùi 5 giây để tránh mất event do chênh lệch mili-giây hoặc clock drift giữa VPS/Local/Cloud
       lastEventCheck = new Date(Date.now() - 5000).toISOString();
-    } catch(e) { /* Bỏ qua lỗi mạng */ }
+    } catch (e) { /* Bỏ qua lỗi mạng */ }
   }, 30 * 1000); // 30s
   // ───────────────────────────────────────────────────
   // [SELF-HEALING] Định kỳ 3 tiếng một lần quét toàn phần (Full-Sync)
@@ -434,7 +434,7 @@ app.prepare().then(() => {
             accountsRepaired++;
           }
         });
-        
+
         let proxiesRepaired = 0;
         data.proxies.forEach(p => {
           const localRecord = vault.db.prepare('SELECT updated_at FROM vault_proxies WHERE id = ?').get(p.id);
@@ -464,7 +464,7 @@ app.prepare().then(() => {
     try {
       // 1. Kiểm tra xem local đã có email này chưa (kể cả đã xóa)
       const existing = vault.db.prepare('SELECT id FROM vault_accounts WHERE email = ? LIMIT 1').get(body.email);
-      
+
       if (existing) {
         console.log(`[D1 Proxy] 🛑 Ngăn chặn Duplicate Account từ UI. Đã có ID: ${existing.id}`);
         // Reset trạng thái thủ công bằng db.prepare để ép bỏ qua protective logic của upsertAccount
@@ -473,13 +473,13 @@ app.prepare().then(() => {
           SET deleted_at = NULL, status = 'pending', notes = '', password = ?, two_fa_secret = ?, proxy_url = ?, updated_at = datetime('now')
           WHERE id = ?
         `).run(body.password || '', body.twoFaSecret || '', body.proxyUrl || null, existing.id);
-        
+
         // Gọi upsertAccount lần nữa để sinh PKCE và đồng bộ D1 (skipSync=false)
         vault.upsertAccount({
-            id: existing.id, 
-            provider: 'codex', 
-            email: body.email, 
-            status: 'pending'
+          id: existing.id,
+          provider: 'codex',
+          email: body.email,
+          status: 'pending'
         }, false);
 
         return res.json({ ok: true, id: existing.id });
@@ -497,13 +497,13 @@ app.prepare().then(() => {
       // Mirror vào local vault ngay lập tức (dùng ID từ D1 để đồng nhất)
       if (d1Data.ok && d1Data.id) {
         vault.upsertAccount({
-          id:           d1Data.id,
-          provider:     'codex',
-          email:        body.email,
-          password:     body.password || '',
+          id: d1Data.id,
+          provider: 'codex',
+          email: body.email,
+          password: body.password || '',
           two_fa_secret: body.twoFaSecret || '',
-          proxy_url:    body.proxyUrl || null,
-          status:       'pending',
+          proxy_url: body.proxyUrl || null,
+          status: 'pending',
         });
         console.log(`[D1 Proxy] ✅ Mirrored New Account to local: ${body.email} (id=${d1Data.id})`);
       }
@@ -535,7 +535,7 @@ app.prepare().then(() => {
         });
       }
       return next(); // Proxy lệnh xóa lên D1 Cloud
-    } catch(e) {
+    } catch (e) {
       return next();
     }
   });
@@ -556,7 +556,7 @@ app.prepare().then(() => {
         signal: AbortSignal.timeout(30000),
       });
       const d1Data = await d1Res.json();
-      
+
       if (d1Data.ok && d1Data.id) {
         vault.upsertProxy({
           id: d1Data.id,
@@ -566,7 +566,7 @@ app.prepare().then(() => {
         });
         console.log(`[D1 Proxy] ✅ Mirrored New Proxy to local: ${body.url} (id=${d1Data.id})`);
       }
-      
+
       res.setHeader('Content-Type', 'application/json');
       return res.status(d1Res.status).json(d1Data);
     } catch (e) {
@@ -581,10 +581,10 @@ app.prepare().then(() => {
       const { id } = req.params;
       console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa proxy từ UI (Gateway). ID: ${id}`);
       if (id) {
-        vault.deleteProxy(id, false); 
+        vault.deleteProxy(id, false);
       }
       return next();
-    } catch(e) {
+    } catch (e) {
       return next();
     }
   });
@@ -595,24 +595,23 @@ app.prepare().then(() => {
     try {
       const { id } = req.params;
       const { isActive, action } = req.body;
-      
+
       console.log(`[D1 Proxy] 🔄 Bật/tắt tài khoản: ${id} -> isActive=${isActive}`);
-      
+
       // 1. Cập nhật local vault ngay lập tức
       const existing = vault.getAccountFull(id);
       if (!existing) {
         return res.status(404).json({ error: `Account ${id} not found in local vault` });
       }
-      
+
       const newIsActive = isActive ? 1 : 0;
       vault.db.prepare(
         `UPDATE vault_accounts SET is_active = ?, updated_at = datetime('now') WHERE id = ?`
       ).run(newIsActive, id);
-      
+
       console.log(`[D1 Proxy] ✅ Local vault updated: ${existing.email} is_active=${newIsActive}`);
-      
+
       // 2. Đẩy trực tiếp lên D1 qua endpoint PATCH của Worker (KHÔNG có version check)
-      //    Đây là cách chắc chắn nhất - bỏ qua SyncManager version conflict
       const cfg = loadConfig();
       if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
         const workerPatchUrl = `${cfg.d1WorkerUrl.replace(/\/+$/, '')}/accounts/${id}`;
@@ -628,23 +627,35 @@ app.prepare().then(() => {
           const result = await r.json().catch(() => ({}));
           if (r.ok) {
             console.log(`[D1 Proxy] ☁️ Direct PATCH OK: is_active=${newIsActive} for ${existing.email}`);
+
+            // 3. (Smart Sync) Gõ cửa Gateway để bảo Gateway kéo dữ liệu ngay lập tức
+            if (cfg.gatewayUrl) {
+              fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(3000),
+              }).then(gr => {
+                if (gr.ok) console.log(`[Smart Sync] 🚀 Đã gửi trigger tới Gateway để pull data`);
+              }).catch(err => console.error(`[Smart Sync] ⚠️ Gửi trigger tới Gateway lỗi:`, err.message));
+            }
+
           } else {
             console.warn(`[D1 Proxy] ⚠️ Direct PATCH failed (${r.status}):`, result);
-            // Fallback: dùng SyncManager /sync/push
+            // Fallback
             const updatedRecord = vault.getAccountFull(id);
-            if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
+            if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => { });
           }
         }).catch(err => {
           console.warn(`[D1 Proxy] ⚠️ Direct PATCH error: ${err.message}, fallback to SyncManager`);
           const updatedRecord = vault.getAccountFull(id);
-          if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
+          if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => { });
         });
       } else {
         // Fallback nếu không có config
         const updatedRecord = vault.getAccountFull(id);
-        if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
+        if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => { });
       }
-      
+
       return res.json({ ok: true, id, isActive: newIsActive === 1 });
     } catch (e) {
       console.error(`[D1 Proxy] toggle error:`, e.message);
@@ -658,14 +669,14 @@ app.prepare().then(() => {
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
       return res.status(400).json({ error: "Missing D1 config (url or secret)" });
     }
-    
+
     // Làm sạch đường dẫn để tránh lỗi // (double slashes)
     const cleanBaseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
     const cleanPath = req.url.replace(/^\/+/, '');
     const targetUrl = `${cleanBaseUrl}/${cleanPath}`;
-    
+
     console.log(`[D1 Proxy] Forwarding ${req.method} ${req.url} -> ${targetUrl}`);
-    
+
     try {
       const headers = {
         'x-sync-secret': cfg.d1SyncSecret,
@@ -673,21 +684,21 @@ app.prepare().then(() => {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         headers['Content-Type'] = 'application/json';
       }
-      
+
       const fetchOpts = {
         method: req.method,
         headers,
         signal: AbortSignal.timeout(30000),
       };
-      
+
       if (req.method !== 'GET' && req.method !== 'HEAD' && Object.keys(req.body || {}).length > 0) {
         fetchOpts.body = JSON.stringify(req.body);
       }
-      
+
       const r = await fetch(targetUrl, fetchOpts).catch(err => {
         throw new Error(`Cloudflare Connection Error: ${err.message}`);
       });
-      
+
       const text = await r.text();
       let data = null;
       try {
@@ -695,12 +706,12 @@ app.prepare().then(() => {
       } catch (err) {
         console.error(`[D1 Proxy] Invalid JSON from ${targetUrl}. Status: ${r.status}. Preview: ${text.slice(0, 50)}`);
       }
-      
+
       res.setHeader('Content-Type', 'application/json');
-      res.status(r.status).json(data || { 
-        ok: false, 
-        error: `Invalid JSON from D1 (Status: ${r.status})`, 
-        raw: text.slice(0, 100) 
+      res.status(r.status).json(data || {
+        ok: false,
+        error: `Invalid JSON from D1 (Status: ${r.status})`,
+        raw: text.slice(0, 100)
       });
     } catch (e) {
       console.error(`[D1 Proxy] Fatal Error:`, e.message);
