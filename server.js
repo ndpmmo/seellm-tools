@@ -611,14 +611,38 @@ app.prepare().then(() => {
       
       console.log(`[D1 Proxy] ✅ Local vault updated: ${existing.email} is_active=${newIsActive}`);
       
-      // 2. Đẩy ngay lên D1 qua SyncManager (Hỏa tốc: force = true)
-      const updatedRecord = vault.getAccountFull(id);
-      if (updatedRecord) {
-        SyncManager.pushVault('account', updatedRecord, true).then(() => {
-          console.log(`[D1 Proxy] ☁️ Synced (FORCED) is_active=${newIsActive} for ${existing.email} to D1`);
+      // 2. Đẩy trực tiếp lên D1 qua endpoint PATCH của Worker (KHÔNG có version check)
+      //    Đây là cách chắc chắn nhất - bỏ qua SyncManager version conflict
+      const cfg = loadConfig();
+      if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+        const workerPatchUrl = `${cfg.d1WorkerUrl.replace(/\/+$/, '')}/accounts/${id}`;
+        fetch(workerPatchUrl, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sync-secret': cfg.d1SyncSecret,
+          },
+          body: JSON.stringify({ isActive: newIsActive === 1 }),
+          signal: AbortSignal.timeout(10000),
+        }).then(async r => {
+          const result = await r.json().catch(() => ({}));
+          if (r.ok) {
+            console.log(`[D1 Proxy] ☁️ Direct PATCH OK: is_active=${newIsActive} for ${existing.email}`);
+          } else {
+            console.warn(`[D1 Proxy] ⚠️ Direct PATCH failed (${r.status}):`, result);
+            // Fallback: dùng SyncManager /sync/push
+            const updatedRecord = vault.getAccountFull(id);
+            if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
+          }
         }).catch(err => {
-          console.warn(`[D1 Proxy] ⚠️ D1 sync failed: ${err.message}`);
+          console.warn(`[D1 Proxy] ⚠️ Direct PATCH error: ${err.message}, fallback to SyncManager`);
+          const updatedRecord = vault.getAccountFull(id);
+          if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
         });
+      } else {
+        // Fallback nếu không có config
+        const updatedRecord = vault.getAccountFull(id);
+        if (updatedRecord) SyncManager.pushVault('account', updatedRecord, true).catch(() => {});
       }
       
       return res.json({ ok: true, id, isActive: newIsActive === 1 });
