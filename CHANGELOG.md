@@ -1,6 +1,16 @@
 # Changelog - SeeLLM Tools
 
+## [Unreleased] - 2026-04-10
+
+### Added
+- **Smart Sync Trigger**: Implemented a local webhook trigger system. When toggling an account's status in Tools, it now sends an immediate notification to the Gateway over the local network to trigger an on-demand pull, reducing sync latency to near-zero.
+
+### Fixed
+- **Direct D1 Sync**: Switched the account toggle mechanism to use a direct Worker PATCH endpoint instead of the standard synchronization pipeline. This bypasses version-based conflict checks on Cloudflare D1, ensuring status changes are always applied immediately.
+- **Sync Resilience**: Improved error handling and fallback logic in the D1 Proxy and SyncManager services.
+
 ## [Unreleased] - 2026-04-09
+
 
 ### Added
 - **Camofox Documentation**: Integrated custom documentation for Camofox browser integration.
