@@ -20,8 +20,8 @@ export const SyncManager = {
     }
 
     // --- KIỂM TRA DUPLICATE (SAVE WRITES) ---
-    // Tạo mã định danh cho nội dung: email + status + token + deleted_at
-    const fingerprint = `${data.email}|${data.status}|${data.refresh_token ? 'HAVE_TOKEN' : 'NO_TOKEN'}|${data.deleted_at}`;
+    // Tạo mã định danh cho nội dung: email + status + token + active + deleted_at
+    const fingerprint = `${data.email}|${data.status}|${data.refresh_token ? 'HAVE_TOKEN' : 'NO_TOKEN'}|${data.is_active}|${data.deleted_at}`;
     const cacheKey = `${type}:${data.id}`;
     
     if (!force && lastPushCache.get(cacheKey) === fingerprint) {
@@ -75,6 +75,8 @@ export const SyncManager = {
           proxy_url: data.proxy_url,
           proxy_id: null,
           status: data.status,
+          is_active: data.is_active !== undefined ? data.is_active : 1,
+          quota_json: data.quota_json || null,
           last_error: data.notes,
           last_sync_at: now,
           updated_at: now,
@@ -93,24 +95,27 @@ export const SyncManager = {
         }];
       }
       
-      if (data.refresh_token) {
-        payload.connections = [{
-          id: data.id,
-          provider: data.provider || 'codex',
-          email: data.email,
-          name: data.email ? data.email.split('@')[0] : data.id,
-          access_token: data.access_token,
-          refresh_token: data.refresh_token,
-          proxy_url: data.proxy_url,
-          workspace_id: null,
-          is_active: (data.status === 'ready' || data.status === 'success') ? 1 : 0,
-          rate_limit_protection: 0,
-          provider_specific_data: null,
-          updated_at: now,
-          deleted_at: (data.status === 'idle') ? now : (data.deleted_at || null),
-          version,
-        }];
-      }
+      // Luôn đồng bộ is_active vào codex_connections kể cả khi không có token
+      // Chỉ dùng is_active trực tiếp từ data, không phụ thuộc vào status
+      const connectionIsActive = (data.is_active !== undefined && data.is_active !== null) 
+        ? (data.is_active === 0 ? 0 : 1) 
+        : 1;
+      payload.connections = [{
+        id: data.id,
+        provider: data.provider || 'codex',
+        email: data.email,
+        name: data.email ? data.email.split('@')[0] : data.id,
+        access_token: data.access_token || null,
+        refresh_token: data.refresh_token || null,
+        proxy_url: data.proxy_url || null,
+        workspace_id: null,
+        is_active: connectionIsActive,
+        rate_limit_protection: 0,
+        provider_specific_data: null,
+        updated_at: now,
+        deleted_at: (data.status === 'idle') ? now : (data.deleted_at || null),
+        version,
+      }];
     }
     if (type === 'proxy') payload.vaultProxies = [{ ...data, updated_at: data.updated_at || now }];
     if (type === 'key')   payload.vaultKeys   = [{ ...data, updated_at: data.updated_at || now }];
@@ -208,6 +213,8 @@ export const SyncManager = {
                 two_fa_secret: ga.two_fa_secret, // Có thể null
                 proxy_url: ga.proxy_url,
                 status: ga.status,
+                is_active: ga.is_active,
+                quota_json: ga.quota_json,
                 notes: ga.last_error,
                 updated_at: ga.updated_at,
                 deleted_at: ga.deleted_at
@@ -219,12 +226,14 @@ export const SyncManager = {
                 // Khi Gateway gửi deleted_at (đã xóa account), chuyển về idle thay vì bỏ qua
                 // Vault là kho độc lập — xóa ở Gateway = thu hồi về kho lạnh (idle)
                 if (ga.deleted_at && !existing.deleted_at) {
-                  console.log(`[pullVault] 🔄 Gateway đã xóa ${existing.email} → Chuyển về idle (Vault giữ nguyên)`);
-                  existing.status = 'idle';
-                  existing.notes = '';
-                  // Không áp dụng deleted_at vào local — Vault chỉ đổi status, không xóa record
+                  // Gateway đã xóa account này khỏi D1 managed_accounts.
+                  // Vault là kho lưu trữ ĐỘC LẬP → không xóa, không đổi status.
+                  // #accounts sẽ tự không hiện nữa vì nó đọc thẳng từ D1.
+                  existing.deleted_at = ga.deleted_at; // Đánh dấu để bỏ qua khi filter
                 } else {
                   existing.status = ga.status || existing.status;
+                  existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
+                  existing.quota_json = ga.quota_json || existing.quota_json;
                   existing.notes = ga.last_error || existing.notes;
                   existing.deleted_at = ga.deleted_at;
                 }

@@ -80,34 +80,28 @@ async function camofoxDelete(endpoint) {
 // LOGIN FLOW
 // ============================================
 
-/** Đợi selector xuất hiện trên trang bằng cách poll snapshot định kỳ (Smart Observer) */
+/** Đợi selector xuất hiện trên trang bằng cách poll snapshot định kỳ (Ổn định, có Auto-Healing) */
 async function waitForSelector(tabId, userId, selectorPatterns, timeoutMs = 25000) {
-  const start = Date.now();
   console.log(`[Wait] Đợi selector: ${selectorPatterns.join(', ')}...`);
+  const start = Date.now();
+
   while (Date.now() - start < timeoutMs) {
     const snap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${userId}`);
     const html = (snap.snapshot || '').toLowerCase();
-    
-    // [AUTO-HEALING] Quét các mã lỗi phổ biến trên màn hình để cắt ngang thay vì chờ chết
-    if (html.includes('email is required') || html.includes('enter a valid email')) {
-      throw new Error("Lỗi UI: Email không hợp lệ hoặc bị trống.");
-    }
-    if (html.includes('wrong email') || html.includes('we could not find your account')) {
-      throw new Error("Lỗi UI: Account không tồn tại.");
-    }
-    if (html.includes('wrong password') || html.includes('incorrect password')) {
-      throw new Error("Lỗi UI: Sai mật khẩu.");
-    }
-    if (html.includes('suspicious login behavior') || html.includes('we have detected suspicious')) {
-      throw new Error("Lỗi UI: IP Proxy bị đánh dấu Suspicious.");
-    }
-    if (html.includes('access denied')) {
-      throw new Error("Lỗi UI: Access Denied (Cloudflare Block / IP Block).");
-    }
 
+    // [AUTO-HEALING] Phát hiện sớm các lỗi UI để thoát ngay, không chờ timeout
+    const cleanText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    if (cleanText.includes('email is required') || cleanText.includes('enter a valid email')) throw new Error("Lỗi UI: Email không hợp lệ hoặc bị trống.");
+    if (cleanText.includes('wrong email') || cleanText.includes('we could not find your account')) throw new Error("Lỗi UI: Account không tồn tại.");
+    if (cleanText.includes('wrong password') || cleanText.includes('incorrect password')) throw new Error("Lỗi UI: Sai mật khẩu.");
+    if (cleanText.includes('suspicious login behavior') || cleanText.includes('we have detected suspicious')) throw new Error("Lỗi UI: IP Proxy bị đánh dấu Suspicious.");
+    if (cleanText.includes('access denied')) throw new Error("Lỗi UI: Access Denied (Cloudflare Block).");
+    if (cleanText.includes('phone number required') || cleanText.includes('add a phone number')) throw new Error("NEED_PHONE: Xác minh SĐT.");
+
+    // Kiểm tra các mẫu selector được yêu cầu
     for (const pat of selectorPatterns) {
       if (html.includes(pat.toLowerCase())) {
-        console.log(`[Wait] ✅ Thấy selector khớp mẫu: ${pat}`);
+        console.log(`[Wait] ✅ Thấy selector: ${pat}`);
         return true;
       }
     }
@@ -174,8 +168,8 @@ async function runLoginFlow(task) {
     const userAgent = browserUA;
     console.log(`[1] Tab mở thành công: ${tabId} (UA: ${userAgent?.substring(0, 30)}...)`);
     
-    // Chờ trang tải và Cloudflare (15 giây)
-    await new Promise(r => setTimeout(r, 15000));
+    // Chờ hệ thống khởi động (2 giây) thay vì 15 giây tốn thời gian, sau đó dùng waitForSelector
+    await new Promise(r => setTimeout(r, 2000));
     await saveStep(tabId, 'khoi_dong');
 
     // 2. Nhận diện và Xử lý trang Email
@@ -210,7 +204,7 @@ async function runLoginFlow(task) {
       });
     } catch(e) {}
     
-    await new Promise(r => setTimeout(r, 6000));
+    await new Promise(r => setTimeout(r, 1000)); // Đợi React xử lý click
     await saveStep(tabId, 'sau_email');
 
     // 3. Đợi và điền Password
@@ -240,26 +234,67 @@ async function runLoginFlow(task) {
       });
     } catch(e) {}
     
-    await new Promise(r => setTimeout(r, 10000));
+    await new Promise(r => setTimeout(r, 2000)); // Đợi điều hướng sau mật khẩu
     await saveStep(tabId, 'sau_password');
 
-    // 4. Xử lý 2FA (Bổ sung poll thông minh hơn)
+    // 4. Phát hiện màn hình sau khi đăng nhập: 2FA hoặc SĐT
+    // ─────────────────────────────────────────────────────────
+    // ✅ 2FA/MFA (Xác thực hai bước): Sinh mã TOTP từ secret → Nhập vào ô → Bình thường
+    // ❌ Phone Verification (Xác minh SĐT): OpenAI yêu cầu gắn số điện thoại → THẤT BẠI ngay
+    // ─────────────────────────────────────────────────────────
     let isAtMFA = false;
     for (let j = 0; j < 5; j++) {
       const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
       const snap2Url = (snapData.url || '').toLowerCase();
       const snapText = (snapData.snapshot || '').toLowerCase();
-      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('verify') || 
+      const cleanMfaText = snapText.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+
+      // ❌ Phát hiện màn hình xác minh SĐT → Báo thất bại ngay, không tiếp tục
+      const isPhoneScreen = cleanMfaText.includes('phone number required') ||
+                            cleanMfaText.includes('add a phone number') ||
+                            cleanMfaText.includes('verify your phone') ||
+                            snap2Url.includes('/phone');
+      if (isPhoneScreen) {
+        console.log(`[${task.email}] 📵 Phát hiện xác minh SĐT (trước 2FA) → Báo THẤT BẠI ngay!`);
+        await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+        await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
+        return;
+      }
+
+      // ✅ Phát hiện màn hình 2FA (TOTP/Authenticator) → Xử lý bình thường
+      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('/verify') ||
                 snapText.includes('one-time code') || snapText.includes('authenticator') ||
                 snapText.includes('enter the code');
-      
+
       if (isAtMFA) break;
-      if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break; // Đã qua màn 2FA
+      if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break;
       await new Promise(r => setTimeout(r, 2000));
     }
 
     if (isAtMFA) {
       console.log(`[${task.email}] 🛡️ Đang ở màn hình 2FA/MFA...`);
+
+      // ❌ Hàm kiểm tra màn hình xác minh SĐT ngay sau mỗi lần nhập OTP 2FA
+      // Lưu ý: OTP 2FA (TOTP) là bình thường. Nhưng sau khi qua 2FA mà OpenAI
+      // lại yêu cầu thêm SĐT thì đó là THẤT BẠI — tài khoản không dùng được tự động.
+      const checkPhoneScreenAfterOTP = async (label) => {
+        const s = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        const t = (s.snapshot || '').toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+        const u = (s.url || '').toLowerCase();
+        const isPhone = t.includes('phone number required') ||
+                        t.includes('add a phone number') ||
+                        t.includes('verify your phone') ||
+                        t.includes('enter your phone') ||
+                        u.includes('/phone');
+        if (isPhone) {
+          console.log(`[${task.email}] 📵 [${label}] Xác minh SĐT sau 2FA → Tài khoản THẤT BẠI!`);
+          await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+          // Throw để nhảy vào catch block → sendResultToGateway('error', 'NEED_PHONE')
+          throw new Error('NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+        }
+        return s;
+      };
+
       if (!account.twoFaSecret) {
         console.log(`[${task.email}] ⚠️ Cần 2FA nhưng không có secret, chờ thủ công hoặc timeout.`);
       } else {
@@ -270,22 +305,18 @@ async function runLoginFlow(task) {
         const otp = getTOTP(account.twoFaSecret);
         console.log(`[${task.email}] 🔢 Nhập OTP: ${otp} (còn ${30 - (Math.floor(Date.now()/1000) % 30)}s)`);
 
-        await camofoxPost(`/tabs/${tabId}/type`, {
-          userId: USER_ID,
-          selector: mfaSelector,
-          text: otp,
-        });
+        await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
         await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
         await new Promise(r => setTimeout(r, 6000));
 
-        // Kiểm tra nếu vẫn còn ở màn 2FA (OTP bị từ chối, thử lại với mã mới)
-        const afterMFASnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        // ✅ Kiểm tra SĐT ngay sau OTP lần 1
+        const afterMFASnap = await checkPhoneScreenAfterOTP('Sau OTP lần 1');
         const afterMFAText = (afterMFASnap.snapshot || '').toLowerCase();
         const afterMFAUrl  = (afterMFASnap.url || '').toLowerCase();
         const stillAtMFA   = afterMFAText.includes('one-time code') || afterMFAText.includes('authenticator') ||
                              afterMFAText.includes('enter the code') || afterMFAUrl.includes('mfa');
+
         if (stillAtMFA) {
-          // Chờ chu kỳ TOTP mới (tối đa 35s) rồi thử lại
           const secsRemaining = 30 - (Math.floor(Date.now()/1000) % 30);
           console.log(`[${task.email}] ⚠️ OTP bị từ chối, chờ ${secsRemaining}s cho chu kỳ mới...`);
           await new Promise(r => setTimeout(r, (secsRemaining + 2) * 1000));
@@ -300,6 +331,9 @@ async function runLoginFlow(task) {
           await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
           await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
           await new Promise(r => setTimeout(r, 6000));
+
+          // ✅ Kiểm tra SĐT ngay sau OTP retry
+          await checkPhoneScreenAfterOTP('Sau OTP retry');
         }
       }
       await saveStep(tabId, 'sau_2fa');
@@ -313,13 +347,14 @@ async function runLoginFlow(task) {
       const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
       const curUrl = checkSnap.url || '';
       const html = (checkSnap.snapshot || '').toLowerCase();
+      const cleanText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
 
       // 🚫 Phát hiện màn hình yêu cầu số điện thoại (Phone number required)
       if (
-        html.includes('phone number required') ||
-        html.includes('add a phone number') ||
-        html.includes('phone number') && html.includes('one-time code') ||
-        curUrl.includes('phone') && (html.includes('verify') || html.includes('continue'))
+        cleanText.includes('phone number required') ||
+        cleanText.includes('add a phone number') ||
+        (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
+        (curUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')))
       ) {
         console.log(`[${task.email}] 📵 Phát hiện màn hình yêu cầu SĐT → Báo thất bại ngay`);
         await saveStep(tabId, 'yeu_cau_so_dien_thoai');

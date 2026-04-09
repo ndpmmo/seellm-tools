@@ -24,13 +24,32 @@ function StatusBadge({ status, notes }: { status: string; notes?: string }) {
     error:      { color: 'var(--rose)',   bg: 'var(--rose-dim)',   label: 'Error' },
     pending:    { color: '#f59e0b',       bg: '#f59e0b20',         label: 'Pending' },
     processing: { color: '#6366f1',       bg: '#6366f120',         label: 'Processing' },
+    relogin:    { color: '#a855f7',       bg: '#a855f720',         label: 'Re-login' },
   };
-  const s = m[status] || { color: 'var(--text-3)', bg: 'var(--glass)', label: status };
+  const s = m[status] || { color: 'var(--text-3)', bg: 'var(--glass)', label: status.toUpperCase() };
   const isPulsing = status === 'pending' || status === 'processing';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}25` }}>
+    <span title={notes} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}25`, whiteSpace: 'nowrap' }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', animation: isPulsing ? 'pulse 1.2s ease-in-out infinite' : 'none' }} />
       {s.label}
+    </span>
+  );
+}
+
+function PlanBadge({ plan }: { plan?: string }) {
+  if (!plan) return null;
+  const p = plan.toLowerCase();
+  
+  let styles = { bg: '#f3f4f6', color: '#6b7280', label: 'Free' };
+  
+  if (p.includes('plus')) styles = { bg: '#10a37f20', color: '#10a37f', label: 'Plus' };
+  else if (p.includes('pro')) styles = { bg: '#6366f120', color: '#6366f1', label: 'Pro' };
+  else if (p.includes('team') || p.includes('business')) styles = { bg: '#f59e0b20', color: '#f59e0b', label: 'Team' };
+  else if (p.includes('go')) styles = { bg: '#3b82f620', color: '#3b82f6', label: 'Go' };
+  
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', background: styles.bg, color: styles.color, border: `1px solid ${styles.color}20` }}>
+      {styles.label}
     </span>
   );
 }
@@ -322,7 +341,10 @@ export function VaultAccountsView() {
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--glass)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={{ padding: '14px 20px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>{it.email || 'No email'}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text)' }}>{it.email || 'No email'}</div>
+                        <PlanBadge plan={it.plan} />
+                      </div>
                       <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
                         {it.label && <span style={{ color: 'var(--indigo-2)' }}>{it.label}</span>}
                         {it.proxy_url && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Globe size={10} /> {it.proxy_url}</span>}

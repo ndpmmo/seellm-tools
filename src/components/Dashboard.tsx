@@ -17,6 +17,7 @@ import { AccountsView }    from './views/AccountsView';
 import { ProxiesView }     from './views/ProxiesView';
 import { ConnectionsView } from './views/ConnectionsView';
 import { ChangelogView }   from './views/ChangelogView';
+import { CamofoxDocsView } from './views/CamofoxDocsView';
 
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
@@ -85,11 +86,7 @@ function Sidebar() {
         <NavItem id="changelog" icon={HistoryIcon} label="Change Logs" />
 
         <div className="nav-section-label">Tài nguyên</div>
-        <div className="nav-btn" onClick={() => window.open('https://github.com/jo-inc/camofox-browser', '_blank')}>
-          <span className="nav-ico">🦊</span>
-          <span>Camofox Docs</span>
-          <ExternalLink size={11} style={{ marginLeft: 'auto', color: 'var(--text-3)' }} />
-        </div>
+        <NavItem id="camofox-docs" icon={FileText} label="Camofox Docs" />
       </nav>
 
       {/* Footer */}
@@ -126,13 +123,14 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
   scripts:     { title: 'Scripts',      desc: 'Các scripts tích hợp sẵn' },
   settings:    { title: 'Cài đặt',      desc: 'Cấu hình hệ thống · Tools & Gateway' },
   changelog:   { title: 'Change Logs',   desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
+  'camofox-docs': { title: 'Camofox Docs', desc: 'Tài liệu hướng dẫn custom Camofox API' },
 };
 
 const PAGE_ICONS: Record<string, React.ElementType> = {
   dashboard: LayoutDashboard, accounts: Users, proxies: Globe,
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
-  changelog: HistoryIcon,
+  changelog: HistoryIcon, 'camofox-docs': FileText,
 };
 
 function Topbar() {
@@ -191,6 +189,7 @@ function ContentRouter() {
       {view === 'scripts'     && <ScriptsView />}
       {view === 'settings'    && <SettingsView />}
       {view === 'changelog'   && <ChangelogView />}
+      {view === 'camofox-docs' && <CamofoxDocsView />}
     </>
   );
 }

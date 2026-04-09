@@ -152,8 +152,19 @@ function watchScreenshots() {
         const parts = filename.split(path.sep);
         const sessionId = parts[0];
         const imgFile   = parts[parts.length - 1];
+        
+        let email = sessionId;
+        try {
+          // Thử tra cứu email từ local Vault dựa trên sessionId (chính là account ID)
+          const accRow = vault.db.prepare('SELECT email FROM vault_accounts WHERE id = ?').get(sessionId);
+          if (accRow && accRow.email) {
+            email = accRow.email;
+          }
+        } catch(e) {}
+
         io?.emit('screenshot:new', {
           sessionId,
+          email,
           filename: imgFile,
           url: `/data/screenshots/${sessionId}/${imgFile}`,
           ts: new Date().toISOString(),
@@ -391,16 +402,11 @@ app.prepare().then(() => {
       let hasChanges = false;
       for (const event of data.events) {
         if (event.event_type === 'ACCOUNT_DELETED') {
+          // Chỉ log để biết Gateway đã xóa. #accounts tự cập nhật khi reload
+          // vì nó đọc thẳng từ D1 — không cần chạm vào Vault local
           try {
             const payload = JSON.parse(event.payload);
-            const updated = vault.db.prepare(
-              "UPDATE vault_accounts SET status=?, updated_at=? WHERE id=? AND status != 'idle'"
-            ).run('idle', new Date().toISOString(), payload.accountId);
-            
-            if (updated.changes > 0) {
-              console.log(`[EventBus] 🔄 Gateway đã xóa ${payload.email} → Chuyển về idle`);
-              hasChanges = true;
-            }
+            console.log(`[EventBus] ℹ️ Gateway đã xóa ${payload.email || payload.accountId} khỏi D1`);
           } catch(err) {}
         }
       }
@@ -514,19 +520,21 @@ app.prepare().then(() => {
   ex.delete('/api/d1/accounts/:id', async (req, res, next) => {
     try {
       const { id } = req.params;
-      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa Codex account. ID: ${id} → Thu hồi về Vault (idle)`);
-      if (id) {
-        const existing = vault.db.prepare('SELECT id, email, status FROM vault_accounts WHERE id = ?').get(id);
-        if (existing && existing.status !== 'idle') {
-          // Chỉ thu hồi về idle, KHÔNG xóa — Vault là kho lưu trữ độc lập
-          vault.db.prepare('UPDATE vault_accounts SET status = ?, updated_at = ? WHERE id = ?')
-            .run('idle', new Date().toISOString(), id);
-          console.log(`[D1 Proxy] 🔄 Account ${existing.email} → idle (vẫn còn trong Vault)`);
-          // 📡 Thông báo UI cập nhật ngay lập tức (trước đây thiếu bước này)
-          if (io) io.emit('vault:update');
-        }
+      console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa Codex account. ID: ${id}`);
+
+      // Thông báo Gateway xóa connection tương ứng (đồng bộ Gateway ← Tools)
+      const cfg = loadConfig();
+      if (id && cfg.gatewayUrl) {
+        fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/automation/accounts/codex/${id}`, {
+          method: 'DELETE',
+          signal: AbortSignal.timeout(5000)
+        }).then(() => {
+          console.log(`[D1 Proxy] ✅ Đã truyền lệnh xóa cho Gateway (accounts/codex/${id}).`);
+        }).catch(e => {
+          console.log(`[D1 Proxy] ⚠️ Lỗi khi gọi Gateway xóa: ${e.message}`);
+        });
       }
-      return next(); // Vẫn cho proxy qua D1 để xóa khỏi Codex Cloud
+      return next(); // Proxy lệnh xóa lên D1 Cloud
     } catch(e) {
       return next();
     }
@@ -578,6 +586,45 @@ app.prepare().then(() => {
       return next();
     } catch(e) {
       return next();
+    }
+  });
+
+  // ▶ Intercept: PATCH /api/automation/accounts/:provider/:id → Toggle is_active locally & push to D1
+  ex.patch('/api/automation/accounts/:provider/:id', async (req, res) => {
+    console.log(`[D1 Proxy] 🎯 Nhận yêu cầu: ${req.method} ${req.url}`);
+    try {
+      const { id } = req.params;
+      const { isActive, action } = req.body;
+      
+      console.log(`[D1 Proxy] 🔄 Bật/tắt tài khoản: ${id} -> isActive=${isActive}`);
+      
+      // 1. Cập nhật local vault ngay lập tức
+      const existing = vault.getAccountFull(id);
+      if (!existing) {
+        return res.status(404).json({ error: `Account ${id} not found in local vault` });
+      }
+      
+      const newIsActive = isActive ? 1 : 0;
+      vault.db.prepare(
+        `UPDATE vault_accounts SET is_active = ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(newIsActive, id);
+      
+      console.log(`[D1 Proxy] ✅ Local vault updated: ${existing.email} is_active=${newIsActive}`);
+      
+      // 2. Đẩy ngay lên D1 qua SyncManager (Hỏa tốc: force = true)
+      const updatedRecord = vault.getAccountFull(id);
+      if (updatedRecord) {
+        SyncManager.pushVault('account', updatedRecord, true).then(() => {
+          console.log(`[D1 Proxy] ☁️ Synced (FORCED) is_active=${newIsActive} for ${existing.email} to D1`);
+        }).catch(err => {
+          console.warn(`[D1 Proxy] ⚠️ D1 sync failed: ${err.message}`);
+        });
+      }
+      
+      return res.json({ ok: true, id, isActive: newIsActive === 1 });
+    } catch (e) {
+      console.error(`[D1 Proxy] toggle error:`, e.message);
+      return res.status(500).json({ error: e.message });
     }
   });
 

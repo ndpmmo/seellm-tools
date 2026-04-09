@@ -136,7 +136,7 @@ export function DashboardView() {
                     <img src={`${shot.url}?t=${Date.now()}`} alt="Live" />
                   </div>
                   <div className="live-info" style={{ marginTop: 4 }}>
-                    <div className="live-label" style={{ fontSize: 12 }}>{sessionId.replace(/^run_/, '').split('_')[0]}</div>
+                    <div className="live-label" style={{ fontSize: 12 }}>{shot.email || sessionId.replace(/^run_/, '')}</div>
                   </div>
                 </div>
               ))}

@@ -105,6 +105,45 @@ async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
   return data;
 }
 
+/**
+ * Decode base64 URL safe string
+ */
+function base64Decode(str) {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  return Buffer.from(base64, 'base64').toString('utf8');
+}
+
+/**
+ * Parse id_token JWT to extract plan info
+ */
+function parseIdToken(idToken) {
+  try {
+    const parts = idToken.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(base64Decode(parts[1]));
+    const authInfo = payload["https://api.openai.com/auth"];
+    
+    let plan = (authInfo?.chatgpt_plan_type || "").toLowerCase();
+    
+    // Check organizations for Team/Business
+    const organizations = authInfo?.organizations || [];
+    if (organizations.length > 0) {
+      const teamOrg = organizations.find(org => 
+        !org.is_default && (org.role === 'admin' || org.role === 'member')
+      );
+      if (teamOrg && (plan === 'free' || plan === '')) {
+        plan = 'team';
+      }
+    }
+    
+    return plan || 'free';
+  } catch (e) {
+    console.error('[OAuth] ⚠️ Failed to parse id_token:', e.message);
+    return null;
+  }
+}
+
 
 /* ─── In-memory PKCE store: account_id → {url, codeVerifier, createdAt} ─── */
 // Giữ PKCE cố định cho 1 account cho đến khi hoàn thành (tránh 400 invalid_request)
@@ -200,10 +239,11 @@ router.get('/accounts/task', async (req, res) => {
     // Danh sách ID đang được xử lý bởi các thread khác (worker gửi qua query string)
     const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
 
-    // Tìm account pending/relogin chưa bị xóa, có email, và KHÔNG trong danh sách exclude
+    // Tìm account pending/relogin chưa bị xóa, đang active, có email, và KHÔNG trong danh sách exclude
     const task = allAccounts.find(a =>
       (a.status === 'pending' || a.status === 'relogin') &&
       !a.deleted_at &&
+      a.is_active !== 0 &&
       a.email && a.email.trim() &&
       !excludeIds.includes(a.id) // 🔑 Đây là điều kiện then chốt cho đa luồng
     );
@@ -327,6 +367,8 @@ router.post('/accounts/result', async (req, res) => {
           console.log(`[Result] 🔄 Restored account ${targetEmail} (was deleted_at)`);
         }
 
+        const planType = tokens.id_token ? parseIdToken(tokens.id_token) : null;
+
         vault.upsertAccount({
           id:            targetId,
           status:        'ready',
@@ -334,11 +376,14 @@ router.post('/accounts/result', async (req, res) => {
           access_token:  tokens.access_token,
           refresh_token: tokens.refresh_token,
           email:         targetEmail || undefined,
+          plan:          planType,
         });
 
         // Xóa PKCE khỏi store sau khi xử lý xong
         pkceStore.delete(id);
         pkceStore.delete(targetId);
+
+        const cfg = loadConfig();
 
         // Đồng bộ lên D1 NGAY LẬP TỨC
         const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(targetId);
@@ -347,9 +392,6 @@ router.post('/accounts/result', async (req, res) => {
           await SyncManager.pushVault('account', fullRecord);
 
           // ── Gửi token lên Gateway local (provider_connections) ────────────
-          // Gateway KHÔNG pull connections từ D1, nó chỉ đọc local SQLite của nó.
-          // Chúng ta gửi trực tiếp tokens sang action 'import' của Gateway.
-          const cfg = loadConfig();
           if (cfg.gatewayUrl) {
             try {
               const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/import`, {
@@ -381,6 +423,11 @@ router.post('/accounts/result', async (req, res) => {
           console.error(`[Result] ❌ Cannot sync: fullRecord missing email! id=${targetId}`);
         }
 
+        // Trigger Gateway to fetch usage/quota immediately so UI updates
+        if (cfg.gatewayUrl) {
+          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`).catch(() => {});
+        }
+
         console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
       } catch (exchangeErr) {
         console.error(`[Result] ❌ Exchange failed: ${exchangeErr.message}`);
@@ -405,7 +452,13 @@ router.post('/accounts/result', async (req, res) => {
       pkceStore.delete(id);
 
       const fullRecord = vault.getAccountFull(id);
-      if (fullRecord) await SyncManager.pushVault('account', fullRecord);
+      if (fullRecord) {
+        await SyncManager.pushVault('account', fullRecord);
+        const cfg = loadConfig();
+        if (cfg.gatewayUrl) {
+          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`).catch(() => {});
+        }
+      }
 
     } else {
       // ─── Path 3: Error / other status ────────────────────────────────────

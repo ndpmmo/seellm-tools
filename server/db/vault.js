@@ -39,6 +39,9 @@ function initSchema() {
       tags          TEXT,
       exported_to   TEXT,
       exported_at   TEXT,
+      plan          TEXT,
+      is_active     INTEGER DEFAULT 1,
+      quota_json    TEXT,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
     );
@@ -93,10 +96,15 @@ function applyMigrations() {
   for (const t of tables) {
     try {
       db.exec(`ALTER TABLE ${t} ADD COLUMN deleted_at TEXT`);
-    } catch (e) {
-      // Bỏ qua nếu cột đã tồn tại
-    }
+    } catch (e) {}
   }
+  
+  // Specific migrations
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN is_active INTEGER DEFAULT 1`); } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN quota_json TEXT`); } catch (e) {}
+  try {
+    db.exec(`ALTER TABLE vault_accounts ADD COLUMN plan TEXT`);
+  } catch (e) {}
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -233,9 +241,9 @@ export const vault = {
     const stmt = db.prepare(`
       INSERT INTO vault_accounts (
         id, provider, label, email, password, two_fa_secret, proxy_url, 
-        cookies, access_token, refresh_token, status, notes, tags, 
-        exported_to, exported_at, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        cookies, access_token, refresh_token, status, notes, tags, plan,
+        is_active, quota_json, exported_to, exported_at, created_at, updated_at, deleted_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
         label         = excluded.label,
@@ -249,6 +257,9 @@ export const vault = {
         status        = excluded.status,
         notes         = excluded.notes,
         tags          = excluded.tags,
+        plan          = excluded.plan,
+        is_active     = excluded.is_active,
+        quota_json    = excluded.quota_json,
         exported_to   = excluded.exported_to,
         exported_at   = excluded.exported_at,
         updated_at    = excluded.updated_at,
@@ -275,6 +286,9 @@ export const vault = {
       status: finalStatus,
       notes: (authData.notes === null || authData.notes === 'null') ? '' : authData.notes,
       tags: JSON.stringify(parseJSON(data.tags || (existing ? existing.tags : '[]'))),
+      plan: data.plan !== undefined ? data.plan : (existing ? existing.plan : null),
+      is_active: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : (existing ? existing.is_active : 1)),
+      quota_json: data.quota_json !== undefined ? (typeof data.quota_json === 'object' ? JSON.stringify(data.quota_json) : data.quota_json) : (data.quotaJson !== undefined ? (typeof data.quotaJson === 'object' ? JSON.stringify(data.quotaJson) : data.quotaJson) : (existing ? existing.quota_json : null)),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,
       deleted_at: data.deleted_at || (existing ? existing.deleted_at : null)
@@ -283,7 +297,8 @@ export const vault = {
     stmt.run(
       record.id, record.provider, record.label, record.email, record.password,
       record.two_fa_secret, record.proxy_url, record.cookies, record.access_token,
-      record.refresh_token, record.status, record.notes, record.tags,
+      record.refresh_token, record.status, record.notes, record.tags, record.plan,
+      record.is_active, record.quota_json,
       record.exported_to, record.exported_at, record.created_at, record.updated_at, record.deleted_at
     );
 

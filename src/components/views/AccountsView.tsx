@@ -130,6 +130,20 @@ export function AccountsView() {
   const add = async () => { if (!newEmail) return; setAdding(true); const d = await post('/api/d1/accounts/add', { email: newEmail, password: newPass, twoFaSecret: new2fa }); if (d.error) addToast(d.error, 'error'); else { addToast('✅ Đã thêm', 'success'); setNewEmail(''); setNewPass(''); setNew2fa(''); load(); } setAdding(false); };
   const del = async (id: string) => { if (!confirm('Xóa?')) return; await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' }); addToast('Đã xoá', 'info'); load(); };
   const reset = async (id: string) => { await patch(`/api/d1/accounts/${id}`, { status: 'pending' }); addToast('→ pending', 'info'); load(); };
+  const toggleActive = async (id: string, currentStatus: any) => {
+    try {
+      // currentStatus = 0 (tắt) hoặc 1 (bật) hoặc undefined
+      const isActive = currentStatus !== 0; 
+      const r = await fetch(`/api/automation/accounts/codex/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'TOGGLE_ACTIVE', isActive: !isActive })
+      });
+      if (!r.ok) throw new Error('Cập nhật trạng thái thất bại');
+      addToast(!isActive ? '✅ Đã bật tài khoản' : '🛑 Đã tắt tài khoản', 'info');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
   const openEdit = (it: any) => { setEditId(it.id); setEditPass(it.password || ''); setEdit2fa(it.two_fa_secret || ''); setEditProxy(it.proxy_url || ''); };
   const saveEdit = async () => { if (!editId) return; setEditSaving(true); await patch(`/api/d1/accounts/${editId}`, { password: editPass, twoFaSecret: edit2fa, proxyUrl: editProxy }); addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load(); };
   const cancelEdit = () => setEditId(null);
@@ -255,9 +269,30 @@ export function AccountsView() {
                       onMouseEnter={e => { if (!ed) (e.currentTarget.style.background = 'var(--glass)'); }}
                       onMouseLeave={e => { if (!ed) (e.currentTarget.style.background = 'transparent'); }}>
 
-                    {/* Email */}
-                    <td style={{ ...td, minWidth: 220 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--text)' }}>{it.email}</div>
+                    {/* Email & Activation Toggle */}
+                    <td style={{ ...td, minWidth: 240 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div 
+                          onClick={() => toggleActive(it.id, it.is_active)}
+                          style={{
+                            width: 12, height: 12, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
+                            background: it.is_active === 0 ? 'var(--text-4)' : 'var(--green)',
+                            border: `2px solid ${it.is_active === 0 ? 'var(--border)' : 'var(--green-dim)'}`,
+                            boxShadow: it.is_active === 0 ? 'none' : '0 0 10px var(--green-dim)',
+                            transition: 'all .2s'
+                          }}
+                          title={it.is_active === 0 ? "Đang tạm dừng (Nhấn để bật)" : "Đang hoạt động (Nhấn để tắt)"}
+                        />
+                        <div style={{ 
+                          fontWeight: 600, 
+                          fontSize: 13.5, 
+                          color: it.is_active === 0 ? 'var(--text-4)' : 'var(--text)', 
+                          textDecoration: it.is_active === 0 ? 'line-through' : 'none',
+                          opacity: it.is_active !== 0 ? 1 : 0.6
+                        }}>
+                          {it.email}
+                        </div>
+                      </div>
                       {it.last_error && !ed && (
                         <div title={it.last_error} style={{ marginTop: 4, fontSize: 11, color: 'var(--rose)', display: 'flex', alignItems: 'center', gap: 4, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <AlertCircle size={10} style={{ flexShrink: 0 }} /> {it.last_error}
@@ -299,9 +334,10 @@ export function AccountsView() {
                           ) : null}
 
                           {/* Live Quotas (Session, Weekly, etc) */}
-                          {it.quotas_json && (() => {
+                          {(it.quotas_json || it.quota_json) && (() => {
                             try {
-                              const qs = typeof it.quotas_json === 'string' ? JSON.parse(it.quotas_json) : it.quotas_json;
+                              const qRaw = it.quotas_json || it.quota_json;
+                              const qs = typeof qRaw === 'string' ? JSON.parse(qRaw) : qRaw;
                               if (!Array.isArray(qs)) return null;
                               return (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

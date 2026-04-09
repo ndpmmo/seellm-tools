@@ -117,7 +117,7 @@ export function ScreenshotsView() {
                     <img src={`${shot.url}?t=${Date.now()}`} alt="live" />
                   </div>
                   <div className="live-info">
-                    <div className="live-label">{sessionId.replace(/^run_/, '').split('_')[0]}</div>
+                    <div className="live-label">{shot.email || sessionId.replace(/^run_/, '')}</div>
                     <div className="live-sub">{shot.filename}</div>
                   </div>
                 </div>
