@@ -4,7 +4,7 @@ import { io, Socket } from 'socket.io-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface LogEntry  { type: 'stdout'|'stderr'|'system'; text: string; ts: string; }
-export interface Screenshot { filename: string; url: string; }
+export interface Screenshot { filename: string; url: string; email?: string; ts?: string; }
 export interface Session    { id: string; dir: string; imageCount: number; images: Screenshot[]; mtime: string; }
 export interface LogFile    { filename: string; size: number; mtime: string; }
 
@@ -117,10 +117,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Live screenshot pushed from server when new file appears
-    socket.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string }) => {
+    socket.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string; email?: string }) => {
       setLiveShots(prev => ({
         ...prev,
-        [data.sessionId]: { filename: data.filename, url: data.url }
+        [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
       }));
       // Refresh sessions so gallery updates
       fetch('/api/sessions').then(r=>r.json()).then(setSessions).catch(()=>{});

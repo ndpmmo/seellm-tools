@@ -1,5 +1,18 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.7] - 2026-04-10
+
+### Fixed
+- **Accounts quota visibility (`#accounts`)**:
+  - Fixed usage rendering condition to include `quota_json` (previously only checked `discovered_limit`/`quotas_json`, causing false `Unknown`).
+  - Merged usage data from multiple sources on load:
+    - D1 managed accounts (`/api/d1/inspect/accounts`)
+    - D1 connections (`/api/d1/inspect/connections`)
+    - local vault accounts (`/api/vault/accounts`)
+  - Added robust quota parser for both array/object payload formats and normalized `% remaining` display in the Usage column.
+- **TypeScript build stability**:
+  - Extended live screenshot type to include optional `email`/`ts` fields so dashboard live view compiles cleanly.
+
 ## [0.1.6] - 2026-04-10
 
 ### Fixed

@@ -16,6 +16,45 @@ function parseBulk(raw: string) {
   }).filter(r => r.email.includes('@'));
 }
 
+function safePercentRemaining(used: any, total: any) {
+  const u = Number(used || 0);
+  const t = Number(total || 0);
+  if (!Number.isFinite(u) || !Number.isFinite(t) || t <= 0) return null;
+  const remaining = Math.max(0, Math.min(100, 100 - (u / t) * 100));
+  return Math.round(remaining);
+}
+
+function normalizeQuotas(raw: any): Array<{ name: string; used: number; total: number }> {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed) return [];
+
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((q: any) => ({
+          name: String(q?.name || q?.key || q?.model || q?.type || 'quota'),
+          used: Number(q?.used || q?.current || q?.usage || 0),
+          total: Number(q?.total || q?.limit || q?.max || 0),
+        }))
+        .filter(q => Number.isFinite(q.total) && q.total > 0);
+    }
+
+    if (typeof parsed === 'object') {
+      const candidates: Array<{ name: string; used: number; total: number }> = [];
+      for (const [name, v] of Object.entries(parsed as Record<string, any>)) {
+        if (!v || typeof v !== 'object') continue;
+        const used = Number((v as any).used ?? (v as any).current ?? (v as any).usage ?? 0);
+        const total = Number((v as any).total ?? (v as any).limit ?? (v as any).max ?? 0);
+        if (Number.isFinite(total) && total > 0) {
+          candidates.push({ name, used, total });
+        }
+      }
+      return candidates;
+    }
+  } catch { }
+  return [];
+}
+
 /* ── Tiny Copy Button ── */
 function CopyBtn({ text }: { text?: string }) {
   const [ok, setOk] = useState(false);
@@ -110,10 +149,62 @@ export function AccountsView() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch('/api/d1/inspect/accounts?limit=500');
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json(); if (d.error) throw new Error(d.error);
-      setItems(d.items || []);
+      const [accountsRes, connectionsRes, vaultRes] = await Promise.all([
+        fetch('/api/d1/inspect/accounts?limit=500'),
+        fetch('/api/d1/inspect/connections').catch(() => null as any),
+        fetch('/api/vault/accounts').catch(() => null as any),
+      ]);
+
+      if (!accountsRes.ok) throw new Error(`HTTP ${accountsRes.status}`);
+      const accountsData = await accountsRes.json();
+      if (accountsData.error) throw new Error(accountsData.error);
+
+      let connections: any[] = [];
+      if (connectionsRes?.ok) {
+        const cd = await connectionsRes.json().catch(() => ({}));
+        connections = Array.isArray(cd?.items) ? cd.items : [];
+      }
+
+      let vaultAccounts: any[] = [];
+      if (vaultRes?.ok) {
+        const vd = await vaultRes.json().catch(() => ({}));
+        vaultAccounts = Array.isArray(vd?.items) ? vd.items : [];
+      }
+
+      const connById = new Map<string, any>();
+      const connByEmail = new Map<string, any>();
+      for (const c of connections) {
+        if (c?.id) connById.set(String(c.id), c);
+        if (c?.email) connByEmail.set(String(c.email).toLowerCase(), c);
+      }
+
+      const vaultById = new Map<string, any>();
+      const vaultByEmail = new Map<string, any>();
+      for (const v of vaultAccounts) {
+        if (v?.id) vaultById.set(String(v.id), v);
+        if (v?.email) vaultByEmail.set(String(v.email).toLowerCase(), v);
+      }
+
+      const merged = (accountsData.items || []).map((a: any) => {
+        const byIdConn = a?.id ? connById.get(String(a.id)) : null;
+        const byEmailConn = a?.email ? connByEmail.get(String(a.email).toLowerCase()) : null;
+        const conn = byIdConn || byEmailConn || null;
+
+        const byIdVault = a?.id ? vaultById.get(String(a.id)) : null;
+        const byEmailVault = a?.email ? vaultByEmail.get(String(a.email).toLowerCase()) : null;
+        const local = byIdVault || byEmailVault || null;
+
+        return {
+          ...a,
+          discovered_limit: a.discovered_limit ?? conn?.discovered_limit ?? null,
+          current_tokens_in: a.current_tokens_in ?? conn?.current_tokens_in ?? 0,
+          current_tokens_out: a.current_tokens_out ?? conn?.current_tokens_out ?? 0,
+          quotas_json: a.quotas_json ?? conn?.quotas_json ?? null,
+          quota_json: a.quota_json ?? local?.quota_json ?? null,
+        };
+      });
+
+      setItems(merged);
     } catch (e: any) { setError(e.message); }
     setLoading(false);
   }, []);
@@ -315,7 +406,7 @@ export function AccountsView() {
 
                     {/* Usage */}
                     <td style={{ ...td, minWidth: 140 }}>
-                      {(it.discovered_limit || it.quotas_json) ? (
+                      {(it.discovered_limit || it.quotas_json || it.quota_json) ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {it.discovered_limit ? (
                             <div>
@@ -335,26 +426,25 @@ export function AccountsView() {
 
                           {/* Live Quotas (Session, Weekly, etc) */}
                           {(it.quotas_json || it.quota_json) && (() => {
-                            try {
-                              const qRaw = it.quotas_json || it.quota_json;
-                              const qs = typeof qRaw === 'string' ? JSON.parse(qRaw) : qRaw;
-                              if (!Array.isArray(qs)) return null;
+                            const qRaw = it.quotas_json || it.quota_json;
+                            const qs = normalizeQuotas(qRaw);
+                            if (!qs.length) return null;
                               return (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                   {qs.map((q: any, i: number) => {
                                     const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
                                     const color = pct > 80 ? 'var(--rose)' : (pct > 50 ? 'var(--amber)' : 'var(--emerald)');
+                                    const remain = safePercentRemaining(q.used, q.total);
                                     return (
                                       <div key={i} title={`${q.name}: ${q.used}/${q.total}`} 
                                            style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}33`, background: `${color}11`, color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
                                         <div style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
-                                        {q.name}: {Math.round(100 - pct)}%
+                                        {q.name}: {remain ?? 0}%
                                       </div>
                                     );
                                   })}
                                 </div>
                               );
-                            } catch (e) { return null; }
                           })()}
                         </div>
                       ) : (
