@@ -66,11 +66,14 @@ const PROVIDERS = [
 export function VaultAccountsView() {
   const { addToast } = useApp();
   const [items, setItems]     = useState<any[]>([]);
+  const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
   const [search, setSearch]   = useState('');
   const [providerFilter, setProviderFilter] = useState('all');
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [autoAssigning, setAutoAssigning] = useState(false);
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -95,6 +98,14 @@ export function VaultAccountsView() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json(); if (d.error) throw new Error(d.error);
       setItems(d.items || []);
+
+      const pr = await fetch('/api/d1/inspect/proxies').catch(() => null as any);
+      if (pr?.ok) {
+        const pd = await pr.json().catch(() => ({}));
+        setProxies(Array.isArray(pd?.proxies) ? pd.proxies : []);
+      } else {
+        setProxies([]);
+      }
     } catch (e: any) { setError(e.message); }
     setLoading(false);
   }, []);
@@ -163,6 +174,41 @@ export function VaultAccountsView() {
       addToast(`☁️ Đã ép đồng bộ ${email} lên D1 thành công`, 'success');
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const assignFromPool = async (id: string, proxyId?: string) => {
+    setAssigningId(id);
+    try {
+      const r = await fetch('/api/proxy-assign/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: id, proxyId: proxyId || null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast('✅ Đã gán proxy từ pool', 'success');
+      load();
+    } catch (e: any) { addToast(e.message || 'Gán proxy thất bại', 'error'); }
+    finally { setAssigningId(null); }
+  };
+
+  const autoAssignFromPool = async () => {
+    setAutoAssigning(true);
+    try {
+      const r = await fetch('/api/proxy-assign/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast(`✅ Auto-assign ${d.assigned || 0}/${d.total || 0}`, 'success');
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Auto-assign thất bại', 'error');
+    } finally {
+      setAutoAssigning(false);
+    }
   };
 
   const bulkSave = async () => {
@@ -269,6 +315,12 @@ export function VaultAccountsView() {
               </div>
               <div className="form-group">
                 <label className="label">Proxy URL (Tùy chọn)</label>
+                <select className="inp" value={uiState.proxy} onChange={e => setUiState(s => ({ ...s, proxy: e.target.value }))} style={{ marginBottom: 8 }}>
+                  <option value="">(Không dùng proxy)</option>
+                  {proxies.map((p: any) => (
+                    <option key={p.id} value={p.url}>{p.label || p.url}</option>
+                  ))}
+                </select>
                 <input className="inp" placeholder="http://user:pass@host:port" value={uiState.proxy} onChange={e => setUiState(s => ({ ...s, proxy: e.target.value }))} />
               </div>
               <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gridColumn: 'span 2' }}>
@@ -319,6 +371,9 @@ export function VaultAccountsView() {
             {PROVIDERS.map(p => (
               <button key={p.id} className={`btn btn-sm ${providerFilter === p.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setProviderFilter(p.id)}>{p.name}</button>
             ))}
+            <button className="btn btn-sm btn-ghost" onClick={autoAssignFromPool} disabled={autoAssigning}>
+              <Globe size={12} /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
+            </button>
             <button className="btn-icon" onClick={load}><RefreshCw size={13} style={{ animation: loading ? 'rotate .6s linear infinite' : 'none' }} /></button>
           </div>
         </div>
@@ -374,6 +429,9 @@ export function VaultAccountsView() {
                         )}
                         {(it.status === 'error') && it.provider === 'codex' && (
                           <button className="btn-icon" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></button>
+                        )}
+                        {it.provider === 'codex' && (
+                          <button className="btn-icon" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} style={{ color: 'var(--cyan)' }}><Globe size={13} /></button>
                         )}
                         <button className="btn-icon" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>
                         <button className="btn-icon" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></button>

@@ -452,6 +452,192 @@ app.prepare().then(() => {
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 
+  function normalizeProxyUrl(input) {
+    const s = String(input || '').trim();
+    return s.length ? s : null;
+  }
+
+  async function d1Request(cfg, endpoint, options = {}) {
+    const base = String(cfg.d1WorkerUrl || '').replace(/\/+$/, '');
+    const path = String(endpoint || '').replace(/^\/+/, '');
+    const targetUrl = `${base}/${path}`;
+    const method = options.method || 'GET';
+    const headers = {
+      'x-sync-secret': cfg.d1SyncSecret,
+    };
+    if (method !== 'GET' && method !== 'HEAD') headers['Content-Type'] = 'application/json';
+
+    const fetchOpts = {
+      method,
+      headers,
+      signal: AbortSignal.timeout(options.timeoutMs || 30000),
+    };
+    if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
+      fetchOpts.body = JSON.stringify(options.body);
+    }
+
+    const res = await fetch(targetUrl, fetchOpts);
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
+    return { ok: res.ok, status: res.status, data, text, targetUrl };
+  }
+
+  function mirrorPatchedAccountToLocal(id, payload = {}) {
+    const existing = vault.getAccountFull(id);
+    const patch = { id, provider: existing?.provider || 'codex' };
+
+    if (payload.email !== undefined) patch.email = payload.email;
+    if (payload.password !== undefined) patch.password = payload.password || '';
+    if (payload.twoFaSecret !== undefined) patch.two_fa_secret = payload.twoFaSecret || '';
+    if (payload.two_fa_secret !== undefined) patch.two_fa_secret = payload.two_fa_secret || '';
+    if (payload.proxyUrl !== undefined) patch.proxy_url = normalizeProxyUrl(payload.proxyUrl);
+    if (payload.proxy_url !== undefined) patch.proxy_url = normalizeProxyUrl(payload.proxy_url);
+    if (payload.status !== undefined) patch.status = payload.status;
+    if (payload.isActive !== undefined) patch.is_active = payload.isActive ? 1 : 0;
+    if (payload.is_active !== undefined) patch.is_active = payload.is_active ? 1 : 0;
+    if (payload.last_error !== undefined) patch.notes = payload.last_error || '';
+    if (payload.lastError !== undefined) patch.notes = payload.lastError || '';
+
+    if (!existing && !patch.email) return false;
+    if (!patch.email && existing?.email) patch.email = existing.email;
+    vault.upsertAccount(patch, true);
+    return true;
+  }
+
+  function buildProxyPoolState(accounts = [], proxies = [], proxySlots = []) {
+    const capByProxy = new Map();
+    for (const p of proxies) {
+      const slotCountFromSlots = proxySlots.filter(s => s && s.proxy_id === p.id && !s.deleted_at).length;
+      const slotCount = slotCountFromSlots || Number(p.slot_count || p.slotCount || 0) || 0;
+      capByProxy.set(p.id, slotCount);
+    }
+
+    const usedByProxy = new Map();
+    for (const p of proxies) usedByProxy.set(p.id, 0);
+    for (const a of accounts) {
+      const proxyId = a?.proxy_id || null;
+      const proxyUrl = normalizeProxyUrl(a?.proxy_url);
+      let matched = null;
+      if (proxyId && usedByProxy.has(proxyId)) {
+        matched = proxyId;
+      } else if (proxyUrl) {
+        const byUrl = proxies.find(p => normalizeProxyUrl(p.url) === proxyUrl);
+        if (byUrl) matched = byUrl.id;
+      }
+      if (matched) usedByProxy.set(matched, (usedByProxy.get(matched) || 0) + 1);
+    }
+    return { capByProxy, usedByProxy };
+  }
+
+  function computeProxyFreeSlots(proxies = [], proxySlots = []) {
+    const freeByProxy = new Map();
+    for (const p of proxies) {
+      const slots = proxySlots.filter(s => s && s.proxy_id === p.id && !s.deleted_at);
+      if (slots.length > 0) {
+        freeByProxy.set(p.id, slots.filter(s => !s.connection_id).length);
+      } else {
+        const fallbackCap = Number(p.slot_count || p.slotCount || 0) || 0;
+        freeByProxy.set(p.id, fallbackCap);
+      }
+    }
+    return freeByProxy;
+  }
+
+  function findSlotByConnection(proxySlots = [], connectionId) {
+    return proxySlots.find(s => s && !s.deleted_at && String(s.connection_id || '') === String(connectionId || '')) || null;
+  }
+
+  function findFreeSlot(proxySlots = [], proxyId) {
+    const candidates = proxySlots
+      .filter(s => s && !s.deleted_at && s.proxy_id === proxyId && !s.connection_id)
+      .sort((a, b) => Number(a.slot_index || 0) - Number(b.slot_index || 0));
+    return candidates[0] || null;
+  }
+
+  async function pushProxySlotState(cfg, slotRow, connectionIdOrNull) {
+    if (!slotRow?.id || !slotRow?.proxy_id) return false;
+    const now = new Date().toISOString();
+    const payload = {
+      proxySlots: [{
+        id: slotRow.id,
+        proxy_id: slotRow.proxy_id,
+        slot_index: Number(slotRow.slot_index || 0),
+        connection_id: connectionIdOrNull || null,
+        updated_at: now,
+        deleted_at: null,
+        version: Date.now(),
+      }],
+    };
+
+    const push = await d1Request(cfg, 'sync/push', { method: 'POST', body: payload, timeoutMs: 30000 });
+    return push.ok;
+  }
+
+  async function rebindProxySlotForAccount({
+    cfg,
+    accountId,
+    targetProxyId,
+    proxySlots,
+  }) {
+    const current = findSlotByConnection(proxySlots, accountId);
+    const currentProxyId = current?.proxy_id || null;
+    const normalizedTarget = targetProxyId || null;
+
+    // No change needed
+    if (currentProxyId && normalizedTarget && currentProxyId === normalizedTarget) {
+      return { ok: true, changed: false };
+    }
+
+    // Release old slot if needed
+    if (current && (!normalizedTarget || currentProxyId !== normalizedTarget)) {
+      const released = await pushProxySlotState(cfg, current, null);
+      if (!released) return { ok: false, error: 'Failed to release old proxy slot' };
+      current.connection_id = null;
+    }
+
+    // No new proxy requested -> done after release
+    if (!normalizedTarget) return { ok: true, changed: true };
+
+    // Claim slot in target proxy
+    const freeSlot = findFreeSlot(proxySlots, normalizedTarget);
+    if (!freeSlot) return { ok: false, error: 'Target proxy has no free slot' };
+    const claimed = await pushProxySlotState(cfg, freeSlot, accountId);
+    if (!claimed) return { ok: false, error: 'Failed to claim target proxy slot' };
+    freeSlot.connection_id = accountId;
+    return { ok: true, changed: true, slotId: freeSlot.id };
+  }
+
+  function resolveProxyIdFromInput({ proxies, proxyId, proxyUrl }) {
+    if (proxyId) return proxyId;
+    const urlNorm = normalizeProxyUrl(proxyUrl);
+    if (!urlNorm) return null;
+    const match = proxies.find(p => normalizeProxyUrl(p.url) === urlNorm);
+    return match?.id || null;
+  }
+
+  function getAssignableProxy(proxies = [], capByProxy, usedByProxy, explicitProxyId = null) {
+    if (explicitProxyId) {
+      const p = proxies.find(x => x.id === explicitProxyId);
+      if (!p) return { error: 'Proxy not found' };
+      const free = (capByProxy.get(p.id) || 0) - (usedByProxy.get(p.id) || 0);
+      if (free <= 0) return { error: 'Proxy has no free slots' };
+      return { proxy: p };
+    }
+
+    const candidates = proxies
+      .map((p) => {
+        const cap = capByProxy.get(p.id) || 0;
+        const used = usedByProxy.get(p.id) || 0;
+        return { proxy: p, free: cap - used, cap };
+      })
+      .filter((x) => x.cap > 0 && x.free > 0)
+      .sort((a, b) => b.free - a.free);
+
+    if (!candidates.length) return { error: 'No proxy with free slots' };
+    return { proxy: candidates[0].proxy };
+  }
+
   // ▶ Intercept: POST /api/d1/accounts/add → ngăn chặn duplicate và mirror vào local vault
   // Lý do: task endpoint chỉ đọc local, user thêm từ "Codex Accts" tab thì phải đồng bộ ngay.
   ex.post('/api/d1/accounts/add', async (req, res, next) => {
@@ -537,6 +723,159 @@ app.prepare().then(() => {
       return next(); // Proxy lệnh xóa lên D1 Cloud
     } catch (e) {
       return next();
+    }
+  });
+
+  // ▶ Intercept: PATCH /api/d1/accounts/:id → update D1 and mirror local vault instantly
+  ex.patch('/api/d1/accounts/:id', async (req, res, next) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return next();
+    const { id } = req.params;
+    const body = req.body || {};
+    if (!id) return next();
+
+    try {
+      let proxySlots = [];
+      let proxies = [];
+      if (body.proxyUrl !== undefined || body.proxy_url !== undefined || body.proxyId !== undefined || body.proxy_id !== undefined) {
+        const inspect = await d1Request(cfg, 'inspect/proxies');
+        proxies = Array.isArray(inspect.data?.proxies) ? inspect.data.proxies : [];
+        proxySlots = Array.isArray(inspect.data?.proxySlots) ? inspect.data.proxySlots : [];
+      }
+
+      const d1 = await d1Request(cfg, `accounts/${id}`, { method: 'PATCH', body, timeoutMs: 30000 });
+      if (d1.ok) {
+        mirrorPatchedAccountToLocal(id, body);
+
+        if (proxySlots.length || proxies.length) {
+          const targetProxyId = resolveProxyIdFromInput({
+            proxies,
+            proxyId: body.proxyId ?? body.proxy_id ?? null,
+            proxyUrl: body.proxyUrl ?? body.proxy_url ?? null,
+          });
+          const proxyUrlNorm = normalizeProxyUrl(body.proxyUrl ?? body.proxy_url ?? null);
+          const shouldUnassign = (body.proxyUrl !== undefined || body.proxy_url !== undefined) && !proxyUrlNorm;
+          const slotSync = await rebindProxySlotForAccount({
+            cfg,
+            accountId: id,
+            targetProxyId: shouldUnassign ? null : targetProxyId,
+            proxySlots,
+          });
+          if (!slotSync.ok) {
+            console.warn(`[D1 Proxy] Slot rebind warning for ${id}: ${slotSync.error}`);
+          }
+        }
+      }
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(d1.status).json(d1.data || { ok: d1.ok, raw: d1.text });
+    } catch (e) {
+      console.error(`[D1 Proxy] accounts/${id} PATCH interceptor error:`, e.message);
+      return next();
+    }
+  });
+
+  // ▶ Tools API: assign one account to a proxy from pool
+  ex.post('/api/proxy-assign/assign', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: "Missing D1 config (url or secret)" });
+    }
+    const { accountId, proxyId } = req.body || {};
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    try {
+      const [accountsR, proxiesR] = await Promise.all([
+        d1Request(cfg, 'inspect/accounts?limit=1000'),
+        d1Request(cfg, 'inspect/proxies'),
+      ]);
+      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
+      const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+      const account = accounts.find(a => a.id === accountId);
+      if (!account) return res.status(404).json({ error: 'Account not found in D1' });
+
+      const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
+      let chosen = null;
+      if (proxyId) {
+        chosen = proxies.find(p => p.id === proxyId) || null;
+        if (!chosen) return res.status(404).json({ error: 'Proxy not found' });
+        if ((freeByProxy.get(chosen.id) || 0) <= 0) return res.status(400).json({ error: 'Proxy has no free slot' });
+      } else {
+        const ranked = proxies
+          .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
+          .filter((x) => x.free > 0)
+          .sort((a, b) => b.free - a.free);
+        if (!ranked.length) return res.status(400).json({ error: 'No proxy with free slots' });
+        chosen = ranked[0].proxy;
+      }
+
+      const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
+      const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
+      if (!patchR.ok) {
+        return res.status(patchR.status).json(patchR.data || { error: patchR.text || 'Patch failed' });
+      }
+
+      mirrorPatchedAccountToLocal(accountId, patchBody);
+      const slotSync = await rebindProxySlotForAccount({
+        cfg,
+        accountId,
+        targetProxyId: chosen.id,
+        proxySlots,
+      });
+      if (!slotSync.ok) {
+        return res.status(409).json({ error: slotSync.error || 'Slot sync failed after account patch' });
+      }
+      return res.json({ ok: true, accountId, proxy: { id: chosen.id, url: chosen.url, label: chosen.label || '' } });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ▶ Tools API: auto assign all accounts that do not have proxy_url
+  ex.post('/api/proxy-assign/auto', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: "Missing D1 config (url or secret)" });
+    }
+
+    try {
+      const [accountsR, proxiesR] = await Promise.all([
+        d1Request(cfg, 'inspect/accounts?limit=1000'),
+        d1Request(cfg, 'inspect/proxies'),
+      ]);
+      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
+      const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+
+      const pending = accounts.filter(a => !normalizeProxyUrl(a?.proxy_url) && !a?.deleted_at);
+      const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
+
+      let assigned = 0;
+      for (const account of pending) {
+        const ranked = proxies
+          .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
+          .filter((x) => x.free > 0)
+          .sort((a, b) => b.free - a.free);
+        if (!ranked.length) break;
+        const chosen = ranked[0].proxy;
+        const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
+        const patchR = await d1Request(cfg, `accounts/${account.id}`, { method: 'PATCH', body: patchBody });
+        if (!patchR.ok) continue;
+        mirrorPatchedAccountToLocal(account.id, patchBody);
+        const slotSync = await rebindProxySlotForAccount({
+          cfg,
+          accountId: account.id,
+          targetProxyId: chosen.id,
+          proxySlots,
+        });
+        if (!slotSync.ok) continue;
+        freeByProxy.set(chosen.id, Math.max(0, (freeByProxy.get(chosen.id) || 0) - 1));
+        assigned++;
+      }
+
+      return res.json({ ok: true, assigned, total: pending.length });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
     }
   });
 

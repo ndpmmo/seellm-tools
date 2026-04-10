@@ -1,5 +1,30 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.9] - 2026-04-11
+
+### Added
+- **Proxy assignment APIs (Tools backend)**:
+  - Added `POST /api/proxy-assign/assign` to assign one account to proxy pool.
+  - Added `POST /api/proxy-assign/auto` to auto-assign proxies for accounts without proxy.
+- **Proxy pool UX in both account screens**:
+  - Added `Auto Assign Proxy` action in `#accounts` and `#vault-accounts`.
+  - Added per-account quick assign action from proxy pool.
+  - Added proxy-pool select input in account edit/create flows.
+
+### Fixed
+- **Immediate local mirror on account PATCH**:
+  - Added intercept for `PATCH /api/d1/accounts/:id` to mirror updated account state to local vault instantly.
+  - Ensures auto-login worker reads latest proxy config without waiting for periodic pull.
+- **Proxy slot occupancy sync (Phase 2)**:
+  - Implemented slot rebind flow on account proxy change:
+    - release old `proxy_slots.connection_id`,
+    - claim free slot in target proxy,
+    - support unassign when proxy is cleared.
+  - Integrated slot sync into:
+    - manual assign API,
+    - auto-assign API,
+    - generic account patch path.
+
 ## [0.1.8] - 2026-04-10
 
 ### Fixed

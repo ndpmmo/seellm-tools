@@ -123,6 +123,7 @@ function StatCard({ icon: Icon, value, label, color, bg, active, onClick }: {
 export function AccountsView() {
   const { addToast } = useApp();
   const [items, setItems]     = useState<any[]>([]);
+  const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
@@ -144,15 +145,18 @@ export function AccountsView() {
   const [edit2fa, setEdit2fa]     = useState('');
   const [editProxy, setEditProxy] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [autoAssigning, setAutoAssigning] = useState(false);
 
   /* ── Load ── */
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [accountsRes, connectionsRes, vaultRes] = await Promise.all([
+      const [accountsRes, connectionsRes, vaultRes, proxiesRes] = await Promise.all([
         fetch('/api/d1/inspect/accounts?limit=500'),
         fetch('/api/d1/inspect/connections').catch(() => null as any),
         fetch('/api/vault/accounts').catch(() => null as any),
+        fetch('/api/d1/inspect/proxies').catch(() => null as any),
       ]);
 
       if (!accountsRes.ok) throw new Error(`HTTP ${accountsRes.status}`);
@@ -169,6 +173,12 @@ export function AccountsView() {
       if (vaultRes?.ok) {
         const vd = await vaultRes.json().catch(() => ({}));
         vaultAccounts = Array.isArray(vd?.items) ? vd.items : [];
+      }
+
+      let proxiesItems: any[] = [];
+      if (proxiesRes?.ok) {
+        const pd = await proxiesRes.json().catch(() => ({}));
+        proxiesItems = Array.isArray(pd?.proxies) ? pd.proxies : [];
       }
 
       const connById = new Map<string, any>();
@@ -205,6 +215,7 @@ export function AccountsView() {
       });
 
       setItems(merged);
+      setProxies(proxiesItems);
     } catch (e: any) { setError(e.message); }
     setLoading(false);
   }, []);
@@ -238,6 +249,42 @@ export function AccountsView() {
   const openEdit = (it: any) => { setEditId(it.id); setEditPass(it.password || ''); setEdit2fa(it.two_fa_secret || ''); setEditProxy(it.proxy_url || ''); };
   const saveEdit = async () => { if (!editId) return; setEditSaving(true); await patch(`/api/d1/accounts/${editId}`, { password: editPass, twoFaSecret: edit2fa, proxyUrl: editProxy }); addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load(); };
   const cancelEdit = () => setEditId(null);
+  const assignFromPool = async (id: string, selectedProxyId?: string) => {
+    setAssigningId(id);
+    try {
+      const r = await fetch('/api/proxy-assign/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: id, proxyId: selectedProxyId || null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast('✅ Đã gán proxy từ pool', 'success');
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Gán proxy thất bại', 'error');
+    } finally {
+      setAssigningId(null);
+    }
+  };
+  const autoAssignFromPool = async () => {
+    setAutoAssigning(true);
+    try {
+      const r = await fetch('/api/proxy-assign/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast(`✅ Auto-assign ${d.assigned || 0}/${d.total || 0}`, 'success');
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Auto-assign thất bại', 'error');
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
   const bypassSync = async (id: string, email: string) => {
     try {
       const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
@@ -327,6 +374,9 @@ export function AccountsView() {
                 }}>{f}</button>
               ))}
             </div>
+            <button className="btn btn-sm btn-ghost" title="Tự động gán proxy từ pool" onClick={autoAssignFromPool} disabled={autoAssigning}>
+              <Globe size={12} /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
+            </button>
             <button className="btn-icon" title="Refresh" onClick={load} disabled={loading}>
               <RefreshCw size={13} style={{ animation: loading ? 'rotate .65s linear infinite' : 'none' }} />
             </button>
@@ -455,7 +505,17 @@ export function AccountsView() {
                     {/* Proxy */}
                     <td style={{ ...td, minWidth: 140 }}>
                       {ed ? (
-                        <input className="inp inp-sm mono" value={editProxy} onChange={e => setEditProxy(e.target.value)} placeholder="http://proxy:port" />
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <select className="inp inp-sm" value={editProxy} onChange={e => setEditProxy(e.target.value)}>
+                            <option value="">(Không dùng proxy)</option>
+                            {proxies.map((p: any) => (
+                              <option key={p.id} value={p.url}>
+                                {p.label || p.url}
+                              </option>
+                            ))}
+                          </select>
+                          <input className="inp inp-sm mono" value={editProxy} onChange={e => setEditProxy(e.target.value)} placeholder="http://proxy:port" />
+                        </div>
                       ) : it.proxy_url ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--indigo-2)', fontFamily: 'monospace', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <Globe size={11} style={{ flexShrink: 0 }} /> {it.proxy_url}
@@ -477,6 +537,9 @@ export function AccountsView() {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button className="btn-icon" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} style={{ color: 'var(--cyan)' }}>
+                            <Globe size={13} />
+                          </button>
                           <button className="btn-icon" title="Ép đồng bộ lên D1" onClick={() => bypassSync(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>
                           <button className="btn-icon" title="Sửa" onClick={() => openEdit(it)}><Pencil size={13} /></button>
                           <button className="btn-icon success" title="Re-run → pending" onClick={() => reset(it.id)}><RotateCcw size={13} /></button>
