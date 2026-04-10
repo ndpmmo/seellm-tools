@@ -1,5 +1,13 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.8] - 2026-04-10
+
+### Fixed
+- **Gateway quota refresh trigger auth**:
+  - Updated post-login quota refresh calls to include `x-sync-secret` header when calling Gateway `GET /api/usage/:connectionId`.
+  - This pairs with Gateway auth fix so Tools can trigger immediate quota snapshot successfully instead of silent `401`.
+  - Helps `#accounts` receive fresh `quota_json/quotas_json` data after token sync.
+
 ## [0.1.7] - 2026-04-10
 
 ### Fixed

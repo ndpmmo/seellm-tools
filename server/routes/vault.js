@@ -425,7 +425,10 @@ router.post('/accounts/result', async (req, res) => {
 
         // Trigger Gateway to fetch usage/quota immediately so UI updates
         if (cfg.gatewayUrl) {
-          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`).catch(() => {});
+          const syncSecret = cfg.d1SyncSecret || process.env.SEELLM_GATEWAY_SYNC_SECRET || "";
+          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {
+            headers: syncSecret ? { 'x-sync-secret': syncSecret } : undefined,
+          }).catch(() => {});
         }
 
         console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
@@ -456,7 +459,10 @@ router.post('/accounts/result', async (req, res) => {
         await SyncManager.pushVault('account', fullRecord);
         const cfg = loadConfig();
         if (cfg.gatewayUrl) {
-          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`).catch(() => {});
+          const syncSecret = cfg.d1SyncSecret || process.env.SEELLM_GATEWAY_SYNC_SECRET || "";
+          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {
+            headers: syncSecret ? { 'x-sync-secret': syncSecret } : undefined,
+          }).catch(() => {});
         }
       }
 
