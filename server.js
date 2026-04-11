@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import {
   existsSync, readFileSync, writeFileSync,
   readdirSync, statSync, mkdirSync, appendFileSync,
+  unlinkSync, rmSync,
   watch,
 } from 'fs';
 import path from 'path';
@@ -138,7 +139,14 @@ function listSessions() {
             .map(f => ({ filename: f, url: `/data/screenshots/${d}/${f}` }));
         } catch { }
         const stat = statSync(dir);
-        return { id: d, dir: d, imageCount: images.length, images, mtime: stat.mtime };
+        return {
+          id: d,
+          dir: d,
+          imageCount: images.length,
+          images,
+          createdAt: stat.birthtime,
+          mtime: stat.mtime,
+        };
       })
       .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
   } catch { return []; }
@@ -184,7 +192,7 @@ function listLogFiles() {
       .sort().reverse()
       .map(f => {
         const s = statSync(path.join(LOGS_DIR, f));
-        return { filename: f, size: s.size, mtime: s.mtime };
+        return { filename: f, size: s.size, createdAt: s.birthtime, mtime: s.mtime };
       });
   } catch { return []; }
 }
@@ -268,13 +276,67 @@ app.prepare().then(() => {
     if (!s) return res.status(404).json({ error: 'Not found' });
     res.json(s);
   });
+  ex.delete('/api/sessions/:id', (req, res) => {
+    const safeId = path.basename(req.params.id);
+    const sessionDir = path.join(SCREENSHOTS_DIR, safeId);
+    if (!existsSync(sessionDir)) return res.status(404).json({ error: 'Not found' });
+    try {
+      rmSync(sessionDir, { recursive: true, force: true });
+      return res.json({ ok: true, deleted: safeId });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'Delete session failed' });
+    }
+  });
+  ex.delete('/api/sessions/:id/images/:filename', (req, res) => {
+    const safeId = path.basename(req.params.id);
+    const safeFilename = path.basename(req.params.filename);
+    const imagePath = path.join(SCREENSHOTS_DIR, safeId, safeFilename);
+    if (!existsSync(imagePath)) return res.status(404).json({ error: 'Not found' });
+    try {
+      unlinkSync(imagePath);
+      return res.json({ ok: true, deleted: safeFilename });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'Delete image failed' });
+    }
+  });
 
   // ── Log files ────────────────────────────────────────────────────────────
   ex.get('/api/logfiles', (_, res) => res.json(listLogFiles()));
+  ex.delete('/api/logfiles', (req, res) => {
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    if (!files.length) return res.status(400).json({ error: 'files[] required' });
+
+    let deleted = 0;
+    const errors = [];
+    files.forEach((name) => {
+      try {
+        const safe = path.basename(String(name));
+        const p = path.join(LOGS_DIR, safe);
+        if (existsSync(p)) {
+          unlinkSync(p);
+          deleted += 1;
+        }
+      } catch (e) {
+        errors.push(String(name));
+      }
+    });
+
+    return res.json({ ok: true, deleted, errors });
+  });
   ex.get('/api/logfiles/:filename', (req, res) => {
     const p = path.join(LOGS_DIR, path.basename(req.params.filename));
     if (!existsSync(p)) return res.status(404).json({ error: 'Not found' });
     res.type('text/plain').send(readFileSync(p, 'utf-8'));
+  });
+  ex.delete('/api/logfiles/:filename', (req, res) => {
+    const p = path.join(LOGS_DIR, path.basename(req.params.filename));
+    if (!existsSync(p)) return res.status(404).json({ error: 'Not found' });
+    try {
+      unlinkSync(p);
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'Delete log failed' });
+    }
   });
 
   // ── Health pings ─────────────────────────────────────────────────────────

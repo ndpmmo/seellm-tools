@@ -7,6 +7,7 @@ import {
   Users, CheckCircle, Clock, XCircle, Globe, Database
 } from 'lucide-react';
 import { useApp } from '../AppContext';
+import { fmtDateTimeVN } from '../Views';
 
 /* ── Helpers ── */
 function parseBulk(raw: string) {
@@ -317,6 +318,8 @@ export function AccountsView() {
           current_tokens_out: a.current_tokens_out ?? conn?.current_tokens_out ?? 0,
           quotas_json: a.quotas_json ?? conn?.quotas_json ?? null,
           quota_json: a.quota_json ?? null,
+          created_at: a.created_at ?? conn?.created_at ?? null,
+          updated_at: a.updated_at ?? conn?.updated_at ?? null,
         };
       });
 
@@ -522,7 +525,7 @@ export function AccountsView() {
                 <th style={th}>Status</th>
                 <th style={th}>Usage</th>
                 <th style={th}>Proxy</th>
-                <th style={th}>Cập nhật</th>
+                <th style={th}>Thời gian</th>
                 <th style={{ ...th, textAlign: 'right', minWidth: 90 }}></th>
               </tr>
             </thead>
@@ -650,9 +653,10 @@ export function AccountsView() {
                       ) : <span style={{ color: 'var(--text-4)', fontSize: 12 }}>—</span>}
                     </td>
 
-                    {/* Updated */}
-                    <td style={{ ...td, color: 'var(--text-3)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                      {new Date(it.updated_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    {/* Time */}
+                    <td style={{ ...td, color: 'var(--text-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                      <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
+                      <div>Cập nhật: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
                     </td>
 
                     {/* Actions */}

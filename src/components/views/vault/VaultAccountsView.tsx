@@ -6,6 +6,7 @@ import {
   Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
+import { fmtDateTimeVN } from '../../Views';
 
 /* ── Helpers ── */
 function StatusBadge({ status, notes }: { status: string; notes?: string }) {
@@ -386,6 +387,7 @@ export function VaultAccountsView() {
                   <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>Tài khoản / Label</th>
                   <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>Provider</th>
                   <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>Status</th>
+                  <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>Thời gian</th>
                   <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>Exported</th>
                   <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', textAlign: 'right' }}>Thao tác</th>
                 </tr>
@@ -412,10 +414,19 @@ export function VaultAccountsView() {
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px' }}><StatusBadge status={it.status} notes={it.notes} /></td>
+                    <td style={{ padding: '14px 20px', fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                      <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
+                      <div>Cập nhật: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
+                    </td>
                     <td style={{ padding: '14px 20px' }}>
                       {it.exported_to ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--green)' }}>
-                          <Database size={10} /> {it.exported_to.toUpperCase()}
+                        <div style={{ display: 'grid', gap: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--green)' }}>
+                            <Database size={10} /> {it.exported_to.toUpperCase()}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-4)' }}>
+                            {fmtDateTimeVN(it.exported_at)}
+                          </div>
                         </div>
                       ) : <span style={{ color: 'var(--text-4)', fontSize: 11 }}>Chưa export</span>}
                     </td>
@@ -441,7 +452,7 @@ export function VaultAccountsView() {
                   </tr>
                 ))}
                 {filtered.length === 0 && !loading && (
-                  <tr><td colSpan={5} style={{ padding: 60, textAlign: 'center', color: 'var(--text-3)' }}>Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
+                  <tr><td colSpan={6} style={{ padding: 60, textAlign: 'center', color: 'var(--text-3)' }}>Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
                 )}
               </tbody>
             </table>

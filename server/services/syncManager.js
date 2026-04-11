@@ -55,6 +55,8 @@ export const SyncManager = {
     const now = new Date().toISOString();
     const version = Date.now();
     const cacheKey = `${type}:${data.id}`;
+    const createdAt = data.created_at || data.createdAt || now;
+    const updatedAt = data.updated_at || data.updatedAt || now;
 
     // Cập nhật cache trước khi thực hiện
     lastPushCache.set(cacheKey, fingerprint);
@@ -62,7 +64,7 @@ export const SyncManager = {
     // Wrap the record into the PushPayload format expected by the worker
     const payload = {};
     if (type === 'account') {
-      payload.vaultAccounts = [{ ...data, updated_at: data.updated_at || now }];
+      payload.vaultAccounts = [{ ...data, created_at: createdAt, updated_at: updatedAt }];
       
       // Push đồng thời sang schema Gateway để Gateway nhìn thấy
       if (data.status !== 'idle' || data.deleted_at) {
@@ -79,7 +81,8 @@ export const SyncManager = {
           quota_json: data.quota_json || null,
           last_error: data.notes,
           last_sync_at: now,
-          updated_at: now,
+          created_at: createdAt,
+          updated_at: updatedAt,
           deleted_at: data.deleted_at || null,
           version,
         }];
@@ -89,6 +92,7 @@ export const SyncManager = {
           id: data.id,
           provider: data.provider || 'codex',
           email: data.email,
+          created_at: createdAt,
           updated_at: now,
           deleted_at: now, // Soft-delete ở Gateway
           version,
@@ -112,7 +116,8 @@ export const SyncManager = {
         is_active: connectionIsActive,
         rate_limit_protection: 0,
         provider_specific_data: null,
-        updated_at: now,
+        created_at: createdAt,
+        updated_at: updatedAt,
         deleted_at: (data.status === 'idle') ? now : (data.deleted_at || null),
         version,
       }];
@@ -231,6 +236,7 @@ export const SyncManager = {
                 is_active: ga.is_active,
                 quota_json: ga.quota_json,
                 notes: ga.last_error,
+                created_at: ga.created_at,
                 updated_at: ga.updated_at,
                 deleted_at: ga.deleted_at
               });
@@ -252,6 +258,7 @@ export const SyncManager = {
                   existing.notes = ga.last_error || existing.notes;
                   existing.deleted_at = ga.deleted_at;
                 }
+                if (!existing.created_at && ga.created_at) existing.created_at = ga.created_at;
                 existing.updated_at = ga.updated_at;
               }
             } catch(e) {}

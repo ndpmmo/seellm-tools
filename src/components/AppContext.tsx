@@ -5,8 +5,8 @@ import { io, Socket } from 'socket.io-client';
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface LogEntry  { type: 'stdout'|'stderr'|'system'; text: string; ts: string; }
 export interface Screenshot { filename: string; url: string; email?: string; ts?: string; }
-export interface Session    { id: string; dir: string; imageCount: number; images: Screenshot[]; mtime: string; }
-export interface LogFile    { filename: string; size: number; mtime: string; }
+export interface Session    { id: string; dir: string; imageCount: number; images: Screenshot[]; createdAt?: string; mtime: string; }
+export interface LogFile    { filename: string; size: number; createdAt?: string; mtime: string; }
 
 export interface ProcessInfo {
   id: string; name: string; command: string; cwd: string;

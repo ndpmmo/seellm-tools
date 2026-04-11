@@ -1,5 +1,30 @@
 # Changelog - SeeLLM Tools
 
+## [Unreleased] - 2026-04-12
+
+### Added
+- **Screenshots & Log Files management controls**:
+  - Added search/filter controls and delete actions in `#screenshots` and `#logfiles`.
+  - Added bulk-select + bulk-delete flows for log files and screenshot sessions.
+  - Added API delete endpoints for screenshots sessions/images and log files.
+
+### Changed
+- **Vietnam timezone timestamps across history views**:
+  - Added detailed VN time (`Asia/Ho_Chi_Minh`) display for:
+    - `#screenshots` history and live cards
+    - `#logfiles` list
+    - `#vault-accounts` rows
+    - `#accounts` rows
+- **D1 account timeline continuity**:
+  - `SyncManager.pushVault('account')` now includes `created_at` for `vaultAccounts`, `managedAccounts`, and `connections` payloads.
+  - Pull merge now keeps `created_at` from D1-managed records when available.
+
+### Fixed
+- **Screenshot delete UX after successful removal**:
+  - Stopped repeated 404 live-image fetch loops by auto-hiding stale live entries on image load errors.
+- **Delete error diagnostics**:
+  - Improved UI delete toasts to show API error detail/HTTP status when delete fails.
+
 ## [Unreleased] - 2026-04-11
 
 ### Changed
