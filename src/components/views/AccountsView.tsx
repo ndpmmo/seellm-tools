@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Plus, Upload, Search, RefreshCw,
   Copy, Check, Pencil, Trash2, RotateCcw,
@@ -79,21 +79,125 @@ function MonoCell({ value }: { value?: string }) {
   );
 }
 
-/* ── Status Badge ── */
-function StatusBadge({ status }: { status: string }) {
-  const m: Record<string, { color: string; bg: string; label: string }> = {
-    ready:   { color: 'var(--green)', bg: 'var(--green-dim)', label: 'Ready' },
-    pending: { color: 'var(--amber)', bg: 'var(--amber-dim)', label: 'Pending' },
-    error:   { color: 'var(--rose)',  bg: 'var(--rose-dim)',  label: 'Error' },
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  runtime_error: 'Runtime',
+  upstream_auth_error: 'Upstream Auth',
+  auth_missing: 'Missing Credential',
+  token_refresh_failed: 'Refresh Failed',
+  token_expired: 'Token Expired',
+  upstream_rate_limited: 'Rate Limited',
+  upstream_unavailable: 'Upstream Unavailable',
+  network_error: 'Network Error',
+  unsupported: 'Test Unsupported',
+  upstream_error: 'Upstream Error',
+};
+
+function inferErrorType(it: any, isCooldown: boolean): string | null {
+  if (isCooldown) return 'upstream_rate_limited';
+
+  const direct = String(it?.last_error_type || it?.lastErrorType || '').trim();
+  if (direct) return direct;
+
+  const code = Number(it?.error_code ?? it?.errorCode ?? NaN);
+  if (Number.isFinite(code)) {
+    if (code === 401 || code === 403) return 'upstream_auth_error';
+    if (code === 429) return 'upstream_rate_limited';
+    if (code >= 500) return 'upstream_unavailable';
+  }
+
+  const msg = String(it?.last_error || it?.lastError || '').toLowerCase();
+  if (!msg) return null;
+  if (msg.includes('runtime') || msg.includes('not runnable') || msg.includes('not installed') || msg.includes('healthcheck')) return 'runtime_error';
+  if (msg.includes('refresh failed')) return 'token_refresh_failed';
+  if (msg.includes('token expired') || msg.includes('expired')) return 'token_expired';
+  if (msg.includes('invalid api key') || msg.includes('token invalid') || msg.includes('revoked') || msg.includes('access denied') || msg.includes('unauthorized')) return 'upstream_auth_error';
+  if (msg.includes('rate limit') || msg.includes('quota') || msg.includes('too many requests') || msg.includes('429')) return 'upstream_rate_limited';
+  if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('timeout') || msg.includes('econn') || msg.includes('enotfound')) return 'network_error';
+  if (msg.includes('not supported')) return 'unsupported';
+  return 'upstream_error';
+}
+
+function getStatusPresentation(it: any) {
+  const isActive = it?.is_active !== 0 && it?.isActive !== false;
+  const rateLimitedUntil = it?.rate_limited_until || it?.rateLimitedUntil || '';
+  const isCooldown = !!rateLimitedUntil && Number.isFinite(new Date(rateLimitedUntil).getTime()) && new Date(rateLimitedUntil).getTime() > Date.now();
+  const errorType = inferErrorType(it, isCooldown);
+  const testStatus = String(it?.test_status || it?.testStatus || it?.status || '').toLowerCase();
+  const effectiveStatus = testStatus === 'unavailable' && !isCooldown ? '' : testStatus;
+
+  if (!isActive) {
+    if (errorType === 'upstream_auth_error' || errorType === 'auth_missing' || errorType === 'token_refresh_failed' || errorType === 'token_expired') {
+      return { label: 'Auth Failed', color: 'var(--rose)', bg: 'var(--rose-dim)', errorType };
+    }
+    if (errorType === 'upstream_rate_limited') {
+      return { label: 'Rate Limited', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+    }
+    return { label: 'Disabled', color: 'var(--text-3)', bg: 'var(--glass)', errorType: null };
+  }
+
+  if (effectiveStatus === 'active' || effectiveStatus === 'success' || effectiveStatus === 'ready') {
+    return { label: 'Connected', color: 'var(--green)', bg: 'var(--green-dim)', errorType: null };
+  }
+  if (effectiveStatus === 'pending' || effectiveStatus === 'processing') {
+    return { label: 'Pending', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType: null };
+  }
+  if (errorType === 'runtime_error') {
+    return { label: 'Runtime Issue', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+  }
+  if (errorType === 'upstream_auth_error' || errorType === 'auth_missing' || errorType === 'token_refresh_failed' || errorType === 'token_expired') {
+    return { label: 'Auth Failed', color: 'var(--rose)', bg: 'var(--rose-dim)', errorType };
+  }
+  if (errorType === 'upstream_rate_limited') {
+    return { label: 'Rate Limited', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+  }
+  if (errorType === 'network_error') {
+    return { label: 'Network Issue', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+  }
+  if (errorType === 'unsupported') {
+    return { label: 'Test Unsupported', color: 'var(--text-3)', bg: 'var(--glass)', errorType };
+  }
+
+  const fallback: Record<string, string> = {
+    unavailable: 'Unavailable',
+    failed: 'Failed',
+    error: 'Error',
+    idle: 'Idle',
   };
-  const s = m[status] || { color: 'var(--text-3)', bg: 'var(--glass)', label: status };
+  return {
+    label: fallback[effectiveStatus] || (effectiveStatus ? effectiveStatus.toUpperCase() : 'Error'),
+    color: 'var(--rose)',
+    bg: 'var(--rose-dim)',
+    errorType,
+  };
+}
+
+function getStatusBucket(it: any): 'ready' | 'pending' | 'error' {
+  const p = getStatusPresentation(it);
+  if (p.label === 'Connected') return 'ready';
+  if (p.label === 'Pending') return 'pending';
+  return 'error';
+}
+
+/* ── Status Badge ── */
+function StatusBadge({ item }: { item: any }) {
+  const p = getStatusPresentation(item);
+  const errorTypeLabel = p.errorType ? (ERROR_TYPE_LABELS[p.errorType] || p.errorType) : null;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.color}25` }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
-      {s.label}
-    </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: p.bg, color: p.color, border: `1px solid ${p.color}25` }}>
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+        {p.label}
+      </span>
+      {errorTypeLabel && item?.is_active !== 0 && item?.isActive !== false && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: 'var(--glass)', color: 'var(--text-3)', border: '1px solid var(--border)' }}>
+          {errorTypeLabel}
+        </span>
+      )}
+    </div>
   );
 }
+
+const PAGE_SIZE = 100;
 
 /* ── Stat Card ── */
 function StatCard({ icon: Icon, value, label, color, bg, active, onClick }: {
@@ -122,9 +226,13 @@ function StatCard({ icon: Icon, value, label, color, bg, active, onClick }: {
 /* ══════════════════════════════════════════════════════════ */
 export function AccountsView() {
   const { addToast } = useApp();
+  const itemsRef = useRef<any[]>([]);
+  const connectionsCacheRef = useRef<any[]>([]);
   const [items, setItems]     = useState<any[]>([]);
   const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
   const [search, setSearch]           = useState('');
@@ -148,51 +256,46 @@ export function AccountsView() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
 
-  /* ── Load ── */
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  const loadProxies = useCallback(async () => {
     try {
-      const [accountsRes, connectionsRes, vaultRes, proxiesRes] = await Promise.all([
-        fetch('/api/d1/inspect/accounts?limit=500'),
-        fetch('/api/d1/inspect/connections').catch(() => null as any),
-        fetch('/api/vault/accounts').catch(() => null as any),
-        fetch('/api/d1/inspect/proxies').catch(() => null as any),
-      ]);
+      const proxiesRes = await fetch('/api/d1/inspect/proxies').catch(() => null as any);
+      if (!proxiesRes?.ok) return;
+      const pd = await proxiesRes.json().catch(() => ({}));
+      setProxies(Array.isArray(pd?.proxies) ? pd.proxies : []);
+    } catch { }
+  }, []);
+
+  /* ── Load ── */
+  const load = useCallback(async (opts?: { append?: boolean }) => {
+    const append = !!opts?.append;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const offset = append ? itemsRef.current.length : 0;
+      const accountsRes = await fetch(`/api/d1/inspect/accounts?limit=${PAGE_SIZE}&offset=${offset}`);
 
       if (!accountsRes.ok) throw new Error(`HTTP ${accountsRes.status}`);
       const accountsData = await accountsRes.json();
       if (accountsData.error) throw new Error(accountsData.error);
 
-      let connections: any[] = [];
-      if (connectionsRes?.ok) {
-        const cd = await connectionsRes.json().catch(() => ({}));
-        connections = Array.isArray(cd?.items) ? cd.items : [];
-      }
-
-      let vaultAccounts: any[] = [];
-      if (vaultRes?.ok) {
-        const vd = await vaultRes.json().catch(() => ({}));
-        vaultAccounts = Array.isArray(vd?.items) ? vd.items : [];
-      }
-
-      let proxiesItems: any[] = [];
-      if (proxiesRes?.ok) {
-        const pd = await proxiesRes.json().catch(() => ({}));
-        proxiesItems = Array.isArray(pd?.proxies) ? pd.proxies : [];
+      let nextConnections = connectionsCacheRef.current;
+      if (!append || nextConnections.length === 0) {
+        const connectionsRes = await fetch('/api/d1/inspect/connections?limit=300').catch(() => null as any);
+        if (connectionsRes?.ok) {
+          const cd = await connectionsRes.json().catch(() => ({}));
+          nextConnections = Array.isArray(cd?.items) ? cd.items : [];
+          connectionsCacheRef.current = nextConnections;
+        }
       }
 
       const connById = new Map<string, any>();
       const connByEmail = new Map<string, any>();
-      for (const c of connections) {
+      for (const c of nextConnections) {
         if (c?.id) connById.set(String(c.id), c);
         if (c?.email) connByEmail.set(String(c.email).toLowerCase(), c);
-      }
-
-      const vaultById = new Map<string, any>();
-      const vaultByEmail = new Map<string, any>();
-      for (const v of vaultAccounts) {
-        if (v?.id) vaultById.set(String(v.id), v);
-        if (v?.email) vaultByEmail.set(String(v.email).toLowerCase(), v);
       }
 
       const merged = (accountsData.items || []).map((a: any) => {
@@ -200,30 +303,48 @@ export function AccountsView() {
         const byEmailConn = a?.email ? connByEmail.get(String(a.email).toLowerCase()) : null;
         const conn = byIdConn || byEmailConn || null;
 
-        const byIdVault = a?.id ? vaultById.get(String(a.id)) : null;
-        const byEmailVault = a?.email ? vaultByEmail.get(String(a.email).toLowerCase()) : null;
-        const local = byIdVault || byEmailVault || null;
-
         return {
           ...a,
+          status: a.status ?? conn?.status ?? 'pending',
+          is_active: a.is_active ?? conn?.is_active ?? 1,
+          test_status: a.test_status ?? conn?.test_status ?? conn?.testStatus ?? null,
+          error_code: a.error_code ?? conn?.error_code ?? conn?.errorCode ?? null,
+          last_error_type: a.last_error_type ?? conn?.last_error_type ?? conn?.lastErrorType ?? null,
+          rate_limited_until: a.rate_limited_until ?? conn?.rate_limited_until ?? conn?.rateLimitedUntil ?? null,
+          last_error: a.last_error ?? conn?.last_error ?? conn?.lastError ?? null,
           discovered_limit: a.discovered_limit ?? conn?.discovered_limit ?? null,
           current_tokens_in: a.current_tokens_in ?? conn?.current_tokens_in ?? 0,
           current_tokens_out: a.current_tokens_out ?? conn?.current_tokens_out ?? 0,
           quotas_json: a.quotas_json ?? conn?.quotas_json ?? null,
-          quota_json: a.quota_json ?? local?.quota_json ?? null,
+          quota_json: a.quota_json ?? null,
         };
       });
 
-      setItems(merged);
-      setProxies(proxiesItems);
+      if (append) {
+        setItems((prev) => {
+          const map = new Map<string, any>();
+          for (const row of prev) map.set(String(row.id), row);
+          for (const row of merged) map.set(String(row.id), row);
+          return Array.from(map.values());
+        });
+      } else {
+        setItems(merged);
+      }
+      setHasMore((accountsData.items || []).length >= PAGE_SIZE);
     } catch (e: any) { setError(e.message); }
-    setLoading(false);
+    if (append) setLoadingMore(false);
+    else setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const cnt = { total: items.length, ready: items.filter(i => i.status === 'ready').length, pending: items.filter(i => i.status === 'pending').length, error: items.filter(i => i.status === 'error').length };
+  const cnt = {
+    total: items.length,
+    ready: items.filter(i => getStatusBucket(i) === 'ready').length,
+    pending: items.filter(i => getStatusBucket(i) === 'pending').length,
+    error: items.filter(i => getStatusBucket(i) === 'error').length,
+  };
 
-  const filtered = items.filter(it => (statusFilter === 'all' || it.status === statusFilter) && (!search || it.email.toLowerCase().includes(search.toLowerCase())));
+  const filtered = items.filter(it => (statusFilter === 'all' || getStatusBucket(it) === statusFilter) && (!search || it.email.toLowerCase().includes(search.toLowerCase())));
 
   /* ── API ── */
   const post = async (url: string, b: object) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
@@ -246,7 +367,13 @@ export function AccountsView() {
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
-  const openEdit = (it: any) => { setEditId(it.id); setEditPass(it.password || ''); setEdit2fa(it.two_fa_secret || ''); setEditProxy(it.proxy_url || ''); };
+  const openEdit = async (it: any) => {
+    if (proxies.length === 0) await loadProxies();
+    setEditId(it.id);
+    setEditPass(it.password || '');
+    setEdit2fa(it.two_fa_secret || '');
+    setEditProxy(it.proxy_url || '');
+  };
   const saveEdit = async () => { if (!editId) return; setEditSaving(true); await patch(`/api/d1/accounts/${editId}`, { password: editPass, twoFaSecret: edit2fa, proxyUrl: editProxy }); addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load(); };
   const cancelEdit = () => setEditId(null);
   const assignFromPool = async (id: string, selectedProxyId?: string) => {
@@ -377,7 +504,7 @@ export function AccountsView() {
             <button className="btn btn-sm btn-ghost" title="Tự động gán proxy từ pool" onClick={autoAssignFromPool} disabled={autoAssigning}>
               <Globe size={12} /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
             </button>
-            <button className="btn-icon" title="Refresh" onClick={load} disabled={loading}>
+            <button className="btn-icon" title="Refresh" onClick={() => load()} disabled={loading}>
               <RefreshCw size={13} style={{ animation: loading ? 'rotate .65s linear infinite' : 'none' }} />
             </button>
           </div>
@@ -452,7 +579,7 @@ export function AccountsView() {
                     </td>
 
                     {/* Status */}
-                    <td style={td}><StatusBadge status={it.status} /></td>
+                    <td style={td}><StatusBadge item={it} /></td>
 
                     {/* Usage */}
                     <td style={{ ...td, minWidth: 140 }}>
@@ -553,6 +680,13 @@ export function AccountsView() {
             </tbody>
           </table>
         </div>
+        {hasMore && (
+          <div style={{ padding: '10px 14px 14px', display: 'flex', justifyContent: 'center' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => load({ append: true })} disabled={loadingMore}>
+              {loadingMore ? 'Đang tải…' : `Tải thêm ${PAGE_SIZE}`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -380,8 +380,12 @@ app.prepare().then(() => {
     if (rounds > 1) console.log(`[Sync] Startup caught up after ${rounds} pulls.`);
   }
 
+  const D1_PULL_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.SEELLM_TOOLS_D1_PULL_INTERVAL_MS || 15 * 60 * 1000));
+  const D1_EVENT_POLL_MS = Math.max(30 * 1000, Number(process.env.SEELLM_TOOLS_D1_EVENT_POLL_MS || 60 * 1000));
+  const D1_SELF_HEAL_MS = Math.max(60 * 60 * 1000, Number(process.env.SEELLM_TOOLS_D1_SELF_HEAL_MS || 12 * 60 * 60 * 1000));
+
   startupSync();
-  setInterval(doVaultSync, 15 * 60 * 1000); // 15 phút (Đã có Interceptors xử lý tức thời)
+  setInterval(doVaultSync, D1_PULL_INTERVAL_MS);
 
   // ── D1 Event Bus Poller (Zero-Config Realtime Sync) ──
   let lastEventCheck = new Date(Date.now() - 60000).toISOString();
@@ -389,7 +393,7 @@ app.prepare().then(() => {
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return;
     try {
-      const res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/sync/events?since=${encodeURIComponent(lastEventCheck)}`, {
+      const res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/sync/events?since=${encodeURIComponent(lastEventCheck)}&ack=1`, {
         headers: { 'x-sync-secret': cfg.d1SyncSecret },
         signal: AbortSignal.timeout(30000)
       });
@@ -417,7 +421,7 @@ app.prepare().then(() => {
       // Trừ lùi 5 giây để tránh mất event do chênh lệch mili-giây hoặc clock drift giữa VPS/Local/Cloud
       lastEventCheck = new Date(Date.now() - 5000).toISOString();
     } catch (e) { /* Bỏ qua lỗi mạng */ }
-  }, 30 * 1000); // 30s
+  }, D1_EVENT_POLL_MS);
   // ───────────────────────────────────────────────────
   // [SELF-HEALING] Định kỳ 3 tiếng một lần quét toàn phần (Full-Sync)
   setInterval(async () => {
@@ -448,7 +452,7 @@ app.prepare().then(() => {
     } catch (e) {
       console.error(`[Sync] 🩺 Self-Healing thất bại:`, e.message);
     }
-  }, 3 * 60 * 60 * 1000);
+  }, D1_SELF_HEAL_MS);
 
   // ── D1 API Proxy ─────────────────────────────────────────────────────────
 

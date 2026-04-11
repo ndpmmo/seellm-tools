@@ -1,5 +1,41 @@
 # Changelog - SeeLLM Tools
 
+## [Unreleased] - 2026-04-11
+
+### Changed
+- **Managed Accounts status labels parity with Gateway (`#accounts`)**:
+  - Expanded status presentation to map Gateway-equivalent states:
+    - `Connected`, `Disabled`, `Auth Failed`, `Rate Limited`, `Runtime Issue`, `Network Issue`, `Test Unsupported`, `Unavailable`, `Failed`, `Error`.
+  - Added secondary error-type badges (e.g. `Upstream Auth`, `Token Expired`, `Refresh Failed`) when diagnostics exist.
+  - Status counters/filter buckets now use normalized status logic instead of raw `status` only.
+
+### Fixed
+- **Status diagnostics merge from D1 connections**:
+  - Accounts view now merges and uses richer connection diagnostics fields where available:
+    - `test_status`, `error_code`, `last_error_type`, `rate_limited_until`, `last_error`, `is_active`.
+  - Improves cross-surface consistency between Gateway `providers/codex#connections` and Tools `#accounts`.
+
+### Performance
+- **Phase 2 cursor-preflight sync optimization**:
+  - `SyncManager.pullVault()` now checks remote `sync/cursor` first and skips heavy `sync/pull` when there is no new cursor.
+- **Lower default D1 polling pressure**:
+  - Event poll default changed from 30s -> 60s.
+  - Self-healing full scan default changed from 3h -> 12h.
+  - Added env overrides:
+    - `SEELLM_TOOLS_D1_PULL_INTERVAL_MS`
+    - `SEELLM_TOOLS_D1_EVENT_POLL_MS`
+    - `SEELLM_TOOLS_D1_SELF_HEAL_MS`
+- **Phase 3 targeted D1 pull**:
+  - `SyncManager.pullVault()` now requests only required tables via `sync/pull?tables=...`:
+    - `vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections`
+  - Reduces unnecessary D1 reads on each sync cycle.
+- **Phase 3 event bus ack**:
+  - Tools event poll now uses `ack=1` so fetched events are marked consumed server-side, reducing repeated row scans.
+- **Phase 3 Accounts screen read optimization (`#accounts`)**:
+  - Switched to paged D1 loading (`limit=100` + load more) instead of fetching large account batches upfront.
+  - Removed eager proxy pool fetch from initial load; proxies are now loaded lazily when opening edit.
+  - Keeps UI responsive while reducing baseline D1 reads.
+
 ## [0.1.9] - 2026-04-11
 
 ### Added

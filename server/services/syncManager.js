@@ -153,8 +153,23 @@ export const SyncManager = {
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return null;
 
     try {
+      const sinceStr = String(since ?? '');
+      // Phase 2 optimization: cheap cursor preflight to avoid heavy /sync/pull scans.
+      if (sinceStr && sinceStr !== '0') {
+        const cursorRes = await fetch(`${cfg.d1WorkerUrl}/sync/cursor`, {
+          headers: { 'x-sync-secret': cfg.d1SyncSecret }
+        }).catch(() => null);
+        if (cursorRes?.ok) {
+          const cursorData = await cursorRes.json().catch(() => ({}));
+          if (cursorData?.ok && typeof cursorData?.cursor === 'string' && cursorData.cursor <= sinceStr) {
+            return null;
+          }
+        }
+      }
+
       console.log(`[SyncManager] Pulling vault changes since ${since}...`);
-      const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}`, {
+      const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections');
+      const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}&tables=${tables}`, {
         headers: { 'x-sync-secret': cfg.d1SyncSecret }
       });
       const data = await res.json();
