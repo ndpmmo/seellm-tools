@@ -34,6 +34,10 @@ function initSchema() {
       cookies       TEXT,
       access_token  TEXT,
       refresh_token TEXT,
+      workspace_id  TEXT,
+      device_id     TEXT,
+      machine_id    TEXT,
+      provider_specific_data TEXT,
       status        TEXT DEFAULT 'idle',
       notes         TEXT,
       tags          TEXT,
@@ -105,6 +109,10 @@ function applyMigrations() {
   try {
     db.exec(`ALTER TABLE vault_accounts ADD COLUMN plan TEXT`);
   } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN workspace_id TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN device_id TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN machine_id TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) {}
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -113,6 +121,17 @@ initSchema();
 applyMigrations();
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
+function safeParseJson(raw, fallback) {
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+
+function safeParseJsonObject(raw) {
+  const parsed = safeParseJson(raw, null);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed;
+}
 
 export const vault = {
   db,
@@ -134,8 +153,9 @@ export const vault = {
       two_fa_secret: '********',
       access_token:  '********',
       refresh_token: '********',
-      tags:          JSON.parse(a.tags || '[]'),
-      cookies:       JSON.parse(a.cookies || '[]')
+      tags:          safeParseJson(a.tags, []),
+      cookies:       safeParseJson(a.cookies, []),
+      provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     }));
   },
 
@@ -148,8 +168,9 @@ export const vault = {
       two_fa_secret: a.two_fa_secret,
       access_token:  a.access_token,
       refresh_token: a.refresh_token,
-      tags:          JSON.parse(a.tags || '[]'),
-      cookies:       JSON.parse(a.cookies || '[]')
+      tags:          safeParseJson(a.tags, []),
+      cookies:       safeParseJson(a.cookies, []),
+      provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     };
   },
 
@@ -166,8 +187,9 @@ export const vault = {
     const list = rawList.filter(a => a.email && a.email.trim() !== '');
     return list.map(a => ({
       ...a,
-      tags:    JSON.parse(a.tags || '[]'),
-      cookies: JSON.parse(a.cookies || '[]')
+      tags:    safeParseJson(a.tags, []),
+      cookies: safeParseJson(a.cookies, []),
+      provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     }));
   },
 
@@ -241,9 +263,9 @@ export const vault = {
     const stmt = db.prepare(`
       INSERT INTO vault_accounts (
         id, provider, label, email, password, two_fa_secret, proxy_url, 
-        cookies, access_token, refresh_token, status, notes, tags, plan,
+        cookies, access_token, refresh_token, workspace_id, device_id, machine_id, provider_specific_data, status, notes, tags, plan,
         is_active, quota_json, exported_to, exported_at, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
         label         = excluded.label,
@@ -254,6 +276,10 @@ export const vault = {
         cookies       = excluded.cookies,
         access_token  = excluded.access_token,
         refresh_token = excluded.refresh_token,
+        workspace_id  = excluded.workspace_id,
+        device_id     = excluded.device_id,
+        machine_id    = excluded.machine_id,
+        provider_specific_data = excluded.provider_specific_data,
         status        = excluded.status,
         notes         = excluded.notes,
         tags          = excluded.tags,
@@ -271,6 +297,50 @@ export const vault = {
       if (typeof val === 'object') return val;
       try { return JSON.parse(val); } catch (e) { return []; }
     };
+    const parseJSONObject = (val) => {
+      if (!val) return null;
+      if (typeof val === 'object' && !Array.isArray(val)) return val;
+      if (typeof val !== 'string') return null;
+      try {
+        const parsed = JSON.parse(val);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const existingProviderData = parseJSONObject(existing?.provider_specific_data);
+    const inputProviderData = parseJSONObject(data.provider_specific_data) || parseJSONObject(data.providerSpecificData);
+    const mergedProviderData = {
+      ...(existingProviderData || {}),
+      ...(inputProviderData || {}),
+    };
+
+    const workspaceId =
+      data.workspace_id ??
+      data.workspaceId ??
+      mergedProviderData.workspaceId ??
+      existing?.workspace_id ??
+      null;
+    const deviceId =
+      data.device_id ??
+      data.deviceId ??
+      mergedProviderData.deviceId ??
+      existing?.device_id ??
+      null;
+    const machineId =
+      data.machine_id ??
+      data.machineId ??
+      mergedProviderData.machineId ??
+      existing?.machine_id ??
+      null;
+
+    if (workspaceId) mergedProviderData.workspaceId = workspaceId;
+    if (deviceId) mergedProviderData.deviceId = deviceId;
+    if (machineId) mergedProviderData.machineId = machineId;
+    const providerSpecificDataRaw = Object.keys(mergedProviderData).length
+      ? JSON.stringify(mergedProviderData)
+      : null;
 
     const record = {
       id, 
@@ -283,6 +353,10 @@ export const vault = {
       cookies: JSON.stringify(parseJSON(data.cookies || (existing ? existing.cookies : '[]'))),
       access_token: data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null),
       refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
+      workspace_id: workspaceId,
+      device_id: deviceId,
+      machine_id: machineId,
+      provider_specific_data: providerSpecificDataRaw,
       status: finalStatus,
       notes: (authData.notes === null || authData.notes === 'null') ? '' : authData.notes,
       tags: JSON.stringify(parseJSON(data.tags || (existing ? existing.tags : '[]'))),
@@ -297,7 +371,7 @@ export const vault = {
     stmt.run(
       record.id, record.provider, record.label, record.email, record.password,
       record.two_fa_secret, record.proxy_url, record.cookies, record.access_token,
-      record.refresh_token, record.status, record.notes, record.tags, record.plan,
+      record.refresh_token, record.workspace_id, record.device_id, record.machine_id, record.provider_specific_data, record.status, record.notes, record.tags, record.plan,
       record.is_active, record.quota_json,
       record.exported_to, record.exported_at, record.created_at, record.updated_at, record.deleted_at
     );

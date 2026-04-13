@@ -1,5 +1,25 @@
 # Changelog - SeeLLM Tools
 
+## [Unreleased] - 2026-04-14
+
+### Changed
+- **Codex metadata persistence for Gateway compatibility**:
+  - `vault_accounts` now persists `workspace_id`, `device_id`, `machine_id`, and `provider_specific_data`.
+  - OAuth result processing now derives workspace metadata from Codex `id_token` and stores provider-specific fields before sync.
+- **Tools -> Gateway import payload enrichment**:
+  - `POST /api/oauth/codex/import` payload now includes `tokens.providerSpecificData` to preserve workspace/device binding context.
+- **D1 connection payload alignment**:
+  - `SyncManager.pushVault('account')` now fills `connections.workspace_id` and `connections.provider_specific_data` from local Codex metadata instead of hardcoded `null`.
+- **Critical-change immediate sync path**:
+  - Account sync dedupe now uses hashed normalized state instead of `HAVE_TOKEN/NO_TOKEN` marker only.
+  - Critical account changes (token/workspace/provider-specific metadata/is_active/deleted/status transitions) bypass debounce and push immediately.
+
+### Fixed
+- **Pull merge metadata fidelity**:
+  - `SyncManager.pullVault()` now merges `workspace_id` and `provider_specific_data` from remote `connections` into local account records when newer remote data is available.
+- **Manual fix script sync contract**:
+  - `scripts/fix_and_sync.mjs` now forwards `workspace_id` and `provider_specific_data` in connection payload when present.
+
 ## [Unreleased] - 2026-04-12
 
 ### Added

@@ -1,12 +1,71 @@
 import { loadConfig } from '../db/config.js';
+import { createHash } from 'node:crypto';
 
 /**
  * SyncManager handles pushing Vault data to Cloudflare D1
  */
 // Bộ nhớ đệm để tránh đẩy trùng dữ liệu không đổi (Save D1 Writes)
 const lastPushCache = new Map();
+const lastPushState = new Map();
 // Đợi gom các yêu cầu đẩy (Debouncing)
 const debounceTimeouts = new Map();
+
+function normalizeProviderSpecificData(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAccountState(data = {}) {
+  const providerData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData);
+  return {
+    id: data.id || null,
+    email: data.email || null,
+    status: data.status || null,
+    is_active: data.is_active ?? data.isActive ?? 1,
+    deleted_at: data.deleted_at || null,
+    access_token: data.access_token || null,
+    refresh_token: data.refresh_token || null,
+    workspace_id: data.workspace_id || providerData?.workspaceId || null,
+    device_id: data.device_id || providerData?.deviceId || null,
+    machine_id: data.machine_id || providerData?.machineId || null,
+    provider_specific_data: providerData || null,
+    updated_at: data.updated_at || data.updatedAt || null,
+  };
+}
+
+function hashJson(value) {
+  return createHash('sha256').update(JSON.stringify(value || null)).digest('hex');
+}
+
+function isCriticalAccountChange(prevState, nextState) {
+  if (!prevState) return true;
+  const criticalKeys = [
+    'access_token',
+    'refresh_token',
+    'workspace_id',
+    'device_id',
+    'machine_id',
+    'is_active',
+    'deleted_at',
+  ];
+  for (const key of criticalKeys) {
+    if ((prevState?.[key] ?? null) !== (nextState?.[key] ?? null)) return true;
+  }
+  if ((prevState?.status || '') !== (nextState?.status || '')) {
+    return true;
+  }
+  if (hashJson(prevState?.provider_specific_data) !== hashJson(nextState?.provider_specific_data)) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * SyncManager handles pushing Vault data to Cloudflare D1
@@ -19,10 +78,9 @@ export const SyncManager = {
       return;
     }
 
-    // --- KIỂM TRA DUPLICATE (SAVE WRITES) ---
-    // Tạo mã định danh cho nội dung: email + status + token + active + deleted_at
-    const fingerprint = `${data.email}|${data.status}|${data.refresh_token ? 'HAVE_TOKEN' : 'NO_TOKEN'}|${data.is_active}|${data.deleted_at}`;
     const cacheKey = `${type}:${data.id}`;
+    const normalizedState = type === 'account' ? normalizeAccountState(data) : data;
+    const fingerprint = hashJson(normalizedState);
     
     if (!force && lastPushCache.get(cacheKey) === fingerprint) {
       // console.log(`[SyncManager] 💤 Bỏ qua Push (Nội dung không đổi): ${data.email || data.id}`);
@@ -32,7 +90,10 @@ export const SyncManager = {
     // --- DEBOUNCING (SAVE WRITES) ---
     // Nếu có nhiều yêu cầu đẩy cho cùng 1 account trong thời gian ngắn (ví dụ worker đổi status liên tục)
     // Chúng ta sẽ đợi 45 giây để gom lại nén thành 1 lần đẩy duy nhất.
-    if (!force) {
+    const shouldPushImmediately =
+      type === 'account' ? isCriticalAccountChange(lastPushState.get(cacheKey), normalizedState) : false;
+
+    if (!force && !shouldPushImmediately) {
       if (debounceTimeouts.has(cacheKey)) {
         clearTimeout(debounceTimeouts.get(cacheKey));
       }
@@ -60,6 +121,9 @@ export const SyncManager = {
 
     // Cập nhật cache trước khi thực hiện
     lastPushCache.set(cacheKey, fingerprint);
+    if (type === 'account') {
+      lastPushState.set(cacheKey, normalizeAccountState(data));
+    }
 
     // Wrap the record into the PushPayload format expected by the worker
     const payload = {};
@@ -104,6 +168,18 @@ export const SyncManager = {
       const connectionIsActive = (data.is_active !== undefined && data.is_active !== null) 
         ? (data.is_active === 0 ? 0 : 1) 
         : 1;
+      const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
+      const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
+      const mergedProviderData = {
+        ...providerSpecificData,
+        workspaceId: workspaceId || providerSpecificData.workspaceId || null,
+        deviceId: data.device_id || providerSpecificData.deviceId || null,
+        machineId: data.machine_id || providerSpecificData.machineId || null,
+        proxyUrl: data.proxy_url || providerSpecificData.proxyUrl || null,
+      };
+      Object.keys(mergedProviderData).forEach((key) => {
+        if (mergedProviderData[key] === undefined) delete mergedProviderData[key];
+      });
       payload.connections = [{
         id: data.id,
         provider: data.provider || 'codex',
@@ -112,10 +188,10 @@ export const SyncManager = {
         access_token: data.access_token || null,
         refresh_token: data.refresh_token || null,
         proxy_url: data.proxy_url || null,
-        workspace_id: null,
+        workspace_id: workspaceId,
         is_active: connectionIsActive,
         rate_limit_protection: 0,
-        provider_specific_data: null,
+        provider_specific_data: Object.keys(mergedProviderData).length ? mergedProviderData : null,
         created_at: createdAt,
         updated_at: updatedAt,
         deleted_at: (data.status === 'idle') ? now : (data.deleted_at || null),
@@ -145,6 +221,7 @@ export const SyncManager = {
       // Nếu là lệnh xóa, dọn cache
       if (data.deleted_at) {
         lastPushCache.delete(cacheKey);
+        lastPushState.delete(cacheKey);
       }
       
       return result;
@@ -281,6 +358,23 @@ export const SyncManager = {
           if (existing) {
             existing.access_token = conn.access_token || existing.access_token;
             existing.refresh_token = conn.refresh_token || existing.refresh_token;
+            const remoteProviderData = normalizeProviderSpecificData(conn.provider_specific_data);
+            if (conn.workspace_id || remoteProviderData?.workspaceId) {
+              existing.workspace_id = conn.workspace_id || remoteProviderData?.workspaceId || existing.workspace_id || null;
+            }
+            if (remoteProviderData) {
+              const localProviderData = normalizeProviderSpecificData(existing.provider_specific_data);
+              existing.provider_specific_data = {
+                ...(localProviderData || {}),
+                ...remoteProviderData,
+              };
+            }
+            if (existing.provider_specific_data?.deviceId && !existing.device_id) {
+              existing.device_id = existing.provider_specific_data.deviceId;
+            }
+            if (existing.provider_specific_data?.machineId && !existing.machine_id) {
+              existing.machine_id = existing.provider_specific_data.machineId;
+            }
             try {
               if (conn.updated_at && (!existing.updated_at || new Date(conn.updated_at) > new Date(existing.updated_at))) {
                 existing.updated_at = conn.updated_at;

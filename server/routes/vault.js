@@ -5,6 +5,12 @@ import fs      from 'node:fs';
 import { vault }       from '../db/vault.js';
 import { SyncManager } from '../services/syncManager.js';
 import { loadConfig }  from '../db/config.js';
+import {
+  parseCodexIdToken,
+  getConsistentMachineId,
+  buildStableDeviceId,
+  mergeCodexProviderData,
+} from '../services/codexMetadata.js';
 
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
@@ -104,46 +110,6 @@ async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
   console.log(`[OAuth] ✅ Exchange SUCCESS`);
   return data;
 }
-
-/**
- * Decode base64 URL safe string
- */
-function base64Decode(str) {
-  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (base64.length % 4) base64 += '=';
-  return Buffer.from(base64, 'base64').toString('utf8');
-}
-
-/**
- * Parse id_token JWT to extract plan info
- */
-function parseIdToken(idToken) {
-  try {
-    const parts = idToken.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(base64Decode(parts[1]));
-    const authInfo = payload["https://api.openai.com/auth"];
-    
-    let plan = (authInfo?.chatgpt_plan_type || "").toLowerCase();
-    
-    // Check organizations for Team/Business
-    const organizations = authInfo?.organizations || [];
-    if (organizations.length > 0) {
-      const teamOrg = organizations.find(org => 
-        !org.is_default && (org.role === 'admin' || org.role === 'member')
-      );
-      if (teamOrg && (plan === 'free' || plan === '')) {
-        plan = 'team';
-      }
-    }
-    
-    return plan || 'free';
-  } catch (e) {
-    console.error('[OAuth] ⚠️ Failed to parse id_token:', e.message);
-    return null;
-  }
-}
-
 
 /* ─── In-memory PKCE store: account_id → {url, codeVerifier, createdAt} ─── */
 // Giữ PKCE cố định cho 1 account cho đến khi hoàn thành (tránh 400 invalid_request)
@@ -367,7 +333,27 @@ router.post('/accounts/result', async (req, res) => {
           console.log(`[Result] 🔄 Restored account ${targetEmail} (was deleted_at)`);
         }
 
-        const planType = tokens.id_token ? parseIdToken(tokens.id_token) : null;
+        const tokenMeta = tokens.id_token ? parseCodexIdToken(tokens.id_token) : null;
+        const machineId = getConsistentMachineId();
+        let existingProviderData = null;
+        if (localAccount?.provider_specific_data && typeof localAccount.provider_specific_data === 'string') {
+          try {
+            existingProviderData = JSON.parse(localAccount.provider_specific_data);
+          } catch (_) {
+            existingProviderData = null;
+          }
+        } else if (localAccount?.provider_specific_data && typeof localAccount.provider_specific_data === 'object') {
+          existingProviderData = localAccount.provider_specific_data;
+        }
+        const providerSpecificData = mergeCodexProviderData(existingProviderData, {
+          workspaceId: tokenMeta?.workspaceId || null,
+          workspacePlanType: tokenMeta?.workspacePlanType || null,
+          chatgptUserId: tokenMeta?.chatgptUserId || null,
+          organizations: tokenMeta?.organizations || null,
+          machineId,
+          deviceId: buildStableDeviceId(existingProviderData, targetId),
+          proxyUrl: localAccount?.proxy_url || null,
+        });
 
         vault.upsertAccount({
           id:            targetId,
@@ -376,7 +362,11 @@ router.post('/accounts/result', async (req, res) => {
           access_token:  tokens.access_token,
           refresh_token: tokens.refresh_token,
           email:         targetEmail || undefined,
-          plan:          planType,
+          plan:          tokenMeta?.workspacePlanType || null,
+          workspace_id:  providerSpecificData?.workspaceId || null,
+          device_id:     providerSpecificData?.deviceId || null,
+          machine_id:    providerSpecificData?.machineId || machineId,
+          provider_specific_data: providerSpecificData,
         });
 
         // Xóa PKCE khỏi store sau khi xử lý xong
@@ -402,6 +392,7 @@ router.post('/accounts/result', async (req, res) => {
                   tokens: {
                     ...tokens,
                     email: fullRecord.email, // THIẾU BƯỚC NÀY: Gửi kèm email để Gateway nhận diện
+                    providerSpecificData: providerSpecificData || undefined,
                   },
                 }),
                 signal: AbortSignal.timeout(15000),
@@ -451,6 +442,7 @@ router.post('/accounts/result', async (req, res) => {
         access_token:  result?.access_token,
         refresh_token: result?.refresh_token,
         cookies:       result?.cookies,
+        machine_id:    getConsistentMachineId(),
       });
       pkceStore.delete(id);
 

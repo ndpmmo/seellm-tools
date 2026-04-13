@@ -103,6 +103,13 @@ for (const a of validAccounts) {
 
   // Nếu có refresh_token → cũng sync lên connections để Gateway thấy
   if (a.refresh_token) {
+    let providerData = null;
+    try {
+      providerData = typeof a.provider_specific_data === 'string'
+        ? JSON.parse(a.provider_specific_data)
+        : (a.provider_specific_data || null);
+    } catch {}
+    const workspaceId = a.workspace_id || providerData?.workspaceId || null;
     payload.connections = [{
       id:                   a.id,
       email:                a.email,
@@ -110,10 +117,10 @@ for (const a of validAccounts) {
       access_token:         a.access_token,
       refresh_token:        a.refresh_token,
       proxy_url:            a.proxy_url,
-      workspace_id:         null,
+      workspace_id:         workspaceId,
       is_active:            (a.status === 'ready' || a.status === 'success') ? 1 : 0,
       rate_limit_protection: 0,
-      provider_specific_data: null,
+      provider_specific_data: providerData,
       updated_at:           now,
       deleted_at:           null,
       version,
