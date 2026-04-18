@@ -27,6 +27,13 @@ export function ChangelogView() {
     loadChangelog();
   }, []);
 
+  const formatVersionLabel = (version: string) => {
+    const normalized = String(version || '').trim();
+    if (!normalized) return 'Unknown';
+    if (normalized.toLowerCase() === 'unreleased') return 'Unreleased';
+    return `v${normalized}`;
+  };
+
   // Simple parser for human-friendly display
   const lines = content.split('\n');
   const versions: any[] = [];
@@ -82,7 +89,7 @@ export function ChangelogView() {
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '16px' }}>
                     <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                      v{v.version}
+                      {formatVersionLabel(v.version)}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '12px', color: 'var(--text-3)', background: 'var(--glass)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}>
                       <Calendar size={12} />

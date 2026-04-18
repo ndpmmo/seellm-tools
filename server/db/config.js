@@ -8,6 +8,7 @@ const CONFIG_PATH = existsSync(path.resolve('tools.config.json'))
 export function loadConfig() {
   const defaults = {
     camofoxPath:   '/Users/ndpmmo/Documents/Tools/camofox-browser',
+    camofoxNodePath: '/usr/local/bin/node',
     camofoxPort:   3000,
     camofoxApi:    'http://localhost:9377',
     gatewayUrl:    'http://localhost:20128',

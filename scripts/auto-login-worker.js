@@ -21,12 +21,31 @@ import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THR
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR   = path.join(__dirname, '..');
 const IMAGES_DIR = path.join(ROOT_DIR, 'data', 'screenshots');
+const CHATGPT_LOGIN_DEBUG = process.env.CHATGPT_LOGIN_DEBUG === '1';
 
 // ============================================
 // TIỆN ÍCH
 // ============================================
 
 /** Tạo mã TOTP (2FA) từ secret key Base32 */
+function getSecondsRemainingInTotpWindow() {
+  return 30 - (Math.floor(Date.now() / 1000) % 30);
+}
+
+async function getFreshTOTP(secret, minRemainingSeconds = 10) {
+  if (!secret) throw new Error('Missing TOTP secret');
+  let remaining = getSecondsRemainingInTotpWindow();
+  if (remaining <= minRemainingSeconds) {
+    await new Promise((r) => setTimeout(r, (remaining + 1) * 1000));
+    remaining = getSecondsRemainingInTotpWindow();
+  }
+  return { otp: getTOTP(secret), remaining };
+}
+
+function getTaskTotpSecret(task) {
+  return task?.totpSecret || task?.twoFaSecret || task?.two_fa_secret || task?.secret || null;
+}
+
 function getTOTP(secret) {
   function base32tohex(base32) {
     const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -56,24 +75,1018 @@ function getTOTP(secret) {
 // CAMOFOX API HELPERS
 // ============================================
 
-async function camofoxPost(endpoint, body) {
+async function camofoxPost(endpoint, body, options = {}) {
+  const { timeoutMs = 30000 } = options;
   const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`Camofox ${endpoint} failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 
-async function camofoxGet(endpoint) {
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`);
+async function camofoxGet(endpoint, options = {}) {
+  const { timeoutMs = 15000 } = options;
+  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!res.ok) throw new Error(`Camofox GET ${endpoint} failed: ${res.status}`);
   return res.json();
 }
 
-async function camofoxDelete(endpoint) {
-  await fetch(`${CAMOUFOX_API}${endpoint}`, { method: 'DELETE' });
+async function camofoxDelete(endpoint, options = {}) {
+  const { timeoutMs = 10000 } = options;
+  await fetch(`${CAMOUFOX_API}${endpoint}`, {
+    method: 'DELETE',
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+async function camofoxGoto(tabId, body, options = {}) {
+  return camofoxPost(`/tabs/${tabId}/goto`, body, options);
+}
+
+async function camofoxEval(tabId, userId, expression, options = {}) {
+  return camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, options);
+}
+
+const CODEX_CONSENT_URL = 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent';
+
+function getFreshAuthBootstrapUrl(task) {
+  return task?.loginUrl || task?.authUrl || CODEX_CONSENT_URL;
+}
+
+function normalizePageText(input = '') {
+  return input.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+}
+
+function isPhoneVerificationScreen(url = '', snapshot = '') {
+  const cleanText = normalizePageText(snapshot);
+  const lowerUrl = String(url || '').toLowerCase();
+  return cleanText.includes('phone number required') ||
+         cleanText.includes('add a phone number') ||
+         cleanText.includes('verify your phone') ||
+         cleanText.includes('enter your phone') ||
+         (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
+         (lowerUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')));
+}
+
+function isConsentScreen(url = '', snapshot = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const lowerHtml = String(snapshot || '').toLowerCase();
+  if (lowerUrl.includes('/log-in') || lowerUrl.includes('/password') || lowerUrl.includes('/mfa-challenge')) {
+    return false;
+  }
+  if (lowerUrl.includes('consent')) return true;
+  return (lowerHtml.includes('authorize') || lowerHtml.includes('allow')) && lowerHtml.includes('continue');
+}
+
+function isAuthLoginLikeScreen(url = '', snapshot = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const cleanText = normalizePageText(snapshot);
+  return lowerUrl.includes('/log-in') ||
+         lowerUrl.includes('/password') ||
+         lowerUrl.includes('/mfa-challenge') ||
+         cleanText.includes('welcome back') ||
+         cleanText.includes('enter your password') ||
+         cleanText.includes('verify your identity');
+}
+
+function isWorkspaceSessionError(url = '', snapshot = '') {
+  const cleanText = normalizePageText(snapshot);
+  return cleanText.includes('workspaces not found in client auth session') ||
+         cleanText.includes('oops, an error occurred');
+}
+
+async function evalJson(tabId, userId, expression, timeoutMs = 5000) {
+  const res = await camofoxEval(tabId, userId, expression, { timeoutMs });
+  return res?.result ?? null;
+}
+
+function maskSensitive(value) {
+  const str = String(value ?? '');
+  if (!str) return str;
+  if (str.includes('@')) {
+    const [name, domain] = str.split('@');
+    return `${name.slice(0, 2)}***@${domain}`;
+  }
+  if (str.length <= 4) return '*'.repeat(str.length);
+  return `${str.slice(0, 2)}***${str.slice(-2)}`;
+}
+
+function debugChatgptLogin(task, label, payload) {
+  if (!CHATGPT_LOGIN_DEBUG) return;
+  let safePayload = payload;
+  try {
+    safePayload = JSON.parse(JSON.stringify(payload, (key, value) => {
+      if (['email', 'password', 'totp', 'totpSecret', 'twoFaSecret', 'two_fa_secret', 'secret'].includes(key)) return maskSensitive(value);
+      if (typeof value === 'string' && value.includes(task?.email || '')) return value.replaceAll(task.email, maskSensitive(task.email));
+      return value;
+    }));
+  } catch {}
+  console.log(`[${task.email}] 🐞 ChatGPT login debug(${label}): ${JSON.stringify(safePayload).slice(0, 1600)}`);
+}
+
+async function captureChatgptLoginDialog(tabId, userId) {
+  try {
+    return await evalJson(tabId, userId, `
+      (() => {
+        const norm = (v) => (v || '').trim();
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+        const dialogs = Array.from(document.querySelectorAll('div[role=\"dialog\"]')).filter(isVisible);
+        const mapped = dialogs.map((dialog) => ({
+          text: norm((dialog.innerText || dialog.textContent || '').slice(0, 300)),
+          fields: Array.from(dialog.querySelectorAll('input, button, a, [role=\"button\"]'))
+            .filter(isVisible)
+            .map((el) => ({
+              tag: el.tagName.toLowerCase(),
+              type: el.getAttribute('type'),
+              name: el.getAttribute('name'),
+              placeholder: el.getAttribute('placeholder'),
+              aria: el.getAttribute('aria-label'),
+              testId: el.getAttribute('data-testid'),
+              text: norm(el.innerText || el.textContent || el.value || ''),
+            }))
+            .slice(0, 20),
+        }));
+        return { href: location.href, title: document.title, dialogs: mapped.slice(0, 4) };
+      })()
+    `, 5000);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function captureWorkspaceDebugState(tabId, userId) {
+  try {
+    return await evalJson(tabId, userId, `
+      (async () => {
+        const sliceObj = (obj) => {
+          const out = {};
+          for (const [k, v] of Object.entries(obj || {}).slice(0, 30)) {
+            out[k] = typeof v === 'string' ? v.slice(0, 300) : String(v).slice(0, 300);
+          }
+          return out;
+        };
+
+        const textOf = (el) => (el?.innerText || el?.textContent || '').trim();
+        const buttons = Array.from(document.querySelectorAll('button, a, input[type="submit"]'))
+          .map((el) => textOf(el))
+          .filter(Boolean)
+          .slice(0, 20);
+        const forms = Array.from(document.forms || []).map((form) => ({
+          action: form.action || '',
+          method: form.method || 'get',
+          inputNames: Array.from(form.querySelectorAll('input')).map((i) => i.name || i.id || i.type || '').slice(0, 20),
+        })).slice(0, 10);
+        const scripts = Array.from(document.scripts || [])
+          .map((s) => (s.textContent || '').slice(0, 1200))
+          .filter(Boolean)
+          .slice(0, 8);
+        const bodyText = (document.body?.innerText || '').slice(0, 2000);
+
+        let authSession = null;
+        try {
+          const r = await fetch('https://chatgpt.com/api/auth/session', { credentials: 'include' });
+          const txt = await r.text();
+          authSession = { status: r.status, body: txt.slice(0, 2000) };
+        } catch (e) {
+          authSession = { error: String(e) };
+        }
+
+        return {
+          href: location.href,
+          title: document.title,
+          bodyText,
+          buttons,
+          forms,
+          localStorage: sliceObj(localStorage),
+          sessionStorage: sliceObj(sessionStorage),
+          authSession,
+          scripts,
+        };
+      })()
+    `, 8000);
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function tryFetchInPage(tabId, userId, url, init = {}, timeoutMs = 8000) {
+  const payload = JSON.stringify({ url, init });
+  return evalJson(tabId, userId, `
+    (async () => {
+      const { url, init } = ${payload};
+      try {
+        const res = await fetch(url, {
+          credentials: 'include',
+          redirect: 'follow',
+          ...init,
+          headers: {
+            'content-type': 'application/json',
+            ...(init.headers || {}),
+          },
+        });
+        const text = await res.text();
+        return { ok: res.ok, status: res.status, url: res.url, body: text.slice(0, 2000) };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    })()
+  `, timeoutMs);
+}
+
+function parseUuidMatches(input = '') {
+  return Array.from(new Set(String(input).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi) || []));
+}
+
+async function extractWorkspaceCandidates(tabId, userId) {
+  const out = new Set();
+
+  try {
+    const cookiesRes = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 5000 });
+    const cookies = Array.isArray(cookiesRes?.cookies) ? cookiesRes.cookies : (Array.isArray(cookiesRes) ? cookiesRes : []);
+    for (const c of cookies) {
+      if (!c?.name) continue;
+      if (String(c.name).includes('oai-client-auth-session') || String(c.name).includes('workspace') || String(c.name).includes('auth')) {
+        parseUuidMatches(c.value || '').forEach(v => out.add(v));
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const pageData = await evalJson(tabId, userId, `
+      (() => {
+        const html = document.documentElement.outerHTML || '';
+        const scripts = Array.from(document.scripts || []).map((s) => s.textContent || '').join('\\n');
+        const body = document.body?.innerText || '';
+        return { html: html.slice(0, 250000), scripts: scripts.slice(0, 250000), body: body.slice(0, 5000) };
+      })()
+    `, 10000);
+    parseUuidMatches(pageData?.html).forEach(v => out.add(v));
+    parseUuidMatches(pageData?.scripts).forEach(v => out.add(v));
+    parseUuidMatches(pageData?.body).forEach(v => out.add(v));
+  } catch (_) {}
+
+  return Array.from(out);
+}
+
+function extractOrganizationCandidates(payload = '') {
+  const uuids = parseUuidMatches(payload);
+  return uuids;
+}
+
+async function trySelectWorkspaceAndOrganization({ task, userId, tabId, saveStep }) {
+  const candidates = await extractWorkspaceCandidates(tabId, userId);
+  console.log(`[${task.email}] 🗂️ Workspace candidates: ${JSON.stringify(candidates).slice(0, 800)}`);
+
+  if (!candidates.length) {
+    return { ok: false, reason: 'no_workspace_candidates' };
+  }
+
+  for (const workspaceId of candidates) {
+    const payloadVariants = [
+      { workspace_id: workspaceId },
+      { workspaceId },
+      { id: workspaceId },
+    ];
+
+    for (const payload of payloadVariants) {
+      const res = await tryFetchInPage(
+        tabId,
+        userId,
+        'https://auth.openai.com/api/accounts/workspace/select',
+        { method: 'POST', body: JSON.stringify(payload) },
+        10000,
+      );
+      console.log(`[${task.email}] 🧩 workspace/select ${JSON.stringify(payload)} => ${JSON.stringify(res).slice(0, 800)}`);
+
+      const bodyText = String(res?.body || '');
+      if (!res?.ok) {
+        if (bodyText.includes('invalid_auth_step')) {
+          continue;
+        }
+        if (!bodyText.trim()) continue;
+        continue;
+      }
+
+      await saveStep(tabId, 'workspace_selected');
+
+      const orgCandidates = extractOrganizationCandidates(res?.body || '');
+      if (orgCandidates.length) {
+        for (const orgId of orgCandidates.slice(0, 5)) {
+          for (const orgPayload of [{ organization_id: orgId }, { organizationId: orgId }, { id: orgId }]) {
+            const orgRes = await tryFetchInPage(
+              tabId,
+              userId,
+              'https://auth.openai.com/api/accounts/organization/select',
+              { method: 'POST', body: JSON.stringify(orgPayload) },
+              10000,
+            );
+            console.log(`[${task.email}] 🏢 organization/select ${JSON.stringify(orgPayload)} => ${JSON.stringify(orgRes).slice(0, 800)}`);
+            if (orgRes?.ok) {
+              await saveStep(tabId, 'organization_selected');
+              return { ok: true, workspaceId, orgId, workspaceResponse: res, organizationResponse: orgRes };
+            }
+          }
+        }
+      }
+
+      return { ok: true, workspaceId, workspaceResponse: res };
+    }
+  }
+
+  return { ok: false, reason: 'workspace_select_failed', candidates };
+}
+
+async function inspectChatgptWebState(tabId, userId) {
+  return evalJson(tabId, userId, `
+    (() => {
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const buttonTexts = Array.from(document.querySelectorAll('button, a, input[type="submit"]'))
+        .map((el) => (el.innerText || el.textContent || '').trim())
+        .filter(Boolean)
+        .slice(0, 20);
+      return {
+        href: location.href,
+        title: document.title,
+        hasLoginButton: bodyText.includes('log in') || bodyText.includes('đăng nhập'),
+        hasSignupButton: bodyText.includes('sign up') || bodyText.includes('đăng ký'),
+        looksLoggedIn: !bodyText.includes('log in') && (
+          bodyText.includes('new chat') ||
+          bodyText.includes('search chats') ||
+          bodyText.includes('what\\'s on your mind today')
+        ),
+        hasContinuePrompt: bodyText.includes('continue') || bodyText.includes('tiếp tục') || bodyText.includes('sử dụng tài khoản google'),
+        buttonTexts,
+      };
+    })()
+  `, 5000);
+}
+
+async function clickPreferredChatgptLogin(tabId, userId) {
+  try {
+    const evalRes = await evalJson(tabId, userId, `
+      (() => {
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+
+        const preferred =
+          document.querySelector('[data-testid="login-button"]') ||
+          document.querySelector('header button[data-testid]') ||
+          Array.from(document.querySelectorAll('button, a')).find((el) => {
+            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+            return isVisible(el) && txt === 'log in';
+          });
+
+        if (!preferred) return { ok: false, reason: 'no-login-button' };
+        preferred.click();
+        return {
+          ok: true,
+          text: (preferred.innerText || preferred.textContent || '').trim(),
+          testId: preferred.getAttribute('data-testid') || null,
+        };
+      })()
+    `, 4000);
+    return evalRes;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function clickBestMatchingAction(tabId, userId, options = {}) {
+  const {
+    exactTexts = [],
+    includesTexts = [],
+    excludeTexts = [],
+    timeoutMs = 4000,
+  } = options;
+
+  try {
+    const payload = JSON.stringify({ exactTexts, includesTexts, excludeTexts });
+    const result = await evalJson(tabId, userId, `
+      (() => {
+        const { exactTexts, includesTexts, excludeTexts } = ${payload};
+        const norm = (v) => (v || '').trim().toLowerCase();
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+
+        const exact = exactTexts.map(norm);
+        const includes = includesTexts.map(norm);
+        const excludes = excludeTexts.map(norm);
+
+        const candidates = Array.from(document.querySelectorAll('button, a, input[type="submit"], [role="button"]'))
+          .filter(isVisible)
+          .map((el) => {
+            const text = norm(el.innerText || el.textContent || el.value || '');
+            return { el, text, testId: el.getAttribute('data-testid') || '' };
+          })
+          .filter((x) => x.text && !excludes.some((t) => x.text.includes(t)));
+
+        let winner =
+          candidates.find((x) => x.testId && exact.includes(x.testId)) ||
+          candidates.find((x) => exact.includes(x.text)) ||
+          candidates.find((x) => includes.some((t) => x.text.includes(t)));
+
+        if (!winner) {
+          return { ok: false, reason: 'no-match', candidates: candidates.map((x) => ({ text: x.text, testId: x.testId })).slice(0, 20) };
+        }
+
+        winner.el.click();
+        return { ok: true, text: winner.text, testId: winner.testId || null };
+      })()
+    `, timeoutMs);
+    return result;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function tryFillChatgptMfaForm(tabId, userId, task) {
+  try {
+    const totpSecret = getTaskTotpSecret(task);
+    if (!totpSecret) return { ok: false, reason: 'no-totp-secret' };
+    const { otp, remaining } = await getFreshTOTP(totpSecret, 10);
+    const payload = JSON.stringify({ otp });
+    const result = await evalJson(tabId, userId, `
+      (() => {
+        const { otp } = ${payload};
+        const norm = (v) => (v || '').trim().toLowerCase();
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+        const setValue = (el, value) => {
+          if (!el) return;
+          el.focus();
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const bodyText = norm(document.body?.innerText || '');
+        const pageUrl = norm(location.href);
+        const pageTitle = norm(document.title);
+        const isMfaStage = pageUrl.includes('/mfa-challenge') || pageTitle.includes('verify your identity') || bodyText.includes('one-time code');
+        if (!isMfaStage) {
+          return { ok: false, reason: 'not-mfa-stage', pageUrl, pageTitle };
+        }
+        const input = Array.from(document.querySelectorAll('input'))
+          .find((el) => isVisible(el) && (
+            (el.getAttribute('autocomplete') || '').toLowerCase() === 'one-time-code' ||
+            (el.getAttribute('inputmode') || '').toLowerCase() === 'numeric' ||
+            (el.getAttribute('type') || '').toLowerCase() === 'tel' ||
+            (el.getAttribute('type') || '').toLowerCase() === 'text' ||
+            norm(el.getAttribute('name') || '').includes('otp') ||
+            norm(el.getAttribute('name') || '').includes('code') ||
+            norm(el.getAttribute('placeholder') || '').includes('code') ||
+            norm(el.getAttribute('aria-label') || '').includes('code')
+          ));
+        if (!input) {
+          return { ok: false, reason: 'no-mfa-input', pageUrl, pageTitle };
+        }
+        setValue(input, otp);
+        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], [role="button"]'))
+          .filter(isVisible)
+          .map((el) => ({ el, text: norm(el.innerText || el.textContent || el.value || '') }));
+        const continueBtn = buttons.find((x) => x.text === 'continue' || x.text.includes('continue') || x.text.includes('tiếp tục'));
+        if (continueBtn) continueBtn.el.click();
+        return {
+          ok: true,
+          stage: 'mfa',
+          clicked: !!continueBtn,
+          continueText: continueBtn?.text || null,
+          inputName: input.getAttribute('name') || null,
+          inputType: input.getAttribute('type') || null,
+          pageUrl,
+          pageTitle,
+          remaining,
+        };
+      })()
+    `, 5000);
+    return result;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function tryFillChatgptLoginForm(tabId, userId, task) {
+  try {
+    const payload = JSON.stringify({ email: task.email || '', password: task.password || '' });
+    const result = await evalJson(tabId, userId, `
+      (() => {
+        const { email, password } = ${payload};
+        const norm = (v) => (v || '').trim().toLowerCase();
+        const isVisible = (el) => {
+          if (!el) return false;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+        const setValue = (el, value) => {
+          if (!el) return;
+          el.focus();
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(isVisible);
+        const loginDialog = dialogs.find((dialog) => {
+          const text = norm(dialog.innerText || dialog.textContent || '');
+          return dialog.querySelector('input[type="email"], input[name="email"], input[name="username"], input[type="password"]') || text.includes('log in or sign up');
+        });
+        const root = loginDialog || document;
+        const pageUrl = norm(location.href);
+        const pageTitle = norm(document.title);
+        const pageText = norm(root.innerText || root.textContent || '');
+        const isPasswordStage = pageUrl.includes('/password') || pageTitle.includes('enter your password') || pageText.includes('enter your password');
+        const pick = (selectors) => selectors
+          .map((selector) => root.querySelector(selector))
+          .find((el) => isVisible(el));
+        const buttons = Array.from(root.querySelectorAll('button, [role="button"], input[type="submit"]'))
+          .filter(isVisible)
+          .map((el) => ({
+            el,
+            text: norm(el.innerText || el.textContent || el.value || ''),
+            testId: el.getAttribute('data-testid') || '',
+          }));
+        const pickContinue = () =>
+          buttons.find((x) => x.testId === 'continue-button') ||
+          buttons.find((x) => x.text === 'continue' || x.text === 'tiếp tục') ||
+          buttons.find((x) => x.text.includes('continue')) ||
+          buttons.find((x) => x.text.includes('tiếp tục'));
+
+        const passwordInput = pick([
+          'input[type="password"]',
+          'input[name="password"]',
+          'input[autocomplete="current-password"]'
+        ]);
+        const emailInput = !isPasswordStage ? pick([
+          'input[type="email"]',
+          'input[name="email"]',
+          'input[name="username"]',
+          'input[placeholder*="mail" i]',
+          'input[autocomplete="username"]'
+        ]) : null;
+
+        if (passwordInput && password) {
+          setValue(passwordInput, password);
+          const continueBtn = pickContinue();
+          if (continueBtn) continueBtn.el.click();
+          return {
+            ok: true,
+            stage: 'password',
+            clicked: !!continueBtn,
+            continueText: continueBtn?.text || null,
+            inputType: passwordInput.getAttribute('type') || null,
+            pageUrl,
+            pageTitle,
+            rootText: pageText.slice(0, 120),
+          };
+        }
+
+        if (emailInput && email) {
+          setValue(emailInput, email);
+          const continueBtn = pickContinue();
+          if (continueBtn) continueBtn.el.click();
+          return {
+            ok: true,
+            stage: 'email',
+            clicked: !!continueBtn,
+            continueText: continueBtn?.text || null,
+            inputType: emailInput.getAttribute('type') || null,
+            pageUrl,
+            pageTitle,
+            rootText: pageText.slice(0, 120),
+          };
+        }
+
+        return {
+          ok: false,
+          reason: 'no-form-fields',
+          pageUrl,
+          pageTitle,
+          isPasswordStage,
+          buttons: buttons.map((x) => ({ text: x.text, testId: x.testId })).slice(0, 12),
+          hasLoginDialog: !!loginDialog,
+        };
+      })()
+    `, 5000);
+    return result;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }) {
+  console.log(`[${task.email}] 🌐 Thử thiết lập session đăng nhập tại chatgpt.com...`);
+
+  try {
+    await camofoxGoto(tabId, {
+      userId,
+      url: 'https://chatgpt.com/',
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    }, { timeoutMs: 18000 });
+    await new Promise(r => setTimeout(r, 2500));
+    await saveStep(tabId, 'chatgpt_home');
+  } catch (err) {
+    console.log(`[${task.email}] ⚠️ Không mở được chatgpt.com: ${err.message}`);
+  }
+
+  try {
+    await camofoxPost(`/tabs/${tabId}/click`, {
+      userId,
+      selector: 'button:has-text("Accept all"), button:has-text("Accept"), button:has-text("Chấp nhận"), button:has-text("Đồng ý")',
+    }, { timeoutMs: 2500 });
+    console.log(`[${task.email}] 🍪 Đã thử accept cookie banner.`);
+  } catch (_) {}
+
+  let state = await inspectChatgptWebState(tabId, userId);
+  console.log(`[${task.email}] 🌐 ChatGPT web state(before login): ${JSON.stringify(state).slice(0, 800)}`);
+  debugChatgptLogin(task, 'state-before', state);
+  debugChatgptLogin(task, 'dialogs-before', await captureChatgptLoginDialog(tabId, userId));
+
+  for (let step = 0; step < 4; step++) {
+    if (state?.looksLoggedIn) {
+      await saveStep(tabId, 'chatgpt_logged_in');
+      break;
+    }
+
+    if (state?.hasLoginButton) {
+      const loginClick = await clickPreferredChatgptLogin(tabId, userId);
+      if (loginClick?.ok) {
+        console.log(`[${task.email}] 🔐 Đã bấm Log in trên ChatGPT web: ${JSON.stringify(loginClick).slice(0, 200)}`);
+        debugChatgptLogin(task, `clicked-login-${step + 1}`, loginClick);
+        await new Promise(r => setTimeout(r, 2500));
+        await saveStep(tabId, `chatgpt_clicked_login_${step + 1}`);
+        debugChatgptLogin(task, `dialogs-after-login-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
+      } else {
+        console.log(`[${task.email}] ⚠️ Không bấm được Log in: ${loginClick?.error || loginClick?.reason || 'unknown'}`);
+      }
+    }
+
+    const filledLoginForm = await tryFillChatgptLoginForm(tabId, userId, task);
+    if (filledLoginForm?.ok) {
+      console.log(`[${task.email}] ✍️ Đã điền form đăng nhập ChatGPT web: ${JSON.stringify(filledLoginForm).slice(0, 200)}`);
+      debugChatgptLogin(task, `filled-form-${step + 1}`, { ...filledLoginForm, email: task.email, password: task.password });
+      await new Promise(r => setTimeout(r, 2500));
+      await saveStep(tabId, `chatgpt_modal_${filledLoginForm.stage}_${step + 1}`);
+      debugChatgptLogin(task, `dialogs-after-fill-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
+    } else {
+      console.log(`[${task.email}] ℹ️ Không thấy form email/password ChatGPT web: ${filledLoginForm?.reason || filledLoginForm?.error || 'no-op'}`);
+    }
+
+    let filledMfaForm = null;
+    if (!filledLoginForm?.ok) {
+      filledMfaForm = await tryFillChatgptMfaForm(tabId, userId, task);
+      if (filledMfaForm?.ok) {
+        console.log(`[${task.email}] 🔢 Đã điền MFA ChatGPT web: ${JSON.stringify({ ...filledMfaForm, otp: '******' }).slice(0, 200)}`);
+        debugChatgptLogin(task, `filled-mfa-${step + 1}`, { ...filledMfaForm, otp: '******' });
+        await new Promise(r => setTimeout(r, 2500));
+        await saveStep(tabId, `chatgpt_modal_${filledMfaForm.stage}_${step + 1}`);
+      } else if (filledMfaForm?.reason && filledMfaForm.reason !== 'not-mfa-stage' && filledMfaForm.reason !== 'no-totp-secret') {
+        console.log(`[${task.email}] ℹ️ Không điền được MFA ChatGPT web: ${filledMfaForm.reason || filledMfaForm.error || 'no-op'}`);
+      }
+    }
+
+    if ((!filledLoginForm?.ok || !filledLoginForm?.clicked) && (!filledMfaForm?.ok || !filledMfaForm?.clicked)) {
+      const continueClick = await clickBestMatchingAction(tabId, userId, {
+        exactTexts: ['continue', 'tiếp tục'],
+        includesTexts: ['continue with google', 'tiếp tục với google'],
+        excludeTexts: ['close', 'đóng', 'continue with apple', 'continue with phone'],
+        timeoutMs: 4000,
+      });
+      if (continueClick?.ok) {
+        console.log(`[${task.email}] 🪪 Đã bấm Continue trên prompt đăng nhập web: ${JSON.stringify(continueClick).slice(0, 200)}`);
+        debugChatgptLogin(task, `continue-click-${step + 1}`, continueClick);
+        await new Promise(r => setTimeout(r, 2500));
+        await saveStep(tabId, `chatgpt_continue_prompt_${step + 1}`);
+        debugChatgptLogin(task, `dialogs-after-continue-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
+      } else {
+        console.log(`[${task.email}] ℹ️ Không có nút Continue phù hợp: ${continueClick?.reason || continueClick?.error || 'no-op'}`);
+      }
+    }
+
+    state = await inspectChatgptWebState(tabId, userId);
+    console.log(`[${task.email}] 🌐 ChatGPT web state(step ${step + 1}): ${JSON.stringify(state).slice(0, 800)}`);
+    debugChatgptLogin(task, `state-step-${step + 1}`, state);
+  }
+
+  const authProbe = await tryFetchInPage(tabId, userId, 'https://chatgpt.com/api/auth/session');
+  console.log(`[${task.email}] 🌐 ChatGPT auth/session after web login flow: ${JSON.stringify(authProbe).slice(0, 800)}`);
+
+  return { state, authProbe };
+}
+
+async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
+  console.log(`[${task.email}] 🧭 Bắt đầu bootstrap workspace session...`);
+
+  const before = await captureWorkspaceDebugState(tabId, userId);
+  console.log(`[${task.email}] 🧪 Workspace debug(before): ${JSON.stringify(before).slice(0, 1200)}`);
+
+  const directWorkspaceSelection = await trySelectWorkspaceAndOrganization({
+    task,
+    userId,
+    tabId,
+    saveStep,
+  });
+  console.log(`[${task.email}] 🧩 Direct workspace selection: ${JSON.stringify(directWorkspaceSelection).slice(0, 1200)}`);
+
+  if (directWorkspaceSelection?.ok) {
+    try {
+      await camofoxGoto(tabId, {
+        userId,
+        url: CODEX_CONSENT_URL,
+        waitUntil: 'domcontentloaded',
+        timeout: 12000,
+      }, { timeoutMs: 15000 });
+      await new Promise(r => setTimeout(r, 2500));
+      await saveStep(tabId, 'workspace_selected_back_to_consent');
+    } catch (err) {
+      console.log(`[${task.email}] ⚠️ Quay lại consent sau workspace/select lỗi: ${err.message}`);
+    }
+  }
+
+  const authSessionProbe = await tryFetchInPage(tabId, userId, 'https://chatgpt.com/api/auth/session');
+  console.log(`[${task.email}] 🌐 auth/session probe: ${JSON.stringify(authSessionProbe).slice(0, 800)}`);
+
+  const webLoginState = await tryEstablishChatgptLoginSession({
+    task,
+    userId,
+    tabId,
+    saveStep,
+  });
+
+  try {
+    await camofoxGoto(tabId, {
+      userId,
+      url: 'https://chatgpt.com/',
+      waitUntil: 'domcontentloaded',
+      timeout: 12000,
+    }, { timeoutMs: 15000 });
+    await new Promise(r => setTimeout(r, 2500));
+    await saveStep(tabId, 'workspace_bootstrap_home');
+  } catch (err) {
+    console.log(`[${task.email}] ⚠️ Không mở được chatgpt.com để bootstrap: ${err.message}`);
+  }
+
+  const afterHomeProbe = await tryFetchInPage(tabId, userId, 'https://chatgpt.com/api/auth/session');
+  console.log(`[${task.email}] 🌐 auth/session sau khi mở home: ${JSON.stringify(afterHomeProbe).slice(0, 800)}`);
+
+  try {
+    const retryEval = await evalJson(tabId, userId, `
+      (() => {
+        const textOf = (el) => (el?.innerText || el?.textContent || '').toLowerCase().trim();
+        const candidates = Array.from(document.querySelectorAll('button, a, input[type="submit"]'));
+        const retryBtn = candidates.find((el) => textOf(el).includes('try again'));
+        if (retryBtn) {
+          retryBtn.click();
+          return { action: 'clicked-try-again' };
+        }
+        return { action: 'no-retry-button' };
+      })()
+    `, 3000);
+    console.log(`[${task.email}] 🔁 Try-again action: ${JSON.stringify(retryEval)}`);
+  } catch (err) {
+    console.log(`[${task.email}] ⚠️ Try-again eval lỗi: ${err.message}`);
+  }
+
+  const freshAuthUrl = getFreshAuthBootstrapUrl(task);
+  try {
+    await camofoxGoto(tabId, {
+      userId,
+      url: freshAuthUrl,
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    }, { timeoutMs: 18000 });
+    await new Promise(r => setTimeout(r, 2500));
+    await saveStep(tabId, freshAuthUrl === CODEX_CONSENT_URL ? 'workspace_bootstrap_back_to_consent' : 'workspace_bootstrap_fresh_authorize');
+    console.log(`[${task.email}] 🔁 Đã khởi động lại auth flow bằng URL mới: ${freshAuthUrl}`);
+  } catch (err) {
+    console.log(`[${task.email}] ⚠️ Khởi động lại auth flow sau bootstrap lỗi: ${err.message}`);
+  }
+
+  const after = await captureWorkspaceDebugState(tabId, userId);
+  console.log(`[${task.email}] 🧪 Workspace debug(after): ${JSON.stringify(after).slice(0, 1200)}`);
+
+  return { before, after, authSessionProbe, afterHomeProbe, webLoginState, directWorkspaceSelection };
+}
+
+async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, proxyUrl, saveStep }) {
+  console.log(`[${task.email}] 📵 Gặp add_phone → thử mở lại luồng consent trong cùng session...`);
+  await saveStep(tabId, 'gap_add_phone');
+
+  let bypassTabId = tabId;
+  let openedExtraTab = false;
+  try {
+    try {
+      let cookieSnap;
+      try {
+        cookieSnap = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 4000 });
+      } catch (_) {
+        cookieSnap = await camofoxGet(`/sessions/${userId}/cookies`, { timeoutMs: 4000 });
+      }
+      const cookieCount = Array.isArray(cookieSnap?.cookies) ? cookieSnap.cookies.length : Array.isArray(cookieSnap) ? cookieSnap.length : 0;
+      console.log(`[${task.email}] 🍪 Session hiện tại có ${cookieCount} cookie trước khi thử bypass.`);
+    } catch (err) {
+      console.log(`[${task.email}] ⚠️ Không đọc được cookies trước bypass: ${err.message}`);
+    }
+
+    try {
+      const gotoRes = await camofoxGoto(bypassTabId, {
+        userId,
+        url: CODEX_CONSENT_URL,
+        waitUntil: 'domcontentloaded',
+        timeout: 12000,
+      }, { timeoutMs: 15000 });
+      console.log(`[${task.email}] ↪️ Đã goto trực tiếp sang consent trên tab hiện tại: ${gotoRes.finalUrl || CODEX_CONSENT_URL}`);
+    } catch (gotoErr) {
+      console.log(`[${task.email}] ⚠️ Goto trên tab hiện tại thất bại, mở tab consent mới: ${gotoErr.message}`);
+      const opened = await camofoxPost('/tabs', {
+        userId,
+        sessionKey,
+        url: CODEX_CONSENT_URL,
+        proxy: proxyUrl || undefined,
+        persistent: false,
+        os: 'macos',
+        screen: { width: 1440, height: 900 },
+        humanize: true,
+        headless: false,
+        randomFonts: true,
+        canvas: 'random',
+      }, { timeoutMs: 15000 });
+      bypassTabId = opened.tabId;
+      openedExtraTab = true;
+      console.log(`[${task.email}] ↪️ Đã mở tab consent mới: ${bypassTabId}`);
+    }
+
+    await new Promise(r => setTimeout(r, 3000));
+    await saveStep(bypassTabId, 'thu_consent_bypass');
+
+    for (let i = 0; i < 20; i++) {
+      const snap = await camofoxGet(`/tabs/${bypassTabId}/snapshot?userId=${userId}`);
+      const currentUrl = snap.url || '';
+      const snapshot = snap.snapshot || '';
+
+      if (CHATGPT_LOGIN_DEBUG) {
+        console.log(`[${task.email}] 🧭 bypass-loop #${i + 1}: ${currentUrl}`);
+      }
+
+      if (currentUrl.includes('localhost:1455') || currentUrl.includes('code=')) {
+        console.log(`[${task.email}] ✅ Bypass add_phone thành công, đã nhận redirect.`);
+        await saveStep(bypassTabId, 'bypass_thanh_cong');
+        return currentUrl;
+      }
+
+      if (isWorkspaceSessionError(currentUrl, snapshot)) {
+        const workspaceState = await tryBootstrapWorkspaceSession({
+          task,
+          userId,
+          tabId: bypassTabId,
+          saveStep,
+        });
+        console.log(`[${task.email}] 🧩 Workspace bootstrap result: ${JSON.stringify(workspaceState).slice(0, 1200)}`);
+
+        const afterBootstrap = await camofoxGet(`/tabs/${bypassTabId}/snapshot?userId=${userId}`, { timeoutMs: 6000 });
+        const afterBootstrapUrl = afterBootstrap.url || '';
+        const afterBootstrapText = afterBootstrap.snapshot || '';
+
+        if (afterBootstrapUrl.includes('localhost:1455') || afterBootstrapUrl.includes('code=')) {
+          console.log(`[${task.email}] ✅ Bootstrap workspace thành công, đã nhận redirect.`);
+          await saveStep(bypassTabId, 'workspace_bootstrap_success');
+          return afterBootstrapUrl;
+        }
+
+        if (isConsentScreen(afterBootstrapUrl, afterBootstrapText)) {
+          console.log(`[${task.email}] 🔓 Sau bootstrap đã quay lại consent, tiếp tục vòng authorize.`);
+        } else if (normalizePageText(afterBootstrapText).includes('workspaces not found in client auth session')) {
+          console.log(`[${task.email}] ⚠️ Sau bootstrap vẫn thiếu workspace trong auth session.`);
+        }
+      }
+
+      if (isPhoneVerificationScreen(currentUrl, snapshot)) {
+        console.log(`[${task.email}] 📵 Bypass auth quay lại màn phone verification (hard gate).`);
+        return null;
+      }
+
+      if (isAuthLoginLikeScreen(currentUrl, snapshot)) {
+        const filledLogin = await tryFillChatgptLoginForm(bypassTabId, userId, task);
+        if (filledLogin?.ok) {
+          console.log(`[${task.email}] 🔐 Bypass auth: đã điền ${filledLogin.stage} trên auth page.`);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        if (filledLogin?.reason && filledLogin.reason !== 'no-form-fields') {
+          console.log(`[${task.email}] ℹ️ Bypass auth login-form: ${filledLogin.reason}`);
+        }
+
+        const filledMfa = await tryFillChatgptMfaForm(bypassTabId, userId, task);
+        if (filledMfa?.ok) {
+          console.log(`[${task.email}] 🔢 Bypass auth: đã điền MFA trên auth page.`);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+
+        if (filledMfa?.reason) {
+          console.log(`[${task.email}] ℹ️ Bypass auth mfa-form: ${filledMfa.reason}`);
+        }
+
+        if (filledLogin?.reason === 'no-form-fields' && filledMfa?.reason === 'no-totp-secret') {
+          console.log(`[${task.email}] ⚠️ Bypass auth không có TOTP secret trong task, không thể vượt MFA ở vòng bypass.`);
+        }
+      }
+
+      if (isConsentScreen(currentUrl, snapshot)) {
+        console.log(`[${task.email}] 🔓 Tab bypass đang ở consent/authorize → thử bấm Allow/Continue.`);
+        const consentClick = await clickBestMatchingAction(bypassTabId, userId, {
+          exactTexts: ['authorize', 'allow', 'continue', 'tiếp tục'],
+          excludeTexts: ['close', 'đóng'],
+          timeoutMs: 4000,
+        });
+        if (!consentClick?.ok) {
+          console.log(`[${task.email}] ℹ️ Không có nút consent phù hợp: ${consentClick?.reason || consentClick?.error || 'no-op'}`);
+        } else {
+          console.log(`[${task.email}] ✅ Đã bấm consent button: ${JSON.stringify(consentClick).slice(0, 200)}`);
+        }
+
+        try {
+          const evalRes = await camofoxEval(
+            bypassTabId,
+            userId,
+            `
+              (() => {
+                const textOf = (el) => (el?.innerText || el?.textContent || '').toLowerCase().trim();
+                const isVisible = (el) => {
+                  if (!el) return false;
+                  const style = window.getComputedStyle(el);
+                  const rect = el.getBoundingClientRect();
+                  return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+                };
+
+                const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], [role="button"], a'));
+                const target = candidates.find((el) => {
+                  const txt = textOf(el);
+                  return isVisible(el) && (
+                    txt.includes('authorize') ||
+                    txt.includes('allow') ||
+                    txt.includes('continue')
+                  );
+                });
+
+                if (target) {
+                  target.click();
+                  return { action: 'clicked-target', text: textOf(target) };
+                }
+
+                const form = document.querySelector('form');
+                if (form && typeof form.requestSubmit === 'function') {
+                  form.requestSubmit();
+                  return { action: 'submitted-form' };
+                }
+
+                return { action: 'no-op', url: location.href };
+              })()
+            `,
+            { timeoutMs: 3000 },
+          );
+          console.log(`[${task.email}] 🧠 Eval consent fallback: ${JSON.stringify(evalRes.result || evalRes).slice(0, 160)}`);
+        } catch (evalErr) {
+          console.log(`[${task.email}] ⚠️ Eval consent fallback lỗi: ${evalErr.message}`);
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    console.log(`[${task.email}] ⚠️ Bypass add_phone không ra được redirect/code.`);
+    return null;
+  } catch (err) {
+    console.log(`[${task.email}] ⚠️ Bypass add_phone lỗi: ${err.message}`);
+    return null;
+  } finally {
+    if (openedExtraTab && bypassTabId) {
+      try {
+        await camofoxDelete(`/tabs/${bypassTabId}?userId=${userId}`);
+      } catch (_) {}
+    }
+  }
 }
 
 // ============================================
@@ -116,6 +1129,7 @@ async function runLoginFlow(task) {
   console.log(`[${new Date().toLocaleTimeString()}] [1] Khởi tạo trình duyệt Camofox...`);
   const account = task;
   const USER_ID = `seellm_worker_${task.id}`;
+  const SESSION_KEY = `codex_${task.id}`;
   let tabId;
 
   console.log(`\n===========================================`);
@@ -152,7 +1166,7 @@ async function runLoginFlow(task) {
     console.log(`[1] Mở URL: ${loginUrl}`);
     const { tabId: tid, userAgent: browserUA } = await camofoxPost('/tabs', {
       userId: USER_ID,
-      sessionKey: `codex_${task.id}`,
+      sessionKey: SESSION_KEY,
       url: loginUrl,
       proxy: account.proxyUrl || account.proxy || undefined,
       // --- CẤU HÌNH ẨN DANH NÂNG CAO & SẠCH TUYỆT ĐỐI ---
@@ -242,6 +1256,7 @@ async function runLoginFlow(task) {
     // ✅ 2FA/MFA (Xác thực hai bước): Sinh mã TOTP từ secret → Nhập vào ô → Bình thường
     // ❌ Phone Verification (Xác minh SĐT): OpenAI yêu cầu gắn số điện thoại → THẤT BẠI ngay
     // ─────────────────────────────────────────────────────────
+    let redirectUrl = null;
     let isAtMFA = false;
     for (let j = 0; j < 5; j++) {
       const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
@@ -255,7 +1270,16 @@ async function runLoginFlow(task) {
                             cleanMfaText.includes('verify your phone') ||
                             snap2Url.includes('/phone');
       if (isPhoneScreen) {
-        console.log(`[${task.email}] 📵 Phát hiện xác minh SĐT (trước 2FA) → Báo THẤT BẠI ngay!`);
+        redirectUrl = await tryBypassPhoneRequirement({
+          task,
+          userId: USER_ID,
+          tabId,
+          sessionKey: SESSION_KEY,
+          proxyUrl: account.proxyUrl || account.proxy || undefined,
+          saveStep,
+        });
+        if (redirectUrl) break;
+        console.log(`[${task.email}] 📵 Bypass add_phone thất bại (trước 2FA) → báo lỗi như cũ.`);
         await saveStep(tabId, 'yeu_cau_so_dien_thoai');
         await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
         return;
@@ -271,7 +1295,7 @@ async function runLoginFlow(task) {
       await new Promise(r => setTimeout(r, 2000));
     }
 
-    if (isAtMFA) {
+    if (!redirectUrl && isAtMFA) {
       console.log(`[${task.email}] 🛡️ Đang ở màn hình 2FA/MFA...`);
 
       // ❌ Hàm kiểm tra màn hình xác minh SĐT ngay sau mỗi lần nhập OTP 2FA
@@ -287,7 +1311,18 @@ async function runLoginFlow(task) {
                         t.includes('enter your phone') ||
                         u.includes('/phone');
         if (isPhone) {
-          console.log(`[${task.email}] 📵 [${label}] Xác minh SĐT sau 2FA → Tài khoản THẤT BẠI!`);
+          const bypassUrl = await tryBypassPhoneRequirement({
+            task,
+            userId: USER_ID,
+            tabId,
+            sessionKey: SESSION_KEY,
+            proxyUrl: account.proxyUrl || account.proxy || undefined,
+            saveStep,
+          });
+          if (bypassUrl) {
+            return { ...s, url: bypassUrl, bypassedPhone: true };
+          }
+          console.log(`[${task.email}] 📵 [${label}] Xác minh SĐT sau 2FA → bypass thất bại.`);
           await saveStep(tabId, 'yeu_cau_so_dien_thoai');
           // Throw để nhảy vào catch block → sendResultToGateway('error', 'NEED_PHONE')
           throw new Error('NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
@@ -302,8 +1337,8 @@ async function runLoginFlow(task) {
         try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(e) {}
 
         // Sinh OTP MỚI ngay lúc này để đảm bảo còn thời hạn (TOTP hết hạn sau 30s)
-        const otp = getTOTP(account.twoFaSecret);
-        console.log(`[${task.email}] 🔢 Nhập OTP: ${otp} (còn ${30 - (Math.floor(Date.now()/1000) % 30)}s)`);
+        const { otp, remaining } = await getFreshTOTP(account.twoFaSecret, 5);
+        console.log(`[${task.email}] 🔢 Nhập OTP: ${otp} (còn ${remaining}s)`);
 
         await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
         await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
@@ -311,29 +1346,55 @@ async function runLoginFlow(task) {
 
         // ✅ Kiểm tra SĐT ngay sau OTP lần 1
         const afterMFASnap = await checkPhoneScreenAfterOTP('Sau OTP lần 1');
+        if (afterMFASnap?.bypassedPhone && afterMFASnap?.url) {
+          redirectUrl = afterMFASnap.url;
+        }
         const afterMFAText = (afterMFASnap.snapshot || '').toLowerCase();
         const afterMFAUrl  = (afterMFASnap.url || '').toLowerCase();
         const stillAtMFA   = afterMFAText.includes('one-time code') || afterMFAText.includes('authenticator') ||
                              afterMFAText.includes('enter the code') || afterMFAUrl.includes('mfa');
 
         if (stillAtMFA) {
-          const secsRemaining = 30 - (Math.floor(Date.now()/1000) % 30);
-          console.log(`[${task.email}] ⚠️ OTP bị từ chối, chờ ${secsRemaining}s cho chu kỳ mới...`);
-          await new Promise(r => setTimeout(r, (secsRemaining + 2) * 1000));
-
-          const otp2 = getTOTP(account.twoFaSecret);
-          console.log(`[${task.email}] 🔄 Retry OTP: ${otp2}`);
+          const { otp: otpFast, remaining: remainingFast } = await getFreshTOTP(account.twoFaSecret, 0);
+          console.log(`[${task.email}] 🔄 Retry nhanh OTP: ${otpFast} (còn ${remainingFast}s)`);
           try {
             await camofoxPost(`/tabs/${tabId}/triple-click`, { userId: USER_ID, selector: mfaSelector });
           } catch(e) {
             try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(_) {}
           }
-          await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
+          await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otpFast });
           await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
-          await new Promise(r => setTimeout(r, 6000));
+          await new Promise(r => setTimeout(r, 3500));
+
+          const fastRetrySnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+          const fastRetryText = (fastRetrySnap.snapshot || '').toLowerCase();
+          const fastRetryUrl = (fastRetrySnap.url || '').toLowerCase();
+          const stillAtMFAAfterFast = fastRetryText.includes('one-time code') || fastRetryText.includes('authenticator') ||
+            fastRetryText.includes('enter the code') || fastRetryUrl.includes('mfa');
+
+          if (stillAtMFAAfterFast) {
+            const secsRemaining = 30 - (Math.floor(Date.now()/1000) % 30);
+            const waitSecs = Math.max(2, secsRemaining - 2);
+            console.log(`[${task.email}] ⚠️ OTP vẫn bị từ chối, chờ ${waitSecs}s để lấy mã chu kỳ mới...`);
+            await new Promise(r => setTimeout(r, waitSecs * 1000));
+
+            const { otp: otp2, remaining: remaining2 } = await getFreshTOTP(account.twoFaSecret, 2);
+            console.log(`[${task.email}] 🔄 Retry OTP chu kỳ mới: ${otp2} (còn ${remaining2}s)`);
+            try {
+              await camofoxPost(`/tabs/${tabId}/triple-click`, { userId: USER_ID, selector: mfaSelector });
+            } catch(e) {
+              try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(_) {}
+            }
+            await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
+            await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+            await new Promise(r => setTimeout(r, 4500));
+          }
 
           // ✅ Kiểm tra SĐT ngay sau OTP retry
-          await checkPhoneScreenAfterOTP('Sau OTP retry');
+          const retrySnap = await checkPhoneScreenAfterOTP('Sau OTP retry');
+          if (retrySnap?.bypassedPhone && retrySnap?.url) {
+            redirectUrl = retrySnap.url;
+          }
         }
       }
       await saveStep(tabId, 'sau_2fa');
@@ -341,8 +1402,7 @@ async function runLoginFlow(task) {
 
     // 5. Đợi redirect về trang Consent hoặc Success
     console.log(`[${task.email}] Đang theo dõi redirect về localhost hoặc mã Code...`);
-    let redirectUrl = null;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 20 && !redirectUrl; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
       const curUrl = checkSnap.url || '';
@@ -356,7 +1416,16 @@ async function runLoginFlow(task) {
         (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
         (curUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')))
       ) {
-        console.log(`[${task.email}] 📵 Phát hiện màn hình yêu cầu SĐT → Báo thất bại ngay`);
+        redirectUrl = await tryBypassPhoneRequirement({
+          task,
+          userId: USER_ID,
+          tabId,
+          sessionKey: SESSION_KEY,
+          proxyUrl: account.proxyUrl || account.proxy || undefined,
+          saveStep,
+        });
+        if (redirectUrl) break;
+        console.log(`[${task.email}] 📵 Phát hiện màn hình yêu cầu SĐT → bypass không qua, báo thất bại.`);
         await saveStep(tabId, 'yeu_cau_so_dien_thoai');
         await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
         return; // Thoát sớm, không chờ timeout

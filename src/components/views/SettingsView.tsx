@@ -6,7 +6,7 @@ import { Spinner } from '../Views';
 export function SettingsView() {
   const { config, saveConfig } = useApp();
   const [f, setF] = useState<AppConfig>({
-    camofoxPath: '', camofoxPort: 3000,
+    camofoxPath: '', camofoxNodePath: '/usr/local/bin/node', camofoxPort: 3000,
     camofoxApi: 'http://localhost:9377',
     gatewayUrl: 'http://localhost:20128',
     workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
@@ -41,6 +41,11 @@ export function SettingsView() {
           <input className="inp mono" value={f.camofoxPath}
             onChange={e => set('camofoxPath', e.target.value)}
             placeholder="/Users/.../camofox-browser" />
+        </Field>
+        <Field label="Node chạy Camofox" hint="Đặt cố định Node tương thích để tránh lệch ABI native module" full>
+          <input className="inp mono" value={f.camofoxNodePath || ''}
+            onChange={e => set('camofoxNodePath', e.target.value)}
+            placeholder="/usr/local/bin/node" />
         </Field>
         <Field label="Port chạy Camofox" hint="Mặc định: 3000 (hoặc 3005 nếu bị xung đột)">
           <input className="inp" type="number" value={f.camofoxPort}

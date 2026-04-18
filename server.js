@@ -43,6 +43,11 @@ const LOGS_DIR = path.join(DATA_DIR, 'logs');
 const processes = {};
 let io = null;
 
+function logServerEvent(label, extra = '') {
+  const suffix = extra ? ` ${extra}` : '';
+  console.log(`[Server] ${label}${suffix}`);
+}
+
 function makeLogPath(id, name) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const safe = name.replace(/[^\w]/g, '_').slice(0, 40);
@@ -103,6 +108,13 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
   processes[id] = entry;
   io?.emit('process:status', { id, status: 'running', name, pid: proc.pid });
   return { pid: proc.pid };
+}
+
+function resolveCamofoxNodeCommand(cfg) {
+  const configured = String(cfg?.camofoxNodePath || '').trim();
+  if (configured && existsSync(configured)) return configured;
+  if (existsSync('/usr/local/bin/node')) return '/usr/local/bin/node';
+  return 'node';
 }
 
 function stopProcess(id) {
@@ -224,11 +236,12 @@ app.prepare().then(() => {
 
   ex.post('/api/processes/camofox/start', (req, res) => {
     const cfg = loadConfig();
+    const camofoxNode = resolveCamofoxNodeCommand(cfg);
     const r = spawnProcess('camofox', '🦊 Camofox Browser Server',
-      'node', ['server.js'], cfg.camofoxPath,
+      camofoxNode, ['server.js'], cfg.camofoxPath,
       { CAMOFOX_PORT: String(cfg.camofoxPort) });
     if (r.error) return res.status(400).json(r);
-    res.json({ ok: true, ...r });
+    res.json({ ok: true, command: camofoxNode, ...r });
   });
 
   ex.post('/api/processes/worker/start', (req, res) => {
@@ -1137,13 +1150,19 @@ app.prepare().then(() => {
 
   io = new SocketIO(httpServer, { cors: { origin: '*' }, path: '/socket.io' });
   io.on('connection', socket => {
-    console.log('[Socket] Client:', socket.id);
+    const transport = socket.conn?.transport?.name || 'unknown';
+    console.log('[Socket] Client:', socket.id, `transport=${transport}`);
     socket.emit('processes:sync', Object.keys(processes).map(id => safeProc(id)));
     socket.on('process:getLogs', ({ id }) => {
       const e = processes[id];
       if (e) socket.emit('process:logsHistory', { id, logs: e.logs });
     });
-    socket.on('disconnect', () => console.log('[Socket] Disconnected:', socket.id));
+    socket.on('disconnect', (reason) => console.log('[Socket] Disconnected:', socket.id, `reason=${reason}`));
+    socket.conn.on('upgrade', () => {
+      const upgraded = socket.conn?.transport?.name || 'unknown';
+      console.log('[Socket] Upgraded:', socket.id, `transport=${upgraded}`);
+    });
+    socket.on('error', (err) => console.log('[Socket] Error:', socket.id, err?.message || String(err)));
   });
 
   // Watch screenshot directory for realtime updates
@@ -1160,4 +1179,37 @@ app.prepare().then(() => {
 ╚══════════════════════════════════════════════╝
 `);
   });
+});
+
+let shuttingDown = false;
+function handleTerminationSignal(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logServerEvent(`${signal} received`);
+  process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  handleTerminationSignal('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  handleTerminationSignal('SIGTERM');
+});
+
+process.on('beforeExit', (code) => {
+  logServerEvent('beforeExit', `code=${code}`);
+});
+
+process.on('exit', (code) => {
+  logServerEvent('exit', `code=${code}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? `${reason.message}\n${reason.stack || ''}` : String(reason);
+  console.error('[Server] unhandledRejection:', msg);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Server] uncaughtException:', err?.stack || err?.message || String(err));
 });

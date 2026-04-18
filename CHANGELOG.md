@@ -1,6 +1,6 @@
 # Changelog - SeeLLM Tools
 
-## [Unreleased] - 2026-04-14
+## [0.1.14] - 2026-04-14
 
 ### Changed
 - **Codex metadata persistence for Gateway compatibility**:
@@ -20,7 +20,7 @@
 - **Manual fix script sync contract**:
   - `scripts/fix_and_sync.mjs` now forwards `workspace_id` and `provider_specific_data` in connection payload when present.
 
-## [Unreleased] - 2026-04-12
+## [0.1.13] - 2026-04-12
 
 ### Added
 - **Screenshots & Log Files management controls**:
@@ -45,7 +45,7 @@
 - **Delete error diagnostics**:
   - Improved UI delete toasts to show API error detail/HTTP status when delete fails.
 
-## [Unreleased] - 2026-04-11
+## [0.1.12] - 2026-04-11
 
 ### Changed
 - **Managed Accounts status labels parity with Gateway (`#accounts`)**:
@@ -140,7 +140,7 @@
 - **Smart Sync request contract**:
   - `POST /api/sync/trigger` from Tools now uses secret-auth headers instead of anonymous JSON-only POST calls.
 
-## [Unreleased] - 2026-04-10
+## [0.1.11] - 2026-04-10
 
 ### Added
 - **Smart Sync Trigger**: Implemented a local webhook trigger system. When toggling an account's status in Tools, it now sends an immediate notification to the Gateway over the local network to trigger an on-demand pull, reducing sync latency to near-zero.
@@ -149,7 +149,7 @@
 - **Direct D1 Sync**: Switched the account toggle mechanism to use a direct Worker PATCH endpoint instead of the standard synchronization pipeline. This bypasses version-based conflict checks on Cloudflare D1, ensuring status changes are always applied immediately.
 - **Sync Resilience**: Improved error handling and fallback logic in the D1 Proxy and SyncManager services.
 
-## [Unreleased] - 2026-04-09
+## [0.1.10] - 2026-04-09
 
 
 ### Added

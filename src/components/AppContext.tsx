@@ -17,7 +17,7 @@ export interface ProcessInfo {
 }
 
 export interface AppConfig {
-  camofoxPath: string; camofoxPort: number; camofoxApi: string;
+  camofoxPath: string; camofoxNodePath?: string; camofoxPort: number; camofoxApi: string;
   gatewayUrl: string; workerAuthToken: string;
   pollIntervalMs: number; maxThreads: number;
 }
