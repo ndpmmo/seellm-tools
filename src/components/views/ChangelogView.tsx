@@ -40,6 +40,7 @@ export function ChangelogView() {
   let currentVersion: any = null;
 
   lines.forEach(line => {
+    const trimmed = line.trim();
     if (line.startsWith('## [')) {
       if (currentVersion) versions.push(currentVersion);
       const match = line.match(/\[(.*?)\] - (.*)/);
@@ -50,9 +51,16 @@ export function ChangelogView() {
       };
     } else if (line.startsWith('### ')) {
       currentVersion?.sections.push({ title: line.replace('### ', ''), items: [] });
-    } else if (line.startsWith('- ')) {
+    } else if (trimmed.startsWith('- ')) {
       const section = currentVersion?.sections[currentVersion.sections.length - 1];
-      if (section) section.items.push(line.replace('- ', ''));
+      if (section) {
+        // Detect indentation to mark as sub-item
+        const isSubItem = line.startsWith('  ') || line.startsWith('    ') || line.startsWith('\t');
+        section.items.push({ 
+          text: trimmed.replace('- ', ''), 
+          isSubItem 
+        });
+      }
     }
   });
   if (currentVersion) versions.push(currentVersion);
@@ -110,12 +118,35 @@ export function ChangelogView() {
                           {s.title}
                         </div>
                         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {s.items.map((item: string, ii: number) => (
-                            <li key={ii} style={{ fontSize: '14px', color: 'var(--text-2)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--indigo-2)', marginTop: '8px', flexShrink: 0, opacity: 0.6 }} />
-                              <span dangerouslySetInnerHTML={{ __html: item.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
-                            </li>
-                          ))}
+                          {s.items.map((item: any, ii: number) => {
+                            const isSub = typeof item === 'object' ? item.isSubItem : false;
+                            const text = typeof item === 'object' ? item.text : item;
+                            
+                            return (
+                              <li key={ii} style={{ 
+                                fontSize: isSub ? '13px' : '14px', 
+                                color: isSub ? 'var(--text-3)' : 'var(--text-2)', 
+                                display: 'flex', 
+                                alignItems: 'flex-start', 
+                                gap: 10,
+                                marginLeft: isSub ? '20px' : '0',
+                                opacity: isSub ? 0.9 : 1
+                              }}>
+                                <div style={{ 
+                                  width: isSub ? '4px' : '6px', 
+                                  height: isSub ? '4px' : '6px', 
+                                  borderRadius: '50%', 
+                                  background: isSub ? 'var(--text-4)' : 'var(--indigo-2)', 
+                                  marginTop: isSub ? '7px' : '8px', 
+                                  flexShrink: 0, 
+                                  opacity: 0.6 
+                                }} />
+                                <span dangerouslySetInnerHTML={{ 
+                                  __html: text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                                }} />
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     ))}

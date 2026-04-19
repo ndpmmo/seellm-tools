@@ -253,6 +253,13 @@ app.prepare().then(() => {
     res.json({ ok: true, ...r });
   });
 
+  ex.post('/api/processes/connect-worker/start', (req, res) => {
+    const r = spawnProcess('connect-worker', '🔌 Auto-Connect Worker',
+      'node', [path.join(SCRIPTS_DIR, 'auto-connect-worker.js')], __dirname, {});
+    if (r.error) return res.status(400).json(r);
+    res.json({ ok: true, ...r });
+  });
+
   ex.post('/api/processes/script/run', (req, res) => {
     const { scriptName, args: extraArgs = [] } = req.body;
     if (!scriptName) return res.status(400).json({ error: 'scriptName required' });
@@ -558,7 +565,7 @@ app.prepare().then(() => {
     const res = await fetch(targetUrl, fetchOpts);
     const text = await res.text();
     let data = null;
-    try { data = JSON.parse(text); } catch (_) {}
+    try { data = JSON.parse(text); } catch (_) { }
     return { ok: res.ok, status: res.status, data, text, targetUrl };
   }
 

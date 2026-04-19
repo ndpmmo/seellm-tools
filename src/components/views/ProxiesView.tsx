@@ -6,6 +6,7 @@ import {
   AlertCircle, Edit2, Save
 } from 'lucide-react';
 import { useApp } from '../AppContext';
+import { ConfirmModal, Spinner } from '../Views';
 
 // ── Types ────────────────────────────────────────────────
 interface ProxyItem {
@@ -69,6 +70,7 @@ export function ProxiesView() {
   const [error, setError]     = useState<string | null>(null);
 
   const [search, setSearch]   = useState('');
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 
   // Add single
   const [newUrl, setNewUrl]     = useState('');
@@ -125,10 +127,16 @@ export function ProxiesView() {
   };
 
   const deleteProxy = async (id: string) => {
-    if (!confirm('Xóa proxy này? Các slot cũng sẽ bị xóa.')) return;
-    await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
-    addToast('Đã xoá proxy', 'info');
-    loadData();
+    setConfirmModal({
+      title: 'Xóa Proxy',
+      message: 'Bạn có chắc muốn xóa proxy này? Tất cả các slot liên quan cũng sẽ bị xóa.',
+      onConfirm: async () => {
+        await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
+        addToast('Đã xoá proxy', 'info');
+        loadData();
+        setConfirmModal(null);
+      }
+    });
   };
 
   const saveEdit = async () => {
@@ -154,19 +162,27 @@ export function ProxiesView() {
   };
 
   const removeSlot = async (slotId: string, isBusy: boolean) => {
-    if (isBusy) {
-      if (!confirm('Slot này ĐANG ĐƯỢC DÙNG. Ngắt kết nối và xoá?')) return;
-    } else {
-      if (!confirm('Xoá slot trống này?')) return;
-    }
-    const r = await fetch(`/api/d1/slots/${slotId}`, { method: 'DELETE' });
-    if (r.ok) { addToast('Đã xoá slot', 'info'); loadData(); }
+    setConfirmModal({
+      title: 'Xóa Slot',
+      message: isBusy ? 'Slot này ĐANG ĐƯỢC DÙNG. Ngắt kết nối và xoá?' : 'Bạn có chắc muốn xoá slot trống này?',
+      onConfirm: async () => {
+        const r = await fetch(`/api/d1/slots/${slotId}`, { method: 'DELETE' });
+        if (r.ok) { addToast('Đã xoá slot', 'info'); loadData(); }
+        setConfirmModal(null);
+      }
+    });
   };
 
   const resetSlot = async (slotId: string) => {
-    if (!confirm('Giải phóng slot (ngắt kết nối)?')) return;
-    const r = await fetch(`/api/d1/slots/${slotId}/reset`, { method: 'POST' });
-    if (r.ok) { addToast('Đã giải phóng slot', 'success'); loadData(); }
+    setConfirmModal({
+      title: 'Giải phóng Slot',
+      message: 'Bạn có chắc muốn giải phóng slot này (ngắt kết nối)?',
+      onConfirm: async () => {
+        const r = await fetch(`/api/d1/slots/${slotId}/reset`, { method: 'POST' });
+        if (r.ok) { addToast('Đã giải phóng slot', 'success'); loadData(); }
+        setConfirmModal(null);
+      }
+    });
   };
 
   // ── Bulk import ──
@@ -352,6 +368,16 @@ export function ProxiesView() {
           </div>
         </div>
       </div>
+
+      {confirmModal && (
+        <ConfirmModal 
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+          isLoading={loading}
+        />
+      )}
     </div>
   );
 }

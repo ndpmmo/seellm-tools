@@ -1,8 +1,8 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Plus, Search, RefreshCw, Pencil, Trash2, Save, X, 
-  AlertCircle, ChevronDown, ChevronUp, Users, Tag, 
+  Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
+  AlertCircle, ChevronDown, ChevronUp, Users, Tag,
   Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
@@ -20,12 +20,12 @@ function StatusBadge({ status, notes }: { status: string; notes?: string }) {
     );
   }
   const m: Record<string, { color: string; bg: string; label: string }> = {
-    ready:      { color: 'var(--green)',   bg: 'var(--green-dim)',  label: 'Ready' },
-    idle:       { color: 'var(--text-3)', bg: 'var(--glass)',      label: 'Idle' },
-    error:      { color: 'var(--rose)',   bg: 'var(--rose-dim)',   label: 'Error' },
-    pending:    { color: '#f59e0b',       bg: '#f59e0b20',         label: 'Pending' },
-    processing: { color: '#6366f1',       bg: '#6366f120',         label: 'Processing' },
-    relogin:    { color: '#a855f7',       bg: '#a855f720',         label: 'Re-login' },
+    ready: { color: 'var(--green)', bg: 'var(--green-dim)', label: 'Ready' },
+    idle: { color: 'var(--text-3)', bg: 'var(--glass)', label: 'Idle' },
+    error: { color: 'var(--rose)', bg: 'var(--rose-dim)', label: 'Error' },
+    pending: { color: '#f59e0b', bg: '#f59e0b20', label: 'Pending' },
+    processing: { color: '#6366f1', bg: '#6366f120', label: 'Processing' },
+    relogin: { color: '#a855f7', bg: '#a855f720', label: 'Re-login' },
   };
   const s = m[status] || { color: 'var(--text-3)', bg: 'var(--glass)', label: status.toUpperCase() };
   const isPulsing = status === 'pending' || status === 'processing';
@@ -40,14 +40,14 @@ function StatusBadge({ status, notes }: { status: string; notes?: string }) {
 function PlanBadge({ plan }: { plan?: string }) {
   if (!plan) return null;
   const p = plan.toLowerCase();
-  
+
   let styles = { bg: '#f3f4f6', color: '#6b7280', label: 'Free' };
-  
+
   if (p.includes('plus')) styles = { bg: '#10a37f20', color: '#10a37f', label: 'Plus' };
   else if (p.includes('pro')) styles = { bg: '#6366f120', color: '#6366f1', label: 'Pro' };
   else if (p.includes('team') || p.includes('business')) styles = { bg: '#f59e0b20', color: '#f59e0b', label: 'Team' };
   else if (p.includes('go')) styles = { bg: '#3b82f620', color: '#3b82f6', label: 'Go' };
-  
+
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 6, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', background: styles.bg, color: styles.color, border: `1px solid ${styles.color}20` }}>
       {styles.label}
@@ -56,22 +56,22 @@ function PlanBadge({ plan }: { plan?: string }) {
 }
 
 const PROVIDERS = [
-  { id: 'openai',   name: 'OpenAI',   color: '#10a37f' },
+  { id: 'openai', name: 'OpenAI', color: '#10a37f' },
   { id: 'anthropic', name: 'Anthropic', color: '#da7756' },
-  { id: 'gemini',    name: 'Gemini',    color: '#1a73e8' },
-  { id: 'cursor',    name: 'Cursor',    color: '#ffffff' },
-  { id: 'codex',     name: 'Codex',     color: '#6366f1' },
+  { id: 'gemini', name: 'Gemini', color: '#1a73e8' },
+  { id: 'cursor', name: 'Cursor', color: '#ffffff' },
+  { id: 'codex', name: 'Codex', color: '#6366f1' },
 ];
 
 /* ══════════════════════════════════════════════════════════ */
 export function VaultAccountsView() {
   const { addToast } = useApp();
-  const [items, setItems]     = useState<any[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [search, setSearch]   = useState('');
+  const [search, setSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState('all');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
@@ -157,6 +157,18 @@ export function VaultAccountsView() {
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
+  const deployConnect = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/retry-connect`, { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      // Khởi động connect-worker nếu chưa chạy
+      fetch('/api/processes/connect-worker/start', { method: 'POST' }).catch(() => { });
+      addToast(`🔌 Deploy v2: Đã xếp hàng Auto-Connect cho ${email}`, 'success');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
   const stopAccount = async (id: string, email: string) => {
     try {
       const r = await fetch(`/api/vault/accounts/${id}/stop`, { method: 'POST' });
@@ -216,7 +228,7 @@ export function VaultAccountsView() {
     if (!uiState.bulkText.trim()) return;
     const lines = uiState.bulkText.split('\n').filter(l => l.trim().includes('|'));
     if (lines.length === 0) return addToast('Định dạng không đúng (email|pass|2fa)', 'error');
-    
+
     setLoading(true);
     let count = 0;
     try {
@@ -265,7 +277,7 @@ export function VaultAccountsView() {
 
   return (
     <div className="content">
-      
+
       {/* ═══ ACTIONS ═══ */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
         <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -274,11 +286,11 @@ export function VaultAccountsView() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost" onClick={() => setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null }))} style={{ height: 46 }}>
-             {uiState.isBulk ? <X size={18} /> : <FileUp size={18} />} 
-             <span style={{ marginLeft: 8 }}>Nhập hàng loạt</span>
+            {uiState.isBulk ? <X size={18} /> : <FileUp size={18} />}
+            <span style={{ marginLeft: 8 }}>Nhập hàng loạt</span>
           </button>
           <button className="btn btn-primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' }))} style={{ height: 46, padding: '0 24px' }}>
-            {uiState.isAdding ? <X size={18} /> : <Plus size={18} />} 
+            {uiState.isAdding ? <X size={18} /> : <Plus size={18} />}
             <span style={{ marginLeft: 8 }}>{uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}</span>
           </button>
         </div>
@@ -342,22 +354,22 @@ export function VaultAccountsView() {
           </div>
           <div className="card-body" style={{ padding: '20px 24px' }}>
             <div className="form-group" style={{ marginBottom: 15 }}>
-               <label className="label">Nhà cung cấp (Provider) cho danh sách này</label>
-               <select className="inp" style={{ maxWidth: 200 }} value={uiState.provider} onChange={e => setUiState(s => ({ ...s, provider: e.target.value }))}>
-                  {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-               </select>
+              <label className="label">Nhà cung cấp (Provider) cho danh sách này</label>
+              <select className="inp" style={{ maxWidth: 200 }} value={uiState.provider} onChange={e => setUiState(s => ({ ...s, provider: e.target.value }))}>
+                {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
             <div className="form-group">
-               <label className="label">Danh sách tài khoản (Định dạng: email|pass hoặc email|pass|2fa)</label>
-               <textarea className="inp mono" rows={8} 
-                 placeholder="user1@gmail.com|pass123&#10;user2@gmail.com|pass456|2FASECRETXXX..." 
-                 value={uiState.bulkText} onChange={e => setUiState(s => ({ ...s, bulkText: e.target.value }))}
-               />
+              <label className="label">Danh sách tài khoản (Định dạng: email|pass hoặc email|pass|2fa)</label>
+              <textarea className="inp mono" rows={8}
+                placeholder="user1@gmail.com|pass123&#10;user2@gmail.com|pass456|2FASECRETXXX..."
+                value={uiState.bulkText} onChange={e => setUiState(s => ({ ...s, bulkText: e.target.value }))}
+              />
             </div>
             <div style={{ marginTop: 15, display: 'flex', justifyContent: 'flex-end' }}>
-               <button className="btn btn-primary" onClick={bulkSave} disabled={loading}>
-                 <Save size={16} /> {loading ? 'Đang xử lý...' : 'Bắt đầu nhập vào Vault'}
-               </button>
+              <button className="btn btn-primary" onClick={bulkSave} disabled={loading}>
+                <Save size={16} /> {loading ? 'Đang xử lý...' : 'Bắt đầu nhập vào Vault'}
+              </button>
             </div>
           </div>
         </div>
@@ -395,8 +407,8 @@ export function VaultAccountsView() {
               <tbody>
                 {filtered.map(it => (
                   <tr key={it.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background .15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--glass)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--glass)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={{ padding: '14px 20px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ fontWeight: 600, color: 'var(--text)' }}>{it.email || 'No email'}</div>
@@ -433,7 +445,10 @@ export function VaultAccountsView() {
                     <td style={{ padding: '14px 20px', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         {it.status === 'idle' && it.provider === 'codex' && (
-                          <button className="btn btn-sm" title="Deploy to Codex" onClick={() => retry(it.id, it.email)} style={{ color: 'var(--green)', borderColor: 'var(--green)', padding: '0 8px' }}><Globe size={12} style={{marginRight: 4}}/> Deploy</button>
+                          <button className="btn btn-sm" title="Deploy to Codex (PKCE OAuth)" onClick={() => retry(it.id, it.email)} style={{ color: 'var(--green)', borderColor: 'var(--green)', padding: '0 8px' }}><Globe size={12} style={{ marginRight: 4 }} /> Deploy</button>
+                        )}
+                        {(it.status === 'idle' || it.status === 'error') && it.provider === 'codex' && (
+                          <button className="btn btn-sm" title="Deploy v2 – Auto-Connect trực tiếp chatgpt.com" onClick={() => deployConnect(it.id, it.email)} style={{ color: '#6366f1', borderColor: '#6366f1', padding: '0 8px' }}>🔌 Connect</button>
                         )}
                         {(it.status !== 'idle') && it.provider === 'codex' && (
                           <button className="btn btn-sm" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)} style={{ color: 'var(--text-3)', padding: '0 8px' }}>Thu hồi</button>

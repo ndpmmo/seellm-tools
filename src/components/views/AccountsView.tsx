@@ -7,7 +7,8 @@ import {
   Users, CheckCircle, Clock, XCircle, Globe, Database
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { fmtDateTimeVN } from '../Views';
+import { fmtDateTimeVN, ConfirmModal, Spinner } from '../Views';
+import { AlertTriangle } from 'lucide-react';
 
 /* ── Helpers ── */
 function parseBulk(raw: string) {
@@ -229,29 +230,31 @@ export function AccountsView() {
   const { addToast } = useApp();
   const itemsRef = useRef<any[]>([]);
   const connectionsCacheRef = useRef<any[]>([]);
-  const [items, setItems]     = useState<any[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [search, setSearch]           = useState('');
+  const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
+
   const [newEmail, setNewEmail] = useState('');
-  const [newPass, setNewPass]   = useState('');
-  const [new2fa, setNew2fa]     = useState('');
-  const [adding, setAdding]     = useState(false);
+  const [newPass, setNewPass] = useState('');
+  const [new2fa, setNew2fa] = useState('');
+  const [adding, setAdding] = useState(false);
 
-  const [bulkOpen, setBulkOpen]     = useState(false);
-  const [bulkText, setBulkText]     = useState('');
-  const [bulkRows, setBulkRows]     = useState<ReturnType<typeof parseBulk>>([]);
-  const [bulkBusy, setBulkBusy]     = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkRows, setBulkRows] = useState<ReturnType<typeof parseBulk>>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
-  const [editId, setEditId]       = useState<string | null>(null);
-  const [editPass, setEditPass]   = useState('');
-  const [edit2fa, setEdit2fa]     = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editPass, setEditPass] = useState('');
+  const [edit2fa, setEdit2fa] = useState('');
   const [editProxy, setEditProxy] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -354,12 +357,23 @@ export function AccountsView() {
   const patch = async (url: string, b: object) => (await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
 
   const add = async () => { if (!newEmail) return; setAdding(true); const d = await post('/api/d1/accounts/add', { email: newEmail, password: newPass, twoFaSecret: new2fa }); if (d.error) addToast(d.error, 'error'); else { addToast('✅ Đã thêm', 'success'); setNewEmail(''); setNewPass(''); setNew2fa(''); load(); } setAdding(false); };
-  const del = async (id: string) => { if (!confirm('Xóa?')) return; await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' }); addToast('Đã xoá', 'info'); load(); };
+  const del = async (id: string) => {
+    setConfirmModal({
+      title: 'Xóa Tài Khoản',
+      message: `Bạn có chắc muốn xóa tài khoản này? Thao tác này sẽ xóa toàn bộ dữ liệu liên quan.`,
+      onConfirm: async () => {
+        await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' });
+        addToast('Đã xoá tài khoản', 'info');
+        load();
+        setConfirmModal(null);
+      }
+    });
+  };
   const reset = async (id: string) => { await patch(`/api/d1/accounts/${id}`, { status: 'pending' }); addToast('→ pending', 'info'); load(); };
   const toggleActive = async (id: string, currentStatus: any) => {
     try {
       // currentStatus = 0 (tắt) hoặc 1 (bật) hoặc undefined
-      const isActive = currentStatus !== 0; 
+      const isActive = currentStatus !== 0;
       const r = await fetch(`/api/automation/accounts/codex/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -424,7 +438,7 @@ export function AccountsView() {
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
-  const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch {} } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
+  const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
   /* ── base cell style ── */
   const th: React.CSSProperties = { padding: '10px 14px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .6, whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-2)' };
@@ -435,10 +449,10 @@ export function AccountsView() {
 
       {/* ═══ STATS ═══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <StatCard icon={Users}       value={cnt.total}   label="Tất cả"  color="var(--indigo-2)" bg="var(--indigo-soft)" active={statusFilter === 'all'}     onClick={() => setStatusFilter('all')} />
-        <StatCard icon={CheckCircle} value={cnt.ready}   label="Ready"   color="var(--green)"    bg="var(--green-dim)"   active={statusFilter === 'ready'}   onClick={() => setStatusFilter('ready')} />
-        <StatCard icon={Clock}       value={cnt.pending} label="Pending" color="var(--amber)"    bg="var(--amber-dim)"   active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
-        <StatCard icon={XCircle}     value={cnt.error}   label="Error"   color="var(--rose)"     bg="var(--rose-dim)"    active={statusFilter === 'error'}   onClick={() => setStatusFilter('error')} />
+        <StatCard icon={Users} value={cnt.total} label="Tất cả" color="var(--indigo-2)" bg="var(--indigo-soft)" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
+        <StatCard icon={CheckCircle} value={cnt.ready} label="Ready" color="var(--green)" bg="var(--green-dim)" active={statusFilter === 'ready'} onClick={() => setStatusFilter('ready')} />
+        <StatCard icon={Clock} value={cnt.pending} label="Pending" color="var(--amber)" bg="var(--amber-dim)" active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
+        <StatCard icon={XCircle} value={cnt.error} label="Error" color="var(--rose)" bg="var(--rose-dim)" active={statusFilter === 'error'} onClick={() => setStatusFilter('error')} />
       </div>
 
       {/* ═══ ADD / BULK ═══ */}
@@ -537,13 +551,13 @@ export function AccountsView() {
                 const ed = editId === it.id;
                 return (
                   <tr key={it.id} style={{ borderBottom: '1px solid var(--border)', background: ed ? 'rgba(99,102,241,.05)' : 'transparent', transition: 'background .1s' }}
-                      onMouseEnter={e => { if (!ed) (e.currentTarget.style.background = 'var(--glass)'); }}
-                      onMouseLeave={e => { if (!ed) (e.currentTarget.style.background = 'transparent'); }}>
+                    onMouseEnter={e => { if (!ed) (e.currentTarget.style.background = 'var(--glass)'); }}
+                    onMouseLeave={e => { if (!ed) (e.currentTarget.style.background = 'transparent'); }}>
 
                     {/* Email & Activation Toggle */}
                     <td style={{ ...td, minWidth: 240 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div 
+                        <div
                           onClick={() => toggleActive(it.id, it.is_active)}
                           style={{
                             width: 12, height: 12, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
@@ -554,10 +568,10 @@ export function AccountsView() {
                           }}
                           title={it.is_active === 0 ? "Đang tạm dừng (Nhấn để bật)" : "Đang hoạt động (Nhấn để tắt)"}
                         />
-                        <div style={{ 
-                          fontWeight: 600, 
-                          fontSize: 13.5, 
-                          color: it.is_active === 0 ? 'var(--text-4)' : 'var(--text)', 
+                        <div style={{
+                          fontWeight: 600,
+                          fontSize: 13.5,
+                          color: it.is_active === 0 ? 'var(--text-4)' : 'var(--text)',
                           textDecoration: it.is_active === 0 ? 'line-through' : 'none',
                           opacity: it.is_active !== 0 ? 1 : 0.6
                         }}>
@@ -591,14 +605,14 @@ export function AccountsView() {
                           {it.discovered_limit ? (
                             <div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 3 }}>
-                                <span>{( ( (it.current_tokens_in||0) + (it.current_tokens_out||0) ) / 1000).toFixed(1)}k tokens</span>
-                                <span>{ (it.discovered_limit / 1000).toFixed(0) }k limit</span>
+                                <span>{(((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / 1000).toFixed(1)}k tokens</span>
+                                <span>{(it.discovered_limit / 1000).toFixed(0)}k limit</span>
                               </div>
                               <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{ 
-                                  height: '100%', 
-                                  background: ((it.current_tokens_in||0) + (it.current_tokens_out||0)) / it.discovered_limit > 0.8 ? 'var(--rose)' : 'var(--indigo-glow)', 
-                                  width: `${Math.min(100, (((it.current_tokens_in||0) + (it.current_tokens_out||0)) / it.discovered_limit) * 100)}%` 
+                                <div style={{
+                                  height: '100%',
+                                  background: ((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit > 0.8 ? 'var(--rose)' : 'var(--indigo-glow)',
+                                  width: `${Math.min(100, (((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit) * 100)}%`
                                 }} />
                               </div>
                             </div>
@@ -609,22 +623,22 @@ export function AccountsView() {
                             const qRaw = it.quotas_json || it.quota_json;
                             const qs = normalizeQuotas(qRaw);
                             if (!qs.length) return null;
-                              return (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                  {qs.map((q: any, i: number) => {
-                                    const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
-                                    const color = pct > 80 ? 'var(--rose)' : (pct > 50 ? 'var(--amber)' : 'var(--emerald)');
-                                    const remain = safePercentRemaining(q.used, q.total);
-                                    return (
-                                      <div key={i} title={`${q.name}: ${q.used}/${q.total}`} 
-                                           style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}33`, background: `${color}11`, color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                        <div style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
-                                        {q.name}: {remain ?? 0}%
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
+                            return (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {qs.map((q: any, i: number) => {
+                                  const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
+                                  const color = pct > 80 ? 'var(--rose)' : (pct > 50 ? 'var(--amber)' : 'var(--emerald)');
+                                  const remain = safePercentRemaining(q.used, q.total);
+                                  return (
+                                    <div key={i} title={`${q.name}: ${q.used}/${q.total}`}
+                                      style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}33`, background: `${color}11`, color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
+                                      {q.name}: {remain ?? 0}%
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
                           })()}
                         </div>
                       ) : (
@@ -692,6 +706,16 @@ export function AccountsView() {
           </div>
         )}
       </div>
+
+      {confirmModal && (
+        <ConfirmModal 
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+          isLoading={loading}
+        />
+      )}
     </div>
   );
 }

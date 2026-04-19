@@ -7,21 +7,21 @@ import {
 } from 'lucide-react';
 import { AppProvider, useApp } from './AppContext';
 import { ToastContainer } from './Views';
-import { DashboardView }   from './views/DashboardView';
+import { DashboardView } from './views/DashboardView';
 import { ScreenshotsView } from './views/ScreenshotsView';
-import { TerminalView }    from './views/TerminalView';
-import { ScriptsView }     from './views/ScriptsView';
-import { SettingsView }    from './views/SettingsView';
-import { LogFilesView }    from './views/LogFilesView';
-import { AccountsView }    from './views/AccountsView';
-import { ProxiesView }     from './views/ProxiesView';
+import { TerminalView } from './views/TerminalView';
+import { ScriptsView } from './views/ScriptsView';
+import { SettingsView } from './views/SettingsView';
+import { LogFilesView } from './views/LogFilesView';
+import { AccountsView } from './views/AccountsView';
+import { ProxiesView } from './views/ProxiesView';
 import { ConnectionsView } from './views/ConnectionsView';
-import { ChangelogView }   from './views/ChangelogView';
+import { ChangelogView } from './views/ChangelogView';
 import { CamofoxDocsView } from './views/CamofoxDocsView';
 
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
-import { VaultProxiesView }  from './views/vault/VaultProxiesView';
+import { VaultProxiesView } from './views/vault/VaultProxiesView';
 
 // ── Nav Item ─────────────────────────────────────────────
 function NavItem({
@@ -43,13 +43,14 @@ function NavItem({
 
 // ── Sidebar ───────────────────────────────────────────────
 function Sidebar() {
-  const { view, setView, connected, processes, startCamofox, startWorker } = useApp();
-  const procs   = Object.values(processes);
+  const { view, setView, connected, processes, startCamofox, startWorker, startConnectWorker } = useApp();
+  const procs = Object.values(processes);
   const running = procs.filter(p => p.status === 'running').length;
-  const errors  = procs.filter(p => p.status === 'error').length;
+  const errors = procs.filter(p => p.status === 'error').length;
 
   const isCamofox = processes['camofox']?.status === 'running';
-  const isWorker  = processes['worker']?.status  === 'running';
+  const isWorker = processes['worker']?.status === 'running';
+  const isConnectWorker = processes['connect-worker']?.status === 'running';
 
   return (
     <aside className="sidebar">
@@ -65,24 +66,24 @@ function Sidebar() {
       {/* Nav */}
       <nav className="sidebar-nav">
         <div className="nav-section-label">Tổng quan</div>
-        <NavItem id="dashboard"   icon={LayoutDashboard} label="Dashboard"    badge={running} badgeColor="g" />
-        <NavItem id="terminal"    icon={Terminal}        label="Terminal Logs" badge={errors}  badgeColor="r" />
-        <NavItem id="logfiles"    icon={FileText}        label="Log Files" />
-        <NavItem id="screenshots" icon={FileImage}       label="Screenshots" />
+        <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" badge={running} badgeColor="g" />
+        <NavItem id="terminal" icon={Terminal} label="Terminal Logs" badge={errors} badgeColor="r" />
+        <NavItem id="logfiles" icon={FileText} label="Log Files" />
+        <NavItem id="screenshots" icon={FileImage} label="Screenshots" />
 
         <div className="nav-section-label">Vault (Local)</div>
         <NavItem id="vault-accounts" icon={Users} label="Accounts" />
-        <NavItem id="vault-proxies"  icon={Globe} label="Proxies" />
-        <NavItem id="vault-keys"     icon={Zap}   label="API Keys" />
+        <NavItem id="vault-proxies" icon={Globe} label="Proxies" />
+        <NavItem id="vault-keys" icon={Zap} label="API Keys" />
 
         <div className="nav-section-label">D1 Cloud (D1)</div>
-        <NavItem id="accounts"    icon={Bot}    label="Codex Accts" />
-        <NavItem id="proxies"     icon={Globe}  label="Proxy Pool" />
-        <NavItem id="connections" icon={Link2}  label="Connections" />
+        <NavItem id="accounts" icon={Bot} label="Codex Accts" />
+        <NavItem id="proxies" icon={Globe} label="Proxy Pool" />
+        <NavItem id="connections" icon={Link2} label="Connections" />
 
         <div className="nav-section-label">Công cụ</div>
-        <NavItem id="scripts"   icon={Play}        label="Scripts" />
-        <NavItem id="settings"  icon={Settings}    label="Cài đặt" />
+        <NavItem id="scripts" icon={Play} label="Scripts" />
+        <NavItem id="settings" icon={Settings} label="Cài đặt" />
         <NavItem id="changelog" icon={HistoryIcon} label="Change Logs" />
 
         <div className="nav-section-label">Tài nguyên</div>
@@ -99,6 +100,16 @@ function Sidebar() {
             🤖 {isWorker ? 'Running' : 'Start'}
           </button>
         </div>
+        <div className="launch-row" style={{ marginTop: 6 }}>
+          <button
+            className="launch-btn"
+            onClick={startConnectWorker}
+            disabled={isConnectWorker}
+            style={{ flex: 1, background: isConnectWorker ? 'rgba(99,102,241,.25)' : 'rgba(99,102,241,.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,.25)', borderRadius: 8, fontSize: 11, fontWeight: 700, padding: '8px 0', cursor: isConnectWorker ? 'not-allowed' : 'pointer', transition: 'all .2s' }}
+          >
+            🔌 {isConnectWorker ? 'Connect Running' : 'Start Connect v2'}
+          </button>
+        </div>
         <div className="conn-status">
           <div className={`dot ${connected ? 'on' : 'off'}`} />
           <span>{connected ? 'Realtime connected' : 'Disconnected'}</span>
@@ -110,19 +121,19 @@ function Sidebar() {
 
 // ── Topbar ────────────────────────────────────────────────
 const PAGE_META: Record<string, { title: string; desc: string }> = {
-  dashboard:   { title: 'Dashboard',    desc: 'Tổng quan hệ thống và trạng thái realtime' },
+  dashboard: { title: 'Dashboard', desc: 'Tổng quan hệ thống và trạng thái realtime' },
   'vault-accounts': { title: 'Vault Accounts', desc: 'Quản lý tài khoản cá nhân đa nhà cung cấp · Local Vault' },
-  'vault-proxies':  { title: 'Vault Proxies',  desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
-  'vault-keys':     { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
-  accounts:    { title: 'Codex Accounts', desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
-  proxies:     { title: 'Proxy Pool',   desc: 'Quản lý Proxy Pool Automation · D1 Cloud Edge' },
-  connections: { title: 'Connections',  desc: 'Danh sách token đã xác thực · D1 Cloud Edge' },
-  screenshots: { title: 'Screenshots',  desc: 'Ảnh chụp màn hình từ các phiên login' },
-  terminal:    { title: 'Terminal Logs', desc: 'Output realtime từ các processes' },
-  logfiles:    { title: 'Log Files',    desc: 'Danh sách file log đã được lưu' },
-  scripts:     { title: 'Scripts',      desc: 'Các scripts tích hợp sẵn' },
-  settings:    { title: 'Cài đặt',      desc: 'Cấu hình hệ thống · Tools & Gateway' },
-  changelog:   { title: 'Change Logs',   desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
+  'vault-proxies': { title: 'Vault Proxies', desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
+  'vault-keys': { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
+  accounts: { title: 'Codex Accounts', desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
+  proxies: { title: 'Proxy Pool', desc: 'Quản lý Proxy Pool Automation · D1 Cloud Edge' },
+  connections: { title: 'Connections', desc: 'Danh sách token đã xác thực · D1 Cloud Edge' },
+  screenshots: { title: 'Screenshots', desc: 'Ảnh chụp màn hình từ các phiên login' },
+  terminal: { title: 'Terminal Logs', desc: 'Output realtime từ các processes' },
+  logfiles: { title: 'Log Files', desc: 'Danh sách file log đã được lưu' },
+  scripts: { title: 'Scripts', desc: 'Các scripts tích hợp sẵn' },
+  settings: { title: 'Cài đặt', desc: 'Cấu hình hệ thống · Tools & Gateway' },
+  changelog: { title: 'Change Logs', desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
   'camofox-docs': { title: 'Camofox Docs', desc: 'Tài liệu hướng dẫn custom Camofox API' },
 };
 
@@ -171,24 +182,24 @@ function ContentRouter() {
   const { view } = useApp();
   return (
     <>
-      {view === 'dashboard'      && <DashboardView />}
-      
+      {view === 'dashboard' && <DashboardView />}
+
       {/* Vault */}
       {view === 'vault-accounts' && <VaultAccountsView />}
-      {view === 'vault-proxies'  && <VaultProxiesView />}
-      {view === 'vault-keys'     && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
-      
+      {view === 'vault-proxies' && <VaultProxiesView />}
+      {view === 'vault-keys' && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
+
       {/* D1 */}
-      {view === 'accounts'    && <AccountsView />}
-      {view === 'proxies'     && <ProxiesView />}
+      {view === 'accounts' && <AccountsView />}
+      {view === 'proxies' && <ProxiesView />}
       {view === 'connections' && <ConnectionsView />}
-      
+
       {view === 'screenshots' && <ScreenshotsView />}
-      {view === 'terminal'    && <TerminalView />}
-      {view === 'logfiles'    && <LogFilesView />}
-      {view === 'scripts'     && <ScriptsView />}
-      {view === 'settings'    && <SettingsView />}
-      {view === 'changelog'   && <ChangelogView />}
+      {view === 'terminal' && <TerminalView />}
+      {view === 'logfiles' && <LogFilesView />}
+      {view === 'scripts' && <ScriptsView />}
+      {view === 'settings' && <SettingsView />}
+      {view === 'changelog' && <ChangelogView />}
       {view === 'camofox-docs' && <CamofoxDocsView />}
     </>
   );
