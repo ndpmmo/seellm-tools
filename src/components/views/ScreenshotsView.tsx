@@ -90,7 +90,9 @@ function AdvancedViewer({ session, initialImage, liveMode, onClose, onDeleteImag
       <div className="viewer-backdrop" onClick={onClose} />
       <div className="viewer-header">
         <div className="viewer-meta">
-          <div className="viewer-title">{session.id.replace(/^run_/, '').substring(0, 40)}</div>
+          <div className="viewer-title">
+            {currentImg.email ? `${currentImg.email} - ${session.id.replace(/^run_/, '').substring(0, 8)}` : session.id.replace(/^run_/, '').substring(0, 40)}
+          </div>
           <div className="viewer-sub">
             <Clock size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
             {fmtDateTimeVN(currentImg.ts || session.mtime)} • {currentImg.filename}
@@ -106,7 +108,17 @@ function AdvancedViewer({ session, initialImage, liveMode, onClose, onDeleteImag
       </div>
 
       <div className="viewer-main">
-        <div className="viewer-controls">
+        <div className="viewer-img-container" onClick={e => e.stopPropagation()}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            key={currentImg.url} 
+            src={currentImg.url} 
+            alt={currentImg.filename} 
+            className="viewer-img"
+          />
+        </div>
+
+        <div className="viewer-controls" style={{ zIndex: 10 }}>
           <button 
             className="viewer-nav-btn" 
             onClick={handlePrev}
@@ -124,16 +136,24 @@ function AdvancedViewer({ session, initialImage, liveMode, onClose, onDeleteImag
             <ChevronRight size={36} />
           </button>
         </div>
+      </div>
 
-        <div className="viewer-img-container" onClick={e => e.stopPropagation()}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            key={currentImg.url} 
-            src={currentImg.url} 
-            alt={currentImg.filename} 
-            className="viewer-img"
-          />
-          <div className="lightbox-filename">{currentImg.filename}</div>
+      <div className="viewer-footer">
+        <div className="viewer-filmstrip" ref={filmstripRef} onClick={e => e.stopPropagation()}>
+          {session.images.map((img, idx) => (
+            <div 
+              key={img.filename}
+              className={`strip-item ${idx === currentIndex ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIndex(idx);
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.url} alt={img.filename} />
+              <div className="strip-label">{img.filename.replace(/^\d{2}_/, '').replace(/_/g, ' ').replace('.png', '')}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -157,7 +177,16 @@ function SessionCard({
 }) {
   const [open, setOpen] = useState(false);
 
-  const label = session.id.replace(/^run_/, '').substring(0, 30);
+  // Try to find the email attached to any of the images in the session
+  const email = useMemo(() => {
+    for (const img of session.images) {
+      if (img.email) return img.email;
+    }
+    return '';
+  }, [session.images]);
+
+  const shortId = session.id.replace(/^run_/, '').substring(0, 8);
+  const label = email ? `${email} - ${shortId}` : session.id.replace(/^run_/, '').substring(0, 30);
 
   return (
     <div className="session-card">

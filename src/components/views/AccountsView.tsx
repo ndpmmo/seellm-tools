@@ -259,6 +259,7 @@ export function AccountsView() {
   const [editSaving, setEditSaving] = useState(false);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
@@ -431,13 +432,38 @@ export function AccountsView() {
   };
   const bypassSync = async (id: string, email: string) => {
     try {
-      const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
+      const r = await fetch(`/api/vault/accounts/${id}/sync`, { method: 'POST' });
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`☁️ Đã ép đồng bộ ${email} lên D1`, 'success');
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
+
+  const syncAll = async () => {
+    if (!filtered.length) return;
+    if (!confirm(`Đồng bộ tất cả ${filtered.length} tài khoản đang hiển thị lên D1?`)) return;
+    
+    setSyncingAll(true);
+    let success = 0;
+    let fail = 0;
+
+    for (const it of filtered) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' });
+        const d = await r.json();
+        if (d.error) fail++;
+        else success++;
+      } catch {
+        fail++;
+      }
+    }
+
+    addToast(`☁️ Kết quả đồng bộ: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
+    setSyncingAll(false);
+    load();
+  };
+
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
   /* ── base cell style ── */
@@ -504,6 +530,15 @@ export function AccountsView() {
         <div className="card-head">
           <span className="card-title">Managed Accounts <span className="nav-badge b">{filtered.length}</span></span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+            <button 
+              className="btn btn-sm btn-ghost" 
+              onClick={syncAll} 
+              disabled={syncingAll || filtered.length === 0}
+              style={{ color: 'var(--indigo-2)', borderColor: 'var(--indigo-2)' }}
+            >
+              {syncingAll ? <span className="spin" style={{ width: 12, height: 12, marginRight: 6 }} /> : <Database size={12} />}
+              Sync All to D1
+            </button>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search size={13} style={{ position: 'absolute', left: 10, color: 'var(--text-3)', pointerEvents: 'none' }} />
               <input className="inp inp-sm" style={{ paddingLeft: 28, width: 180 }} placeholder="Tìm email…" value={search} onChange={e => setSearch(e.target.value)} />

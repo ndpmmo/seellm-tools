@@ -75,6 +75,7 @@ export function VaultAccountsView() {
   const [providerFilter, setProviderFilter] = useState('all');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -181,12 +182,36 @@ export function VaultAccountsView() {
 
   const syncNow = async (id: string, email: string) => {
     try {
-      const r = await fetch(`http://localhost:4000/api/vault/accounts/${id}/sync`, { method: 'POST' });
+      const r = await fetch(`/api/vault/accounts/${id}/sync`, { method: 'POST' });
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`☁️ Đã ép đồng bộ ${email} lên D1 thành công`, 'success');
       load();
     } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const syncAll = async () => {
+    if (!filtered.length) return;
+    if (!confirm(`Đồng bộ toàn bộ ${filtered.length} tài khoản trong danh sách này lên D1?`)) return;
+    
+    setSyncingAll(true);
+    let success = 0;
+    let fail = 0;
+
+    for (const it of filtered) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' });
+        const d = await r.json();
+        if (d.error) fail++;
+        else success++;
+      } catch {
+        fail++;
+      }
+    }
+
+    addToast(`☁️ Hoàn thành đồng bộ Vault -> D1: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
+    setSyncingAll(false);
+    load();
   };
 
   const assignFromPool = async (id: string, proxyId?: string) => {
@@ -380,6 +405,15 @@ export function VaultAccountsView() {
         <div className="card-head">
           <span className="card-title"><Shield size={14} color="var(--indigo-2)" /> Tài Khoản Vault <span className="nav-badge b">{filtered.length}</span></span>
           <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            <button 
+              className="btn btn-sm btn-ghost" 
+              onClick={syncAll} 
+              disabled={syncingAll || filtered.length === 0}
+              style={{ color: 'var(--indigo-2)', borderColor: 'var(--indigo-2)' }}
+            >
+              {syncingAll ? <span className="spin" style={{ width: 12, height: 12, marginRight: 6 }} /> : <Database size={12} />}
+              Sync All to D1
+            </button>
             <button key="all" className={`btn btn-sm ${providerFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setProviderFilter('all')}>All</button>
             {PROVIDERS.map(p => (
               <button key={p.id} className={`btn btn-sm ${providerFilter === p.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setProviderFilter(p.id)}>{p.name}</button>

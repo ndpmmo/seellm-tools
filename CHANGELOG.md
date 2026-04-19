@@ -1,5 +1,22 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.17] - 2026-04-19
+
+### Added
+- **Bulk Data Synchronization**:
+  - Implemented "Sync All to D1" buttons in both `#accounts` and `#vault-accounts` views.
+  - Allows mass synchronization of filtered/all accounts to the Cloudflare D1 database with one click.
+- **Improved UX & Modals**:
+  - Replaced browser `confirm()` with custom `ConfirmModal` in `#logfiles` for a seamless UI experience.
+  - Displayed account email in Screenshot history list and Advanced Viewer header for better session identification.
+
+### Changed
+- **Screenshot Viewer Modernization**:
+  - Rebuilt `AdvancedViewer` with minimalistic navigation and auto-updating live screenshots.
+  - Optimized `z-index` for navigation controls to ensure reliable interaction.
+- **API Path Sanitization**:
+  - Removed hardcoded `localhost:4000` prefixes in favor of relative API paths for improved cross-environment stability.
+
 ## [0.1.16] - 2026-04-19
 
 ### Added

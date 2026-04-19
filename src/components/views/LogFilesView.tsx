@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 import { useApp } from '../AppContext';
-import { Spinner, fmtBytes, fmtDateTimeVN } from '../Views';
+import { Spinner, fmtBytes, fmtDateTimeVN, ConfirmModal } from '../Views';
 
 const toSizeFilter = (value: string): 'all'|'small'|'medium'|'large' => {
   if (value === 'small' || value === 'medium' || value === 'large') return value;
@@ -17,6 +17,7 @@ export function LogFilesView() {
   const [search, setSearch] = useState('');
   const [sizeFilter, setSizeFilter] = useState<'all'|'small'|'medium'|'large'>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 
   const refresh = async () => { setLoading(true); await refreshLogFiles(); setLoading(false); };
 
@@ -66,39 +67,52 @@ export function LogFilesView() {
   };
 
   const deleteOne = async (filename: string) => {
-    if (!confirm(`Xóa log file "${filename}"?`)) return;
-    const r = await fetch(`/api/logfiles/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      addToast(`Xóa log file thất bại: ${err.error || `HTTP ${r.status}`}`, 'error');
-      return;
-    }
-    addToast('Đã xóa log file', 'success');
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.delete(filename);
-      return next;
+    setConfirmModal({
+      title: 'Xóa Log File',
+      message: `Bạn có chắc muốn xóa log file "${filename}"? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        const r = await fetch(`/api/logfiles/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          addToast(`Xóa log file thất bại: ${err.error || `HTTP ${r.status}`}`, 'error');
+          return;
+        }
+        addToast('Đã xóa log file', 'success');
+        setSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(filename);
+          return next;
+        });
+        await refreshLogFiles();
+        setConfirmModal(null);
+      }
     });
-    await refreshLogFiles();
   };
 
   const deleteSelected = async () => {
     const files = Array.from(selected);
     if (!files.length) return;
-    if (!confirm(`Xóa ${files.length} log file đã chọn?`)) return;
-    const r = await fetch('/api/logfiles', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files }),
+    
+    setConfirmModal({
+      title: 'Xóa Nhiều Log Files',
+      message: `Bạn có chắc muốn xóa ${files.length} log file đã chọn? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        const r = await fetch('/api/logfiles', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          addToast(`Xóa log files thất bại: ${err.error || `HTTP ${r.status}`}`, 'error');
+          return;
+        }
+        addToast(`Đã xóa ${files.length} log file`, 'success');
+        setSelected(new Set());
+        await refreshLogFiles();
+        setConfirmModal(null);
+      }
     });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      addToast(`Xóa log files thất bại: ${err.error || `HTTP ${r.status}`}`, 'error');
-      return;
-    }
-    addToast(`Đã xóa ${files.length} log file`, 'success');
-    setSelected(new Set());
-    await refreshLogFiles();
   };
 
   return (
@@ -201,6 +215,16 @@ export function LogFilesView() {
             )}
           </div>
         </div>
+      )}
+
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+          isLoading={loading}
+        />
       )}
     </div>
   );
