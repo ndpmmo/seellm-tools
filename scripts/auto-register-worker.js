@@ -330,6 +330,30 @@ export async function runAutoRegister(taskInput) {
     await new Promise(r => setTimeout(r, 6000));
     await saveStep(tabId, USER_ID, runDir, '06_skip_survey');
 
+    // Thao tác đóng Welcome Modal (OK, let's go)
+    console.log(`[6.1] Đóng Welcome Modal...`);
+    await evalJson(tabId, USER_ID, `
+      (() => {
+        const findAndClickOk = () => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const okBtn = buttons.find(b => {
+                const t = b.textContent.toLowerCase();
+                return t.includes('ok') || t.includes('tiến hành') || t.includes('let') || t.includes('xong') || t.includes('done');
+            });
+            if (okBtn) {
+                okBtn.click();
+                return true;
+            }
+            return false;
+        };
+        if (!findAndClickOk()) {
+            setTimeout(findAndClickOk, 2000);
+        }
+      })()
+    `);
+    await new Promise(r => setTimeout(r, 5000));
+    await saveStep(tabId, USER_ID, runDir, '07_inside_chat');
+
     await saveStep(tabId, USER_ID, runDir, '06_home_reached');
 
     // 7. SETUP 2FA (MFA)

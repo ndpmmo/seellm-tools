@@ -210,6 +210,34 @@ async function runLogin() {
             
             await new Promise(r => setTimeout(r, 6000));
             await takeScreenshot(tabId, '07_final_dashboard');
+            
+            console.log(`[6.4] Bypass "Welcome to ChatGPT" modal...`);
+            await evalCode(tabId, `
+                (() => {
+                    const findAndClickOk = () => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        const okBtn = buttons.find(b => {
+                            const t = b.textContent.toLowerCase();
+                            return t.includes('ok') || t.includes('tiến hành') || t.includes('let') || t.includes('xong') || t.includes('done');
+                        });
+                        if (okBtn) {
+                            console.log('Found OK button, clicking...');
+                            okBtn.click();
+                            return true;
+                        }
+                        return false;
+                    };
+                    
+                    // Thử ngay lập tức
+                    if (!findAndClickOk()) {
+                        // Nếu chưa thấy, thử lại sau 2 giây (đề phòng animation)
+                        setTimeout(findAndClickOk, 2000);
+                    }
+                })();
+            `);
+            
+            await new Promise(r => setTimeout(r, 6000));
+            await takeScreenshot(tabId, '08_inside_chat');
         }
     }
 

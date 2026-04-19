@@ -16,6 +16,8 @@
 - **OpenAI "What do you want to do" Survey Bypass**:
   - Implemented detection and automated clicking of the detached `Skip`/`Bỏ qua` button on the final registration prompt to drop immediately into the target ChatGPT dashboard interface.
   - Built a fallback strategy targeting generic survey answers (Personal use / Other) if `Skip` is omitted in A/B variants.
+- **OpenAI "Welcome to ChatGPT" Modal Bypass**:
+  - Added detection and automated interaction for the final 'OK, let's go' (Tiến hành thôi) onboarding modal, ensuring the robot reaches the chat input field autonomously.
 
 ### Added
 - **Detailed Registration Documentation**:
