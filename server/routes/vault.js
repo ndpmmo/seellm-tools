@@ -1,10 +1,10 @@
 import express from 'express';
-import crypto  from 'node:crypto';
-import path    from 'node:path';
-import fs      from 'node:fs';
-import { vault }       from '../db/vault.js';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import { vault } from '../db/vault.js';
 import { SyncManager } from '../services/syncManager.js';
-import { loadConfig }  from '../db/config.js';
+import { loadConfig } from '../db/config.js';
 import {
   parseCodexIdToken,
   getConsistentMachineId,
@@ -17,19 +17,19 @@ router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route tro
 
 /* ─── PKCE Generator ─────────────────────────────────────────────────────── */
 function generateCodexOAuthUrl() {
-  const codeVerifier  = crypto.randomBytes(32).toString('base64url');
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
   const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-  const state         = crypto.randomBytes(32).toString('base64url');
+  const state = crypto.randomBytes(32).toString('base64url');
   const params = new URLSearchParams({
-    response_type:            'code',
-    client_id:                'app_EMoamEEZ73f0CkXaXp7hrann',
-    redirect_uri:             'http://localhost:1455/auth/callback',
-    scope:                    'openid profile email offline_access',
-    code_challenge:           codeChallenge,
-    code_challenge_method:    'S256',
+    response_type: 'code',
+    client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    redirect_uri: 'http://localhost:1455/auth/callback',
+    scope: 'openid profile email offline_access',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
     id_token_add_organizations: 'true',
-    codex_cli_simplified_flow:  'true',
-    originator:               'codex_cli_rs',
+    codex_cli_simplified_flow: 'true',
+    originator: 'codex_cli_rs',
     state,
   });
   return {
@@ -43,11 +43,11 @@ function generateCodexOAuthUrl() {
 async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
   const { userAgent, proxyUrl } = options;
   const targetUrl = 'https://auth.openai.com/oauth/token';
-  const postData  = new URLSearchParams({
-    grant_type:    'authorization_code',
-    client_id:     'app_EMoamEEZ73f0CkXaXp7hrann',
+  const postData = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
     code,
-    redirect_uri:  'http://localhost:1455/auth/callback',
+    redirect_uri: 'http://localhost:1455/auth/callback',
     code_verifier: codeVerifier,
   }).toString();
 
@@ -77,7 +77,7 @@ async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
       if (data.error) {
         throw new Error(`OpenAI Error: ${data.error_description || data.error.message || JSON.stringify(data.error)}`);
       }
-      
+
       console.log(`[OAuth] ✅ Exchange SUCCESS (via Proxy)`);
       return data;
     } catch (err) {
@@ -88,13 +88,13 @@ async function exchangeCodeForTokens(code, codeVerifier, options = {}) {
 
   // --- TRƯỜNG HỢP KHÔNG PROXY HOẶC CURL LỖI ---
   const res = await fetch(targetUrl, {
-    method:  'POST',
-    headers: { 
+    method: 'POST',
+    headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent':    ua,
-      'Origin':        'https://auth.openai.com',
-      'Referer':       'https://auth.openai.com/',
-      'Accept':        'application/json, text/plain, */*',
+      'User-Agent': ua,
+      'Origin': 'https://auth.openai.com',
+      'Referer': 'https://auth.openai.com/',
+      'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'en-US,en;q=0.9',
     },
     body: postData,
@@ -128,8 +128,8 @@ router.get('/accounts', (req, res) => {
 // POST /api/vault/accounts  (create or update)
 router.post('/accounts', async (req, res) => {
   try {
-    const isNew   = !req.body.id;
-    const record  = vault.upsertAccount(req.body); // triggers SyncManager internally (skipSync=false)
+    const isNew = !req.body.id;
+    const record = vault.upsertAccount(req.body); // triggers SyncManager internally (skipSync=false)
     res.json({ ok: true, id: record.id });
 
     // New Codex account → push lên D1 managed để Worker auto-login
@@ -230,7 +230,7 @@ router.get('/accounts/task', async (req, res) => {
       return Array.isArray(current) ? current : [];
     };
 
-    task.tags    = safeParse(task.tags);
+    task.tags = safeParse(task.tags);
     task.cookies = safeParse(task.cookies);
 
     // Lấy/tạo PKCE (chỉ generate 1 lần per account ID, dùng lại nếu poll lại)
@@ -251,19 +251,21 @@ router.get('/accounts/task', async (req, res) => {
     // Đồng bộ ngay lập tức trạng thái processing lên cloud để tránh bị pull đè ngược lại
     const lockedTask = vault.db.prepare('SELECT * FROM vault_accounts WHERE id=?').get(task.id);
     if (lockedTask) {
-      SyncManager.pushVault('account', lockedTask).catch(() => {});
+      SyncManager.pushVault('account', lockedTask).catch(() => { });
     }
 
-    return res.json({ ok: true, task: {
-      id:           task.id,
-      email:        task.email,
-      password:     task.password,
-      twoFaSecret:  task.two_fa_secret,
-      proxyUrl:     task.proxy_url,
-      loginUrl:     pkce.url,
-      codeVerifier: pkce.codeVerifier,
-      action:       'LOGIN',
-    }});
+    return res.json({
+      ok: true, task: {
+        id: task.id,
+        email: task.email,
+        password: task.password,
+        twoFaSecret: task.two_fa_secret,
+        proxyUrl: task.proxy_url,
+        loginUrl: pkce.url,
+        codeVerifier: pkce.codeVerifier,
+        action: 'LOGIN',
+      }
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -356,16 +358,16 @@ router.post('/accounts/result', async (req, res) => {
         });
 
         vault.upsertAccount({
-          id:            targetId,
-          status:        'ready',
-          notes:         '',
-          access_token:  tokens.access_token,
+          id: targetId,
+          status: 'ready',
+          notes: '',
+          access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
-          email:         targetEmail || undefined,
-          plan:          tokenMeta?.workspacePlanType || null,
-          workspace_id:  providerSpecificData?.workspaceId || null,
-          device_id:     providerSpecificData?.deviceId || null,
-          machine_id:    providerSpecificData?.machineId || machineId,
+          email: targetEmail || undefined,
+          plan: tokenMeta?.workspacePlanType || null,
+          workspace_id: providerSpecificData?.workspaceId || null,
+          device_id: providerSpecificData?.deviceId || null,
+          machine_id: providerSpecificData?.machineId || machineId,
           provider_specific_data: providerSpecificData,
         });
 
@@ -392,6 +394,7 @@ router.post('/accounts/result', async (req, res) => {
                   tokens: {
                     ...tokens,
                     email: fullRecord.email, // THIẾU BƯỚC NÀY: Gửi kèm email để Gateway nhận diện
+                    isActive: true, // 🔥 Fix: Đảm bảo Gateway nhận diện account là ACTIVE
                     providerSpecificData: providerSpecificData || undefined,
                   },
                 }),
@@ -419,7 +422,7 @@ router.post('/accounts/result', async (req, res) => {
           const syncSecret = cfg.d1SyncSecret || process.env.SEELLM_GATEWAY_SYNC_SECRET || "";
           fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {
             headers: syncSecret ? { 'x-sync-secret': syncSecret } : undefined,
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
@@ -428,7 +431,7 @@ router.post('/accounts/result', async (req, res) => {
         try {
           const logPath = path.resolve('data', 'critical_errors.log');
           fs.appendFileSync(logPath, `[${new Date().toISOString()}] exchange_failed id=${id}: ${exchangeErr.message}\n`);
-        } catch (_) {}
+        } catch (_) { }
         vault.upsertAccount({ id, status: 'error', notes: `Exchange failed: ${exchangeErr.message}` });
         pkceStore.delete(id);
       }
@@ -437,12 +440,12 @@ router.post('/accounts/result', async (req, res) => {
       // ─── Path 2: Direct tokens (cookie-based / no-code) ──────────────────
       vault.upsertAccount({
         id,
-        status:        'ready',
-        notes:         message || '',
-        access_token:  result?.access_token,
+        status: 'ready',
+        notes: message || '',
+        access_token: result?.access_token,
         refresh_token: result?.refresh_token,
-        cookies:       result?.cookies,
-        machine_id:    getConsistentMachineId(),
+        cookies: result?.cookies,
+        machine_id: getConsistentMachineId(),
       });
       pkceStore.delete(id);
 
@@ -454,7 +457,7 @@ router.post('/accounts/result', async (req, res) => {
           const syncSecret = cfg.d1SyncSecret || process.env.SEELLM_GATEWAY_SYNC_SECRET || "";
           fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {
             headers: syncSecret ? { 'x-sync-secret': syncSecret } : undefined,
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
 
@@ -535,6 +538,190 @@ router.post('/accounts/:id/sync', async (req, res) => {
     console.error(`[Manual Sync] Failed:`, e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  AUTO-CONNECT TASK ENDPOINT  (auto-connect-worker poll)                    */
+/*  GET /api/vault/accounts/connect-task                                      */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+router.get('/accounts/connect-task', (req, res) => {
+  try {
+    const allAccounts = vault.db.prepare(
+      `SELECT * FROM vault_accounts WHERE provider='codex' ORDER BY updated_at DESC`
+    ).all();
+    const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
+
+    // Tìm account có connect_pending = 1 (đã bấm Deploy v2)
+    const task = allAccounts.find(a =>
+      a.connect_pending === 1 &&
+      !a.deleted_at &&
+      a.is_active !== 0 &&
+      a.email && a.email.trim() &&
+      a.password && a.password.trim() &&
+      !excludeIds.includes(a.id)
+    );
+
+    if (!task) return res.json({ ok: true, task: null });
+
+    // Lock: đánh dấu đang xử lý
+    vault.db.prepare(
+      `UPDATE vault_accounts SET connect_pending=2, updated_at=datetime('now') WHERE id=?`
+    ).run(task.id);
+
+    return res.json({
+      ok: true, task: {
+        id: task.id,
+        email: task.email,
+        password: task.password,
+        twoFaSecret: task.two_fa_secret,
+        proxyUrl: task.proxy_url,
+        proxy_url: task.proxy_url,
+      }
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  AUTO-CONNECT RESULT ENDPOINT  (auto-connect-worker báo kết quả)          */
+/*  POST /api/vault/accounts/connect-result                                   */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+router.post('/accounts/connect-result', async (req, res) => {
+  try {
+    const { id, status, message, tokens } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    console.log(`[Connect-Result] Account ${id}: status=${status}, msg=${String(message || '').slice(0, 80)}`);
+
+    if (status === 'success' && tokens?.accessToken) {
+      // Decode JWT để lấy thêm metadata
+      let tokenMeta = null;
+      try {
+        const { parseCodexIdToken } = await import('../services/codexMetadata.js');
+        // Tạo compat id_token nếu cần để parse
+        tokenMeta = { workspaceId: null, workspacePlanType: tokens.planType || 'free' };
+      } catch (_) { }
+
+      const { getConsistentMachineId, buildStableDeviceId, mergeCodexProviderData } = await import('../services/codexMetadata.js');
+      const machineId = getConsistentMachineId();
+      const localAccount = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+
+      let existingProviderData = null;
+      try { existingProviderData = localAccount?.provider_specific_data ? JSON.parse(localAccount.provider_specific_data) : null; } catch (_) { }
+
+      const providerSpecificData = mergeCodexProviderData(existingProviderData, {
+        workspaceId: tokens.accountId || tokens.organizationId || null, // 🔥 Fix: Dùng accountId (chatgpt_account_id) thay vì orgId
+        workspacePlanType: tokens.planType || 'free',
+        chatgptUserId: tokens.userId || null,
+        organizations: null,
+        machineId,
+        deviceId: tokens.deviceId || buildStableDeviceId(existingProviderData, id), // 🔥 Fix: Ưu tiên deviceId từ worker
+        proxyUrl: localAccount?.proxy_url || null,
+      });
+
+      vault.upsertAccount({
+        id,
+        status: 'ready',
+        notes: '',
+        access_token: tokens.access_token || tokens.accessToken,
+        refresh_token: tokens.refresh_token || tokens.refreshToken || '',
+        email: tokens.email || localAccount?.email || '',
+        plan: tokens.planType || null,
+        workspace_id: tokens.accountId || tokens.organizationId || null, // 🔥 Fix: Đồng bộ workspace_id
+        device_id: providerSpecificData?.deviceId || null,
+        machine_id: machineId,
+        provider_specific_data: providerSpecificData,
+        connect_pending: 0,
+      });
+
+      const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+      if (fullRecord?.email) {
+        console.log(`[Connect-Result] 🚀 Syncing to D1: ${fullRecord.email}`);
+        await SyncManager.pushVault('account', fullRecord);
+
+        const cfg = loadConfig();
+        // Đẩy token lên Gateway
+        if (cfg.gatewayUrl && (tokens.access_token || tokens.accessToken)) {
+          try {
+            // Build compat token payload để Gateway nhận diện
+            const gwPayload = {
+              id: fullRecord.id,
+              tokens: {
+                ...tokens, // Spread raw data if available (e.g. token_type, scope, access_token)
+                access_token: tokens.access_token || tokens.accessToken,
+                refresh_token: tokens.refresh_token || tokens.refreshToken || '',
+                id_token: tokens.id_token || tokens.idToken || '', // 🔥 Gửi id_token nếu có (từ OAuth PKCE)
+                expires_in: tokens.expires_in || tokens.expiresIn || null,
+                email: fullRecord.email,
+                isActive: true,
+                providerSpecificData: providerSpecificData || undefined,
+              },
+            };
+            console.log(`[Connect-Result] 📦 Gateway payload: access_token=${tokens.access_token || tokens.accessToken ? 'YES' : 'NO'}, refresh_token=${tokens.refresh_token || tokens.refreshToken ? 'YES' : 'NO'}`);
+            const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/import`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(gwPayload),
+              signal: AbortSignal.timeout(15000),
+            });
+            const gwData = await gwRes.json().catch(() => ({}));
+            if (gwRes.ok && gwData.success) {
+              console.log(`[Connect-Result] 🌐 Gateway nhận account: ${gwData.connection?.email || fullRecord.email}`);
+            } else {
+              console.warn(`[Connect-Result] ⚠️ Gateway import: ${JSON.stringify(gwData).slice(0, 150)}`);
+            }
+          } catch (gwErr) {
+            console.warn(`[Connect-Result] ⚠️ Không kết nối Gateway: ${gwErr.message}`);
+          }
+        }
+
+        // Trigger usage refresh
+        if (cfg.gatewayUrl) {
+          const syncSecret = cfg.d1SyncSecret || '';
+          fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {
+            headers: syncSecret ? { 'x-sync-secret': syncSecret } : undefined,
+          }).catch(() => { });
+        }
+      }
+
+      console.log(`[Connect-Result] ✅ Account ${fullRecord?.email || id} ready (connect flow)`);
+    } else {
+      // Error hoặc trạng thái không thành công
+      const errorMsg = message || `Connect worker status: ${status}`;
+      vault.db.prepare(
+        `UPDATE vault_accounts SET status='error', notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
+      ).run(errorMsg, id);
+      const errRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+      if (errRecord) SyncManager.pushVault('account', errRecord).catch(() => { });
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[Connect-Result] 💥 Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* Deploy v2: đánh dấu connect_pending=1 để auto-connect-worker nhận */
+router.post('/accounts/:id/retry-connect', async (req, res) => {
+  try {
+    const account = vault.getAccountFull(req.params.id);
+    if (!account) return res.status(404).json({ error: 'Not found' });
+    if (!account.password) return res.status(400).json({ error: 'Account thiếu password — không thể dùng Auto-Connect' });
+
+    // Đảm bảo cột connect_pending tồn tại (migration an toàn)
+    try {
+      vault.db.prepare(`ALTER TABLE vault_accounts ADD COLUMN connect_pending INTEGER DEFAULT 0`).run();
+    } catch (_) { /* column đã tồn tại */ }
+
+    vault.db.prepare(
+      `UPDATE vault_accounts SET connect_pending=1, status='pending', notes='', updated_at=datetime('now') WHERE id=?`
+    ).run(req.params.id);
+
+    console.log(`[Deploy v2] 🔌 Đánh dấu connect_pending cho: ${account.email}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Sync toàn bộ

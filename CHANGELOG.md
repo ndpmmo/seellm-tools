@@ -1,5 +1,42 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.16] - 2026-04-19
+
+### Added
+- **OAuth PKCE Core Integration (Auto-Connect Worker)**:
+  - Integrated `crypto` SHA-256 challenge generation for full OAuth 2.0 PKCE flow.
+  - Successfully acquiring raw `refresh_token`, `id_token`, and `access_token` to enable long-lived Codex connections.
+- **Hybrid Automation & API Bypass Engine**:
+  - Implemented a dual-layer strategy: DOM manipulation for stealthy login combined with background API calls for high-reliability navigation.
+  - **Programmatic Consent Bypass**: Automates the authorization redirect by injecting scripts to extract `oai-client-auth-session` and calling `/api/accounts/workspace/select` directly.
+  - **Phone Verification Workaround**: Navigates through the OAuth flow using direct API endpoints to circumvent the `/add-phone` UI wall when an authenticated session exists.
+
+### Changed
+- **Proxy-Aligned Token Exchange (Node.js/CURL)**:
+  - Refactored `exchangeCodeForTokens` to use `curl` instead of native `fetch`.
+  - Enforces strict proxy usage at the Node.js level, ensuring the entire OAuth lifecycle (Browser -> Code Exchange -> Token Sync) originates from the exact same Proxy IP.
+- **End-to-End Data Fidelity**:
+  - Worker now returns the full, unmodified OAuth response (`token_type`, `scope`, `expires_in`) in snake_case to match production API standards.
+  - Prevents "CamelCase data loss" that previously caused Gateway 401 errors due to missing `token_type: "Bearer"`.
+
+### Fixed
+- **Gateway Connectivity (401 Unauthorized)**:
+  - Fixed a critical bug where `Vault -> Gateway` sync was filtering out root token properties.
+  - Spread operator used in `gwPayload` now ensures `token_type` and `scope` reach the Gateway's `provider_connections` table.
+- **Device ID Binding**:
+  - Prioritizes `oai-device-id` cookies captured during the login flow to ensure the Gateway uses a stable hardware signature.
+
+
+
+## [0.1.15] - 2026-04-19
+
+### Fixed
+- **Gateway activation sync robustification**:
+  - `POST /accounts/connect-result` now explicitly pushes `isActive: true` to Gateway's `/api/oauth/codex/import` endpoint.
+  - Ensures newly connected accounts are immediately usable for model routing without manual activation.
+- **Provider metadata consistency**:
+  - Standardized the mapping of `workspacePlanType` in the Gateway import payload.
+
 ## [0.1.14] - 2026-04-14
 
 ### Changed
