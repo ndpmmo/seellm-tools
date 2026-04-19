@@ -1,5 +1,26 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.18] - 2026-04-20
+
+### Fixed
+- **OpenAI Registration MS Graph API OTP extraction**:
+  - Swapped client-side date comparison for Microsoft Graph OData server-side filter (`$filter=receivedDateTime ge ...`).
+  - Implemented accurate text extraction Regex `/\b(\d{6})\b/` on raw mail body instead of double-escaped strings to prevent grabbing stale or incorrect OTPs.
+  - Implemented automatic 'mark as read' right after OTP extraction to prevent recycling codes.
+- **SSO Login Collision in Browser Automation**:
+  - Explicitly updated `Click Continue` button selectors to ignore buttons containing `with` (e.g. `Continue with Google`, `Continue with Apple`), fixing a critical auth loop blocking login tests.
+- **OpenAI "About You" Form Bypass**:
+  - Built an aggressive bypass logic detecting both the old (`First Name`, `Last Name`) and new (`Full name`, `Age`) registration variants in React.
+  - Supplied an offline local database of **250,000 real-world name combinations** (`scripts/lib/names.js`) to generate perfectly unique user properties without external latency.
+  - Randomized User Age strictly clamped within 18-40 bounds for consistent "Date of Birth" calculations regardless of form type.
+- **OpenAI "What do you want to do" Survey Bypass**:
+  - Implemented detection and automated clicking of the detached `Skip`/`Bỏ qua` button on the final registration prompt to drop immediately into the target ChatGPT dashboard interface.
+  - Built a fallback strategy targeting generic survey answers (Personal use / Other) if `Skip` is omitted in A/B variants.
+
+### Added
+- **Detailed Registration Documentation**:
+  - Documented the entire automated OpenAI flow bypass architecture in `docs/OPENAI_REGISTRATION_FLOW.md`.
+
 ## [0.1.17] - 2026-04-19
 
 ### Added
