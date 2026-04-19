@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { resolve } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { createHmac } from 'crypto';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { CAMOUFOX_API, WORKER_AUTH_TOKEN } from './config.js';
 import { firstNames, lastNames } from './lib/names.js';
@@ -68,6 +69,29 @@ async function evalCode(tabId, code) {
         console.error("Lỗi eval:", e.message);
         return null;
     }
+}
+
+function getTOTP(secret) {
+    function base32tohex(base32) {
+        const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        let bits = '', hex = '';
+        const clean = base32.replace(/\s/g, '').toUpperCase();
+        for (let i = 0; i < clean.length; i++) {
+            const val = base32chars.indexOf(clean.charAt(i));
+            if (val === -1) continue;
+            bits += val.toString(2).padStart(5, '0');
+        }
+        for (let i = 0; i + 4 <= bits.length; i += 4) hex += parseInt(bits.substr(i, 4), 2).toString(16);
+        return hex;
+    }
+    const key = base32tohex(secret);
+    const epoch = Math.round(Date.now() / 1000);
+    const time = Buffer.from(Math.floor(epoch / 30).toString(16).padStart(16, '0'), 'hex');
+    const hmac = createHmac('sha1', Buffer.from(key, 'hex'));
+    const h = hmac.update(time).digest();
+    const offset = h[h.length - 1] & 0xf;
+    const otp = (h.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+    return otp.toString().padStart(6, '0');
 }
 
 async function runLogin() {
@@ -238,6 +262,67 @@ async function runLogin() {
             
             await new Promise(r => setTimeout(r, 6000));
             await takeScreenshot(tabId, '08_inside_chat');
+
+            console.log(`[7] Thiết lập 2FA (MFA)...`);
+            const mfaResult = await evalCode(tabId, `
+                (async () => {
+                    const endpoints = [
+                        "https://chatgpt.com/backend-api/accounts/mfa/setup",
+                        "https://chatgpt.com/backend-api/mfa/setup"
+                    ];
+                    
+                    for (const url of endpoints) {
+                        try {
+                            console.log('Trying MFA Setup URL:', url);
+                            const r = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'content-type': 'application/json' },
+                                body: JSON.stringify({})
+                            });
+                            if (r.ok) {
+                                const data = await r.json();
+                                return { success: true, url, data };
+                            }
+                            console.error('MFA Setup failed for', url, r.status);
+                        } catch (e) {
+                            console.error('MFA Setup error for', url, e.message);
+                        }
+                    }
+                    return { success: false };
+                })()
+            `);
+
+            console.log("MFA Result:", JSON.stringify(mfaResult));
+
+            if (mfaResult && mfaResult.success && mfaResult.data.secret) {
+                const secret = mfaResult.data.secret;
+                console.log(`[7.1] Secret tìm thấy: ${secret}`);
+                const totp = getTOTP(secret);
+                console.log(`[7.2] Mã TOTP sinh ra: ${totp}`);
+
+                const verifyRes = await evalCode(tabId, `
+                    (async () => {
+                        try {
+                            const r = await fetch("https://chatgpt.com/backend-api/accounts/mfa/verify", {
+                                method: 'POST',
+                                headers: { 'content-type': 'application/json' },
+                                body: JSON.stringify({ "code": "${totp}", "type": "authenticator" })
+                            });
+                            return { status: r.status, ok: r.ok };
+                        } catch (e) {
+                            return { error: e.message };
+                        }
+                    })()
+                `);
+                console.log("Verify Result:", JSON.stringify(verifyRes));
+                
+                if (verifyRes && verifyRes.ok) {
+                    console.log(`✅ [7.3] 2FA ĐÃ ĐƯỢC KÍCH HOẠT THÀNH CÔNG!`);
+                    writeFileSync(resolve(DATA_DIR, '2fa_secret.txt'), secret);
+                }
+            } else {
+                console.log(`❌ [7.1] Không thể lấy MFA Secret. Kiểm tra log phía trên.`);
+            }
         }
     }
 

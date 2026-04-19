@@ -1,5 +1,17 @@
 # Changelog - SeeLLM Tools
 
+## [0.1.19] - 2026-04-20
+
+### Added
+- **Auto-Saving to Vault**: Worker now automatically persists successful registrations to the local database via `POST /api/vault/accounts`.
+- **MFA Pipeline**: Integrated standalone `lib/mfa-setup.js` for automated Authenticator App enrollment during registration.
+- **Strong Password Policy**: Automated unique, 16+ character password generation (uppercase, lowercase, numbers, symbols) for every account registered.
+
+### Fixed
+- **Registration Logic**: Corrected button detection for "Finish creating account" variant (fixing regression where the worker would hang on the final registration step).
+- **Dashboard UI**: Rewrote `VaultAutoRegisterView` to correctly synchronize process logs and screenshots via centralized AppContext, preventing data loss on page refresh.
+- **MFA Stability**: Updated "Trouble scanning" selector to handle a wider range of DOM structures (a, button, span, p).
+
 ## [0.1.18] - 2026-04-20
 
 ### Fixed

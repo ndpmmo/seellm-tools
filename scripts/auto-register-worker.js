@@ -16,6 +16,7 @@ import { createHmac } from 'node:crypto';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN } from './config.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
+import { setupMFA } from './lib/mfa-setup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -115,8 +116,11 @@ async function saveStep(tabId, userId, runDir, label) {
 // ============================================
 
 export async function runAutoRegister(taskInput) {
-  const [email, password, refreshToken, clientId] = taskInput.split('|');
-  if (!email || !password || !refreshToken || !clientId) throw new Error("Input string is invalid (expected email|pass|refresh_token|client_id)");
+  const [email, emailPassword, refreshToken, clientId] = taskInput.split('|');
+  if (!email || !emailPassword || !refreshToken || !clientId) throw new Error("Input string is invalid (expected email|pass|refresh_token|client_id)");
+
+  // Tạo mật khẩu ngẫu nhiên đủ mạnh (>12 ký tự, có ký tự đặc biệt, số)
+  const chatGptPassword = crypto.randomBytes(12).toString('base64').replace(/[^a-zA-Z0-9]/g, '') + "1@StrongPass";
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -180,7 +184,7 @@ export async function runAutoRegister(taskInput) {
     await saveStep(tabId, USER_ID, runDir, '02_password_load');
 
     // 3. Form Điền Mật khẩu (create-account/password)
-    console.log(`[3] Điền Password -> ${password}`);
+    console.log(`[3] Điền Password -> ${chatGptPassword}`);
     await evalJson(tabId, USER_ID, `
           (() => {
             const typeReact = (inputSelector, text) => {
@@ -194,7 +198,7 @@ export async function runAutoRegister(taskInput) {
 
             const isVisible = el => el && el.getBoundingClientRect().width > 0;
             // Dùng Selector mới toanh vừa bắt được
-            typeReact('input[name="new-password"], input[type="password"]', "${password}");
+            typeReact('input[name="new-password"], input[type="password"]', "${chatGptPassword}");
             
             // Tìm nút Tiếp tục / Continue
             const btn = Array.from(document.querySelectorAll('button')).find(b => 
@@ -242,51 +246,104 @@ export async function runAutoRegister(taskInput) {
       await saveStep(tabId, USER_ID, runDir, '04_pin_verified');
     }
 
-    // 5. Cấp User Info
+    // 5. Cấp User Info (tên, ngày sinh)
     console.log(`[5] Bypass thông tin Form About...`);
     const userInfo = generateRandomUserInfo();
-    await evalJson(tabId, USER_ID, `
+    await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
+    await saveStep(tabId, USER_ID, runDir, '04b_before_about');
+
+    const aboutFillInfo = await evalJson(tabId, USER_ID, `
           (() => {
-             const typeReact = (inputSelector, text) => {
-               const input = document.querySelector(inputSelector);
-               if(!input) return false;
+             const typeReact = (el, text) => {
+               if (!el) return false;
                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-               nativeSetter.call(input, text);
-               input.dispatchEvent(new Event('input', { bubbles: true }));
+               nativeSetter.call(el, text);
+               el.dispatchEvent(new Event('input', { bubbles: true }));
+               el.dispatchEvent(new Event('change', { bubbles: true }));
                return true;
              };
 
-             // TH1: Form mới (Fullname + Age)
-             const nameInput = document.querySelector('input[name="name"], input[placeholder="Full name"]');
-             const ageInput = document.querySelector('input[name="age"], input[placeholder="Age"]');
-             
-             if (nameInput && ageInput) {
-                 typeReact('input[name="name"], input[placeholder="Full name"]', "${userInfo.name}");
-                 typeReact('input[name="age"], input[placeholder="Age"]', "${userInfo.age}");
-             } else {
-                 // TH2: Form cũ (First name, Last name, DOB)
-                 const inps = document.querySelectorAll('input[type="text"]');
-                 if(inps.length >= 2) {
-                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                    nativeSetter.call(inps[0], "${userInfo.name.split(' ')[0]}");
-                    inps[0].dispatchEvent(new Event('input', {bubbles:true}));
+             const filled = { name: false, bday: false, btn: false };
 
-                    nativeSetter.call(inps[1], "${userInfo.name.split(' ')[1]}");
-                    inps[1].dispatchEvent(new Event('input', {bubbles:true}));
-                    
-                    const dob = document.querySelector('input[placeholder="DD/MM/YYYY"]');
-                    if(dob) {
-                      nativeSetter.call(dob, "${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}");
-                      dob.dispatchEvent(new Event('input', {bubbles:true}));
-                    }
-                 }
+             // Điền Name — thử nhiều selector
+             const nameSelectors = [
+               'input[name="name"]',
+               'input[name="fullname"]', 
+               'input[name="full_name"]',
+               'input[autocomplete="name"]',
+               'input[placeholder="Full name"]',
+               'input[placeholder="Name"]',
+             ];
+             let nameEl = null;
+             for (const s of nameSelectors) {
+               nameEl = document.querySelector(s);
+               if (nameEl) break;
              }
+             if (nameEl) {
+                 typeReact(nameEl, '${userInfo.name}');
+                 filled.name = 'fullname';
+             } else {
+                 // thử split first/last name
+                 const firstName = document.querySelector('input[name="first_name"], input[placeholder*="first" i], input[placeholder*="First" i]');
+                 const lastName  = document.querySelector('input[name="last_name"],  input[placeholder*="last" i],  input[placeholder*="Last" i]');
+                 const parts = '${userInfo.name}'.split(' ');
+                 if (firstName) { typeReact(firstName, parts[0] || ''); filled.name = 'first'; }
+                 if (lastName)  { typeReact(lastName,  parts[1] || parts[0]); filled.name = filled.name + '+last'; }
+             }
+
+             // Điền ngày sinh / tuổi
+             const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
+                           document.querySelector('input[type="number"]');
+             const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                           document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="YYYY"]');
              
-             const isVisible = el => el && el.getBoundingClientRect().width > 0;
-             Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Agree') || b.textContent.includes('Continue'))?.click();
+             if (ageEl && ageEl.type !== 'date') {
+                 typeReact(ageEl, '${userInfo.age.toString()}');
+                 filled.bday = 'age';
+             } else if (dobEl) {
+                 // format DD/MM/YYYY hoặc MM/DD/YYYY
+                 const placeholder = dobEl.placeholder || '';
+                 let dobStr;
+                 if (placeholder.startsWith('MM')) {
+                     dobStr = '${userInfo.birthdate.slice(5,7)}/${userInfo.birthdate.slice(8,10)}/${userInfo.birthdate.slice(0,4)}';
+                 } else {
+                     dobStr = '${userInfo.birthdate.slice(8,10)}/${userInfo.birthdate.slice(5,7)}/${userInfo.birthdate.slice(0,4)}';
+                 }
+                 typeReact(dobEl, dobStr);
+                 filled.bday = 'dob';
+             }
+
+             // Click nút Agree / Continue / Finish creating account
+             const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                 const txt = b.textContent.toLowerCase().trim();
+                 return txt === 'agree' || txt === 'i agree' || txt === 'continue' || 
+                        txt === 'finish' || txt.includes('creating account') ||
+                        txt.includes('create account') || txt.includes('finish creating') ||
+                        txt.includes('ti\u1ebfp t\u1ee5c') || txt.includes('\u0111\u1ed3ng \u00fd');
+             });
+             if (btn) { btn.click(); filled.btn = btn.textContent.trim(); }
+             else { filled.btn = 'NOT_FOUND: ' + Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).join(' | '); }
+
+             return filled;
           })()
         `);
-    await new Promise(r => setTimeout(r, 6000));
+    console.log(`[5.1] Kết quả điền About: ${JSON.stringify(aboutFillInfo || {})}`);
+
+    // Nếu btn bị NOT_FOUND, thử thêm 1 lần nữa
+    if (typeof aboutFillInfo?.btn === 'string' && aboutFillInfo.btn.startsWith('NOT_FOUND')) {
+      console.log(`[5.2] Btn không tìm thấy, thử lại sau 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+      await evalJson(tabId, USER_ID, `
+        const btn = Array.from(document.querySelectorAll('button')).find(b => {
+            const t = b.textContent.toLowerCase().trim();
+            return t.includes('creating') || t.includes('finish') || t === 'continue' || t.includes('agree');
+        });
+        if (btn) btn.click();
+        return btn?.textContent || 'still_not_found';
+      `);
+    }
+
+    await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
     await saveStep(tabId, USER_ID, runDir, '05_about_completed');
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
@@ -356,49 +413,27 @@ export async function runAutoRegister(taskInput) {
 
     await saveStep(tabId, USER_ID, runDir, '06_home_reached');
 
-    // 7. SETUP 2FA (MFA)
+    // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
     console.log(`[7] BẬT BẢO MẬT 2FA / MFA CHO ACCOUNT NÀY...`);
     console.log(`==========================================`);
 
-    const mfaSetup = await evalJson(tabId, USER_ID, `
-          (async () => {
-             try {
-               const r = await fetch("https://chatgpt.com/backend-api/accounts/mfa/setup", {
-                  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({})
-               });
-               const rjson = await r.json();
-               return rjson;
-             } catch(e) { return null; }
-          })()
-        `);
+    // Helper để gọi Camoufox API (tái sử dụng camofoxPost)
+    const apiHelper = async (path, body = null) => {
+      if (body) return camofoxPost(path, body);
+      // GET request
+      const res = await fetch(`${CAMOUFOX_API}${path}?sessionKey=${WORKER_AUTH_TOKEN}`);
+      return res.json();
+    };
 
+    const mfaResult = await setupMFA(tabId, USER_ID, apiHelper);
     let twoFaSecret = null;
-    if (mfaSetup && mfaSetup.secret) {
-      twoFaSecret = mfaSetup.secret;
-      console.log(`[7.1] Sinh mã TOTP từ Secret: ${twoFaSecret}`);
 
-      const verificationOTP = getTOTP(twoFaSecret);
-
-      const mfaVerify = await evalJson(tabId, USER_ID, `
-              (async () => {
-                 try {
-                   const r = await fetch("https://chatgpt.com/backend-api/accounts/mfa/verify", {
-                      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ "code": "${verificationOTP}", "type": "authenticator" })
-                   });
-                   return r.status === 200;
-                 } catch(e) { return false; }
-              })()
-            `);
-
-      if (mfaVerify) {
-        console.log(`[7.2] 🟢 Bật 2FA Thành Công Toàn Bước! (MFA Active)`);
-      } else {
-        console.log(`[7.2] 🔴 Không thể verify MFA. Tuy nhiên Account vẫn an toàn.`);
-        twoFaSecret = null;
-      }
+    if (mfaResult.success) {
+      twoFaSecret = mfaResult.secret;
+      console.log(`[7.1] 🟢 Bật 2FA Thành Công! Secret: ${twoFaSecret}`);
     } else {
-      console.log(`[7.1] 🔴 Lỗi API MFA Setup: ${JSON.stringify(mfaSetup || 'null')}`);
+      console.log(`[7.1] 🔴 Lỗi MFA: ${mfaResult.error || 'Unknown'}. Account vẫn hoạt động bình thường.`);
     }
 
     // 8. TỔNG KẾT
@@ -413,10 +448,39 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
     console.log(`✅ ĐĂNG KÝ HOÀN TẤT THÀNH CÔNG: ${email}`);
     console.log(`🔑 Secret 2FA (MFA): ${twoFaSecret || 'None'}`);
+    console.log(`🔑 Mật khẩu ChatGPT: ${chatGptPassword}`);
     console.log(`==========================================`);
 
+    // Lưu tài khoản vào Vault DB qua API
+    try {
+      console.log(`[❤️] Đang lưu account vào Vault...`);
+      const saveRes = await fetch(`http://localhost:4000/api/vault/accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'codex',
+          label: email.split('@')[0],
+          email,
+          password: chatGptPassword,
+          two_fa_secret: twoFaSecret || '',
+          cookies: sessionToken ? JSON.stringify([{ name: '__Secure-next-auth.session-token', value: sessionToken }]) : '[]',
+          status: 'ready',
+          tags: JSON.stringify(['auto-register']),
+          notes: `Đăng ký tự động ${new Date().toISOString()} | MFA: ${twoFaSecret ? '✅' : '❌'}`,
+        }),
+      });
+      const saveData = await saveRes.json();
+      if (saveData.ok) {
+        console.log(`🟢 Đã lưu vào vault! ID: ${saveData.id}`);
+      } else {
+        console.log(`🔴 Lưu vault thất bại: ${JSON.stringify(saveData)}`);
+      }
+    } catch (saveErr) {
+      console.log(`🔴 Không lưu được vào vault (server chưa chạy?): ${saveErr.message}`);
+    }
+
     return {
-      success: true, email, password, twoFaSecret, sessionToken, createdAt: new Date().toISOString()
+      success: true, email, password: chatGptPassword, twoFaSecret, sessionToken, createdAt: new Date().toISOString()
     };
 
   } catch (error) {

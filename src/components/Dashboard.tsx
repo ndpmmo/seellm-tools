@@ -22,6 +22,7 @@ import { CamofoxDocsView } from './views/CamofoxDocsView';
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
 import { VaultProxiesView } from './views/vault/VaultProxiesView';
+import { VaultAutoRegisterView } from './views/vault/VaultAutoRegisterView';
 
 // ── Nav Item ─────────────────────────────────────────────
 function NavItem({
@@ -73,6 +74,7 @@ function Sidebar() {
 
         <div className="nav-section-label">Vault (Local)</div>
         <NavItem id="vault-accounts" icon={Users} label="Accounts" />
+        <NavItem id="vault-register" icon={Bot} label="Auto Register" />
         <NavItem id="vault-proxies" icon={Globe} label="Proxies" />
         <NavItem id="vault-keys" icon={Zap} label="API Keys" />
 
@@ -123,6 +125,7 @@ function Sidebar() {
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   dashboard: { title: 'Dashboard', desc: 'Tổng quan hệ thống và trạng thái realtime' },
   'vault-accounts': { title: 'Vault Accounts', desc: 'Quản lý tài khoản cá nhân đa nhà cung cấp · Local Vault' },
+  'vault-register': { title: 'Auto Register', desc: 'Tự động dập UID/Email hàng loạt · Vault Local' },
   'vault-proxies': { title: 'Vault Proxies', desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
   'vault-keys': { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
   accounts: { title: 'Codex Accounts', desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
@@ -186,6 +189,7 @@ function ContentRouter() {
 
       {/* Vault */}
       {view === 'vault-accounts' && <VaultAccountsView />}
+      {view === 'vault-register' && <VaultAutoRegisterView />}
       {view === 'vault-proxies' && <VaultProxiesView />}
       {view === 'vault-keys' && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
 
