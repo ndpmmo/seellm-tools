@@ -1,5 +1,23 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.1] - 2026-04-21
+
+### 🛠 UI Optimization & Terminal Redesign
+
+Refined the layout architecture for better scrolling stability and completely redesigned the Terminal interface.
+
+#### 🐚 Enhanced Terminal Experience
+- **Redesigned Layout**: Fixed the process sidebar width (`w-72`) to prevent "crushing" and text truncation.
+- **Mac-style Window**: Added authentic-feel window controls (Red/Yellow/Green dots) to the terminal header.
+- **Timestamp Fix**: Guaranteed log readability by fixing timestamp wrapping using `min-w-[70px]`.
+- **Responsive Stacking**: Implemented smart stacking for mobile/small screens (sidebar stacks at 45% height).
+- **Modern Empty State**: Applied a grain-noise radial gradient background for the "no process selected" screen.
+
+#### 📐 Layout & Scrolling Robustness
+- **Global Scroll Pattern**: Standardized all 15 views using the `absolute inset-0 overflow-y-auto` pattern, preventing views from getting "stuck".
+- **Router Container**: Wrapped `ContentRouter` in a `relative flex-1 min-h-0` container in `Dashboard.tsx` to provide a stable coordinate system for views.
+- **Changelog Parser**: Rebuilt the parser with robust Regex logic to prevent content truncation when encountering special characters or high-length logs.
+
 ## [0.2.0] - 2026-04-21
 
 ### 🎨 UI Overhaul — Premium Dark Glassmorphism Design System (Tailwind CSS v4)
