@@ -18,7 +18,6 @@ export function VaultAutoRegisterView() {
     const [emailPool, setEmailPool] = useState<any[]>([]);
     const [loadingPool, setLoadingPool] = useState(false);
     const [successAccounts, setSuccessAccounts] = useState<any[]>([]);
-    const [inputText, setInputText] = useState('');
     // tasks chỉ lưu metadata: { id, email, raw, processId, userId }
     const [tasks, setTasks] = useState<any[]>([]);
     const [isRunning, setIsRunning] = useState(false);
@@ -37,11 +36,11 @@ export function VaultAutoRegisterView() {
 
     const filteredPool = emailPool.filter(e => {
         const matchesSearch = e.email.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesStatus = 
+        const matchesStatus =
             statusFilter === 'all' ? true :
-            statusFilter === 'active' ? e.mail_status === 'active' :
-            statusFilter === 'done' ? e.chatgpt_status === 'done' :
-            statusFilter === 'failed' ? e.chatgpt_status === 'failed' : true;
+                statusFilter === 'active' ? e.mail_status === 'active' :
+                    statusFilter === 'done' ? e.chatgpt_status === 'done' :
+                        statusFilter === 'failed' ? e.chatgpt_status === 'failed' : true;
         return matchesSearch && matchesStatus;
     });
 
@@ -83,7 +82,7 @@ export function VaultAutoRegisterView() {
                     setSelectedEmail(data.items[0].email);
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
         setLoadingPool(false);
     };
 
@@ -93,12 +92,12 @@ export function VaultAutoRegisterView() {
             const data = await res.json();
             if (data.ok) {
                 // Lọc những acc có tag auto-register
-                const filtered = data.items.filter((a: any) => 
+                const filtered = data.items.filter((a: any) =>
                     (a.tags || []).includes('auto-register') || a.notes?.includes('Đăng ký tự động')
                 );
                 setSuccessAccounts(filtered.slice(0, 50));
             }
-        } catch (_) {}
+        } catch (_) { }
     };
 
     const checkEmailStatus = async (emailRecord: any) => {
@@ -121,7 +120,7 @@ export function VaultAutoRegisterView() {
     const startAllPending = async () => {
         const pending = emailPool.filter(e => e.chatgpt_status === 'not_created' || e.chatgpt_status === 'failed');
         if (!pending.length) return addToast('Không có email nào cần đăng ký', 'info');
-        
+
         addToast(`Bắt đầu đăng ký hàng loạt cho ${pending.length} email`, 'success');
         for (const e of pending) {
             await startRegistration(e);
@@ -132,7 +131,7 @@ export function VaultAutoRegisterView() {
     const verifyAllPool = async () => {
         const unknown = emailPool.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
         if (!unknown.length) return addToast('Tất cả email đã được verify', 'info');
-        
+
         addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email`, 'success');
         for (const e of unknown) {
             await checkEmailStatus(e);
@@ -140,29 +139,7 @@ export function VaultAutoRegisterView() {
         }
     };
 
-    // ── Xử lý Import Email ─────────────────────────────────────
-    const handleImport = async () => {
-        const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
-        if (!lines.length) return addToast('Nhập định dạng email|pass|refresh_token|client_id', 'error');
-
-        let count = 0;
-        for (const line of lines) {
-            const [email, password, refresh_token, client_id] = line.split('|');
-            if (!email) continue;
-            try {
-                await fetch('/api/vault/email-pool', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password, refresh_token, client_id }),
-                });
-                count++;
-            } catch (_) {}
-        }
-        addToast(`Đã import ${count} tài khoản vào Pool`, 'success');
-        setInputText('');
-        fetchPool();
-    };
-
+    // ── Xử lý Import Email đã được chuyển sang VaultEmailsView ──────────
     // ── Xử lý khi click bắt đầu từ Pool ───────────────────────
     const startRegistration = async (emailRecord: any) => {
         const raw = `${emailRecord.email}|${emailRecord.password}|${emailRecord.refresh_token}|${emailRecord.client_id}`;
@@ -214,41 +191,6 @@ export function VaultAutoRegisterView() {
         logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
 
-    // ── Xử lý khi click bắt đầu ───────────────────────────────
-    const handleStart = async () => {
-        const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
-        if (!lines.length) return addToast('Nhập dữ liệu định dạng email|pass|refresh_token|client_id', 'error');
-
-        const newTasks = lines.map(line => ({
-            id: Math.random().toString(36).slice(2),
-            raw: line,
-            email: line.split('|')[0] || 'Unknown',
-            processId: null as string | null,
-            userId: null as string | null,
-        }));
-
-        setTasks(newTasks);
-        setIsRunning(true);
-
-        for (const task of newTasks) {
-            try {
-                const res = await fetch('/api/processes/script/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scriptName: 'auto-register-worker.js', args: [task.raw] }),
-                });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
-
-                setTasks(curr => curr.map(t => t.id === task.id ? { ...t, processId: data.id } : t));
-            } catch (err: any) {
-                addToast(`Lỗi khởi chạy: ${err.message}`, 'error');
-            }
-        }
-
-        setIsRunning(false);
-    };
-
     // ── Lấy logs từ AppContext.processes ─────────────────────
     const getTaskLogs = (task: any): string[] => {
         if (!task.processId) return [];
@@ -296,9 +238,9 @@ export function VaultAutoRegisterView() {
     };
 
     return (
-        <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 h-[calc(100vh-52px)]">
+        <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-6 custom-scrollbar">
             <style>{animStyle}</style>
-            
+
             <div className="flex justify-between items-end mt-2">
                 <div className="flex flex-col">
                     <div className="text-xl font-bold text-slate-100">Dự án Đăng ký Tự động</div>
@@ -326,7 +268,7 @@ export function VaultAutoRegisterView() {
             </div>
 
             <div className="grid grid-cols-[minmax(320px,1fr)_2fr_180px] gap-5 flex-1 min-h-0">
-                
+
                 {/* ── Cột 1: Explorer ── */}
                 <Card className="flex flex-col overflow-hidden">
                     <CardHeader className="bg-black/10">
@@ -334,8 +276,8 @@ export function VaultAutoRegisterView() {
                         <Button size="icon-sm" variant="ghost" onClick={fetchPool}><RefreshCw size={14} /></Button>
                     </CardHeader>
                     <div className="p-3 border-b border-white/5 flex gap-2 bg-black/5">
-                        <Input 
-                            placeholder="Tìm kiếm email..." 
+                        <Input
+                            placeholder="Tìm kiếm email..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
@@ -349,11 +291,10 @@ export function VaultAutoRegisterView() {
                         {filteredPool.map(e => {
                             const isTaskRunning = tasks.some(t => t.email === e.email && getTaskStatus(t) === 'running');
                             return (
-                                <div 
-                                    key={e.email} 
-                                    className={`px-3 py-2.5 rounded-lg cursor-pointer flex items-center justify-between transition-all mb-1 border-l-[3px] ${
-                                        selectedEmail === e.email ? 'border-l-indigo-500 bg-white/5' : 'border-l-transparent hover:bg-white/[0.02]'
-                                    }`}
+                                <div
+                                    key={e.email}
+                                    className={`px-3 py-2.5 rounded-lg cursor-pointer flex items-center justify-between transition-all mb-1 border-l-[3px] ${selectedEmail === e.email ? 'border-l-indigo-500 bg-white/5' : 'border-l-transparent hover:bg-white/[0.02]'
+                                        }`}
                                     onClick={() => setSelectedEmail(e.email)}
                                 >
                                     <div className="overflow-hidden flex-1">
@@ -385,9 +326,9 @@ export function VaultAutoRegisterView() {
                                     <Button size="sm" onClick={() => checkEmailStatus(poolRecord)} title="Verify Mail Access">
                                         <Mail size={12} /> Verify
                                     </Button>
-                                    <Button 
+                                    <Button
                                         variant="primary"
-                                        size="sm" 
+                                        size="sm"
                                         onClick={() => startRegistration(poolRecord)}
                                         disabled={poolRecord.chatgpt_status === 'done' || poolRecord.chatgpt_status === 'processing'}
                                     >
@@ -407,9 +348,8 @@ export function VaultAutoRegisterView() {
                                                 </div>
                                                 <div className="p-3 text-[11px] text-slate-400 overflow-y-auto flex-1 font-mono leading-relaxed break-all">
                                                     {getTaskLogs(activeTask).map((l, i) => (
-                                                        <div key={i} className={`mb-0.5 ${
-                                                            /❌|🔴|error|failed/i.test(l) ? 'text-rose-400' : /✅|🟢|success|thành công/i.test(l) ? 'text-emerald-400' : ''
-                                                        }`}>
+                                                        <div key={i} className={`mb-0.5 ${/❌|🔴|error|failed/i.test(l) ? 'text-rose-400' : /✅|🟢|success|thành công/i.test(l) ? 'text-emerald-400' : ''
+                                                            }`}>
                                                             {l}
                                                         </div>
                                                     ))}
@@ -461,8 +401,8 @@ export function VaultAutoRegisterView() {
                 <div className="flex flex-col gap-5">
                     <Card className="flex flex-col gap-3 p-4 bg-[#1e1e23]/80 backdrop-blur-xl border border-white/10">
                         <div className="text-[11px] font-bold text-slate-300 uppercase tracking-widest mb-1">Quick Actions</div>
-                        <Button variant="ghost" className="justify-start border-white/10 hover:bg-white/10" onClick={() => (document.getElementById('import-modal') as any)?.showModal()}>
-                            <List size={14} className="text-indigo-400" /> Import List
+                        <Button variant="ghost" className="justify-start border-white/10 hover:bg-white/10" onClick={() => setView('vault-emails')}>
+                            <Mail size={14} className="text-indigo-400" /> Quản lý Email Pool
                         </Button>
                         <Button variant="primary" className="justify-start shadow-md shadow-indigo-500/20" onClick={startAllPending}>
                             <Play size={14} /> Start Pending
@@ -501,27 +441,6 @@ export function VaultAutoRegisterView() {
                     </Card>
                 </div>
             </div>
-
-            {/* ── Modal Import ── */}
-            <dialog id="import-modal" className="m-auto rounded-xl bg-[#0f111a] border border-white/10 p-0 shadow-2xl backdrop-blur-3xl w-[440px] text-slate-200">
-                <div className="px-5 py-4 border-b border-white/5 font-semibold">
-                    Import Email List
-                </div>
-                <div className="p-5 flex flex-col gap-3">
-                    <p className="text-xs text-slate-400">Định dạng: <code className="font-mono text-indigo-400 bg-indigo-500/10 px-1 rounded">email|pass|refresh_token|client...</code></p>
-                    <textarea 
-                        className="w-full h-[300px] resize-none bg-black/40 border border-white/10 rounded-md p-3 text-[11px] font-mono text-slate-300 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
-                        placeholder="user1@example.com|pass|refresh|client..."
-                        value={inputText}
-                        onChange={e => setInputText(e.target.value)}
-                    />
-                    <div className="flex justify-end gap-2 mt-2">
-                        <Button variant="ghost" onClick={() => (document.getElementById('import-modal') as any)?.close()}>Hủy</Button>
-                        <Button variant="primary" onClick={() => { handleImport(); (document.getElementById('import-modal') as any)?.close(); }}>Import</Button>
-                    </div>
-                </div>
-            </dialog>
-
         </div>
     );
 }
