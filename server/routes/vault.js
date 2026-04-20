@@ -129,13 +129,14 @@ router.get('/accounts', (req, res) => {
 router.post('/accounts', async (req, res) => {
   try {
     const isNew = !req.body.id;
-    const record = vault.upsertAccount(req.body); // triggers SyncManager internally (skipSync=false)
+    const skipSync = req.body.skipSync === true;
+    const record = vault.upsertAccount(req.body, skipSync); 
     res.json({ ok: true, id: record.id });
 
     // New Codex account → push lên D1 managed để Worker auto-login
-    if (isNew && record.provider === 'codex') {
+    if (isNew && record.provider === 'codex' && !skipSync) {
       console.log(`[Vault] 🚀 New Codex account → Sync to D1: ${record.email}`);
-      // SyncManager đã được gọi bởi upsertAccount, không cần gọi lại
+      // SyncManager đã được gọi bởi upsertAccount
     }
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -188,6 +189,44 @@ router.post('/api-keys', async (req, res) => {
 router.delete('/api-keys/:id', async (req, res) => {
   try { vault.deleteApiKey(req.params.id); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  EMAIL POOL CRUD                                                           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+router.get('/email-pool', (req, res) => {
+  try { res.json({ ok: true, items: vault.getEmailPool() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/email-pool', async (req, res) => {
+  try {
+    const record = vault.upsertEmailPool(req.body);
+    res.json({ ok: true, email: record.email });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/email-pool/:email', async (req, res) => {
+  try { vault.deleteEmailPool(req.params.email); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/email-pool/check', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const pool = vault.getEmailPoolFull();
+    const record = pool.find(e => e.email === email);
+    if (!record) return res.status(404).json({ error: 'Email not found in pool' });
+
+    const raw = `${record.email}|${record.password}|${record.refresh_token}|${record.client_id}`;
+    
+    // Trigger check-mail-worker.js via process runner logic if needed, 
+    // or just run it directly as a child process here for simplicity if not using the full process manager.
+    // However, the dashboard expects a processId to show logs.
+    // Let's assume we use the existing /api/processes/script/run pattern.
+    res.json({ ok: true, raw }); // Frontend will call /api/processes/script/run with this raw data
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════════════ */

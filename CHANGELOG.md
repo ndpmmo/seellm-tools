@@ -1,5 +1,68 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.0] - 2026-04-21
+
+### 🎨 UI Overhaul — Premium Dark Glassmorphism Design System (Tailwind CSS v4)
+
+Complete redesign of the entire dashboard interface. Replaced ~1950 lines of legacy CSS with a scalable,
+component-driven system powered by **Tailwind CSS v4** and a custom dark-mode design language.
+
+#### Design System Foundation
+- **Tailwind CSS v4**: Migrated from v3 syntax (`@tailwind base/utilities`) to v4 (`@import "tailwindcss"` + `@theme {}`)
+- **PostCSS**: Updated `postcss.config.js` to use `@tailwindcss/postcss` with ESM export
+- **`globals.css`**: Stripped from 1950+ lines down to ~70 lines (CSS vars, scrollbars, font import)
+- **New UI Component Library** (`src/components/ui/index.tsx`): Centralized reusable Tailwind components:
+  - `Button` — 6 variants (primary, secondary, ghost, danger, success, icon-sm), 4 sizes
+  - `Card`, `CardHeader`, `CardTitle`, `CardContent` — glassmorphism panels
+  - `Input` — unified dark-mode input field with focus ring
+  - `StatBox` — animated stat card with icon, value, label, and active state
+
+#### Core Layout & Navigation
+- **`Dashboard.tsx`**: Wrapped in `AppProvider`, redesigned with `AppProvider > Layout > Sidebar > Topbar > ContentRouter`
+- **`Sidebar`**: Full Tailwind dark nav with grouped menu sections (Tổng Quan, Vault Local, D1 Cloud, Công Cụ, Tài Nguyên), lucide icons, active state highlight
+- **`Topbar`**: Glassmorphism header with page title/desc, icon, and Live/Offline status badge
+- **`Views.tsx`**: Migrated shared components:
+  - `ConfirmModal` — proper dark overlay + glassmorphism dialog
+  - `ToastContainer` — slide-in toast notifications with type icons
+  - `Spinner` — CSS animated ring
+  - `Badge` — status badge with colored variants
+
+#### View-by-View Migrations
+All 13 views fully migrated to Tailwind CSS:
+
+- **`DashboardView`**: Stats grid with `StatBox`, process table with status badges, quick actions
+- **`AccountsView`**: Multi-provider accounts table, `CopyBadge` for password/2FA copy-to-clipboard, plan badges, inline edit modal, D1 sync button
+- **`VaultAccountsView`**: Vault local accounts, service badges (ChatGPT, etc.), `CopyBadge` credentials, auto-assign proxy, export to D1
+- **`VaultEmailsView`**: Email pool inventory, service registration badges, import/add panel, status filter tabs, check-status action
+- **`VaultAutoRegisterView`**: Auto-register wizard with live log streaming, screenshot panel, stats, `setView` navigation to Email Pool
+- **`VaultProxiesView`**: Proxy pool table with slot count, usage indicator, add/delete, date column
+- **`ProxiesView`**: D1 Proxy Pool full management — add single/bulk import, slot grid (busy/free), inline edit, slot reset, confirm dialogs
+- **`TerminalView`**: Split 2-column layout — process sidebar selector + scrollable log output with color-coded lines (stdout/stderr/system)
+- **`ScreenshotsView`**: Session cards grid, Advanced Viewer overlay with filmstrip, live viewer with blinking badge
+- **`ConnectionsView`**: Authenticated connections table with status dots, token display
+- **`ScriptsView`**: Script cards with emoji icons, description, optional arg input, Run button, flow guide steps
+- **`LogFilesView`**: File list with search/size filter, bulk select+delete, file viewer with line numbers and color-coded log levels
+- **`SettingsView`**: Section cards (Camofox, Gateway, Worker, Folders), show/hide token, eye icon
+- **`ChangelogView`**: Timeline layout with version dots, section tags, sub-items
+- **`CamofoxDocsView`**: Docs article with code blocks, info banners, checklist
+
+#### Bug Fixes
+- Fixed `Button` `size="icon"` → `size="icon-sm"` type mismatch across vault views
+- Fixed `allowRun`/`allowDeploy` scope error in `VaultAccountsView` map loop
+- Fixed missing `CardTitle` import in `TerminalView`
+- Fixed log type comparison `l.type === 'err'` → `l.type === 'stderr'`
+- Fixed `fmtDateTimeVN` missing import in `VaultProxiesView`
+- Fixed `setView` not destructured in `VaultAutoRegisterView`
+- Fixed `AppProvider` missing wrapper in `Dashboard.tsx` causing `Error: no ctx` on SSR prerender
+- Fixed `@import` order in `globals.css` (Google Fonts import must precede `@import "tailwindcss"`)
+- Fixed `postcss.config.js` CommonJS syntax in ESM project (changed `module.exports` to `export default`)
+
+### Added
+- **Copy-to-Clipboard badges** on password & 2FA secret fields across `AccountsView` and `VaultAccountsView`
+- **VaultEmailsView** extracted as standalone menu item under Vault (Local) section
+- **Service registration badges** on email pool entries (ChatGPT, etc.)
+- **`check-mail-worker.js`** script for automated mailbox status verification
+
 ## [0.1.19] - 2026-04-20
 
 ### Added

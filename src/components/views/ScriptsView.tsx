@@ -1,27 +1,40 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../AppContext';
-import { Spinner } from '../Views';
+import { Play, RefreshCw, Terminal, FileCode } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
 
 const META: Record<string, { ico: string; desc: string; arg?: string }> = {
-  'auto-login-worker.js': { ico:'🤖', desc:'Worker chính: poll task từ Gateway, tự động OAuth login qua Camofox' },
-  'get-session-token.js': { ico:'🔑', desc:'Lấy session token từ cookies Camofox sau khi login xong' },
-  'ping-servers.js':      { ico:'📡', desc:'Kiểm tra kết nối Camofox và SeeLLM Gateway' },
-  'test-camofox.js':      { ico:'🦊', desc:'Test server Camofox: mở tab, snapshot, screenshot' },
-  'test-proxy.js':        { ico:'🔀', desc:'Test proxy qua Camofox và kiểm tra IP thực', arg:'http://user:pass@host:port' },
-  'gen-2fa.js':           { ico:'🔐', desc:'Tạo mã TOTP 2FA từ Base32 secret key', arg:'SECRET_KEY_BASE32' },
+  'auto-login-worker.js': { ico: '🤖', desc: 'Worker chính: poll task từ Gateway, tự động OAuth login qua Camofox' },
+  'get-session-token.js': { ico: '🔑', desc: 'Lấy session token từ cookies Camofox sau khi login xong' },
+  'ping-servers.js': { ico: '📡', desc: 'Kiểm tra kết nối Camofox và SeeLLM Gateway' },
+  'test-camofox.js': { ico: '🦊', desc: 'Test server Camofox: mở tab, snapshot, screenshot' },
+  'test-proxy.js': { ico: '🔀', desc: 'Test proxy qua Camofox và kiểm tra IP thực', arg: 'http://user:pass@host:port' },
+  'gen-2fa.js': { ico: '🔐', desc: 'Tạo mã TOTP 2FA từ Base32 secret key', arg: 'SECRET_KEY_BASE32' },
 };
+
+const FLOW = [
+  ['1', '📡', 'Chạy ping-servers để kiểm tra kết nối'],
+  ['2', '🦊', 'Khởi động Camofox (sidebar hoặc Dashboard)'],
+  ['3', '🦊', 'Chạy test-camofox để verify Camofox OK'],
+  ['4', '🤖', 'Khởi động Worker — sẽ tự poll task từ Gateway'],
+  ['5', '📸', 'Theo dõi Screenshots để thấy browser đang làm gì'],
+  ['6', '🔑', 'Sau khi xong, chạy get-session-token để lấy token'],
+];
 
 export function ScriptsView() {
   const { runScript, getScripts, setView, setSelectedLog } = useApp();
-  const [scripts,  setScripts]  = useState<string[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [running,  setRunning]  = useState<Record<string,boolean>>({});
-  const [args,     setArgs]     = useState<Record<string,string>>({});
+  const [scripts, setScripts] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState<Record<string, boolean>>({});
+  const [args, setArgs] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
     getScripts().then(s => { setScripts(s); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const run = async (name: string) => {
     setRunning(p => ({ ...p, [name]: true }));
@@ -32,70 +45,86 @@ export function ScriptsView() {
   };
 
   return (
-    <div className="content">
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">📜 Scripts ({scripts.length})</span>
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span style={{ fontSize:11, fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)' }}>seellm-tools/scripts/</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => { setLoading(true); getScripts().then(s => { setScripts(s); setLoading(false); }); }}>↻</button>
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
+      {/* Scripts list */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <FileCode size={15} className="text-indigo-400" />
+            Scripts ({scripts.length})
+          </CardTitle>
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-[11px] font-mono text-slate-500">seellm-tools/scripts/</span>
+            <Button variant="ghost" size="icon-sm" onClick={load} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </Button>
           </div>
-        </div>
-        <div className="card-body">
+        </CardHeader>
+        <CardContent className="p-0">
           {loading ? (
-            <div style={{ display:'flex', gap:10, color:'var(--text-3)' }}><Spinner/> Đang tải...</div>
+            <div className="py-12 flex items-center justify-center gap-3 text-slate-500">
+              <span className="w-4 h-4 border-2 border-white/10 border-t-indigo-500 rounded-full animate-spin" />
+              Đang tải danh sách scripts...
+            </div>
+          ) : scripts.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 text-sm">Không tìm thấy scripts nào</div>
           ) : (
-            <div className="script-list">
+            <div className="divide-y divide-white/5">
               {scripts.map(name => {
-                const m = META[name] || { ico:'📜', desc:'' };
+                const m = META[name] || { ico: '📜', desc: '' };
                 return (
-                  <div key={name} className="scr-item">
-                    <span className="scr-ico">{m.ico}</span>
-                    <div className="scr-info">
-                      <div className="scr-name">{name}</div>
-                      {m.desc && <div className="scr-desc">{m.desc}</div>}
+                  <div key={name} className="flex items-center gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors group">
+                    <div className="text-xl shrink-0 select-none">{m.ico}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[13px] font-semibold text-slate-200">{name}</div>
+                      {m.desc && <div className="text-[11.5px] text-slate-500 mt-0.5">{m.desc}</div>}
                       {m.arg && (
-                        <input
-                          className="inp mono"
-                          style={{ marginTop:7, padding:'4px 8px', fontSize:11 }}
+                        <Input
+                          className="mt-2 h-7 text-[11px] font-mono max-w-xs"
                           placeholder={m.arg}
-                          value={args[name]||''}
+                          value={args[name] || ''}
                           onChange={e => setArgs(p => ({ ...p, [name]: e.target.value }))}
                         />
                       )}
                     </div>
-                    <div className="scr-acts">
-                      <button className="btn btn-primary btn-sm" onClick={() => run(name)} disabled={running[name]}>
-                        {running[name] ? <Spinner/> : '▶'} Run
-                      </button>
-                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => run(name)}
+                      disabled={running[name]}
+                      className="shrink-0 opacity-70 group-hover:opacity-100 transition-opacity"
+                    >
+                      {running[name]
+                        ? <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                        : <Play size={12} />
+                      }
+                      Run
+                    </Button>
                   </div>
                 );
               })}
             </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Flow guide */}
-      <div className="card">
-        <div className="card-head"><span className="card-title">📋 Quy trình đề xuất</span></div>
-        <div className="card-body" style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {[
-            ['1','📡','Chạy ping-servers để kiểm tra kết nối'],
-            ['2','🦊','Khởi động Camofox (sidebar hoặc Dashboard)'],
-            ['3','🦊','Chạy test-camofox để verify Camofox OK'],
-            ['4','🤖','Khởi động Worker — sẽ tự poll task từ Gateway'],
-            ['5','📸','Theo dõi Screenshots để thấy browser đang làm gì'],
-            ['6','🔑','Sau khi xong, chạy get-session-token để lấy token'],
-          ].map(([n,ico,txt]) => (
-            <div key={n} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'var(--glass)', borderRadius:8, border:'1px solid var(--border)' }}>
-              <div style={{ width:22, height:22, background:'var(--indigo)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>{n}</div>
-              <span style={{ fontSize:13, color:'var(--text-2)' }}>{ico} {txt}</span>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Terminal size={14} className="text-cyan-400" />
+            Quy trình đề xuất
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2.5">
+          {FLOW.map(([n, ico, txt]) => (
+            <div key={n} className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-lg border border-white/5">
+              <div className="w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0">{n}</div>
+              <span className="text-[13px] text-slate-300">{ico} {txt}</span>
             </div>
           ))}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -66,84 +66,53 @@ export function ChangelogView() {
   if (currentVersion) versions.push(currentVersion);
 
   return (
-    <div className="content">
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">
-            <History size={16} />
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
+      <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between gap-3">
+          <h3 className="text-[13.5px] font-semibold text-slate-100 flex items-center gap-2">
+            <History size={15} className="text-indigo-400" />
             Lịch sử thay đổi (Changelog)
-          </span>
-          <button className="btn-icon" onClick={() => window.location.reload()}>
-            <RefreshCw size={14} />
+          </h3>
+          <button className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:bg-white/10 hover:text-slate-200 transition-colors" onClick={() => window.location.reload()}>
+            <RefreshCw size={13} />
           </button>
         </div>
 
-        <div className="card-body" style={{ padding: '20px' }}>
+        <div className="p-6">
           {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-              <div className="spin" style={{ width: 30, height: 30 }} />
+            <div className="flex justify-center py-10">
+              <span className="w-7 h-7 border-2 border-white/10 border-t-indigo-500 rounded-full animate-spin" />
             </div>
           ) : error ? (
-            <div style={{ padding: '20px', background: 'var(--rose-dim)', color: 'var(--rose)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <AlertCircle size={20} />
-              {error}
+            <div className="p-4 bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded-xl flex items-center gap-3">
+              <AlertCircle size={18} /> {error}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
+            <div className="flex flex-col gap-8">
               {versions.map((v, i) => (
-                <div key={i} style={{ position: 'relative', paddingLeft: '30px', borderLeft: '2px solid var(--border)' }}>
-                  {/* Timeline Dot */}
-                  <div style={{ position: 'absolute', left: '-7px', top: '5px', width: 12, height: 12, borderRadius: '50%', background: i === 0 ? 'var(--indigo-2)' : 'var(--text-4)', border: '2px solid var(--bg-1)' }} />
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '16px' }}>
-                    <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)' }}>
-                      {formatVersionLabel(v.version)}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '12px', color: 'var(--text-3)', background: 'var(--glass)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}>
-                      <Calendar size={12} />
-                      {v.date}
-                    </div>
-                    {i === 0 && (
-                      <span style={{ fontSize: '10px', background: 'var(--green-dim)', color: 'var(--green)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase' }}>
-                        Latest
-                      </span>
-                    )}
+                <div key={i} className="relative pl-8 border-l-2 border-white/10">
+                  <div className={`absolute left-[-7px] top-1.5 w-3 h-3 rounded-full border-2 border-[#0d111c] ${i === 0 ? 'bg-indigo-400' : 'bg-slate-600'}`} />
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-[17px] font-bold text-slate-100">{formatVersionLabel(v.version)}</span>
+                    <span className="flex items-center gap-1.5 text-[11.5px] text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
+                      <Calendar size={11} /> {v.date}
+                    </span>
+                    {i === 0 && <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold uppercase tracking-wide">Latest</span>}
                   </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <div className="flex flex-col gap-5">
                     {v.sections.map((s: any, si: number) => (
                       <div key={si}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--indigo-2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Tag size={12} />
-                          {s.title}
+                        <div className="text-[11.5px] font-bold text-indigo-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                          <Tag size={11} /> {s.title}
                         </div>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <ul className="flex flex-col gap-2">
                           {s.items.map((item: any, ii: number) => {
                             const isSub = typeof item === 'object' ? item.isSubItem : false;
                             const text = typeof item === 'object' ? item.text : item;
-                            
                             return (
-                              <li key={ii} style={{ 
-                                fontSize: isSub ? '13px' : '14px', 
-                                color: isSub ? 'var(--text-3)' : 'var(--text-2)', 
-                                display: 'flex', 
-                                alignItems: 'flex-start', 
-                                gap: 10,
-                                marginLeft: isSub ? '20px' : '0',
-                                opacity: isSub ? 0.9 : 1
-                              }}>
-                                <div style={{ 
-                                  width: isSub ? '4px' : '6px', 
-                                  height: isSub ? '4px' : '6px', 
-                                  borderRadius: '50%', 
-                                  background: isSub ? 'var(--text-4)' : 'var(--indigo-2)', 
-                                  marginTop: isSub ? '7px' : '8px', 
-                                  flexShrink: 0, 
-                                  opacity: 0.6 
-                                }} />
-                                <span dangerouslySetInnerHTML={{ 
-                                  __html: text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-                                }} />
+                              <li key={ii} className={`flex items-start gap-2.5 ${isSub ? 'ml-5 text-[12px] text-slate-500' : 'text-[13px] text-slate-300'}`}>
+                                <div className={`w-1.5 h-1.5 rounded-full mt-[6px] shrink-0 ${isSub ? 'bg-slate-600' : 'bg-indigo-400'}`} />
+                                <span dangerouslySetInnerHTML={{ __html: text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100">$1</strong>') }} />
                               </li>
                             );
                           })}
@@ -158,13 +127,13 @@ export function ChangelogView() {
         </div>
       </div>
 
-      <div style={{ marginTop: '20px', padding: '15px', background: 'var(--indigo-soft)', borderRadius: '12px', border: '1px solid rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', gap: 15 }}>
-        <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--indigo-2)' }}>
-          <Info size={20} />
+      <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-4">
+        <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+          <Info size={18} />
         </div>
         <div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--indigo-2)' }}>Hệ thống Quản lý Phiên bản</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>Tất cả các thay đổi được ghi nhận tự động và đồng bộ với kho lưu trữ Git của hệ thống SeeLLM.</div>
+          <div className="text-[13.5px] font-semibold text-indigo-300">Hệ thống Quản lý Phiên bản</div>
+          <div className="text-[12px] text-slate-500 mt-0.5">Tất cả các thay đổi được ghi nhận tự động và đồng bộ với kho lưu trữ Git của hệ thống SeeLLM.</div>
         </div>
       </div>
     </div>

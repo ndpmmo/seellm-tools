@@ -4,10 +4,11 @@ import {
   Plus, Upload, Search, RefreshCw,
   Copy, Check, Pencil, Trash2, RotateCcw,
   Save, X, AlertCircle, ChevronDown, ChevronUp,
-  Users, CheckCircle, Clock, XCircle, Globe, Database
+  Users, CheckCircle, Clock, XCircle, Globe, Database, Key, Shield
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { fmtDateTimeVN, ConfirmModal, Spinner } from '../Views';
+import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../ui';
 import { AlertTriangle } from 'lucide-react';
 
 /* ── Helpers ── */
@@ -63,20 +64,34 @@ function CopyBtn({ text }: { text?: string }) {
   if (!text) return null;
   return (
     <button onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(text); setOk(true); setTimeout(() => setOk(false), 1400); }}
-      style={{ background: 'none', border: 'none', cursor: 'pointer', color: ok ? 'var(--green)' : 'var(--text-3)', padding: '2px', display: 'inline-flex', transition: 'color .2s', flexShrink: 0 }}>
+      className={`shrink-0 p-0.5 inline-flex transition-colors ${ok ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}>
       {ok ? <Check size={12} /> : <Copy size={12} />}
     </button>
   );
 }
 
 /* ── Mono Cell (for pass/2fa) ── */
-function MonoCell({ value }: { value?: string }) {
+function MonoCell({ value, icon: Icon, colorClass = 'text-slate-400' }: { value?: string, icon?: any, colorClass?: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <span className="text-slate-500">—</span>;
+  
+  const onCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <code style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: value ? 'var(--text-2)' : 'var(--text-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
-        {value || '—'}
+    <div 
+      onClick={onCopy}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/20 border border-white/5 cursor-pointer transition-all hover:border-indigo-400/50 hover:bg-black/40 group select-none"
+    >
+      {Icon && <Icon size={11} className={colorClass} />}
+      <code className="text-xs font-mono text-slate-300 max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap">
+        {value}
       </code>
-      <CopyBtn text={value} />
+      {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} className="opacity-50 group-hover:opacity-100 transition-opacity text-slate-400" />}
     </div>
   );
 }
@@ -129,34 +144,34 @@ function getStatusPresentation(it: any) {
 
   if (!isActive) {
     if (errorType === 'upstream_auth_error' || errorType === 'auth_missing' || errorType === 'token_refresh_failed' || errorType === 'token_expired') {
-      return { label: 'Auth Failed', color: 'var(--rose)', bg: 'var(--rose-dim)', errorType };
+      return { label: 'Auth Failed', colorClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/20', errorType };
     }
     if (errorType === 'upstream_rate_limited') {
-      return { label: 'Rate Limited', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+      return { label: 'Rate Limited', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/20', errorType };
     }
-    return { label: 'Disabled', color: 'var(--text-3)', bg: 'var(--glass)', errorType: null };
+    return { label: 'Disabled', colorClass: 'text-slate-400', bgClass: 'bg-slate-500/10', borderClass: 'border-slate-500/20', errorType: null };
   }
 
   if (effectiveStatus === 'active' || effectiveStatus === 'success' || effectiveStatus === 'ready') {
-    return { label: 'Connected', color: 'var(--green)', bg: 'var(--green-dim)', errorType: null };
+    return { label: 'Connected', colorClass: 'text-emerald-400', bgClass: 'bg-emerald-500/10', borderClass: 'border-emerald-500/20', errorType: null };
   }
   if (effectiveStatus === 'pending' || effectiveStatus === 'processing') {
-    return { label: 'Pending', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType: null };
+    return { label: 'Pending', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/20', errorType: null };
   }
   if (errorType === 'runtime_error') {
-    return { label: 'Runtime Issue', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+    return { label: 'Runtime Issue', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/20', errorType };
   }
   if (errorType === 'upstream_auth_error' || errorType === 'auth_missing' || errorType === 'token_refresh_failed' || errorType === 'token_expired') {
-    return { label: 'Auth Failed', color: 'var(--rose)', bg: 'var(--rose-dim)', errorType };
+    return { label: 'Auth Failed', colorClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/20', errorType };
   }
   if (errorType === 'upstream_rate_limited') {
-    return { label: 'Rate Limited', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+    return { label: 'Rate Limited', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/20', errorType };
   }
   if (errorType === 'network_error') {
-    return { label: 'Network Issue', color: 'var(--amber)', bg: 'var(--amber-dim)', errorType };
+    return { label: 'Network Issue', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/20', errorType };
   }
   if (errorType === 'unsupported') {
-    return { label: 'Test Unsupported', color: 'var(--text-3)', bg: 'var(--glass)', errorType };
+    return { label: 'Test Unsupported', colorClass: 'text-slate-400', bgClass: 'bg-slate-500/10', borderClass: 'border-slate-500/20', errorType };
   }
 
   const fallback: Record<string, string> = {
@@ -167,8 +182,7 @@ function getStatusPresentation(it: any) {
   };
   return {
     label: fallback[effectiveStatus] || (effectiveStatus ? effectiveStatus.toUpperCase() : 'Error'),
-    color: 'var(--rose)',
-    bg: 'var(--rose-dim)',
+    colorClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/20',
     errorType,
   };
 }
@@ -185,13 +199,13 @@ function StatusBadge({ item }: { item: any }) {
   const p = getStatusPresentation(item);
   const errorTypeLabel = p.errorType ? (ERROR_TYPE_LABELS[p.errorType] || p.errorType) : null;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: p.bg, color: p.color, border: `1px solid ${p.color}25` }}>
-        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+    <div className="flex flex-col gap-1.5 items-start">
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide border ${p.bgClass} ${p.colorClass} ${p.borderClass}`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-current" />
         {p.label}
       </span>
       {errorTypeLabel && item?.is_active !== 0 && item?.isActive !== false && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: 'var(--glass)', color: 'var(--text-3)', border: '1px solid var(--border)' }}>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-slate-400 border border-white/10 uppercase tracking-wider">
           {errorTypeLabel}
         </span>
       )}
@@ -200,30 +214,6 @@ function StatusBadge({ item }: { item: any }) {
 }
 
 const PAGE_SIZE = 100;
-
-/* ── Stat Card ── */
-function StatCard({ icon: Icon, value, label, color, bg, active, onClick }: {
-  icon: React.ElementType; value: number; label: string; color: string; bg: string; active: boolean; onClick: () => void;
-}) {
-  return (
-    <div onClick={onClick} style={{
-      minWidth: 0,
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '14px 16px', borderRadius: 12, cursor: 'pointer', transition: 'all .15s',
-      background: active ? bg : 'var(--glass)',
-      border: `1px solid ${active ? color + '40' : 'var(--border)'}`,
-      boxShadow: active ? `0 0 20px ${color}18` : 'none',
-    }}>
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color }}>
-        <Icon size={18} />
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
 
 /* ══════════════════════════════════════════════════════════ */
 export function AccountsView() {
@@ -392,7 +382,27 @@ export function AccountsView() {
     setEdit2fa(it.two_fa_secret || '');
     setEditProxy(it.proxy_url || '');
   };
-  const saveEdit = async () => { if (!editId) return; setEditSaving(true); await patch(`/api/d1/accounts/${editId}`, { password: editPass, twoFaSecret: edit2fa, proxyUrl: editProxy }); addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load(); };
+  const saveEdit = async () => { 
+    if (!editId) return; 
+    setEditSaving(true); 
+    
+    const payload: any = { 
+      proxyUrl: editProxy, 
+      proxy_url: editProxy 
+    };
+
+    if (editPass && !editPass.includes('***')) payload.password = editPass;
+    if (edit2fa && !edit2fa.includes('***')) {
+      payload.twoFaSecret = edit2fa;
+      payload.two_fa_secret = edit2fa;
+    }
+
+    await patch(`/api/d1/accounts/${editId}`, payload); 
+    addToast('✅ Đã lưu', 'success'); 
+    setEditId(null); 
+    setEditSaving(false); 
+    load(); 
+  };
   const cancelEdit = () => setEditId(null);
   const assignFromPool = async (id: string, selectedProxyId?: string) => {
     setAssigningId(id);
@@ -466,187 +476,178 @@ export function AccountsView() {
 
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
-  /* ── base cell style ── */
-  const th: React.CSSProperties = { padding: '10px 14px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .6, whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-2)' };
-  const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, verticalAlign: 'middle' };
-
   return (
-    <div className="content">
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5">
 
       {/* ═══ STATS ═══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <StatCard icon={Users} value={cnt.total} label="Tất cả" color="var(--indigo-2)" bg="var(--indigo-soft)" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
-        <StatCard icon={CheckCircle} value={cnt.ready} label="Ready" color="var(--green)" bg="var(--green-dim)" active={statusFilter === 'ready'} onClick={() => setStatusFilter('ready')} />
-        <StatCard icon={Clock} value={cnt.pending} label="Pending" color="var(--amber)" bg="var(--amber-dim)" active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
-        <StatCard icon={XCircle} value={cnt.error} label="Error" color="var(--rose)" bg="var(--rose-dim)" active={statusFilter === 'error'} onClick={() => setStatusFilter('error')} />
+      <div className="grid grid-cols-4 gap-5 mt-2">
+        <StatBox icon={Users} value={cnt.total} label="Tất cả" colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/50" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
+        <StatBox icon={CheckCircle} value={cnt.ready} label="Ready" colorClass="text-emerald-400" bgClass="bg-emerald-500/10" borderClass="border-emerald-500/50" active={statusFilter === 'ready'} onClick={() => setStatusFilter('ready')} />
+        <StatBox icon={Clock} value={cnt.pending} label="Pending" colorClass="text-amber-400" bgClass="bg-amber-500/10" borderClass="border-amber-500/50" active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
+        <StatBox icon={XCircle} value={cnt.error} label="Error" colorClass="text-rose-400" bgClass="bg-rose-500/10" borderClass="border-rose-500/50" active={statusFilter === 'error'} onClick={() => setStatusFilter('error')} />
       </div>
 
       {/* ═══ ADD / BULK ═══ */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title"><Plus size={14} /> Thêm Tài Khoản</span>
-          <button className={`btn btn-sm ${bulkOpen ? 'btn-warning' : 'btn-ghost'}`} onClick={() => setBulkOpen(v => !v)}>
+      <Card>
+        <CardHeader>
+          <CardTitle><Plus size={14} className="text-indigo-400" /> Thêm Tài Khoản</CardTitle>
+          <Button 
+            size="sm" 
+            variant={bulkOpen ? 'primary' : 'ghost'} 
+            onClick={() => setBulkOpen(v => !v)}
+            className="ml-auto"
+          >
             <Upload size={12} /> Import hàng loạt {bulkOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          </button>
-        </div>
-        <div className="card-body" style={{ padding: '14px 18px' }}>
+          </Button>
+        </CardHeader>
+        <CardContent>
           {!bulkOpen ? (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input className="inp" style={{ flex: '2 1 200px' }} placeholder="Email *" value={newEmail} onChange={e => setNewEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
-              <input className="inp" style={{ flex: '1 1 150px' }} placeholder="Password" value={newPass} onChange={e => setNewPass(e.target.value)} />
-              <input className="inp" style={{ flex: '1 1 150px' }} placeholder="2FA Secret" value={new2fa} onChange={e => setNew2fa(e.target.value)} />
-              <button className="btn btn-primary" disabled={adding || !newEmail} onClick={add} style={{ flexShrink: 0 }}>
-                {adding ? <span className="spin" style={{ width: 13, height: 13 }} /> : <Plus size={14} />} Tạo mới
-              </button>
+            <div className="flex gap-3 flex-wrap items-center">
+              <Input className="flex-[2_1_200px]" placeholder="Email *" value={newEmail} onChange={e => setNewEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
+              <Input className="flex-[1_1_150px]" placeholder="Password" value={newPass} onChange={e => setNewPass(e.target.value)} />
+              <Input className="flex-[1_1_150px]" placeholder="2FA Secret" value={new2fa} onChange={e => setNew2fa(e.target.value)} />
+              <Button variant="primary" disabled={adding || !newEmail} onClick={add} className="shrink-0 whitespace-nowrap">
+                {adding ? <span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Plus size={14} />} Tạo mới
+              </Button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ padding: '8px 12px', background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7 }}>
-                <strong style={{ color: 'var(--text)' }}>Định dạng:</strong>{' '}
-                <code style={{ fontSize: 11, color: 'var(--cyan)' }}>email:password:2fa</code> hoặc <code style={{ fontSize: 11, color: 'var(--cyan)' }}>email|pass|2fa</code> hoặc <code style={{ fontSize: 11, color: 'var(--cyan)' }}>Tab-separated</code>
+            <div className="flex flex-col gap-3">
+              <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-400 leading-relaxed">
+                <strong className="text-slate-200">Định dạng:</strong>{' '}
+                <code className="text-[11px] text-cyan-400 bg-cyan-500/10 px-1 rounded">email:password:2fa</code> hoặc <code className="text-[11px] text-cyan-400 bg-cyan-500/10 px-1 rounded">email|pass|2fa</code> hoặc <code className="text-[11px] text-cyan-400 bg-cyan-500/10 px-1 rounded">Tab-separated</code>
               </div>
-              <textarea className="inp mono" rows={5} placeholder={`chatgpt@mail.com:password123:JBSWY3DP\nuser2@mail.com:pass2`}
+              <textarea className="w-full bg-black/40 border border-white/10 rounded-md p-3 text-[11px] font-mono text-slate-300 resize-y focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" rows={5} placeholder={`chatgpt@mail.com:password123:JBSWY3DP\nuser2@mail.com:pass2`}
                 value={bulkText} onChange={e => { setBulkText(e.target.value); setBulkRows(parseBulk(e.target.value)); }}
-                style={{ resize: 'vertical', lineHeight: 1.7 }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 12, color: bulkRows.length ? 'var(--green)' : 'var(--text-3)' }}>
+              />
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className={bulkRows.length ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
                   {bulkRows.length ? `✅ ${bulkRows.length} tài khoản hợp lệ` : 'Dán danh sách vào ô trên…'}
                 </span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setBulkOpen(false); setBulkText(''); setBulkRows([]); }}><X size={12} /> Hủy</button>
-                  <button className="btn btn-primary btn-sm" disabled={bulkBusy || !bulkRows.length} onClick={bulkImport}>
-                    {bulkBusy ? <span className="spin" style={{ width: 12, height: 12 }} /> : <Upload size={12} />} Import {bulkRows.length || ''}
-                  </button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => { setBulkOpen(false); setBulkText(''); setBulkRows([]); }}><X size={12} /> Hủy</Button>
+                  <Button variant="primary" size="sm" disabled={bulkBusy || !bulkRows.length} onClick={bulkImport}>
+                    {bulkBusy ? <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Upload size={12} />} Import {bulkRows.length || ''}
+                  </Button>
                 </div>
               </div>
             </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* ═══ TABLE ═══ */}
-      <div className="card">
+      <Card className="flex flex-col flex-1 min-h-[400px]">
         {/* Header bar */}
-        <div className="card-head">
-          <span className="card-title">Managed Accounts <span className="nav-badge b">{filtered.length}</span></span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-            <button 
-              className="btn btn-sm btn-ghost" 
+        <CardHeader className="bg-black/10 border-b border-white/5 py-3 px-5 flex-wrap gap-y-3">
+          <CardTitle>Managed Accounts <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span></CardTitle>
+          <div className="flex flex-wrap gap-2 items-center ml-auto">
+            <Button 
+              size="sm"
+              variant="secondary"
               onClick={syncAll} 
               disabled={syncingAll || filtered.length === 0}
-              style={{ color: 'var(--indigo-2)', borderColor: 'var(--indigo-2)' }}
+              className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
             >
-              {syncingAll ? <span className="spin" style={{ width: 12, height: 12, marginRight: 6 }} /> : <Database size={12} />}
+              {syncingAll ? <span className="w-3 h-3 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mr-1.5" /> : <Database size={12} />}
               Sync All to D1
-            </button>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={13} style={{ position: 'absolute', left: 10, color: 'var(--text-3)', pointerEvents: 'none' }} />
-              <input className="inp inp-sm" style={{ paddingLeft: 28, width: 180 }} placeholder="Tìm email…" value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 0, display: 'flex' }}><X size={11} /></button>}
+            </Button>
+            <div className="relative flex items-center">
+              <Search size={13} className="absolute left-2.5 text-slate-500 pointer-events-none" />
+              <Input className="pl-7 w-[180px] h-8 text-xs bg-white/5 border-white/10" placeholder="Tìm email…" value={search} onChange={e => setSearch(e.target.value)} />
+              {search && <button onClick={() => setSearch('')} className="absolute right-2 text-slate-500 hover:text-slate-300"><X size={11} /></button>}
             </div>
-            <div style={{ display: 'flex', gap: 3, background: 'var(--glass)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-white/10">
               {['all', 'ready', 'pending', 'error'].map(f => (
-                <button key={f} onClick={() => setStatusFilter(f)} style={{
-                  padding: '4px 10px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer', transition: 'all .12s',
-                  background: statusFilter === f ? 'var(--indigo-glow)' : 'transparent',
-                  color: statusFilter === f ? 'var(--indigo-2)' : 'var(--text-3)',
-                }}>{f}</button>
+                <button key={f} onClick={() => setStatusFilter(f)} className={`
+                  px-2.5 py-1 text-[11px] font-bold rounded-md transition-all uppercase tracking-wider
+                  ${statusFilter === f ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}
+                `}>{f}</button>
               ))}
             </div>
-            <button className="btn btn-sm btn-ghost" title="Tự động gán proxy từ pool" onClick={autoAssignFromPool} disabled={autoAssigning}>
-              <Globe size={12} /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
-            </button>
-            <button className="btn-icon" title="Refresh" onClick={() => load()} disabled={loading}>
-              <RefreshCw size={13} style={{ animation: loading ? 'rotate .65s linear infinite' : 'none' }} />
-            </button>
+            <Button size="icon-sm" variant="secondary" title="Tự động gán proxy từ pool" onClick={autoAssignFromPool} disabled={autoAssigning} className="w-auto px-2 border-white/10 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500/30">
+              <Globe size={12} className="mr-1.5" /> {autoAssigning ? 'Đang gán…' : 'Auto Proxy'}
+            </Button>
+            <Button size="icon-sm" variant="ghost" title="Refresh" onClick={() => load()} disabled={loading} className="border border-white/5 bg-white/5 hover:bg-white/10">
+              <RefreshCw size={13} className={`${loading ? 'animate-spin' : ''} text-slate-300`} />
+            </Button>
           </div>
-        </div>
+        </CardHeader>
 
-        {error && <div style={{ margin: '12px 18px 0', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--rose-dim)', color: 'var(--rose)', borderRadius: 8, fontSize: 13, border: '1px solid rgba(244,63,94,.2)' }}><AlertCircle size={14} /> {error}</div>}
+        {error && <div className="mx-5 mt-4 mb-1 flex items-center gap-2 p-3 bg-rose-500/10 text-rose-400 rounded-lg text-[13px] border border-rose-500/30"><AlertCircle size={14} /> {error}</div>}
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full min-w-[1000px] border-collapse text-left">
             <thead>
-              <tr style={{ background: 'var(--glass)' }}>
-                <th style={th}>Email</th>
-                <th style={th}>Mật khẩu</th>
-                <th style={th}>2FA</th>
-                <th style={th}>Status</th>
-                <th style={th}>Usage</th>
-                <th style={th}>Proxy</th>
-                <th style={th}>Thời gian</th>
-                <th style={{ ...th, textAlign: 'right', minWidth: 90 }}></th>
+              <tr className="bg-white/5 border-y border-white/5">
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Email</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Mật khẩu</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">2FA</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Usage</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Proxy</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Thời gian</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap text-right min-w-[90px]"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-white/5">
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
+                <tr><td colSpan={8} className="text-center p-10 text-slate-500 text-[13px]">{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
               )}
               {filtered.map(it => {
                 const ed = editId === it.id;
                 return (
-                  <tr key={it.id} style={{ borderBottom: '1px solid var(--border)', background: ed ? 'rgba(99,102,241,.05)' : 'transparent', transition: 'background .1s' }}
-                    onMouseEnter={e => { if (!ed) (e.currentTarget.style.background = 'var(--glass)'); }}
-                    onMouseLeave={e => { if (!ed) (e.currentTarget.style.background = 'transparent'); }}>
+                  <tr key={it.id} className={`transition-colors group hover:bg-white/[0.02] ${ed ? 'bg-indigo-500/5' : ''}`}>
 
                     {/* Email & Activation Toggle */}
-                    <td style={{ ...td, minWidth: 240 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <td className="px-4 py-3.5 min-w-[240px] align-middle">
+                      <div className="flex items-center gap-3">
                         <div
                           onClick={() => toggleActive(it.id, it.is_active)}
-                          style={{
-                            width: 12, height: 12, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
-                            background: it.is_active === 0 ? 'var(--text-4)' : 'var(--green)',
-                            border: `2px solid ${it.is_active === 0 ? 'var(--border)' : 'var(--green-dim)'}`,
-                            boxShadow: it.is_active === 0 ? 'none' : '0 0 10px var(--green-dim)',
-                            transition: 'all .2s'
-                          }}
+                          className={`w-3 h-3 rounded-full cursor-pointer shrink-0 transition-all border-2 ${
+                            it.is_active === 0 ? 'bg-slate-600 border-white/10 hover:border-slate-400' : 'bg-emerald-500 border-emerald-500/30 hover:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                          }`}
                           title={it.is_active === 0 ? "Đang tạm dừng (Nhấn để bật)" : "Đang hoạt động (Nhấn để tắt)"}
                         />
-                        <div style={{
-                          fontWeight: 600,
-                          fontSize: 13.5,
-                          color: it.is_active === 0 ? 'var(--text-4)' : 'var(--text)',
-                          textDecoration: it.is_active === 0 ? 'line-through' : 'none',
-                          opacity: it.is_active !== 0 ? 1 : 0.6
-                        }}>
+                        <div className={`font-semibold text-[13.5px] truncate max-w-[180px] ${
+                          it.is_active === 0 ? 'text-slate-500 line-through' : 'text-slate-200'
+                        }`}>
                           {it.email}
                         </div>
                       </div>
                       {it.last_error && !ed && (
-                        <div title={it.last_error} style={{ marginTop: 4, fontSize: 11, color: 'var(--rose)', display: 'flex', alignItems: 'center', gap: 4, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <AlertCircle size={10} style={{ flexShrink: 0 }} /> {it.last_error}
+                        <div title={it.last_error} className="mt-1 text-[11px] text-rose-400 flex items-center gap-1 max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          <AlertCircle size={10} className="shrink-0" /> {it.last_error}
                         </div>
                       )}
                     </td>
 
                     {/* Pass */}
-                    <td style={{ ...td, minWidth: 160 }}>
-                      {ed ? <input className="inp inp-sm mono" value={editPass} onChange={e => setEditPass(e.target.value)} placeholder="Password" /> : <MonoCell value={it.password} />}
+                    <td className="px-4 py-3.5 min-w-[160px] align-middle">
+                      {ed ? <Input className="h-8 text-[11px] font-mono" value={editPass} onChange={e => setEditPass(e.target.value)} placeholder="Password" /> : <MonoCell value={it.password} icon={Key} colorClass="text-amber-400" />}
                     </td>
 
                     {/* 2FA */}
-                    <td style={{ ...td, minWidth: 160 }}>
-                      {ed ? <input className="inp inp-sm mono" value={edit2fa} onChange={e => setEdit2fa(e.target.value)} placeholder="2FA Secret" /> : <MonoCell value={it.two_fa_secret} />}
+                    <td className="px-4 py-3.5 min-w-[160px] align-middle">
+                      {ed ? <Input className="h-8 text-[11px] font-mono" value={edit2fa} onChange={e => setEdit2fa(e.target.value)} placeholder="2FA Secret" /> : <MonoCell value={it.two_fa_secret} icon={Shield} colorClass="text-emerald-400" />}
                     </td>
 
                     {/* Status */}
-                    <td style={td}><StatusBadge item={it} /></td>
+                    <td className="px-4 py-3.5 align-middle"><StatusBadge item={it} /></td>
 
                     {/* Usage */}
-                    <td style={{ ...td, minWidth: 140 }}>
+                    <td className="px-4 py-3.5 min-w-[140px] align-middle">
                       {(it.discovered_limit || it.quotas_json || it.quota_json) ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div className="flex flex-col gap-1.5">
                           {it.discovered_limit ? (
                             <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 3 }}>
+                              <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
                                 <span>{(((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / 1000).toFixed(1)}k tokens</span>
                                 <span>{(it.discovered_limit / 1000).toFixed(0)}k limit</span>
                               </div>
-                              <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{
-                                  height: '100%',
-                                  background: ((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit > 0.8 ? 'var(--rose)' : 'var(--indigo-glow)',
+                              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                                <div className={`h-full ${
+                                  ((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit > 0.8 ? 'bg-rose-500' : 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)]'
+                                }`} style={{
                                   width: `${Math.min(100, (((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit) * 100)}%`
                                 }} />
                               </div>
@@ -659,15 +660,19 @@ export function AccountsView() {
                             const qs = normalizeQuotas(qRaw);
                             if (!qs.length) return null;
                             return (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              <div className="flex flex-wrap gap-1 mt-1">
                                 {qs.map((q: any, i: number) => {
                                   const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
-                                  const color = pct > 80 ? 'var(--rose)' : (pct > 50 ? 'var(--amber)' : 'var(--emerald)');
+                                  const base = pct > 80 ? 'rose' : (pct > 50 ? 'amber' : 'emerald');
                                   const remain = safePercentRemaining(q.used, q.total);
                                   return (
                                     <div key={i} title={`${q.name}: ${q.used}/${q.total}`}
-                                      style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}33`, background: `${color}11`, color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
+                                      className={`text-[9px] px-1.5 py-px rounded border font-bold flex items-center gap-1 uppercase tracking-widest ${
+                                        base === 'rose' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                        base === 'amber' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                      }`}>
+                                      <div className={`w-1 h-1 rounded-full ${base === 'rose' ? 'bg-rose-400' : base === 'amber' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                                       {q.name}: {remain ?? 0}%
                                     </div>
                                   );
@@ -677,15 +682,15 @@ export function AccountsView() {
                           })()}
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--text-4)', fontSize: 12 }}>Unknown</span>
+                        <span className="text-slate-500 text-xs">—</span>
                       )}
                     </td>
 
                     {/* Proxy */}
-                    <td style={{ ...td, minWidth: 140 }}>
+                    <td className="px-4 py-3.5 min-w-[140px] align-middle">
                       {ed ? (
-                        <div style={{ display: 'grid', gap: 6 }}>
-                          <select className="inp inp-sm" value={editProxy} onChange={e => setEditProxy(e.target.value)}>
+                        <div className="flex flex-col gap-1.5">
+                          <select className="h-8 rounded-lg bg-black/40 border border-white/10 text-[11px] text-slate-300 px-2 outline-none focus:border-indigo-500/50" value={editProxy} onChange={e => setEditProxy(e.target.value)}>
                             <option value="">(Không dùng proxy)</option>
                             {proxies.map((p: any) => (
                               <option key={p.id} value={p.url}>
@@ -693,37 +698,47 @@ export function AccountsView() {
                               </option>
                             ))}
                           </select>
-                          <input className="inp inp-sm mono" value={editProxy} onChange={e => setEditProxy(e.target.value)} placeholder="http://proxy:port" />
+                          <Input className="h-8 text-[11px] font-mono" value={editProxy} onChange={e => setEditProxy(e.target.value)} placeholder="http://proxy:port" />
                         </div>
                       ) : it.proxy_url ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--indigo-2)', fontFamily: 'monospace', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <Globe size={11} style={{ flexShrink: 0 }} /> {it.proxy_url}
+                        <div className="flex items-center gap-1.5 text-[11.5px] text-indigo-400 font-mono max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap select-none bg-indigo-500/10 px-2 py-0.5 rounded cursor-help" title={it.proxy_url}>
+                          <Globe size={11} className="shrink-0" /> {it.proxy_url}
                         </div>
-                      ) : <span style={{ color: 'var(--text-4)', fontSize: 12 }}>—</span>}
+                      ) : <span className="text-slate-500 text-xs">—</span>}
                     </td>
 
                     {/* Time */}
-                    <td style={{ ...td, color: 'var(--text-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    <td className="px-4 py-3.5 text-slate-400 text-[11px] whitespace-nowrap align-middle">
                       <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
-                      <div>Cập nhật: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
+                      <div className="mt-0.5">Cập nhật: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
                     </td>
 
                     {/* Actions */}
-                    <td style={{ ...td, textAlign: 'right' }}>
+                    <td className="px-4 py-3.5 text-right align-middle">
                       {ed ? (
-                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                          <button className="btn btn-success btn-sm" disabled={editSaving} onClick={saveEdit}>{editSaving ? <span className="spin" style={{ width: 11, height: 11 }} /> : <Save size={12} />} Lưu</button>
-                          <button className="btn-icon" onClick={cancelEdit} title="Hủy"><X size={13} /></button>
+                        <div className="flex gap-1.5 justify-end">
+                          <Button variant="success" size="sm" disabled={editSaving} onClick={saveEdit}>
+                            {editSaving ? <span className="w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-400 rounded-full animate-spin" /> : <Save size={12} />} Lưu
+                          </Button>
+                          <Button variant="secondary" size="icon-sm" onClick={cancelEdit} title="Hủy" className="border-white/10 hover:bg-white/10"><X size={13} /></Button>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                          <button className="btn-icon" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} style={{ color: 'var(--cyan)' }}>
+                        <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="secondary" size="icon-sm" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="text-cyan-400 border-white/10 hover:bg-cyan-500/10 hover:border-cyan-500/30">
                             <Globe size={13} />
-                          </button>
-                          <button className="btn-icon" title="Ép đồng bộ lên D1" onClick={() => bypassSync(it.id, it.email)} style={{ color: 'var(--indigo-2)' }}><Database size={13} /></button>
-                          <button className="btn-icon" title="Sửa" onClick={() => openEdit(it)}><Pencil size={13} /></button>
-                          <button className="btn-icon success" title="Re-run → pending" onClick={() => reset(it.id)}><RotateCcw size={13} /></button>
-                          <button className="btn-icon danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></button>
+                          </Button>
+                          <Button variant="secondary" size="icon-sm" title="Ép đồng bộ lên D1" onClick={() => bypassSync(it.id, it.email)} className="text-indigo-400 border-white/10 hover:bg-indigo-500/10 hover:border-indigo-500/30">
+                            <Database size={13} />
+                          </Button>
+                          <Button variant="secondary" size="icon-sm" title="Sửa" onClick={() => openEdit(it)} className="text-slate-400 border-white/10 hover:bg-white/10 hover:text-slate-200">
+                            <Pencil size={13} />
+                          </Button>
+                          <Button variant="secondary" size="icon-sm" title="Re-run → pending" onClick={() => reset(it.id)} className="text-emerald-400 border-white/10 hover:bg-emerald-500/10 hover:border-emerald-500/30">
+                            <RotateCcw size={13} />
+                          </Button>
+                          <Button variant="danger" size="icon-sm" title="Xóa" onClick={() => del(it.id)} className="border-white/10">
+                            <Trash2 size={13} />
+                          </Button>
                         </div>
                       )}
                     </td>
@@ -734,13 +749,13 @@ export function AccountsView() {
           </table>
         </div>
         {hasMore && (
-          <div style={{ padding: '10px 14px 14px', display: 'flex', justifyContent: 'center' }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => load({ append: true })} disabled={loadingMore}>
+          <div className="p-4 flex justify-center border-t border-white/5 bg-black/10">
+            <Button variant="secondary" size="sm" onClick={() => load({ append: true })} disabled={loadingMore} className="min-w-[120px] bg-white/5 border-white/10 hover:bg-white/10">
               {loadingMore ? 'Đang tải…' : `Tải thêm ${PAGE_SIZE}`}
-            </button>
+            </Button>
           </div>
         )}
-      </div>
+      </Card>
 
       {confirmModal && (
         <ConfirmModal 

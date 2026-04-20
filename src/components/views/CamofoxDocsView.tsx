@@ -1,291 +1,77 @@
 import React from 'react';
 import { FileText, Info, Code, AlertTriangle, CheckCircle } from 'lucide-react';
 
-const box: React.CSSProperties = {
-  background: 'var(--bg-1)',
-  padding: 16,
-  borderRadius: 8,
-  overflowX: 'auto',
-  border: '1px solid var(--border-2)',
-  color: 'var(--text-2)',
-  fontFamily: 'monospace',
-  fontSize: 13,
-  marginBottom: 20,
-};
-
 export function CamofoxDocsView() {
   return (
-    <div className="content">
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">
-            <FileText size={16} />
+    <div className="flex-1 overflow-y-auto px-6 pb-10 pt-2">
+      <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-white/5">
+          <h3 className="text-[13.5px] font-semibold text-slate-100 flex items-center gap-2">
+            <FileText size={15} className="text-indigo-400" />
             Tài liệu Custom Camofox Browser
-          </span>
+          </h3>
         </div>
 
-        <div className="card-body" style={{ padding: 24, lineHeight: 1.7, fontSize: 14 }}>
-          <div style={{ padding: 16, background: 'var(--blue-dim)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8, marginBottom: 24, display: 'flex', gap: 12 }}>
-            <Info size={20} color="var(--blue)" style={{ marginTop: 2, flexShrink: 0 }} />
-            <div style={{ color: 'var(--text)' }}>
-              Camofox gốc đủ cho thao tác tab cơ bản, nhưng chưa đủ tốt cho luồng OpenAI/Codex có <code>add_phone</code>, <code>consent</code>, redirect OAuth và session reuse.
+        <div className="p-6 text-[13.5px] leading-relaxed text-slate-300">
+          <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-6 flex gap-3">
+            <Info size={18} className="text-blue-400 mt-0.5 shrink-0" />
+            <div>
+              Camofox gốc đủ cho thao tác tab cơ bản, nhưng chưa đủ tốt cho luồng OpenAI/Codex có <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded text-[12px]">add_phone</code>, <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded text-[12px]">consent</code>, redirect OAuth và session reuse.
               <br />
               Tài liệu này ghi lại toàn bộ phần vá cần thiết để sau này cập nhật Camofox vẫn có thể patch lại nhanh và đúng.
             </div>
           </div>
 
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircle size={18} />
-            Bản Đã Vá
+          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-4">
+            <CheckCircle size={16} className="text-emerald-400" /> Bản Đã Vá
           </h3>
-          <div style={{ padding: 12, border: '1px solid var(--border-2)', borderRadius: 8, background: 'var(--bg-1)', marginBottom: 14 }}>
-            <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Đường dẫn Camofox trên máy</div>
-            <div style={{ color: 'var(--text-2)' }}>Repo local: <code>/Users/ndpmmo/Documents/Tools/camofox-browser</code></div>
-            <div style={{ color: 'var(--text-2)' }}>Server file: <code>/Users/ndpmmo/Documents/Tools/camofox-browser/server.js</code></div>
-            <div style={{ color: 'var(--text-2)' }}>Node path: <code>/usr/local/bin/node</code></div>
-            <div style={{ color: 'var(--text-2)' }}>API base: <code>http://localhost:3144</code></div>
+          <div className="p-4 bg-white/[0.03] border border-white/10 rounded-lg mb-4 text-[12.5px] space-y-1.5">
+            <div className="font-semibold text-slate-200 mb-2">Đường dẫn Camofox trên máy</div>
+            {[
+              ['Repo local', '/Users/ndpmmo/Documents/Tools/camofox-browser'],
+              ['Server file', '/Users/ndpmmo/Documents/Tools/camofox-browser/server.js'],
+              ['Node path', '/usr/local/bin/node'],
+              ['API base', 'http://localhost:3144'],
+            ].map(([label, val]) => (
+              <div key={label} className="text-slate-400">{label}: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">{val}</code></div>
+            ))}
           </div>
-          <ul style={{ paddingLeft: 20, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <li>Thư mục đã vá: <code>/Users/ndpmmo/Documents/Tools/camofox-browser</code></li>
-            <li>Port đang dùng với Tools: <code>http://localhost:3144</code></li>
-            <li>Node Tools phải dùng để start Camofox: <code>/usr/local/bin/node</code></li>
-            <li>Phiên bản đã kiểm tra: <code>@askjo/camofox-browser@1.5.2</code></li>
-            <li>Route có sẵn trước khi vá: <code>wait-for-selector</code>, <code>wait-for-url</code>, <code>evaluate</code></li>
-            <li>Route đã thêm mới: <code>GET /sessions/:userId/cookies</code>, <code>GET /tabs/:tabId/cookies</code>, <code>POST /tabs/:tabId/goto</code>, <code>POST /tabs/:tabId/eval</code></li>
+          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc mb-6 text-[12.5px]">
+            <li>Thư mục đã vá: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/Users/ndpmmo/Documents/Tools/camofox-browser</code></li>
+            <li>Port đang dùng với Tools: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">http://localhost:3144</code></li>
+            <li>Node Tools phải dùng để start Camofox: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code></li>
+            <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.5.2</code></li>
           </ul>
 
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 28, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertTriangle size={18} />
-            Vì sao cần vá
+          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
+            <AlertTriangle size={16} className="text-amber-400" /> Vì sao cần vá
           </h3>
-          <ul style={{ paddingLeft: 20, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc mb-6 text-[12.5px]">
             <li>`auto-login-worker.js` cần native wait để bỏ polling snapshot nặng.</li>
             <li>Case `add_phone` cần đọc cookies và giữ nguyên session khi chuyển sang `codex/consent`.</li>
             <li>Click selector có thể treo lâu nếu DOM khác dự kiến, nên cần thêm API mạnh hơn như `goto` và `eval`.</li>
           </ul>
 
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 32, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Info size={18} />
-            Trạng thái hiện tại (2026-04-19)
+          {[
+            ['GET /sessions/:userId/cookies', `app.get('/sessions/:userId/cookies', async (req, res) => {\n  const session = sessions.get(normalizeUserId(req.params.userId));\n  if (!session) return res.status(404).json({ error: 'Session not found' });\n  res.json(await session.context.cookies());\n});`],
+            ['POST /tabs/:tabId/goto', `app.post('/tabs/:tabId/goto', async (req, res) => {\n  const { userId, url, waitUntil = 'domcontentloaded', timeout = 15000 } = req.body;\n  const found = sessions.get(normalizeUserId(userId)) && findTab(session, req.params.tabId);\n  if (!found) return res.status(404).json({ error: 'Tab not found' });\n  const response = await withTabLock(tabId, () => found.tabState.page.goto(url, { waitUntil, timeout }));\n  res.json({ ok: true, finalUrl: found.tabState.page.url() });\n});`],
+            ['POST /tabs/:tabId/eval', `app.post('/tabs/:tabId/eval', async (req, res) => {\n  const { userId, expression, arg } = req.body;\n  // Evaluate expression in browser context\n  const result = await withTabLock(tabId, () => tabState.page.evaluate(\n    ({ expression, arg }) => new Function('arg', expression)(arg), { expression, arg }\n  ));\n  res.json({ ok: true, result });\n});`],
+          ].map(([title, code]) => (
+            <div key={title} className="mb-5">
+              <h4 className="text-[12.5px] font-mono font-bold text-indigo-300 mb-2">{title}</h4>
+              <pre className="bg-[#050810] border border-white/10 rounded-lg p-4 text-[11.5px] font-mono text-slate-300 overflow-x-auto">{code}</pre>
+            </div>
+          ))}
+
+          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
+            <CheckCircle size={16} className="text-emerald-400" /> Test Đã Xác Nhận
           </h3>
-          <ul style={{ paddingLeft: 20, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <li>Flow login ChatGPT web có thể hoàn tất đầy đủ (email/password/TOTP), xác nhận bằng <code>/api/auth/session</code> có user/account.</li>
-            <li>Sau nhánh <code>add_phone</code>, bootstrap lại authorize thường quay về <code>https://auth.openai.com/log-in</code> và phải điền lại email/password.</li>
-            <li>Lỗi <code>workspace/select</code> dạng <code>invalid_auth_step</code> hoặc <code>invalid_state</code> là lỗi ngữ cảnh authorize, không phải lỗi click đơn thuần.</li>
-            <li>Nếu tài khoản bắt buộc xác minh số điện thoại, worker phải kết thúc <code>NEED_PHONE</code>; không có bypass API hợp lệ để lấy callback code.</li>
-          </ul>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 32, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Code size={18} />
-            Endpoint cần có
-          </h3>
-
-          <h4 style={{ color: 'var(--text)' }}>0. `GET /sessions/:userId/cookies`</h4>
-          <pre style={box}>{`app.get('/sessions/:userId/cookies', async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const session = sessions.get(normalizeUserId(userId));
-    if (!session) return res.status(404).json({ error: 'Session not found' });
-    const cookies = await session.context.cookies();
-    res.json(cookies);
-  } catch (err) {
-    res.status(500).json({ error: safeError(err) });
-  }
-});`}</pre>
-
-          <h4 style={{ color: 'var(--text)' }}>1. `wait-for-selector`</h4>
-          <pre style={box}>{`app.post('/tabs/:tabId/wait-for-selector', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, selector, timeout = 10000, state = 'visible' } = req.body;
-    if (!userId || !selector) return res.status(400).json({ error: 'userId and selector required' });
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-    const { tabState } = found;
-    await withTabLock(tabId, async () => {
-      await tabState.page.waitForSelector(selector, { timeout, state });
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    if (err.message?.toLowerCase().includes('timeout')) {
-      return res.status(408).json({ ok: false, error: 'Timeout waiting for selector' });
-    }
-    handleRouteError(err, req, res);
-  }
-});`}</pre>
-
-          <h4 style={{ color: 'var(--text)' }}>2. `wait-for-url`</h4>
-          <pre style={box}>{`app.post('/tabs/:tabId/wait-for-url', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, url, timeout = 10000 } = req.body;
-    if (!userId || !url) return res.status(400).json({ error: 'userId and url required' });
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-    const { tabState } = found;
-    await withTabLock(tabId, async () => {
-      await tabState.page.waitForURL(url, { timeout });
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    if (err.message?.toLowerCase().includes('timeout')) {
-      return res.status(408).json({ ok: false, error: 'Timeout waiting for URL' });
-    }
-    handleRouteError(err, req, res);
-  }
-});`}</pre>
-
-          <h4 style={{ color: 'var(--text)' }}>3. `GET /tabs/:tabId/cookies`</h4>
-          <pre style={box}>{`app.get('/tabs/:tabId/cookies', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const userId = req.query.userId || req.headers['x-user-id'];
-    if (!userId) return res.status(400).json({ error: 'userId required' });
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-    const { tabState } = found;
-    const cookies = await withTabLock(tabId, async () => {
-      return await tabState.page.context().cookies();
-    });
-    res.json({ ok: true, cookies });
-  } catch (err) {
-    handleRouteError(err, req, res);
-  }
-});`}</pre>
-
-          <h4 style={{ color: 'var(--text)' }}>4. `POST /tabs/:tabId/goto`</h4>
-          <pre style={box}>{`app.post('/tabs/:tabId/goto', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, url, waitUntil = 'domcontentloaded', timeout = 15000 } = req.body;
-    if (!userId || !url) return res.status(400).json({ error: 'userId and url required' });
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-    const { tabState } = found;
-    const response = await withTabLock(tabId, async () => {
-      return await tabState.page.goto(url, { waitUntil, timeout });
-    });
-    res.json({ ok: true, finalUrl: tabState.page.url(), status: response?.status?.() ?? null });
-  } catch (err) {
-    handleRouteError(err, req, res);
-  }
-});`}</pre>
-
-          <h4 style={{ color: 'var(--text)' }}>5. `POST /tabs/:tabId/eval`</h4>
-          <pre style={box}>{`app.post('/tabs/:tabId/eval', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, expression, arg } = req.body;
-    if (!userId || !expression) return res.status(400).json({ error: 'userId and expression required' });
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-    const { tabState } = found;
-    const result = await withTabLock(tabId, async () => {
-      return await tabState.page.evaluate(
-        ({ expression, arg }) => {
-          const fn = new Function('arg', expression);
-          return fn(arg);
-        },
-        { expression, arg }
-      );
-    });
-    res.json({ ok: true, result });
-  } catch (err) {
-    handleRouteError(err, req, res);
-  }
-});`}</pre>
-
-          <div style={{ color: 'var(--text-2)', marginTop: -6, marginBottom: 20 }}>
-            Nếu Camofox đã có <code>/tabs/:tabId/evaluate</code>, vẫn nên giữ thêm alias <code>/eval</code> để Tools và tài liệu dùng cùng một tên route.
-          </div>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 36, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertTriangle size={18} />
-            Lỗi Đã Gặp
-          </h3>
-          <div style={{ color: 'var(--text-2)', marginBottom: 12 }}>
-            Khi khởi động Camofox trên <code>:3144</code>, đã gặp lỗi ABI của <code>better-sqlite3</code>. Dấu hiệu là <code>/health</code> vẫn sống nhưng <code>browserConnected</code> = <code>false</code>.
-          </div>
-          <pre style={box}>{`better-sqlite3.node was compiled against a different Node.js version
-NODE_MODULE_VERSION 141
-This version of Node.js requires NODE_MODULE_VERSION 127`}</pre>
-          <div style={{ color: 'var(--text-2)', marginBottom: 8 }}>
-            Cách xử lý đã áp dụng:
-          </div>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Tools/camofox-browser
-npm rebuild better-sqlite3
-CAMOFOX_PORT=3144 npm start`}</pre>
-          <div style={{ color: 'var(--text-2)', marginBottom: 8 }}>
-            Nếu start từ UI của Tools, lệnh thực tế phải tương đương:
-          </div>
-          <pre style={box}>{`/usr/local/bin/node server.js`}</pre>
-          <div style={{ color: 'var(--text-2)', marginBottom: 8 }}>
-            Tools đã được sửa để dùng <code>camofoxNodePath=/usr/local/bin/node</code>, tránh phụ thuộc <code>PATH</code> và tránh chạy nhầm Node v25.
-          </div>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 36, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircle size={18} />
-            Worker đang dùng phần nào
-          </h3>
-          <ul style={{ paddingLeft: 20, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <li>Đã fallback lấy cookies qua <code>/sessions/:userId/cookies</code> nếu route theo tab chưa có.</li>
-            <li>Đã giảm timeout thao tác click ở nhánh bypass để tránh treo khoảng 30 giây.</li>
-            <li>Đã ưu tiên <code>goto</code> lại <code>codex/consent</code> trên tab hiện tại.</li>
-            <li>Đã chỉ mở tab mới nếu <code>goto</code> thất bại.</li>
-            <li>Đã dùng <code>eval</code> để click/submit consent nếu selector thường không hoạt động.</li>
-          </ul>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 36, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileText size={18} />
-            Quy trình vá khi cập nhật bản mới
-          </h3>
-          <ol style={{ paddingLeft: 22, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <li>Vào thư mục cài Camofox.</li>
-            <li>Pull bản mới và cài lại dependency.</li>
-            <li>Kiểm tra <code>tools.config.json</code> vẫn còn <code>camofoxNodePath=/usr/local/bin/node</code>.</li>
-            <li>Nếu browser không connect sau khi start, chạy <code>npm rebuild better-sqlite3</code>.</li>
-            <li>Mở `server.js`.</li>
-            <li>Kiểm tra route nào đã có sẵn, chỉ vá lại route còn thiếu.</li>
-            <li>Khởi động lại Camofox.</li>
-            <li>Kiểm tra tối thiểu: `health`, `snapshot`, `GET /sessions/:userId/cookies`, `goto`, `GET /tabs/:tabId/cookies`, `eval`.</li>
-          </ol>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 36, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileText size={18} />
-            Debug Probes
-          </h3>
-          <div style={{ color: 'var(--text-2)', marginBottom: 8 }}>
-            Dùng các probe dưới đây để đọc DOM thật trước khi thay selector trong worker.
-          </div>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Github/seellm-tools
-CAMOUFOX_API=http://localhost:3144 node scripts/debug/probe-chatgpt-login-dialog.js`}</pre>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Github/seellm-tools
-CAMOUFOX_API=http://localhost:3144 node scripts/debug/probe-openai-auth-pages.js`}</pre>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Github/seellm-tools
-PROBE_EMAIL='your-test-email@example.com' CAMOUFOX_API=http://localhost:3144 node scripts/debug/probe-openai-auth-pages.js`}</pre>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Github/seellm-tools
-PROBE_EMAIL='your-test-email@example.com' CAMOUFOX_API=http://localhost:3144 node scripts/debug/probe-openai-auth-password.js`}</pre>
-          <pre style={box}>{`cd /Users/ndpmmo/Documents/Github/seellm-tools
-CHATGPT_LOGIN_DEBUG=1 npm run dev`}</pre>
-
-          <h3 style={{ borderBottom: '1px solid var(--border-2)', paddingBottom: 8, marginBottom: 16, marginTop: 36, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircle size={18} />
-            Test Đã Xác Nhận
-          </h3>
-          <ul style={{ paddingLeft: 20, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <li><code>/health</code> trả <code>browserConnected: true</code></li>
-            <li>Tools start Camofox bằng <code>/usr/local/bin/node</code>, không phải <code>node</code> chung chung</li>
-            <li>Tạo tab thành công</li>
-            <li><code>snapshot</code> thành công</li>
-            <li><code>GET /tabs/:tabId/cookies</code> trả JSON hợp lệ</li>
-            <li><code>POST /tabs/:tabId/goto</code> điều hướng thành công</li>
-            <li><code>POST /tabs/:tabId/eval</code> trả kết quả hợp lệ</li>
-            <li><code>GET /sessions/:userId/cookies</code> trả danh sách cookie</li>
+          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc text-[12.5px]">
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/health</code> trả <code className="text-emerald-400 bg-emerald-500/10 px-1 rounded">browserConnected: true</code></li>
+            <li>Tools start Camofox bằng <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code>, không phải <code className="text-slate-400 bg-white/5 px-1 rounded">node</code> chung chung</li>
+            <li>Tạo tab thành công / <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">snapshot</code> thành công</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /tabs/:tabId/cookies</code> trả JSON hợp lệ</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/goto</code> điều hướng thành công</li>
           </ul>
         </div>
       </div>

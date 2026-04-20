@@ -5,6 +5,8 @@ import {
   MapPin, Globe, Clock, Activity, Shield, Info
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
+import { fmtDateTimeVN } from '../../Views';
+import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../../ui';
 
 export function VaultProxiesView() {
   const { addToast } = useApp();
@@ -65,75 +67,89 @@ export function VaultProxiesView() {
   const filtered = items.filter(it => !search || it.label?.toLowerCase().includes(search.toLowerCase()) || it.url.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="content">
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <Search size={15} style={{ position: 'absolute', left: 14, color: 'var(--text-3)' }} />
-          <input className="inp" style={{ paddingLeft: 42 }} placeholder="Tìm proxy cá nhân..." value={search} onChange={e => setSearch(e.target.value)} />
+    <div className="flex-1 overflow-y-auto px-6 pb-10">
+      <div className="flex gap-3 mb-6 mt-2 relative z-10">
+        <div className="flex-1 relative flex items-center">
+          <Search size={15} className="absolute left-3 text-slate-500" />
+          <Input className="pl-9 bg-white/5 border border-white/10" placeholder="Tìm proxy cá nhân..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <button className="btn btn-primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, editId: null, label: '', url: '' }))} style={{ height: 46 }}>
-          {uiState.isAdding ? <X size={18} /> : <Plus size={18} />} <span style={{ marginLeft: 8 }}>Thêm Proxy</span>
-        </button>
+        <Button variant="primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, editId: null, label: '', url: '' }))} className="px-6">
+          {uiState.isAdding ? <X size={16} /> : <Plus size={16} />} <span className="ml-2">{uiState.isAdding ? 'Hủy bỏ' : 'Thêm Proxy'}</span>
+        </Button>
       </div>
 
       {uiState.isAdding && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div className="card-body" style={{ padding: 24 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
-               <div className="form-group">
-                <label className="label">Label</label>
-                <input className="inp" placeholder="My Proxy 1" value={uiState.label} onChange={e => setUiState(s => ({ ...s, label: e.target.value }))} />
+        <Card className="mb-6 animate-slideDown">
+          <CardContent className="p-5">
+            <div className="grid grid-cols-4 gap-4">
+               <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Label</label>
+                <Input placeholder="My Proxy 1" value={uiState.label} onChange={e => setUiState(s => ({ ...s, label: e.target.value }))} />
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="label">Proxy URL (protocol://user:pass@host:port)</label>
-                <input className="inp" placeholder="http://1.2.3.4:8080" value={uiState.url} onChange={e => setUiState(s => ({ ...s, url: e.target.value }))} />
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Proxy URL (protocol://user:pass@host:port)</label>
+                <Input placeholder="http://1.2.3.4:8080" value={uiState.url} onChange={e => setUiState(s => ({ ...s, url: e.target.value }))} />
               </div>
-              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
-                 <button className="btn btn-primary" style={{ width: '100%', height: 42 }} onClick={save}>Lưu</button>
+              <div className="flex items-end">
+                <Button variant="primary" className="w-full py-2.5" onClick={save}>Lưu Proxy</Button>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title"><Globe size={14} /> Danh sách Proxy VAULT <span className="nav-badge b">{filtered.length}</span></span>
-          <button className="btn-icon" onClick={load}><RefreshCw size={13} style={{ animation: loading ? 'rotate .6s linear infinite' : 'none' }} /></button>
-        </div>
-        <div className="card-body" style={{ padding: 0 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Globe size={14} className="text-indigo-400" /> Danh sách Proxy VAULT
+            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
+          </CardTitle>
+          <Button size="icon-sm" variant="ghost" onClick={load} className="ml-auto">
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left">
             <thead>
-              <tr style={{ background: 'var(--glass)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>LABEL / PROXY</th>
-                <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>LOCATION</th>
-                <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>TYPE</th>
-                <th style={{ padding: '12px 20px', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textAlign: 'right' }}>ACTIONS</th>
+              <tr className="bg-white/5 border-b border-white/5">
+                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">LABEL / PROXY</th>
+                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">LOCATION</th>
+                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">TYPE</th>
+                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">ACTIONS</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-white/5">
               {filtered.map(it => (
-                <tr key={it.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '14px 20px' }}>
-                    <div style={{ fontWeight: 600 }}>{it.label || '—'}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace', marginTop: 2 }}>{it.url}</div>
+                <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
+                  <td className="px-5 py-4">
+                    <div className="font-semibold text-[13px] text-slate-200">{it.label || '—'}</div>
+                    <div className="text-[11px] text-slate-400 font-mono mt-1">{it.url}</div>
                   </td>
-                  <td style={{ padding: '14px 20px' }}><div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><MapPin size={12} color="var(--indigo-2)" /> {it.country || 'Unknown'}</div></td>
-                  <td style={{ padding: '14px 20px' }}><span className="nav-badge">{it.type.toUpperCase()}</span></td>
-                  <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                       <button className="btn-icon danger" onClick={() => del(it.id)}><Trash2 size={13} /></button>
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-1.5 text-[12.5px] text-slate-300">
+                      <MapPin size={12} className="text-indigo-400" /> {it.country || 'Unknown'}
                     </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wider bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                      {it.type.toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-slate-400 text-[11px] whitespace-nowrap align-middle">{fmtDateTimeVN(it.createdAt)}</td>
+                  <td className="px-5 py-4 text-right align-middle">
+                    <Button variant="danger" size="icon-sm" onClick={() => del(it.id)}>
+                      <Trash2 size={13} />
+                    </Button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           {filtered.length === 0 && !loading && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>Chưa có proxy nào trong Vault.</div>
+            <div className="p-10 text-center text-[13px] text-slate-400">Chưa có proxy nào trong Vault.</div>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -91,7 +91,23 @@ function initSchema() {
       data       TEXT NOT NULL,
       account_id TEXT,
       created_at TEXT NOT NULL
-    )
+    );
+
+    -- Email Pool
+    CREATE TABLE IF NOT EXISTS vault_email_pool (
+      email             TEXT PRIMARY KEY,
+      password          TEXT,
+      refresh_token     TEXT,
+      client_id         TEXT,
+      mail_status       TEXT DEFAULT 'unknown',
+      chatgpt_status    TEXT DEFAULT 'not_created',
+      linked_chatgpt_id TEXT,
+      services_json     TEXT,
+      last_checked_at   TEXT,
+      notes             TEXT,
+      updated_at        TEXT NOT NULL,
+      created_at        TEXT NOT NULL
+    );
   `);
 }
 
@@ -104,6 +120,7 @@ function applyMigrations() {
   }
   
   // Specific migrations
+  try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN services_json TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN is_active INTEGER DEFAULT 1`); } catch (e) {}
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN quota_json TEXT`); } catch (e) {}
   try {
@@ -149,8 +166,9 @@ export const vault = {
     const list = rawList.filter(a => a.email && a.email.trim() !== '');
     return list.map(a => ({
       ...a,
-      password:      '********', // masked by default
-      two_fa_secret: '********',
+      // Show plaintext - this is a personal tool
+      password:      a.password || '',
+      two_fa_secret: a.two_fa_secret || '',
       access_token:  '********',
       refresh_token: '********',
       tags:          safeParseJson(a.tags, []),
@@ -390,6 +408,94 @@ export const vault = {
     const record = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (!skipSync && record) {
       SyncManager.pushVault('account', record).catch(() => {});
+    }
+    return record;
+  },
+
+  // CRUD EMAIL POOL
+  getEmailPool: () => {
+    const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
+    return list.map(e => ({
+      ...e,
+      password: '********',
+      services: safeParseJson(e.services_json, {}),
+    }));
+  },
+
+  getEmailPoolFull: () => {
+    const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
+    return list.map(e => ({
+      ...e,
+      services: safeParseJson(e.services_json, {}),
+    }));
+  },
+
+  upsertEmailPool: (data, skipSync = false) => {
+    const now = dayjs().toISOString();
+    let existing = db.prepare('SELECT * FROM vault_email_pool WHERE email = ?').get(data.email);
+
+    const stmt = db.prepare(`
+      INSERT INTO vault_email_pool (
+        email, password, refresh_token, client_id, mail_status, chatgpt_status, linked_chatgpt_id, services_json, last_checked_at, notes, updated_at, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(email) DO UPDATE SET
+        password          = COALESCE(excluded.password, vault_email_pool.password),
+        refresh_token     = COALESCE(excluded.refresh_token, vault_email_pool.refresh_token),
+        client_id         = COALESCE(excluded.client_id, vault_email_pool.client_id),
+        mail_status       = excluded.mail_status,
+        chatgpt_status    = excluded.chatgpt_status,
+        linked_chatgpt_id = excluded.linked_chatgpt_id,
+        services_json     = excluded.services_json,
+        last_checked_at   = excluded.last_checked_at,
+        notes             = excluded.notes,
+        updated_at        = excluded.updated_at
+    `);
+
+    // Merge services_json
+    const existingServices = safeParseJson(existing?.services_json, {});
+    const inputServices = typeof data.services === 'object' ? data.services : safeParseJson(data.services_json, {});
+    const mergedServices = { ...existingServices, ...inputServices };
+    
+    // Auto sync chatgpt_status to services if present
+    if (data.chatgpt_status === 'done') mergedServices.chatgpt = 'done';
+    else if (data.chatgpt_status === 'failed') mergedServices.chatgpt = 'failed';
+
+    const record = {
+      email:             data.email,
+      password:          data.password !== undefined ? data.password : (existing ? existing.password : null),
+      refresh_token:     data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
+      client_id:         data.client_id !== undefined ? data.client_id : (existing ? existing.client_id : null),
+      mail_status:       data.mail_status || (existing ? existing.mail_status : 'unknown'),
+      chatgpt_status:    data.chatgpt_status || (existing ? existing.chatgpt_status : 'not_created'),
+      linked_chatgpt_id: data.linked_chatgpt_id || (existing ? existing.linked_chatgpt_id : null),
+      services_json:     JSON.stringify(mergedServices),
+      last_checked_at:   data.last_checked_at || (existing ? existing.last_checked_at : null),
+      notes:             data.notes !== undefined ? data.notes : (existing ? existing.notes : ''),
+      updated_at:        now,
+      created_at:        existing ? existing.created_at : now
+    };
+
+    stmt.run(
+      record.email, record.password, record.refresh_token, record.client_id,
+      record.mail_status, record.chatgpt_status, record.linked_chatgpt_id,
+      record.services_json, record.last_checked_at, record.notes, record.updated_at, record.created_at
+    );
+
+    if (!skipSync) {
+      SyncManager.pushVault('email_pool', record).catch(() => {});
+    }
+
+    return record;
+  },
+
+  deleteEmailPool: (email, skipSync = false) => {
+    const record = db.prepare('SELECT * FROM vault_email_pool WHERE email = ?').get(email);
+    db.prepare('DELETE FROM vault_email_pool WHERE email = ?').run(email);
+    if (!skipSync && record) {
+      // SyncManager delete currently doesn't support a separate delete type, 
+      // but we can pass deleted_at if we want to mimic account logic.
+      // For now, email pool can just be deleted.
+      SyncManager.pushVault('email_pool', { ...record, deleted_at: dayjs().toISOString() }).catch(() => {});
     }
     return record;
   },

@@ -3,7 +3,7 @@ import React from 'react';
 import {
   Users, Globe, Link2, LayoutDashboard, FileImage, Terminal,
   FileText, Play, Settings, Zap, Bot, ExternalLink,
-  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon
+  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon, Mail
 } from 'lucide-react';
 import { AppProvider, useApp } from './AppContext';
 import { ToastContainer } from './Views';
@@ -23,20 +23,42 @@ import { CamofoxDocsView } from './views/CamofoxDocsView';
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
 import { VaultProxiesView } from './views/vault/VaultProxiesView';
 import { VaultAutoRegisterView } from './views/vault/VaultAutoRegisterView';
+import { VaultEmailsView } from './views/vault/VaultEmailsView';
 
 // ── Nav Item ─────────────────────────────────────────────
 function NavItem({
-  id, icon: Icon, label, badge, badgeColor = 'b',
+  id, icon: Icon, label, badge, badgeColor = 'blue',
 }: {
   id: string; icon: React.ElementType; label: string; badge?: number; badgeColor?: string;
 }) {
   const { view, setView } = useApp();
+  const isActive = view === id;
+
+  const bgColors: Record<string, string> = {
+    green: 'bg-emerald-500/10 text-emerald-500',
+    red: 'bg-rose-500/10 text-rose-500',
+    blue: 'bg-cyan-500/10 text-cyan-500',
+    violet: 'bg-violet-500/10 text-violet-500'
+  };
+
   return (
-    <div className={`nav-btn${view === id ? ' active' : ''}`} onClick={() => setView(id)}>
-      <Icon size={15} className="nav-ico" style={{ flexShrink: 0 }} />
+    <div 
+      className={`relative flex items-center gap-2.5 px-2.5 py-2 rounded-md cursor-pointer transition-all duration-150 select-none text-[13px] font-medium border ${
+        isActive 
+          ? 'bg-gradient-to-br from-indigo-500/10 to-violet-500/5 text-indigo-400 border-indigo-500/20' 
+          : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200 hover:border-white/10'
+      }`}
+      onClick={() => setView(id)}
+    >
+      {isActive && (
+        <div className="absolute left-0 top-1/5 bottom-1/5 w-[2.5px] bg-gradient-to-b from-indigo-500 to-violet-500 rounded-r-full" />
+      )}
+      <Icon size={15} className="shrink-0 text-center w-[18px]" />
       <span>{label}</span>
       {badge != null && badge > 0 && (
-        <span className={`nav-badge ${badgeColor}`}>{badge}</span>
+        <span className={`ml-auto text-[10px] font-bold px-[7px] py-[1px] rounded-full min-w-[20px] text-center tracking-[0.2px] ${bgColors[badgeColor] || bgColors.blue}`}>
+          {badge}
+        </span>
       )}
     </div>
   );
@@ -54,66 +76,76 @@ function Sidebar() {
   const isConnectWorker = processes['connect-worker']?.status === 'running';
 
   return (
-    <aside className="sidebar">
+    <aside className="w-[248px] min-w-[248px] h-screen flex flex-col bg-[#090c16]/85 border-r border-white/5 backdrop-blur-2xl relative z-10">
+      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent pointer-events-none" />
+
       {/* Brand */}
-      <div className="sidebar-brand">
-        <div className="brand-icon">🛠️</div>
+      <div className="px-4 pt-[18px] pb-3.5 border-b border-white/5 flex items-center gap-3 shrink-0">
+        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-violet-500 rounded-xl flex items-center justify-center text-lg shrink-0 shadow-[0_0_20px_rgba(99,102,241,0.22),_0_4px_8px_rgba(0,0,0,0.3)]">
+          🛠️
+        </div>
         <div>
-          <div className="brand-name">SeeLLM Tools</div>
-          <div className="brand-ver">v3.0 · Vault Beta</div>
+          <div className="text-[14px] font-bold text-slate-100 tracking-[-0.4px]">SeeLLM Tools</div>
+          <div className="text-[10.5px] text-slate-400 mt-[1px] tracking-[0.2px]">v3.0 · Vault Beta</div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="sidebar-nav">
-        <div className="nav-section-label">Tổng quan</div>
-        <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" badge={running} badgeColor="g" />
-        <NavItem id="terminal" icon={Terminal} label="Terminal Logs" badge={errors} badgeColor="r" />
+      <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-[1px] scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Tổng quan</div>
+        <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" badge={running} badgeColor="green" />
+        <NavItem id="terminal" icon={Terminal} label="Terminal Logs" badge={errors} badgeColor="red" />
         <NavItem id="logfiles" icon={FileText} label="Log Files" />
         <NavItem id="screenshots" icon={FileImage} label="Screenshots" />
 
-        <div className="nav-section-label">Vault (Local)</div>
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Vault (Local)</div>
         <NavItem id="vault-accounts" icon={Users} label="Accounts" />
+        <NavItem id="vault-emails" icon={Mail} label="Emails Pool" />
         <NavItem id="vault-register" icon={Bot} label="Auto Register" />
         <NavItem id="vault-proxies" icon={Globe} label="Proxies" />
         <NavItem id="vault-keys" icon={Zap} label="API Keys" />
 
-        <div className="nav-section-label">D1 Cloud (D1)</div>
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">D1 Cloud (D1)</div>
         <NavItem id="accounts" icon={Bot} label="Codex Accts" />
         <NavItem id="proxies" icon={Globe} label="Proxy Pool" />
         <NavItem id="connections" icon={Link2} label="Connections" />
 
-        <div className="nav-section-label">Công cụ</div>
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Công cụ</div>
         <NavItem id="scripts" icon={Play} label="Scripts" />
         <NavItem id="settings" icon={Settings} label="Cài đặt" />
         <NavItem id="changelog" icon={HistoryIcon} label="Change Logs" />
 
-        <div className="nav-section-label">Tài nguyên</div>
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Tài nguyên</div>
         <NavItem id="camofox-docs" icon={FileText} label="Camofox Docs" />
       </nav>
 
       {/* Footer */}
-      <div className="sidebar-foot">
-        <div className="launch-row">
-          <button className="launch-btn camofox" onClick={startCamofox} disabled={isCamofox}>
+      <div className="px-2 pt-2.5 pb-3.5 border-t border-white/5 flex flex-col gap-2 shrink-0">
+        <div className="flex gap-1.5">
+          <button 
+            className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-all duration-130 whitespace-nowrap ${isCamofox ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10 hover:bg-emerald-500/20 hover:shadow-[0_0_12px_rgba(16,185,129,0.18)]'}`}
+            onClick={startCamofox} disabled={isCamofox}
+          >
             🦊 {isCamofox ? 'Running' : 'Start'}
           </button>
-          <button className="launch-btn worker" onClick={startWorker} disabled={isWorker}>
+          <button 
+            className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-all duration-130 whitespace-nowrap ${isWorker ? 'bg-indigo-500/15 text-indigo-400 border-indigo-500/25' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20 hover:bg-indigo-500/20 hover:shadow-[0_0_12px_rgba(99,102,241,0.22)]'}`}
+            onClick={startWorker} disabled={isWorker}
+          >
             🤖 {isWorker ? 'Running' : 'Start'}
           </button>
         </div>
-        <div className="launch-row" style={{ marginTop: 6 }}>
+        <div className="flex gap-1.5 mt-1.5">
           <button
-            className="launch-btn"
+            className={`flex-1 rounded-lg text-[11px] font-bold py-2 border transition-all duration-200 ${isConnectWorker ? 'bg-indigo-500/25 text-indigo-400 border-indigo-500/25 cursor-not-allowed' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/25 hover:bg-indigo-500/20'}`}
             onClick={startConnectWorker}
             disabled={isConnectWorker}
-            style={{ flex: 1, background: isConnectWorker ? 'rgba(99,102,241,.25)' : 'rgba(99,102,241,.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,.25)', borderRadius: 8, fontSize: 11, fontWeight: 700, padding: '8px 0', cursor: isConnectWorker ? 'not-allowed' : 'pointer', transition: 'all .2s' }}
           >
             🔌 {isConnectWorker ? 'Connect Running' : 'Start Connect v2'}
           </button>
         </div>
-        <div className="conn-status">
-          <div className={`dot ${connected ? 'on' : 'off'}`} />
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-white/5 border border-white/5 text-[11.5px] text-slate-400">
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.18)] animate-pulse' : 'bg-slate-600'}`} />
           <span>{connected ? 'Realtime connected' : 'Disconnected'}</span>
         </div>
       </div>
@@ -125,6 +157,7 @@ function Sidebar() {
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   dashboard: { title: 'Dashboard', desc: 'Tổng quan hệ thống và trạng thái realtime' },
   'vault-accounts': { title: 'Vault Accounts', desc: 'Quản lý tài khoản cá nhân đa nhà cung cấp · Local Vault' },
+  'vault-emails': { title: 'Emails Pool', desc: 'Quản lý kho tài khoản Email (Hotmail/Outlook) để dập account' },
   'vault-register': { title: 'Auto Register', desc: 'Tự động dập UID/Email hàng loạt · Vault Local' },
   'vault-proxies': { title: 'Vault Proxies', desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
   'vault-keys': { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
@@ -142,6 +175,7 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
 
 const PAGE_ICONS: Record<string, React.ElementType> = {
   dashboard: LayoutDashboard, accounts: Users, proxies: Globe,
+  'vault-emails': Mail,
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
   changelog: HistoryIcon, 'camofox-docs': FileText,
@@ -152,26 +186,23 @@ function Topbar() {
   const meta = PAGE_META[view] || PAGE_META.dashboard;
   const Icon = PAGE_ICONS[view] || LayoutDashboard;
   return (
-    <header className="topbar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--glass-3)', border: '1px solid var(--border-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--indigo-2)' }}>
+    <header className="h-[52px] shrink-0 flex items-center px-[22px] border-b border-white/5 bg-[#090c16]/60 backdrop-blur-xl gap-3.5 relative z-[5] after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[1px] after:bg-gradient-to-r after:from-transparent after:via-white/5 after:to-transparent">
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-indigo-400">
           <Icon size={16} />
         </div>
-        <div className="topbar-title">
-          <h1>{meta.title}</h1>
-          <p>{meta.desc}</p>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-[15px] font-bold text-slate-100">{meta.title}</h1>
+          <p className="text-[11px] text-slate-400 mt-[1px]">{meta.desc}</p>
         </div>
       </div>
 
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '5px 12px', borderRadius: 99,
-          background: connected ? 'var(--green-dim)' : 'var(--rose-dim)',
-          border: `1px solid ${connected ? 'rgba(16,185,129,.25)' : 'rgba(244,63,94,.25)'}`,
-          fontSize: 11, fontWeight: 600,
-          color: connected ? 'var(--green)' : 'var(--rose)',
-        }}>
+      <div className="ml-auto flex items-center gap-2">
+        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${
+          connected 
+            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500' 
+            : 'bg-rose-500/10 border-rose-500/25 text-rose-500'
+        }`}>
           {connected ? <Wifi size={11} /> : <WifiOff size={11} />}
           {connected ? 'Live' : 'Offline'}
         </div>
@@ -189,6 +220,7 @@ function ContentRouter() {
 
       {/* Vault */}
       {view === 'vault-accounts' && <VaultAccountsView />}
+      {view === 'vault-emails' && <VaultEmailsView />}
       {view === 'vault-register' && <VaultAutoRegisterView />}
       {view === 'vault-proxies' && <VaultProxiesView />}
       {view === 'vault-keys' && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
@@ -212,14 +244,14 @@ function ContentRouter() {
 export default function Dashboard() {
   return (
     <AppProvider>
-      <div className="shell">
+      <div className="flex h-screen w-full overflow-hidden bg-[radial-gradient(ellipse_80%_60%_at_5%_-10%,_rgba(99,102,241,0.12)_0%,_transparent_60%),_radial-gradient(ellipse_60%_50%_at_95%_105%,_rgba(34,211,238,0.07)_0%,_transparent_55%),_#07090f] text-slate-100 font-sans antialiased selection:bg-indigo-500/30">
         <Sidebar />
-        <main className="main">
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
           <Topbar />
           <ContentRouter />
         </main>
+        <ToastContainer />
       </div>
-      <ToastContainer />
     </AppProvider>
   );
 }

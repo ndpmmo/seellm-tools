@@ -27,6 +27,8 @@ function normalizeAccountState(data = {}) {
   return {
     id: data.id || null,
     email: data.email || null,
+    password: data.password || null,
+    two_fa_secret: data.two_fa_secret || null,
     status: data.status || null,
     is_active: data.is_active ?? data.isActive ?? 1,
     deleted_at: data.deleted_at || null,
@@ -47,6 +49,9 @@ function hashJson(value) {
 function isCriticalAccountChange(prevState, nextState) {
   if (!prevState) return true;
   const criticalKeys = [
+    'email',
+    'password',
+    'two_fa_secret',
     'access_token',
     'refresh_token',
     'workspace_id',
@@ -198,6 +203,9 @@ export const SyncManager = {
         version,
       }];
     }
+    if (type === 'email_pool') {
+      payload.vaultEmailPool = [{ ...data, updated_at: data.updated_at || now }];
+    }
     if (type === 'proxy') payload.vaultProxies = [{ ...data, updated_at: data.updated_at || now }];
     if (type === 'key')   payload.vaultKeys   = [{ ...data, updated_at: data.updated_at || now }];
 
@@ -250,7 +258,7 @@ export const SyncManager = {
       }
 
       console.log(`[SyncManager] Pulling vault changes since ${since}...`);
-      const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections');
+      const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections,vaultEmailPool');
       const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}&tables=${tables}`, {
         headers: { 'x-sync-secret': cfg.d1SyncSecret }
       });
@@ -387,7 +395,8 @@ export const SyncManager = {
           cursor:   data.cursor,
           accounts: validAccounts,
           proxies:  data.data?.vaultProxies || [],
-          keys:     data.data?.vaultKeys || []
+          keys:     data.data?.vaultKeys || [],
+          emailPool: data.data?.vaultEmailPool || []
         };
       }
       return null;

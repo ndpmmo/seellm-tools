@@ -1,7 +1,22 @@
 'use client';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useApp, ProcessInfo } from '../AppContext';
-import { Badge, Spinner, relTime } from '../Views';
+import { Spinner, relTime } from '../Views';
+import { Button, Card, CardHeader, CardTitle, CardContent, StatBox } from '../ui';
+import { Settings, Play, Camera, Layers, Zap, HeartPulse, RefreshCw } from 'lucide-react';
+
+function StatusBadge({ status }: { status: string }) {
+  const isRunning = status === 'running';
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
+      isRunning ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+      status === 'error' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 
+      'bg-slate-500/10 text-slate-400 border-slate-500/20'
+    }`}>
+      {status}
+    </span>
+  );
+}
 
 function ProcCard({ p }: { p: ProcessInfo }) {
   const { stopProcess, setView, setSelectedLog } = useApp();
@@ -10,28 +25,43 @@ function ProcCard({ p }: { p: ProcessInfo }) {
   const logs = () => { setSelectedLog(p.id); setView('terminal'); };
 
   return (
-    <div className={`proc-card ${p.status}`}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-        <div>
-          <div className="proc-name">{p.name}</div>
-          <div className="proc-meta">{p.pid ? `PID ${p.pid}` : 'Khởi động...'}</div>
+    <Card className="flex flex-col h-full bg-[#1e1e23]/50 backdrop-blur-sm border-white/5">
+      <CardContent className="p-4 flex-1 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-semibold text-[13px] text-slate-100 truncate">{p.name}</div>
+            <div className="text-[11px] text-slate-400 font-mono mt-0.5">{p.pid ? `PID ${p.pid}` : 'Khởi động...'}</div>
+          </div>
+          <StatusBadge status={p.status} />
         </div>
-        <Badge status={p.status} />
-      </div>
-      <div className="proc-stats">
-        <div className="ps-item"><span className="ps-lbl">Bắt đầu</span><span className="ps-val">{relTime(p.startedAt)}</span></div>
-        <div className="ps-item"><span className="ps-lbl">Logs</span><span className="ps-val">{p.logs.length}</span></div>
-        {p.exitCode != null && <div className="ps-item"><span className="ps-lbl">Exit</span><span className="ps-val" style={{ color: p.exitCode === 0 ? 'var(--green)' : 'var(--rose)' }}>{p.exitCode}</span></div>}
-      </div>
-      <div className="proc-acts">
-        <button className="btn btn-ghost btn-sm" onClick={logs}>📋 Logs</button>
-        {p.status === 'running' && (
-          <button className="btn btn-rose btn-sm" onClick={stop} disabled={stopping}>
-            {stopping ? <Spinner /> : '⏹'} Stop
-          </button>
-        )}
-      </div>
-    </div>
+        
+        <div className="bg-black/20 rounded-lg p-3 text-[11px] flex flex-col gap-1.5 border border-white/5">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Bắt đầu</span>
+            <span className="text-slate-300 font-medium">{relTime(p.startedAt)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Logs</span>
+            <span className="text-slate-300 font-medium">{p.logs.length} entries</span>
+          </div>
+          {p.exitCode != null && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Exit Code</span>
+              <span className={`font-medium ${p.exitCode === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.exitCode}</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex gap-2 mt-auto pt-1">
+          <Button variant="secondary" size="sm" className="flex-1" onClick={logs}>📋 Xem Logs</Button>
+          {p.status === 'running' && (
+            <Button variant="danger" size="sm" onClick={stop} disabled={stopping} className="flex-[0.5]">
+              {stopping ? <Spinner /> : '⏹ Stop'}
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -58,115 +88,146 @@ export function DashboardView() {
   useEffect(() => { check(); const t = setInterval(check, 20000); return () => clearInterval(t); }, [check]);
 
   return (
-    <div className="content">
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5">
       {/* Stats */}
-      <div className="stat-row">
-        <div className="stat-card"><div className="stat-ico i">⚙️</div><div><div className="stat-num">{procs.length}</div><div className="stat-lbl">Processes</div></div></div>
-        <div className="stat-card"><div className="stat-ico g">▶️</div><div><div className="stat-num">{running}</div><div className="stat-lbl">Đang chạy</div></div></div>
-        <div className="stat-card"><div className="stat-ico a">📸</div><div><div className="stat-num">{sessions.reduce((s, x) => s + x.imageCount, 0)}</div><div className="stat-lbl">Screenshots</div></div></div>
-        <div className="stat-card"><div className="stat-ico c">🗂️</div><div><div className="stat-num">{sessions.length}</div><div className="stat-lbl">Sessions</div></div></div>
+      <div className="grid grid-cols-4 gap-5 mt-2">
+        <StatBox label="Processes" value={procs.length} icon={Settings} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/50" />
+        <StatBox label="Đang chạy" value={running} icon={Play} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" borderClass="border-emerald-500/50" />
+        <StatBox label="Screenshots" value={sessions.reduce((s, x) => s + x.imageCount, 0)} icon={Camera} colorClass="text-cyan-400" bgClass="bg-cyan-500/10" borderClass="border-cyan-500/50" />
+        <StatBox label="Sessions" value={sessions.length} icon={Layers} colorClass="text-amber-400" bgClass="bg-amber-500/10" borderClass="border-amber-500/50" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div className="grid grid-cols-2 gap-5">
         {/* Controls */}
-        <div className="card">
-          <div className="card-head"><span className="card-title">🚀 Quick Launch</span></div>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--glass-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+        <Card>
+          <CardHeader>
+            <CardTitle><Zap size={16} className="text-amber-400" /> Quick Launch</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>🦊 Camofox Server</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Headless browser với anti-detection</div>
+                <div className="text-[13px] font-bold text-slate-100 flex items-center gap-2">🦊 Camofox Server</div>
+                <div className="text-[11px] text-slate-400 mt-1">Headless browser với anti-detection</div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Badge status={processes['camofox']?.status || 'stopped'} />
-                <button className="btn btn-green btn-sm" onClick={startCamofox} disabled={isCamofox}>▶ Start</button>
+              <div className="flex items-center gap-3">
+                <StatusBadge status={processes['camofox']?.status || 'stopped'} />
+                <Button variant="success" size="sm" onClick={startCamofox} disabled={isCamofox}>▶ Start</Button>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--glass-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+            
+            <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>🤖 Auto-Login Worker</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Poll task &amp; OAuth login tự động</div>
+                <div className="text-[13px] font-bold text-slate-100 flex items-center gap-2">🤖 Auto-Login Worker</div>
+                <div className="text-[11px] text-slate-400 mt-1">Poll task & OAuth login tự động</div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Badge status={processes['worker']?.status || 'stopped'} />
-                <button className="btn btn-primary btn-sm" onClick={startWorker} disabled={isWorker}>▶ Start</button>
+              <div className="flex items-center gap-3">
+                <StatusBadge status={processes['worker']?.status || 'stopped'} />
+                <Button variant="primary" size="sm" onClick={startWorker} disabled={isWorker}>▶ Start</Button>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(99,102,241,.07)', borderRadius: 10, border: '1px solid rgba(99,102,241,.2)' }}>
+            
+            <div className="flex items-center justify-between p-3.5 bg-indigo-500/10 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-colors">
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#818cf8' }}>🔌 Auto-Connect Worker <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(99,102,241,.2)', color: '#818cf8', borderRadius: 4, padding: '1px 6px', marginLeft: 4 }}>v2</span></div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Đăng nhập chatgpt.com · Lấy session token</div>
+                <div className="text-[13px] font-bold text-indigo-400 flex items-center gap-2">
+                  🔌 Auto-Connect
+                  <span className="text-[9px] font-black bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded uppercase tracking-wider">v2</span>
+                </div>
+                <div className="text-[11px] text-indigo-300/70 mt-1">Đăng nhập chatgpt.com · Lấy token trực tiếp</div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Badge status={processes['connect-worker']?.status || 'stopped'} />
-                <button className="btn btn-sm" onClick={startConnectWorker} disabled={isConnectWorker} style={{ background: 'rgba(99,102,241,.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,.3)' }}>▶ Start</button>
+              <div className="flex items-center gap-3">
+                <StatusBadge status={processes['connect-worker']?.status || 'stopped'} />
+                <Button size="sm" onClick={startConnectWorker} disabled={isConnectWorker} className="bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30">
+                  ▶ Start
+                </Button>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Connection */}
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">📡 Kết nối</span>
-            <button className="btn btn-ghost btn-sm" onClick={check} disabled={checking}>{checking ? <Spinner /> : '↻'}</button>
-          </div>
-          <div className="card-body">
-            <div className="ping-row">
-              <div className="ping-item">
-                <span className="ping-lbl">🦊 Camofox Browser Server</span>
-                <span className={`ping-status ${cfPing === null ? 'wait' : cfPing ? 'ok' : 'fail'}`}>{cfPing === null ? 'Kiểm tra...' : cfPing ? '✓ Online' : '✗ Offline'}</span>
+        <Card>
+          <CardHeader>
+            <CardTitle><HeartPulse size={16} className="text-rose-400" /> Kết nối & Trạng thái</CardTitle>
+            <Button size="icon-sm" variant="ghost" onClick={check} disabled={checking} className="ml-auto">
+              <RefreshCw size={13} className={checking ? 'animate-spin' : ''} />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <span className="text-[12.5px] font-semibold text-slate-300">🦊 Camofox Browser</span>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
+                  cfPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' : 
+                  cfPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}>
+                  {cfPing === null ? 'Đang kiểm tra...' : cfPing ? '✓ Online' : '✗ Offline'}
+                </span>
               </div>
-              <div className="ping-item">
-                <span className="ping-lbl">🌐 SeeLLM Gateway</span>
-                <span className={`ping-status ${gwPing === null ? 'wait' : gwPing ? 'ok' : 'fail'}`}>{gwPing === null ? 'Kiểm tra...' : gwPing ? '✓ Online' : '✗ Offline'}</span>
+              
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <span className="text-[12.5px] font-semibold text-slate-300">🌐 SeeLLM Gateway</span>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
+                  gwPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' : 
+                  gwPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}>
+                  {gwPing === null ? 'Đang kiểm tra...' : gwPing ? '✓ Online' : '✗ Offline'}
+                </span>
               </div>
-              <div className="ping-item">
-                <span className="ping-lbl">⚡ Socket.io Realtime</span>
-                <span className={`ping-status ${connected ? 'ok' : 'fail'}`}>{connected ? '✓ Connected' : '✗ Disconnected'}</span>
+              
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <span className="text-[12.5px] font-semibold text-slate-300">⚡ Web UI Socket</span>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
+                  connected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}>
+                  {connected ? '✓ Connected' : '✗ Disconnected'}
+                </span>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Live screenshots */}
       {Object.keys(liveShots).length > 0 && (
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">📸 Live Browser View ({Object.keys(liveShots).length})</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => setView('screenshots')}>Xem tất cả →</button>
-          </div>
-          <div className="card-body">
-            <div className="live-grid">
+        <Card>
+          <CardHeader>
+            <CardTitle><Camera size={14} className="text-cyan-400" /> Live Browser View ({Object.keys(liveShots).length})</CardTitle>
+            <Button variant="secondary" size="sm" onClick={() => setView('screenshots')} className="ml-auto">Xem tất cả →</Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {Object.entries(liveShots).map(([sessionId, shot]) => (
-                <div key={sessionId} className="live-entry-container">
-                  <div className="live-screen clickable" style={{ maxWidth: 400 }} onClick={() => setView('screenshots')}>
-                    <div className="live-badge"><span className="live-dot" />LIVE</div>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`${shot.url}?t=${Date.now()}`} alt="Live" />
+                <div key={sessionId} className="group relative cursor-pointer rounded-xl overflow-hidden border border-white/10 hover:border-indigo-500/50 transition-all bg-black/50 aspect-video flex items-center justify-center shadow-lg" onClick={() => setView('screenshots')}>
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[9px] font-bold tracking-wider backdrop-blur-md">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" /> LIVE
                   </div>
-                  <div className="live-info" style={{ marginTop: 4 }}>
-                    <div className="live-label" style={{ fontSize: 12 }}>{shot.email || sessionId.replace(/^run_/, '')}</div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`${shot.url}?t=${Date.now()}`} alt="Live" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3 pt-8">
+                    <div className="text-[11px] font-semibold text-slate-200 truncate">{shot.email || sessionId.replace(/^run_/, '')}</div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
-
 
       {/* Processes */}
       {procs.length > 0 && (
-        <div className="card">
-          <div className="card-head"><span className="card-title">⚙️ Processes ({procs.length})</span></div>
-          <div className="card-body">
-            <div className="proc-grid">
+        <Card>
+          <CardHeader>
+            <CardTitle><Settings size={14} className="text-slate-400" /> Tiêu trình hệ thống ({procs.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {procs.map(p => <ProcCard key={p.id} p={p} />)}
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

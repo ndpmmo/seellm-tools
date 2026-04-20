@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp, Session, Screenshot } from '../AppContext';
 import { Spinner, fmtDateTimeVN, ConfirmModal } from '../Views';
+import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../ui';
 import {
   History, Camera, Clock, Tag, X, ChevronLeft, ChevronRight,
   Trash2, Maximize2, RefreshCw, Filter, Search, CheckSquare, Square,
@@ -86,72 +87,72 @@ function AdvancedViewer({ session, initialImage, liveMode, onClose, onDeleteImag
   };
 
   return (
-    <div className="viewer-overlay">
-      <div className="viewer-backdrop" onClick={onClose} />
-      <div className="viewer-header">
-        <div className="viewer-meta">
-          <div className="viewer-title">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-xl">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent pointer-events-none z-10">
+        <div className="flex flex-col drop-shadow-md pointer-events-auto">
+          <div className="text-lg font-bold text-white tracking-wide">
             {currentImg.email ? `${currentImg.email} - ${session.id.replace(/^run_/, '').substring(0, 8)}` : session.id.replace(/^run_/, '').substring(0, 40)}
           </div>
-          <div className="viewer-sub">
-            <Clock size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            {fmtDateTimeVN(currentImg.ts || session.mtime)} • {currentImg.filename}
+          <div className="text-sm text-slate-300 flex items-center gap-1.5 mt-1">
+            <Clock size={12} />
+            {fmtDateTimeVN(currentImg.ts || session.mtime)} <span className="mx-1 opacity-50">•</span> {currentImg.filename}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
-          {liveMode && <div className="live-indicator">Đang theo dõi trực tiếp</div>}
-          <button className="btn-icon" onClick={onClose} title="Đóng (Esc)">
+        <div className="flex items-center gap-4 pointer-events-auto">
+          {liveMode && <div className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold tracking-wider animate-pulse flex items-center gap-2"><span className="w-1.5 h-1.5 bg-rose-500 rounded-full" /> Đang theo dõi trực tiếp</div>}
+          <button className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors shadow-lg" onClick={onClose} title="Đóng (Esc)">
             <X size={20} />
           </button>
         </div>
       </div>
 
-      <div className="viewer-main">
-        <div className="viewer-img-container" onClick={e => e.stopPropagation()}>
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden pointer-events-none">
+        <div className="relative w-full h-full p-4 md:p-10 flex items-center justify-center pointer-events-auto" onClick={e => e.stopPropagation()}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             key={currentImg.url} 
             src={currentImg.url} 
             alt={currentImg.filename} 
-            className="viewer-img"
+            className="max-w-full max-h-full object-contain drop-shadow-2xl rounded-sm border border-white/10 bg-black/50"
           />
         </div>
 
-        <div className="viewer-controls" style={{ zIndex: 10 }}>
+        <div className="absolute inset-y-0 left-0 flex items-center px-4 md:px-8 pointer-events-none z-10">
           <button 
-            className="viewer-nav-btn" 
+            className="w-14 h-14 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition-all pointer-events-auto active:scale-95 disabled:opacity-0 disabled:pointer-events-none" 
             onClick={handlePrev}
             disabled={currentIndex === 0}
-            style={{ opacity: currentIndex === 0 ? 0 : 1, pointerEvents: currentIndex === 0 ? 'none' : 'all' }}
           >
-            <ChevronLeft size={36} />
+            <ChevronLeft size={32} />
           </button>
+        </div>
+        <div className="absolute inset-y-0 right-0 flex items-center px-4 md:px-8 pointer-events-none z-10">
           <button 
-            className="viewer-nav-btn" 
+            className="w-14 h-14 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center backdrop-blur-md border border-white/10 transition-all pointer-events-auto active:scale-95 disabled:opacity-0 disabled:pointer-events-none" 
             onClick={handleNext}
             disabled={currentIndex === session.images.length - 1}
-            style={{ opacity: currentIndex === session.images.length - 1 ? 0 : 1, pointerEvents: currentIndex === session.images.length - 1 ? 'none' : 'all' }}
           >
-            <ChevronRight size={36} />
+            <ChevronRight size={32} />
           </button>
         </div>
       </div>
 
-      <div className="viewer-footer">
-        <div className="viewer-filmstrip" ref={filmstripRef} onClick={e => e.stopPropagation()}>
+      <div className="relative z-10 bg-gradient-to-t from-black via-black/80 to-transparent p-4 md:p-6 flex justify-center">
+        <div className="flex gap-2 overflow-x-auto pb-4 px-4 snap-x hide-scrollbar scroll-smooth w-full max-w-screen-xl" ref={filmstripRef} onClick={e => e.stopPropagation()}>
           {session.images.map((img, idx) => (
             <div 
               key={img.filename}
-              className={`strip-item ${idx === currentIndex ? 'active' : ''}`}
+              className={`shrink-0 relative w-24 h-16 rounded-md overflow-hidden cursor-pointer border-2 transition-all transform snap-center ${idx === currentIndex ? 'border-indigo-400 scale-110 z-10 shadow-[0_0_15px_rgba(129,140,248,0.5)]' : 'border-transparent opacity-50 hover:opacity-100'}`}
               onClick={(e) => {
                 e.stopPropagation();
                 setCurrentIndex(idx);
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt={img.filename} />
-              <div className="strip-label">{img.filename.replace(/^\d{2}_/, '').replace(/_/g, ' ').replace('.png', '')}</div>
+              <img src={img.url} alt={img.filename} className="w-full h-full object-cover" />
+              <div className="absolute inset-x-0 bottom-0 bg-black/70 text-[9px] text-white px-1 py-0.5 truncate text-center font-mono">{img.filename.replace(/^\d{2}_/, '').replace(/_/g, ' ').replace('.png', '')}</div>
             </div>
           ))}
         </div>
@@ -189,10 +190,11 @@ function SessionCard({
   const label = email ? `${email} - ${shortId}` : session.id.replace(/^run_/, '').substring(0, 30);
 
   return (
-    <div className="session-card">
-      <div className="session-head" onClick={() => setOpen(!open)}>
+    <div className="flex flex-col bg-black/20 border border-white/5 rounded-xl overflow-hidden hover:border-white/10 transition-colors">
+      <div className="flex items-center gap-3 p-3.5 cursor-pointer select-none bg-white/[0.02] hover:bg-white/[0.04] transition-colors" onClick={() => setOpen(!open)}>
         <input
           type="checkbox"
+          className="w-4 h-4 rounded border-white/20 bg-black/50 text-indigo-500 focus:ring-indigo-500/30 cursor-pointer"
           checked={selected}
           onChange={(e) => {
             e.stopPropagation();
@@ -201,46 +203,51 @@ function SessionCard({
           onClick={(e) => e.stopPropagation()}
           title="Chọn session để xóa hàng loạt"
         />
-        <div style={{ color: 'var(--indigo-2)' }}>
-          <Camera size={18} />
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+          <Camera size={16} />
         </div>
-        <div className="session-id">{label}</div>
-        <div className="session-count" title={`Cập nhật: ${fmtDateTimeVN(session.mtime)}`}>
-          <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{session.imageCount}</span> ảnh • {fmtDateTimeVN(session.createdAt || session.mtime)}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-bold text-slate-200 truncate">{label}</div>
+          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+            <span className="font-semibold text-slate-300">{session.imageCount}</span> ảnh <span className="opacity-50">•</span> {fmtDateTimeVN(session.createdAt || session.mtime)}
+          </div>
         </div>
-        <button
-          className="btn-icon danger btn-xs"
+        <Button
+          variant="danger"
+          size="icon-sm"
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => {
             e.stopPropagation();
             onDeleteSession(session.id);
           }}
           title="Xóa session"
         >
-          <Trash2 size={12} />
-        </button>
-        <div className={`session-chevron ${open ? 'open' : ''}`}>
-          <ChevronRight size={14} />
+          <Trash2 size={13} />
+        </Button>
+        <div className={`text-slate-500 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}>
+          <ChevronRight size={16} />
         </div>
       </div>
       {open && (
-        <div className="screenshot-gallery">
+        <div className="p-3 bg-black/40 border-t border-white/5 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
           {session.images.length === 0 ? (
-            <div className="ss-empty">Không có ảnh nào</div>
+            <div className="col-span-full py-6 text-center text-[12px] text-slate-500 italic">Không có ảnh nào</div>
           ) : session.images.map(img => (
-            <div key={img.filename} className="ss-thumb" onClick={() => onOpenViewer(session, img)}>
+            <div key={img.filename} className="group relative aspect-video bg-black/60 rounded-lg overflow-hidden border border-white/5 hover:border-indigo-500/50 cursor-pointer" onClick={() => onOpenViewer(session, img)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt={img.filename} loading="lazy" />
+              <img src={img.url} alt={img.filename} loading="lazy" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <button
-                className="btn btn-danger btn-xs"
-                style={{ position: 'absolute', top: 6, right: 6, zIndex: 5, padding: '2px 4px' }}
+                className="absolute top-1 right-1 w-6 h-6 rounded bg-rose-500/80 hover:bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10 shadow-md"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteImage(session.id, img.filename);
                 }}
               >
-                <Trash2 size={10} />
+                <Trash2 size={11} />
               </button>
-              <div className="ss-label">{img.filename.replace(/^\d{2}_/, '').replace(/_/g, ' ').replace('.png', '')}</div>
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 py-1.5 text-[9px] text-slate-300 truncate font-mono">
+                {img.filename.replace(/^\d{2}_/, '').replace(/_/g, ' ').replace('.png', '')}
+              </div>
             </div>
           ))}
         </div>
@@ -396,47 +403,47 @@ export function ScreenshotsView() {
   };
 
   return (
-    <div className="content">
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-6 pt-2">
       {/* Live Channels Grid */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title" style={{ color: 'var(--rose)' }}>
-            <span style={{ animation: 'blink 1s infinite', display: 'inline-block', marginRight: 8 }}>●</span>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-rose-400">
+            <span className="inline-block mr-2 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
             Bản xem trực tiếp ({activeLiveEntries.length})
-          </span>
-          <div style={{ display: 'flex', gap: 8 }}>
+          </CardTitle>
+          <div className="flex gap-2 ml-auto">
             {activeLiveEntries.length > 0 && (
-              <button className="btn btn-ghost btn-xs" onClick={() => setHiddenLive(new Set(Object.keys(liveShots)))}>
+              <Button variant="ghost" size="sm" onClick={() => setHiddenLive(new Set(Object.keys(liveShots)))}>
                 Dọn dẹp tất cả
-              </button>
+              </Button>
             )}
           </div>
-        </div>
-        <div className="card-body">
+        </CardHeader>
+        <CardContent>
           {activeLiveEntries.length === 0 ? (
-            <div className="live-placeholder">
-              <div className="big">🦊</div>
-              <div>Hiện không có luồng nào đang hoạt động</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Khởi động Worker để theo dõi đa luồng realtime</div>
+            <div className="py-12 flex flex-col items-center justify-center text-center gap-3">
+              <div className="text-4xl filter grayscale opacity-30">🦊</div>
+              <div className="font-medium text-slate-300">Hiện không có luồng nào đang hoạt động</div>
+              <div className="text-[12.5px] text-slate-500">Khởi động Worker để theo dõi đa luồng realtime</div>
             </div>
           ) : (
-            <div className="live-grid">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {activeLiveEntries.map(([sessionId, shot]) => {
                 const sessionObj = sessions.find(s => s.id === sessionId);
                 return (
-                  <div key={sessionId} className="live-entry-container">
+                  <div key={sessionId} className="group relative rounded-xl overflow-hidden bg-black/40 border border-white/10 hover:border-indigo-500/50 transition-colors shadow-lg">
                     <div
-                      className="live-screen clickable"
+                      className="relative aspect-video flex items-center justify-center cursor-pointer overflow-hidden bg-black/50"
                       onClick={() => {
                         if (sessionObj) handleOpenViewer(sessionObj, shot, true);
                         else addToast('Đang khởi tạo session data...', 'info');
                       }}
                     >
-                      <div className="live-badge">
-                        <span className="live-dot" />LIVE
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[9px] font-bold tracking-wider backdrop-blur-md shadow-md">
+                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />LIVE
                       </div>
                       <button
-                        className="live-close-btn"
+                        className="absolute top-2 right-2 z-10 w-6 h-6 rounded bg-black/60 hover:bg-black text-slate-300 hover:text-white flex items-center justify-center backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all border border-white/10"
                         onClick={(e) => { e.stopPropagation(); setHiddenLive(prev => new Set([...prev, sessionId])); }}
                         title="Ẩn luồng này"
                       >✕</button>
@@ -444,6 +451,7 @@ export function ScreenshotsView() {
                       <img
                         src={`${shot.url}?t=${Date.now()}`}
                         alt="live"
+                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                         onError={() => {
                           setFailedLive((prev) => {
                             const next = new Set(prev);
@@ -453,10 +461,10 @@ export function ScreenshotsView() {
                         }}
                       />
                     </div>
-                    <div className="live-info">
-                      <div className="live-label">{shot.email || sessionId.replace(/^run_/, '')}</div>
-                      <div className="live-sub">
-                        {shot.filename} • {fmtDateTimeVN(shot.ts || new Date().toISOString())}
+                    <div className="p-3 bg-black/20 border-t border-white/5">
+                      <div className="text-[12px] font-bold text-slate-200 truncate">{shot.email || sessionId.replace(/^run_/, '')}</div>
+                      <div className="text-[10px] text-slate-500 mt-1 truncate">
+                        {shot.filename} <span className="mx-1 opacity-50">•</span> {fmtDateTimeVN(shot.ts || new Date().toISOString())}
                       </div>
                     </div>
                   </div>
@@ -464,30 +472,29 @@ export function ScreenshotsView() {
               })}
             </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
 
       {/* Session History */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">
-            <History size={16} style={{ marginRight: 4 }} />
-            Lịch sử Sessions ({filteredSessions.length}/{sessions.length})
-          </span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-3)' }} />
-              <input
-                className="inp inp-sm"
-                style={{ width: 220, paddingLeft: 32 }}
+      <Card className="flex flex-col flex-1 min-h-[400px]">
+        <CardHeader className="flex-wrap gap-y-3">
+          <CardTitle>
+            <History size={16} className="text-indigo-400" />
+            Lịch sử Sessions <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300 font-bold">{filteredSessions.length}/{sessions.length}</span>
+          </CardTitle>
+          <div className="flex gap-2 items-center ml-auto flex-wrap">
+            <div className="relative flex items-center">
+              <Search size={14} className="absolute left-3 text-slate-500 pointer-events-none" />
+              <Input
+                className="pl-8 w-[220px] bg-white/5 border-white/10 h-8 text-[12.5px]"
                 placeholder="Tìm session/filename..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
 
-            <select className="inp inp-sm" style={{ width: 140 }} value={sortBy} onChange={(e) => {
+            <select className="h-8 rounded-lg bg-black/40 border border-white/10 text-[12.5px] text-slate-300 px-3 pr-8 outline-none focus:border-indigo-500/50" value={sortBy} onChange={(e) => {
               const v = e.target.value as any;
               setSortBy(v);
             }}>
@@ -496,36 +503,36 @@ export function ScreenshotsView() {
               <option value="most">Nhiều ảnh nhất</option>
             </select>
 
-            <label className="btn btn-ghost btn-sm" style={{ gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={onlyWithImages} onChange={(e) => setOnlyWithImages(e.target.checked)} />
+            <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-colors text-[12px] font-medium text-slate-300 select-none">
+              <input type="checkbox" className="w-3.5 h-3.5 rounded border-white/20 bg-black/50 text-indigo-500 focus:ring-indigo-500/30 cursor-pointer" checked={onlyWithImages} onChange={(e) => setOnlyWithImages(e.target.checked)} />
               Có ảnh
             </label>
 
-            <button className="btn btn-ghost btn-sm" onClick={toggleSelectAllFiltered} disabled={filteredSessions.length === 0}>
-              {filteredSessions.length > 0 && filteredSessions.every((s) => selectedSessions.has(s.id)) ? <Square size={14} /> : <CheckSquare size={14} />}
+            <Button variant="ghost" size="sm" onClick={toggleSelectAllFiltered} disabled={filteredSessions.length === 0} className="border border-white/5 bg-white/5 hover:bg-white/10">
+              {filteredSessions.length > 0 && filteredSessions.every((s) => selectedSessions.has(s.id)) ? <Square size={14} className="mr-1.5" /> : <CheckSquare size={14} className="mr-1.5" />}
               {filteredSessions.length > 0 && filteredSessions.every((s) => selectedSessions.has(s.id)) ? 'Bỏ chọn' : 'Chọn hết'}
-            </button>
+            </Button>
 
             {selectedSessions.size > 0 && (
-              <button className="btn btn-danger btn-sm" onClick={deleteSelectedSessions}>
+              <Button variant="danger" size="sm" onClick={deleteSelectedSessions}>
                 <Trash2 size={14} /> Xóa ({selectedSessions.size})
-              </button>
+              </Button>
             )}
 
-            <button className="btn btn-ghost btn-sm" onClick={refresh} disabled={loading} title="Làm mới">
-              {loading ? <Spinner /> : <RefreshCw size={14} />}
-            </button>
+            <Button variant="secondary" size="icon-sm" onClick={refresh} disabled={loading} title="Làm mới" className="border border-white/5 bg-white/5 hover:bg-white/10">
+              <RefreshCw size={14} className={`${loading ? 'animate-spin' : ''} text-slate-300`} />
+            </Button>
           </div>
-        </div>
-        <div className="card-body p0">
+        </CardHeader>
+        <div className="flex-1 overflow-y-auto p-4 bg-black/10">
           {filteredSessions.length === 0 ? (
-            <div className="empty" style={{ padding: 40 }}>
-              <div className="e-ico">📂</div>
-              <div className="e-txt">{sessions.length === 0 ? 'Chưa có session nào' : 'Không có session phù hợp'}</div>
-              <div className="e-sub">Screenshots sẽ xuất hiện tại đây khi Worker chạy</div>
+            <div className="py-20 flex flex-col items-center justify-center text-center gap-4">
+              <div className="text-4xl filter grayscale opacity-20">📂</div>
+              <div className="font-medium text-slate-300">{sessions.length === 0 ? 'Chưa có session nào' : 'Không có session phù hợp'}</div>
+              <div className="text-[12.5px] text-slate-500">Screenshots sẽ xuất hiện tại đây khi Worker chạy</div>
             </div>
           ) : (
-            <div className="sessions-grid" style={{ padding: 12 }}>
+            <div className="flex flex-col gap-2.5">
               {filteredSessions.map(s => (
                 <SessionCard
                   key={s.id}
@@ -540,7 +547,7 @@ export function ScreenshotsView() {
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {activeViewer && (
         <AdvancedViewer

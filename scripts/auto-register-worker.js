@@ -85,6 +85,18 @@ async function camofoxPost(endpoint, body, timeoutMs = 30000) {
   return res.json();
 }
 
+async function updatePoolStatus(email, data) {
+  try {
+    await fetch(`http://localhost:4000/api/vault/email-pool`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, ...data }),
+    });
+  } catch (err) {
+    console.log(`[Pool] Update failed for ${email}: ${err.message}`);
+  }
+}
+
 async function evalJson(tabId, userId, expression, timeoutMs = 12000) {
   try {
     const res = await camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, timeoutMs);
@@ -119,8 +131,12 @@ export async function runAutoRegister(taskInput) {
   const [email, emailPassword, refreshToken, clientId] = taskInput.split('|');
   if (!email || !emailPassword || !refreshToken || !clientId) throw new Error("Input string is invalid (expected email|pass|refresh_token|client_id)");
 
-  // Tạo mật khẩu ngẫu nhiên đủ mạnh (>12 ký tự, có ký tự đặc biệt, số)
-  const chatGptPassword = crypto.randomBytes(12).toString('base64').replace(/[^a-zA-Z0-9]/g, '') + "1@StrongPass";
+  // Update pool status to processing
+  await updatePoolStatus(email, { chatgpt_status: 'processing' });
+
+  // Tạo mật khẩu ngẫu nhiên đủ mạnh (16 ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
+  const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  const chatGptPassword = Array.from({ length: 16 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -451,42 +467,48 @@ export async function runAutoRegister(taskInput) {
     console.log(`🔑 Mật khẩu ChatGPT: ${chatGptPassword}`);
     console.log(`==========================================`);
 
-    // Lưu tài khoản vào Vault DB qua API
-    try {
-      console.log(`[❤️] Đang lưu account vào Vault...`);
-      const saveRes = await fetch(`http://localhost:4000/api/vault/accounts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'codex',
-          label: email.split('@')[0],
-          email,
-          password: chatGptPassword,
-          two_fa_secret: twoFaSecret || '',
-          cookies: sessionToken ? JSON.stringify([{ name: '__Secure-next-auth.session-token', value: sessionToken }]) : '[]',
-          status: 'ready',
-          tags: JSON.stringify(['auto-register']),
-          notes: `Đăng ký tự động ${new Date().toISOString()} | MFA: ${twoFaSecret ? '✅' : '❌'}`,
-        }),
-      });
-      const saveData = await saveRes.json();
-      if (saveData.ok) {
-        console.log(`🟢 Đã lưu vào vault! ID: ${saveData.id}`);
-      } else {
-        console.log(`🔴 Lưu vault thất bại: ${JSON.stringify(saveData)}`);
-      }
-    } catch (saveErr) {
-      console.log(`🔴 Không lưu được vào vault (server chưa chạy?): ${saveErr.message}`);
-    }
+    let accountId = null;
+
+    // Lưu vào kho account (status=idle, chờ Deploy - KHÔNG phải sẽ được deploy ngay)
+    const accRes = await fetch(`http://localhost:4000/api/vault/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password: chatGptPassword,
+        two_fa_secret: twoFaSecret || '',
+        provider: 'openai',
+        status: 'idle',
+        skipSync: true,
+        tags: JSON.stringify(['auto-register', 'vault-register']),
+        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''} | Tạo: ${new Date().toISOString()}`
+      }),
+    });
+    const accData = await accRes.json();
+
+    // Cập nhật pool status
+    await updatePoolStatus(email, { 
+      chatgpt_status: 'done', 
+      linked_chatgpt_id: accData.id,
+      notes: `Thành công | PID: ${process.pid} | Acc ID: ${accData.id}` 
+    });
 
     return {
       success: true, email, password: chatGptPassword, twoFaSecret, sessionToken, createdAt: new Date().toISOString()
     };
 
-  } catch (error) {
-    console.error(`🔴 Catch Global Lỗi 🔴: ${error.message}`);
-    return { success: false, error: error.message };
-  } finally {
+  } catch (err) {
+    console.log(`==========================================`);
+    console.log(`🔴 THẤT BẠI: ${email}`);
+    console.log(`❌ Lỗi: ${err.message}`);
+    console.log(`==========================================`);
+
+    // Update pool status to failed
+    await updatePoolStatus(email, { 
+      chatgpt_status: 'failed', 
+      notes: `Error: ${err.message} at ${new Date().toISOString()}`
+    });
+
     if (tabId) { await camofoxPost(`/tabs/${tabId}?userId=${USER_ID}`, {}, 5000).catch(() => { }); }
   }
 }

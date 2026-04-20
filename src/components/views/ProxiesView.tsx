@@ -6,27 +6,17 @@ import {
   AlertCircle, Edit2, Save
 } from 'lucide-react';
 import { useApp } from '../AppContext';
-import { ConfirmModal, Spinner } from '../Views';
+import { ConfirmModal } from '../Views';
+import { Card, CardHeader, CardTitle, CardContent, Button, Input, StatBox } from '../ui';
 
-// ── Types ────────────────────────────────────────────────
 interface ProxyItem {
-  id: string;
-  url: string;
-  source: string;
-  label?: string;
-  last_latency_ms?: number;
-  created_at: string;
+  id: string; url: string; source: string; label?: string;
+  last_latency_ms?: number; created_at: string;
 }
-
 interface ProxySlot {
-  id: string;
-  proxy_id: string;
-  slot_index: number;
-  connection_id?: string;
-  updated_at: string;
+  id: string; proxy_id: string; slot_index: number; connection_id?: string; updated_at: string;
 }
 
-// ── Helpers ──────────────────────────────────────────────
 function parseBulkProxies(raw: string) {
   return raw.split('\n')
     .map(l => l.trim()).filter(Boolean)
@@ -38,57 +28,26 @@ function parseBulkProxies(raw: string) {
     .filter(r => r.url.startsWith('http://') || r.url.startsWith('https://') || r.url.startsWith('socks'));
 }
 
-// ── Stat Card ──
-function StatCard({ icon: Icon, value, label, color, bg }: {
-  icon: React.ElementType; value: number | string; label: string; color: string; bg: string;
-}) {
-  return (
-    <div style={{
-      flex: 1, minWidth: 0,
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '14px 16px', borderRadius: 12,
-      background: 'var(--glass)',
-      border: '1px solid var(--border)',
-    }}>
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color }}>
-        <Icon size={18} />
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main ──────────────────────────────────────────────────
 export function ProxiesView() {
   const { addToast } = useApp();
   const [proxies, setProxies] = useState<ProxyItem[]>([]);
-  const [slots, setSlots]     = useState<ProxySlot[]>([]);
+  const [slots, setSlots] = useState<ProxySlot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  const [search, setSearch]   = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 
-  // Add single
-  const [newUrl, setNewUrl]     = useState('');
+  const [newUrl, setNewUrl] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [newCount, setNewCount] = useState('4');
-  const [adding, setAdding]     = useState(false);
-
-  // Bulk
-  const [bulkOpen, setBulkOpen]   = useState(false);
-  const [bulkText, setBulkText]   = useState('');
-  const [bulkRows, setBulkRows]   = useState<ReturnType<typeof parseBulkProxies>>([]);
-  const [bulkBusy, setBulkBusy]   = useState(false);
-
-  // Edit inline
+  const [adding, setAdding] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkRows, setBulkRows] = useState<ReturnType<typeof parseBulkProxies>>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [editProxyId, setEditProxyId] = useState<string | null>(null);
-  const [editValues, setEditValues]   = useState({ url: '', label: '' });
+  const [editValues, setEditValues] = useState({ url: '', label: '' });
 
-  /* ── Load ── */
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -105,21 +64,17 @@ export function ProxiesView() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const filtered = proxies.filter(p => !search || p.url.toLowerCase().includes(search.toLowerCase()) || (p.label && p.label.toLowerCase().includes(search.toLowerCase())));
-
-  /* ── Stats ── */
   const totalSlots = slots.length;
-  const busySlots  = slots.filter(s => s.connection_id).length;
-  const freeSlots  = totalSlots - busySlots;
+  const busySlots = slots.filter(s => s.connection_id).length;
+  const freeSlots = totalSlots - busySlots;
 
-  /* ── API ── */
   async function apiPost(url: string, body: object) {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return r.json();
   }
 
   const addProxy = async () => {
-    if (!newUrl) return;
-    setAdding(true);
+    if (!newUrl) return; setAdding(true);
     const d = await apiPost('/api/d1/proxies/add', { url: newUrl, label: newLabel, slotCount: parseInt(newCount, 10) || 4 });
     if (d.error) addToast(d.error, 'error');
     else { addToast('✅ Đã thêm proxy', 'success'); setNewUrl(''); setNewLabel(''); setNewCount('4'); await loadData(); }
@@ -132,33 +87,21 @@ export function ProxiesView() {
       message: 'Bạn có chắc muốn xóa proxy này? Tất cả các slot liên quan cũng sẽ bị xóa.',
       onConfirm: async () => {
         await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
-        addToast('Đã xoá proxy', 'info');
-        loadData();
-        setConfirmModal(null);
+        addToast('Đã xoá proxy', 'info'); loadData(); setConfirmModal(null);
       }
     });
   };
 
   const saveEdit = async () => {
     if (!editProxyId) return;
-    const r = await fetch(`/api/d1/proxies/${editProxyId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editValues),
-    });
-    if (!r.ok) {
-      addToast('Lỗi khi lưu proxy', 'error');
-    } else {
-      addToast('Đã cập nhật proxy', 'success');
-      setEditProxyId(null);
-      loadData();
-    }
+    const r = await fetch(`/api/d1/proxies/${editProxyId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editValues) });
+    if (!r.ok) addToast('Lỗi khi lưu proxy', 'error');
+    else { addToast('Đã cập nhật proxy', 'success'); setEditProxyId(null); loadData(); }
   };
 
   const addSlot = async (proxyId: string) => {
     const r = await fetch(`/api/d1/proxies/${proxyId}/slots`, { method: 'POST' });
-    if (r.ok) { addToast('Đã thêm slot', 'success'); loadData(); }
-    else addToast('Lỗi thêm slot', 'error');
+    if (r.ok) { addToast('Đã thêm slot', 'success'); loadData(); } else addToast('Lỗi thêm slot', 'error');
   };
 
   const removeSlot = async (slotId: string, isBusy: boolean) => {
@@ -185,13 +128,11 @@ export function ProxiesView() {
     });
   };
 
-  // ── Bulk import ──
   const importBulk = async () => {
-    if (!bulkRows.length) return;
-    setBulkBusy(true);
+    if (!bulkRows.length) return; setBulkBusy(true);
     let ok = 0;
     for (const row of bulkRows) {
-      try { const d = await apiPost('/api/d1/proxies/add', row); if (!d.error) ok++; } catch {}
+      try { const d = await apiPost('/api/d1/proxies/add', row); if (!d.error) ok++; } catch { }
     }
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
     addToast(`✅ Imported ${ok}/${bulkRows.length} proxy`, 'success');
@@ -199,178 +140,162 @@ export function ProxiesView() {
   };
 
   return (
-    <div className="content">
-
-      {/* ═══ STATS ═══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <StatCard icon={Globe}    value={proxies.length} label="Tổng Proxies" color="var(--indigo-2)" bg="var(--indigo-soft)" />
-        <StatCard icon={Server}   value={totalSlots}     label="Tổng Slots"   color="var(--cyan)"     bg="var(--cyan-dim)" />
-        <StatCard icon={Activity} value={busySlots}      label="Slots Đang Dùng" color="var(--amber)" bg="var(--amber-dim)" />
-        <StatCard icon={Check}    value={freeSlots}      label="Slots Trống"  color="var(--green)"    bg="var(--green-dim)" />
+    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatBox icon={Globe} value={proxies.length} label="Tổng Proxies" colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/30" />
+        <StatBox icon={Server} value={totalSlots} label="Tổng Slots" colorClass="text-cyan-400" bgClass="bg-cyan-500/10" borderClass="border-cyan-500/30" />
+        <StatBox icon={Activity} value={busySlots} label="Slots Đang Dùng" colorClass="text-amber-400" bgClass="bg-amber-500/10" borderClass="border-amber-500/30" />
+        <StatBox icon={Check} value={freeSlots} label="Slots Trống" colorClass="text-emerald-400" bgClass="bg-emerald-500/10" borderClass="border-emerald-500/30" />
       </div>
 
-      {/* ═══ ADD / BULK ═══ */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title"><Plus size={14} /> Thêm Proxy</span>
-          <button className={`btn btn-sm ${bulkOpen ? 'btn-warning' : 'btn-ghost'}`} onClick={() => setBulkOpen(v => !v)}>
+      {/* Add / Bulk */}
+      <Card>
+        <CardHeader>
+          <CardTitle><Plus size={14} className="text-indigo-400" /> Thêm Proxy</CardTitle>
+          <Button variant={bulkOpen ? 'primary' : 'ghost'} size="sm" onClick={() => setBulkOpen(v => !v)} className="ml-auto">
             <Upload size={12} /> Import hàng loạt {bulkOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          </button>
-        </div>
-        
-        <div className="card-body" style={{ padding: '14px 18px' }}>
+          </Button>
+        </CardHeader>
+        <CardContent>
           {!bulkOpen ? (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input className="inp" style={{ flex: '2 1 200px' }} placeholder="Proxy URL (http://...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addProxy()} />
-              <input className="inp" style={{ flex: '1 1 150px' }} placeholder="Label (Vps, Router...)" value={newLabel} onChange={e => setNewLabel(e.target.value)} />
-              <input className="inp" type="number" style={{ width: 80 }} placeholder="Slots" value={newCount} onChange={e => setNewCount(e.target.value)} />
-              <button className="btn btn-primary" disabled={adding || !newUrl} onClick={addProxy} style={{ flexShrink: 0 }}>
-                {adding ? <span className="spin" style={{ width: 13, height: 13 }} /> : <Plus size={14} />} Thêm
-              </button>
+            <div className="flex gap-3 flex-wrap items-center">
+              <Input className="flex-[3_1_200px]" placeholder="Proxy URL (http://...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addProxy()} />
+              <Input className="flex-[2_1_140px]" placeholder="Label (VPS, Router...)" value={newLabel} onChange={e => setNewLabel(e.target.value)} />
+              <Input type="number" className="w-20 shrink-0" placeholder="Slots" value={newCount} onChange={e => setNewCount(e.target.value)} />
+              <Button variant="primary" disabled={adding || !newUrl} onClick={addProxy} className="shrink-0">
+                {adding ? <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Plus size={14} />} Thêm
+              </Button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ padding: '8px 12px', background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7 }}>
-                <strong style={{ color: 'var(--text)' }}>Định dạng:</strong>{' '}
-                <code style={{ fontSize: 11, color: 'var(--cyan)' }}>url:label:slots</code> hoặc <code style={{ fontSize: 11, color: 'var(--cyan)' }}>url|label|slots</code>
+            <div className="flex flex-col gap-3">
+              <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-400 leading-relaxed">
+                <strong className="text-slate-200">Định dạng:</strong>{' '}
+                <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">url:label:slots</code> hoặc <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">url|label|slots</code>
               </div>
-              <textarea className="inp mono" rows={5} placeholder={`http://user:pass@12.34.56.78:8080:VPS_US:4\nhost:port:Router:2`}
+              <textarea className="w-full bg-black/40 border border-white/10 rounded-md p-3 text-[11px] font-mono text-slate-300 resize-y focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" rows={5}
+                placeholder={`http://user:pass@12.34.56.78:8080:VPS_US:4\nhost:port:Router:2`}
                 value={bulkText} onChange={e => { setBulkText(e.target.value); setBulkRows(parseBulkProxies(e.target.value)); }}
-                style={{ resize: 'vertical', lineHeight: 1.7 }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 12, color: bulkRows.length ? 'var(--green)' : 'var(--text-3)' }}>
-                  {bulkRows.length ? `✅ Nhận diện được ${bulkRows.length} proxy hợp lệ` : 'Dán danh sách vào ô trên…'}
+              />
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className={bulkRows.length ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
+                  {bulkRows.length ? `✅ ${bulkRows.length} proxy hợp lệ` : 'Dán danh sách vào ô trên…'}
                 </span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setBulkOpen(false); setBulkText(''); setBulkRows([]); }}>
-                    <X size={12} /> Hủy
-                  </button>
-                  <button className="btn btn-primary btn-sm" disabled={bulkBusy || !bulkRows.length} onClick={importBulk}>
-                    {bulkBusy ? <span className="spin" style={{ width: 12, height: 12 }} /> : <Upload size={12} />} Import {bulkRows.length || ''}
-                  </button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => { setBulkOpen(false); setBulkText(''); setBulkRows([]); }}><X size={12} /> Hủy</Button>
+                  <Button variant="primary" size="sm" disabled={bulkBusy || !bulkRows.length} onClick={importBulk}>
+                    {bulkBusy ? <span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Upload size={12} />} Import {bulkRows.length || ''}
+                  </Button>
                 </div>
               </div>
             </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* ═══ TABLE ═══ */}
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">Proxy Pool <span className="nav-badge b">{filtered.length}</span></span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={13} style={{ position: 'absolute', left: 10, color: 'var(--text-3)', pointerEvents: 'none' }} />
-              <input className="inp inp-sm" style={{ paddingLeft: 28, width: 180 }} placeholder="Tìm proxy…" value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 0, display: 'flex' }}><X size={11} /></button>}
+      {/* Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Globe size={14} className="text-indigo-400" />
+            Proxy Pool
+            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
+          </CardTitle>
+          <div className="flex gap-2 items-center ml-auto">
+            <div className="relative flex items-center">
+              <Search size={13} className="absolute left-2.5 text-slate-500 pointer-events-none" />
+              <Input className="pl-7 h-8 w-[180px] text-xs bg-white/5 border-white/10" placeholder="Tìm proxy…" value={search} onChange={e => setSearch(e.target.value)} />
+              {search && <button onClick={() => setSearch('')} className="absolute right-2 text-slate-500 hover:text-slate-300"><X size={11} /></button>}
             </div>
-            <button className="btn-icon" title="Refresh" onClick={loadData} disabled={loading}>
-              <RefreshCw size={13} style={{ animation: loading ? 'rotate .65s linear infinite' : 'none' }} />
-            </button>
+            <Button variant="secondary" size="icon-sm" onClick={loadData} disabled={loading} className="border-white/10 bg-white/5">
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </Button>
           </div>
-        </div>
+        </CardHeader>
 
-        {error && <div style={{ margin: '12px 18px 0', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--rose-dim)', color: 'var(--rose)', borderRadius: 8, fontSize: 13, border: '1px solid rgba(244,63,94,.2)' }}><AlertCircle size={14} /> {error}</div>}
+        {error && <div className="mx-5 mt-4 flex items-center gap-2 p-3 bg-rose-500/10 text-rose-400 rounded-lg text-[13px] border border-rose-500/30"><AlertCircle size={14} /> {error}</div>}
 
-        <div className="card-body" style={{ padding: '0 18px 18px' }}>
-          <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-            {filtered.length === 0 && !loading && (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>{search ? `Không tìm thấy "${search}"` : 'Chưa có proxy nào'}</div>
-            )}
-            
-            {filtered.map(p => {
-              const pSlots = slots.filter(s => s.proxy_id === p.id).sort((a,b) => a.slot_index - b.slot_index);
-              const busyCount = pSlots.filter(s => s.connection_id).length;
-              const isEditing = editProxyId === p.id;
-              
-              return (
-                <div key={p.id} style={{ background: isEditing ? 'var(--glass-2)' : 'var(--glass)', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border)', transition: 'border-color .2s' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0, marginRight: 16 }}>
-                      {isEditing ? (
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                          <input className="inp inp-sm" style={{ flex: 2 }} value={editValues.url} onChange={e => setEditValues(v => ({ ...v, url: e.target.value }))} autoFocus />
-                          <input className="inp inp-sm" style={{ flex: 1 }} value={editValues.label} onChange={e => setEditValues(v => ({ ...v, label: e.target.value }))} placeholder="Label..." />
+        <CardContent className="flex flex-col gap-3">
+          {filtered.length === 0 && !loading && (
+            <div className="py-10 text-center text-[13px] text-slate-500">{search ? `Không tìm thấy "${search}"` : 'Chưa có proxy nào'}</div>
+          )}
+          {filtered.map(p => {
+            const pSlots = slots.filter(s => s.proxy_id === p.id).sort((a, b) => a.slot_index - b.slot_index);
+            const busyCount = pSlots.filter(s => s.connection_id).length;
+            const isEditing = editProxyId === p.id;
+            return (
+              <div key={p.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-indigo-500/5 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 min-w-0 mr-4">
+                    {isEditing ? (
+                      <div className="flex gap-2 mb-2">
+                        <Input className="flex-[2] h-8 text-xs font-mono" value={editValues.url} onChange={e => setEditValues(v => ({ ...v, url: e.target.value }))} autoFocus />
+                        <Input className="flex-1 h-8 text-xs" value={editValues.label} onChange={e => setEditValues(v => ({ ...v, label: e.target.value }))} placeholder="Label..." />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="font-mono text-[13px] font-semibold text-indigo-300 break-all">{p.url}</div>
+                        <div className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-2 flex-wrap">
+                          {p.label && <span className="px-2 py-0.5 bg-white/5 rounded border border-white/10">{p.label}</span>}
+                          <span>Nguồn: {p.source}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Activity size={10} className={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'} />
+                            Ping: {p.last_latency_ms || '?'}ms
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Server size={10} className="text-slate-400" />
+                            {busyCount}/{pSlots.length} slots
+                          </span>
                         </div>
-                      ) : (
-                        <>
-                          <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--indigo-2)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>{p.url}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {p.label && <span style={{ background: 'var(--glass-2)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>{p.label}</span>}
-                            <span>Nguồn: {p.source}</span>
-                            <span>•</span>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <Activity size={10} color={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'var(--green)' : 'var(--amber)') : 'var(--text-3)'} />
-                              Ping: {p.last_latency_ms || '?'}ms
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      {isEditing ? (
-                        <>
-                          <button className="btn-icon" title="Hủy" onClick={() => setEditProxyId(null)}>
-                            <X size={14} />
-                          </button>
-                          <button className="btn-icon btn-primary" title="Lưu lại" onClick={saveEdit}>
-                            <Save size={14} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button className="btn-icon" title="Chỉnh sửa Proxy" onClick={() => { setEditProxyId(p.id); setEditValues({ url: p.url, label: p.label || '' }); }}>
-                            <Edit2 size={14} />
-                          </button>
-                          <button className="btn-icon danger" title="Xóa Proxy" onClick={() => deleteProxy(p.id)}>
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                      </>
+                    )}
                   </div>
-                  
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                    {pSlots.map(s => {
-                      const isBusy = !!s.connection_id;
-                      return (
-                        <div key={s.id} 
-                             title={isBusy ? `Đang dùng bởi ${s.connection_id}\n\n• Click Trái: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống\n• Click: Xóa slot'}
-                             onClick={(e) => {
-                               if (isBusy && !e.altKey) resetSlot(s.id);
-                               else removeSlot(s.id, isBusy);
-                             }}
-                             style={{ 
-                               width: 26, height: 26, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                               fontSize: 10, fontWeight: 700, cursor: 'pointer',
-                               background: isBusy ? 'var(--cyan-dim)' : 'var(--glass-3)', 
-                               color: isBusy ? 'var(--cyan)' : 'var(--text-3)',
-                               border: `1px solid ${isBusy ? 'rgba(6, 182, 212, 0.3)' : 'transparent'}`,
-                               boxShadow: isBusy ? '0 0 10px rgba(6, 182, 212, 0.1)' : 'none',
-                               transition: 'all .15s'
-                             }}
-                             onMouseOver={e => e.currentTarget.style.borderColor = isBusy ? 'rgba(6, 182, 212, 0.6)' : 'var(--border)'}
-                             onMouseOut={e => e.currentTarget.style.borderColor = isBusy ? 'rgba(6, 182, 212, 0.3)' : 'transparent'}
-                             >
-                          {s.slot_index}
-                        </div>
-                      );
-                    })}
-                    <button className="btn-icon" onClick={() => addSlot(p.id)} title="Thêm slot" style={{ width: 26, height: 26, padding: 0 }}>
-                      <Plus size={12} />
-                    </button>
+                  <div className="flex gap-1.5 shrink-0">
+                    {isEditing ? (
+                      <>
+                        <Button variant="ghost" size="icon-sm" title="Hủy" onClick={() => setEditProxyId(null)}><X size={14} /></Button>
+                        <Button variant="success" size="icon-sm" title="Lưu" onClick={saveEdit}><Save size={14} /></Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button variant="ghost" size="icon-sm" title="Chỉnh sửa" onClick={() => { setEditProxyId(p.id); setEditValues({ url: p.url, label: p.label || '' }); }}>
+                          <Edit2 size={14} />
+                        </Button>
+                        <Button variant="danger" size="icon-sm" title="Xóa Proxy" onClick={() => deleteProxy(p.id)}>
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {pSlots.map(s => {
+                    const isBusy = !!s.connection_id;
+                    return (
+                      <div
+                        key={s.id}
+                        title={isBusy ? `Đang dùng bởi ${s.connection_id}\n\n• Click: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống • Click: Xóa slot'}
+                        onClick={e => { if (isBusy && !e.altKey) resetSlot(s.id); else removeSlot(s.id, isBusy); }}
+                        className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold cursor-pointer border transition-all ${isBusy ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.15)]' : 'bg-white/5 text-slate-500 border-white/5 hover:border-white/20'}`}
+                      >
+                        {s.slot_index}
+                      </div>
+                    );
+                  })}
+                  <button onClick={() => addSlot(p.id)} title="Thêm slot"
+                    className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-indigo-400 border border-dashed border-white/10 hover:border-indigo-500/50 transition-all">
+                    <Plus size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
 
       {confirmModal && (
-        <ConfirmModal 
+        <ConfirmModal
           title={confirmModal.title}
           message={confirmModal.message}
           onConfirm={confirmModal.onConfirm}
