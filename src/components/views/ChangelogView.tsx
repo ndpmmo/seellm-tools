@@ -49,8 +49,13 @@ export function ChangelogView() {
         date: match ? match[2] : '',
         sections: []
       };
-    } else if (line.startsWith('### ')) {
-      currentVersion?.sections.push({ title: line.replace('### ', ''), items: [] });
+    } else if (line.startsWith('### ') || line.startsWith('#### ')) {
+      const isSub = line.startsWith('#### ');
+      currentVersion?.sections.push({ 
+        title: line.replace(/^#{3,4} /, ''), 
+        isSub,
+        items: [] 
+      });
     } else if (trimmed.startsWith('- ')) {
       const section = currentVersion?.sections[currentVersion.sections.length - 1];
       if (section) {
@@ -101,9 +106,9 @@ export function ChangelogView() {
                   </div>
                   <div className="flex flex-col gap-5">
                     {v.sections.map((s: any, si: number) => (
-                      <div key={si}>
-                        <div className="text-[11.5px] font-bold text-indigo-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                          <Tag size={11} /> {s.title}
+                      <div key={si} className={s.isSub ? 'ml-4 mt-[-8px]' : ''}>
+                        <div className={`font-bold uppercase tracking-wider mb-2.5 flex items-center gap-1.5 ${s.isSub ? 'text-[10px] text-slate-500' : 'text-[11.5px] text-indigo-400'}`}>
+                          {s.isSub ? null : <Tag size={11} />} {s.title}
                         </div>
                         <ul className="flex flex-col gap-2">
                           {s.items.map((item: any, ii: number) => {
