@@ -23,7 +23,7 @@ const IMAGES_DIR = path.join(__dirname, '..', 'data', 'screenshots');
 // ================================================================
 const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
-const OAUTH_AUTH_URL  = 'https://auth.openai.com/oauth/authorize';
+const OAUTH_AUTH_URL = 'https://auth.openai.com/oauth/authorize';
 const OAUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const OAUTH_SCOPE = 'openid email profile offline_access';
 
@@ -827,7 +827,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
         return 'listener-set';
     })()
     `, 3000);
-    
+
     await navigate(tabId, userId, authUrl, 20000);
     await new Promise(r => setTimeout(r, 3000));
     await saveStep(tabId, userId, runDir, '07_oauth_redirect');
@@ -1053,8 +1053,8 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
                 break;
             } else {
                 console.log(`[Connect] ⚠️ Workspace API thất bại: ${codeResult?.error || JSON.stringify(codeResult)}`);
-                // Không continue để tránh vòng lặp vô tận — break out
-                break;
+                await saveStep(tabId, userId, runDir, '08_error_need_phone');
+                return sendConnectResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
             }
         }
 
@@ -1295,7 +1295,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
             return sendConnectResult(task, 'success', 'OAuth PKCE login + token exchange thành công', {
                 ...tokenData,        // Truyền full raw response: access_token, refresh_token, id_token, token_type, v.v..
                 accessToken,         // Fallback cho backend cũ (tạm thời)
-                refreshToken,        
+                refreshToken,
                 idToken,
                 sessionToken,
                 deviceId,
@@ -1350,7 +1350,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
         }
     }
 
-    await saveStep(tabId, USER_ID, runDir, '06_session_captured');
+    await saveStep(tabId, userId, runDir, '06_session_captured');
 
     if (!accessToken) {
         return sendConnectResult(task, 'error',
