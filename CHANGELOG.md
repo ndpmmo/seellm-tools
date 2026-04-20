@@ -1,5 +1,26 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.2] - 2026-04-21
+
+### 🛡️ Data Integrity & D1 Sync Optimization
+
+Deep audit and hardening of the D1 synchronization pipeline to prevent data loss and ensure provider consistency.
+
+#### 🔐 Critical Data Protection
+- **Disappearing Account Fix**: Resolved a critical race condition where D1 `pullVault` would propagate `deleted_at` status from Gateway to local Vault, causing active accounts to "vanish" from UI.
+- **Independent Vault Guard**: Implemented protective logic in `upsertAccount` to ensure remote-origin soft-deletions never overwrite live local records during sync.
+- **Recall-to-Idle Logic**: When an account is deleted on Gateway, Vault now correctly reverts it to `idle` (Cold Storage) rather than deleting it locally.
+
+#### 🔄 Sync Consistency & Multi-Provider Support
+- **Provider Normalization**: Removed hardcoded `'codex'` defaults in `SyncManager` push payloads and server mirroring; system now correctly preserves the `openai` provider type.
+- **Unified Task Polling**: Expanded auto-register and auto-connect task queries to include both `codex` and `openai` accounts, enabling multi-source automation.
+- **Proxy Metadata Fix**: Ensured original `created_at` timestamps are preserved when syncing proxies from remote databases.
+
+#### 🖥️ Vault UX Redesign (Final Polish)
+- **`VaultEmailsView`**: Implemented bulk management (Select All, Bulk Delete), per-row "Register" & "Verify" actions, and live filter counts.
+- **`VaultAccountsView`**: Standardized all management actions (Deploy, Connect, Proxy) for both ChatGPT and Codex account types.
+- **Provider Labels**: Unified display naming to **"ChatGPT | Codex"** across the dashboard for better visual clarity.
+
 ## [0.2.1] - 2026-04-21
 
 ### 🛠 UI Optimization & Terminal Redesign
