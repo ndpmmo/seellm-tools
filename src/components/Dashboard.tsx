@@ -42,12 +42,11 @@ function NavItem({
   };
 
   return (
-    <div 
-      className={`relative flex items-center gap-2.5 px-2.5 py-2 rounded-md cursor-pointer transition-all duration-150 select-none text-[13px] font-medium border ${
-        isActive 
-          ? 'bg-gradient-to-br from-indigo-500/10 to-violet-500/5 text-indigo-400 border-indigo-500/20' 
+    <div
+      className={`relative flex items-center gap-2.5 px-2.5 py-2 rounded-md cursor-pointer transition-all duration-150 select-none text-[13px] font-medium border ${isActive
+          ? 'bg-gradient-to-br from-indigo-500/10 to-violet-500/5 text-indigo-400 border-indigo-500/20'
           : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200 hover:border-white/10'
-      }`}
+        }`}
       onClick={() => setView(id)}
     >
       {isActive && (
@@ -122,13 +121,13 @@ function Sidebar() {
       {/* Footer */}
       <div className="px-2 pt-2.5 pb-3.5 border-t border-white/5 flex flex-col gap-2 shrink-0">
         <div className="flex gap-1.5">
-          <button 
+          <button
             className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-all duration-130 whitespace-nowrap ${isCamofox ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10 hover:bg-emerald-500/20 hover:shadow-[0_0_12px_rgba(16,185,129,0.18)]'}`}
             onClick={startCamofox} disabled={isCamofox}
           >
             🦊 {isCamofox ? 'Running' : 'Start'}
           </button>
-          <button 
+          <button
             className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[11.5px] font-semibold border transition-all duration-130 whitespace-nowrap ${isWorker ? 'bg-indigo-500/15 text-indigo-400 border-indigo-500/25' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20 hover:bg-indigo-500/20 hover:shadow-[0_0_12px_rgba(99,102,241,0.22)]'}`}
             onClick={startWorker} disabled={isWorker}
           >
@@ -198,11 +197,10 @@ function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${
-          connected 
-            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500' 
+        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${connected
+            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500'
             : 'bg-rose-500/10 border-rose-500/25 text-rose-500'
-        }`}>
+          }`}>
           {connected ? <Wifi size={11} /> : <WifiOff size={11} />}
           {connected ? 'Live' : 'Offline'}
         </div>
@@ -246,9 +244,11 @@ export default function Dashboard() {
     <AppProvider>
       <div className="flex h-screen w-full overflow-hidden bg-[radial-gradient(ellipse_80%_60%_at_5%_-10%,_rgba(99,102,241,0.12)_0%,_transparent_60%),_radial-gradient(ellipse_60%_50%_at_95%_105%,_rgba(34,211,238,0.07)_0%,_transparent_55%),_#07090f] text-slate-100 font-sans antialiased selection:bg-indigo-500/30">
         <Sidebar />
-        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar />
-          <ContentRouter />
+          <div className="flex-1 min-h-0 relative">
+            <ContentRouter />
+          </div>
         </main>
         <ToastContainer />
       </div>

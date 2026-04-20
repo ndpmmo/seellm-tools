@@ -1,6 +1,6 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { History, RefreshCw, AlertCircle, Calendar, Hash, Tag, Info } from 'lucide-react';
+import { History, RefreshCw, AlertCircle, Calendar, Tag, Info } from 'lucide-react';
 
 export function ChangelogView() {
   const [content, setContent] = useState<string>('');
@@ -15,9 +15,7 @@ export function ChangelogView() {
         if (data.ok) {
           setContent(data.content);
         } else {
-          // Fallback if file missing
-          const text = `# SeeLLM Tools Changelog\n\n## [0.0.5] - 2026-04-06\n### Added\n- **Cloud Vault Sync**: Real-time cloud synchronization.`;
-          setContent(text);
+          setContent(`# Error\n\n## [0.0.0]\n### Error\n- Missing CHANGELOG.md`);
         }
       } catch (e) {
         setError('Không thể tải file CHANGELOG.md');
@@ -28,52 +26,54 @@ export function ChangelogView() {
   }, []);
 
   const formatVersionLabel = (version: string) => {
-    const normalized = String(version || '').trim();
-    if (!normalized) return 'Unknown';
-    if (normalized.toLowerCase() === 'unreleased') return 'Unreleased';
-    return `v${normalized}`;
+    const v = String(version || '').trim().replace(/^v/, '');
+    return v ? `v${v}` : 'Unknown';
   };
 
-  // Simple parser for human-friendly display
+  // Robust Markdown Parser
   const lines = content.split('\n');
   const versions: any[] = [];
   let currentVersion: any = null;
 
   lines.forEach(line => {
     const trimmed = line.trim();
+    if (!trimmed) return;
+
     if (line.startsWith('## [')) {
       if (currentVersion) versions.push(currentVersion);
       const match = line.match(/\[(.*?)\] - (.*)/);
       currentVersion = {
-        version: match ? match[1] : 'Unknown',
-        date: match ? match[2] : '',
+        version: match ? match[1] : line.replace(/[#\[\]]/g, '').split('-')[0].trim(),
+        date: match ? match[2] : (line.includes(' - ') ? line.split(' - ')[1].trim() : ''),
         sections: []
       };
     } else if (line.startsWith('### ') || line.startsWith('#### ')) {
       const isSub = line.startsWith('#### ');
-      currentVersion?.sections.push({ 
-        title: line.replace(/^#{3,4} /, ''), 
+      currentVersion?.sections.push({
+        title: line.replace(/^#{3,4} /, ''),
         isSub,
-        items: [] 
+        items: []
       });
     } else if (trimmed.startsWith('- ')) {
       const section = currentVersion?.sections[currentVersion.sections.length - 1];
       if (section) {
-        // Detect indentation to mark as sub-item
         const isSubItem = line.startsWith('  ') || line.startsWith('    ') || line.startsWith('\t');
-        section.items.push({ 
-          text: trimmed.replace('- ', ''), 
-          isSubItem 
-        });
+        section.items.push({ text: trimmed.replace(/^- /, ''), isSubItem });
+      }
+    } else if (currentVersion && currentVersion.sections.length > 0) {
+      // Append text to last item if it exists, otherwise ignore top-level text
+      const section = currentVersion.sections[currentVersion.sections.length - 1];
+      if (section.items.length > 0) {
+        section.items[section.items.length - 1].text += ' ' + trimmed;
       }
     }
   });
   if (currentVersion) versions.push(currentVersion);
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
-      <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between gap-3">
+    <div className="absolute inset-0 flex flex-col overflow-y-auto px-6 pb-10 pt-2 gap-5 custom-scrollbar">
+      <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden shrink-0">
+        <div className="px-5 py-3.5 border-b border-white/5 flex items-center justify-between gap-3 sticky top-0 bg-[#0d111c]/95 backdrop-blur-md z-10">
           <h3 className="text-[13.5px] font-semibold text-slate-100 flex items-center gap-2">
             <History size={15} className="text-indigo-400" />
             Lịch sử thay đổi (Changelog)
@@ -85,7 +85,7 @@ export function ChangelogView() {
 
         <div className="p-6">
           {loading ? (
-            <div className="flex justify-center py-10">
+            <div className="flex justify-center py-20">
               <span className="w-7 h-7 border-2 border-white/10 border-t-indigo-500 rounded-full animate-spin" />
             </div>
           ) : error ? (
@@ -93,31 +93,32 @@ export function ChangelogView() {
               <AlertCircle size={18} /> {error}
             </div>
           ) : (
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-10">
               {versions.map((v, i) => (
-                <div key={i} className="relative pl-8 border-l-2 border-white/10">
+                <div key={i} className="relative pl-8 border-l-2 border-white/10 last:pb-4">
                   <div className={`absolute left-[-7px] top-1.5 w-3 h-3 rounded-full border-2 border-[#0d111c] ${i === 0 ? 'bg-indigo-400' : 'bg-slate-600'}`} />
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="text-[17px] font-bold text-slate-100">{formatVersionLabel(v.version)}</span>
-                    <span className="flex items-center gap-1.5 text-[11.5px] text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md">
+                  <div className="flex items-center gap-3 mb-5">
+                    <span className="text-lg font-bold text-slate-100">{formatVersionLabel(v.version)}</span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-md font-medium">
                       <Calendar size={11} /> {v.date}
                     </span>
-                    {i === 0 && <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold uppercase tracking-wide">Latest</span>}
+                    {i === 0 && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold uppercase tracking-widest">Latest</span>}
                   </div>
-                  <div className="flex flex-col gap-5">
+
+                  <div className="flex flex-col gap-6">
                     {v.sections.map((s: any, si: number) => (
-                      <div key={si} className={s.isSub ? 'ml-4 mt-[-8px]' : ''}>
-                        <div className={`font-bold uppercase tracking-wider mb-2.5 flex items-center gap-1.5 ${s.isSub ? 'text-[10px] text-slate-500' : 'text-[11.5px] text-indigo-400'}`}>
+                      <div key={si} className={s.isSub ? 'ml-4 mt-[-4px]' : ''}>
+                        <div className={`font-bold uppercase tracking-wider mb-3 flex items-center gap-2 ${s.isSub ? 'text-[10px] text-slate-500' : 'text-[11px] text-indigo-400/90'}`}>
                           {s.isSub ? null : <Tag size={11} />} {s.title}
                         </div>
-                        <ul className="flex flex-col gap-2">
+                        <ul className="flex flex-col gap-2.5">
                           {s.items.map((item: any, ii: number) => {
                             const isSub = typeof item === 'object' ? item.isSubItem : false;
                             const text = typeof item === 'object' ? item.text : item;
                             return (
-                              <li key={ii} className={`flex items-start gap-2.5 ${isSub ? 'ml-5 text-[12px] text-slate-500' : 'text-[13px] text-slate-300'}`}>
-                                <div className={`w-1.5 h-1.5 rounded-full mt-[6px] shrink-0 ${isSub ? 'bg-slate-600' : 'bg-indigo-400'}`} />
-                                <span dangerouslySetInnerHTML={{ __html: text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100">$1</strong>') }} />
+                              <li key={ii} className={`flex items-start gap-3 ${isSub ? 'ml-6 text-[11.5px] text-slate-500' : 'text-[13px] text-slate-300'}`}>
+                                <div className={`w-1.5 h-1.5 rounded-full mt-[6px] shrink-0 ${isSub ? 'bg-slate-700' : 'bg-indigo-500/60'}`} />
+                                <span className="leading-normal" dangerouslySetInnerHTML={{ __html: text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100 font-semibold">$1</strong>').replace(/`(.*?)`/g, '<code class="bg-white/5 px-1 rounded text-cyan-400/90 font-mono text-[11.5px]">$1</code>') }} />
                               </li>
                             );
                           })}
@@ -132,13 +133,13 @@ export function ChangelogView() {
         </div>
       </div>
 
-      <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-4">
+      <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center gap-4 shrink-0 transition-all hover:bg-indigo-500/15">
         <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
-          <Info size={18} />
+          <Info size={19} />
         </div>
         <div>
-          <div className="text-[13.5px] font-semibold text-indigo-300">Hệ thống Quản lý Phiên bản</div>
-          <div className="text-[12px] text-slate-500 mt-0.5">Tất cả các thay đổi được ghi nhận tự động và đồng bộ với kho lưu trữ Git của hệ thống SeeLLM.</div>
+          <div className="text-[13px] font-bold text-indigo-300">Hệ thống Quản lý Phiên bản</div>
+          <div className="text-[11.5px] text-slate-400 mt-0.5">Tất cả các thay đổi được ghi nhận tự động và đồng bộ với kho lưu trữ Git của hệ thống SeeLLM.</div>
         </div>
       </div>
     </div>
