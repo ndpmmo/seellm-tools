@@ -384,14 +384,12 @@ export const vault = {
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,
       // [CRITICAL FIX] Vault là kho độc lập.
-      // Chỉ cho phép ghi deleted_at vào local trong 2 trường hợp:
-      //   1. Người dùng tự xóa trực tiếp (skipSync = false, data.deleted_at được set bởi deleteAccount())
-      //   2. Local record hiện tại đã có deleted_at (cập nhật lại timestamp)
-      // KHÔNG cho phép remote sync (skipSync=true) ghi deleted_at vào record đang sống (existing.deleted_at IS NULL)
-      deleted_at: skipSync
-        ? (existing?.deleted_at || null)   // Khi sync từ cloud: giữ nguyên giá trị LOCAL, bỏ qua remote deleted_at
-        : (data.deleted_at || (existing ? existing.deleted_at : null))  // Khi user tự xóa: cho phép
-
+      // Nếu có cờ data.restore_deleted = true, BĂT BUỘC ĐÁNH THỨC account (deleted_at = null)
+      deleted_at: data.restore_deleted === true
+        ? null
+        : (skipSync
+          ? (existing?.deleted_at || null)
+          : (data.deleted_at !== undefined ? data.deleted_at : (existing ? existing.deleted_at : null))),
     };
 
     stmt.run(

@@ -321,9 +321,9 @@ export async function runAutoRegister(taskInput) {
                  const placeholder = dobEl.placeholder || '';
                  let dobStr;
                  if (placeholder.startsWith('MM')) {
-                     dobStr = '${userInfo.birthdate.slice(5,7)}/${userInfo.birthdate.slice(8,10)}/${userInfo.birthdate.slice(0,4)}';
+                     dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
                  } else {
-                     dobStr = '${userInfo.birthdate.slice(8,10)}/${userInfo.birthdate.slice(5,7)}/${userInfo.birthdate.slice(0,4)}';
+                     dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
                  }
                  typeReact(dobEl, dobStr);
                  filled.bday = 'dob';
@@ -480,6 +480,7 @@ export async function runAutoRegister(taskInput) {
         provider: 'openai',
         status: 'idle',
         skipSync: true,
+        restore_deleted: true,
         tags: JSON.stringify(['auto-register', 'vault-register']),
         notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''} | Tạo: ${new Date().toISOString()}`
       }),
@@ -487,10 +488,10 @@ export async function runAutoRegister(taskInput) {
     const accData = await accRes.json();
 
     // Cập nhật pool status
-    await updatePoolStatus(email, { 
-      chatgpt_status: 'done', 
+    await updatePoolStatus(email, {
+      chatgpt_status: 'done',
       linked_chatgpt_id: accData.id,
-      notes: `Thành công | PID: ${process.pid} | Acc ID: ${accData.id}` 
+      notes: `Thành công | PID: ${process.pid} | Acc ID: ${accData.id}`
     });
 
     return {
@@ -504,8 +505,8 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
 
     // Update pool status to failed
-    await updatePoolStatus(email, { 
-      chatgpt_status: 'failed', 
+    await updatePoolStatus(email, {
+      chatgpt_status: 'failed',
       notes: `Error: ${err.message} at ${new Date().toISOString()}`
     });
 
