@@ -139,7 +139,7 @@ export const SyncManager = {
       if (data.status !== 'idle' || data.deleted_at) {
         payload.managedAccounts = [{
           id: data.id,
-          provider: data.provider || 'codex',
+          provider: data.provider || 'openai',
           email: data.email,
           password: data.password,
           two_fa_secret: data.two_fa_secret,
@@ -159,7 +159,7 @@ export const SyncManager = {
         // Gửi lệnh xóa cho Gateway nhưng Vault vẫn giữ nguyên (Thu hồi kho lạnh)
         payload.managedAccounts = [{
           id: data.id,
-          provider: data.provider || 'codex',
+          provider: data.provider || 'openai',
           email: data.email,
           created_at: createdAt,
           updated_at: now,
@@ -187,7 +187,7 @@ export const SyncManager = {
       });
       payload.connections = [{
         id: data.id,
-        provider: data.provider || 'codex',
+        provider: data.provider || 'openai',
         email: data.email,
         name: data.email ? data.email.split('@')[0] : data.id,
         access_token: data.access_token || null,

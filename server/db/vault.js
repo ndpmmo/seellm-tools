@@ -535,13 +535,16 @@ export const vault = {
       country: data.country || null, provider: data.provider || null,
       is_active: data.is_active ?? 1, last_tested: data.last_tested || null,
       latency_ms: data.latency_ms || null, notes: data.notes || '',
-      updated_at: now, created_at: now
+      updated_at: now,
+      // Preserve created_at from remote data (e.g. when syncing from D1)
+      created_at: data.created_at || now,
     };
     stmt.run(
       record.id, record.label, record.url, record.type, record.country,
       record.provider, record.is_active, record.last_tested,
       record.latency_ms, record.notes, record.updated_at, record.created_at
     );
+
 
     // [Real-time Push]
     if (!skipSync) {

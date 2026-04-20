@@ -130,7 +130,7 @@ router.post('/accounts', async (req, res) => {
   try {
     const isNew = !req.body.id;
     const skipSync = req.body.skipSync === true;
-    const record = vault.upsertAccount(req.body, skipSync); 
+    const record = vault.upsertAccount(req.body, skipSync);
     res.json({ ok: true, id: record.id });
 
     // New Codex account → push lên D1 managed để Worker auto-login
@@ -220,7 +220,7 @@ router.post('/email-pool/check', async (req, res) => {
     if (!record) return res.status(404).json({ error: 'Email not found in pool' });
 
     const raw = `${record.email}|${record.password}|${record.refresh_token}|${record.client_id}`;
-    
+
     // Trigger check-mail-worker.js via process runner logic if needed, 
     // or just run it directly as a child process here for simplicity if not using the full process manager.
     // However, the dashboard expects a processId to show logs.
@@ -238,7 +238,7 @@ router.get('/accounts/task', async (req, res) => {
   try {
     // CHỈ dùng local vault — D1 fallback bị loại bỏ để tránh tạo account không có data
     const allAccounts = vault.db.prepare(
-      `SELECT * FROM vault_accounts WHERE provider='codex' ORDER BY updated_at DESC`
+      `SELECT * FROM vault_accounts WHERE (provider='codex' OR provider='openai') ORDER BY updated_at DESC`
     ).all();
 
     // Danh sách ID đang được xử lý bởi các thread khác (worker gửi qua query string)
@@ -587,7 +587,7 @@ router.post('/accounts/:id/sync', async (req, res) => {
 router.get('/accounts/connect-task', (req, res) => {
   try {
     const allAccounts = vault.db.prepare(
-      `SELECT * FROM vault_accounts WHERE provider='codex' ORDER BY updated_at DESC`
+      `SELECT * FROM vault_accounts WHERE (provider='codex' OR provider='openai') ORDER BY updated_at DESC`
     ).all();
     const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
 

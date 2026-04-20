@@ -571,7 +571,7 @@ app.prepare().then(() => {
 
   function mirrorPatchedAccountToLocal(id, payload = {}) {
     const existing = vault.getAccountFull(id);
-    const patch = { id, provider: existing?.provider || 'codex' };
+    const patch = { id, provider: existing?.provider || 'openai' };
 
     if (payload.email !== undefined) patch.email = payload.email;
     if (payload.password !== undefined) patch.password = payload.password || '';
