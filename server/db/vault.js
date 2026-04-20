@@ -116,20 +116,20 @@ function applyMigrations() {
   for (const t of tables) {
     try {
       db.exec(`ALTER TABLE ${t} ADD COLUMN deleted_at TEXT`);
-    } catch (e) {}
+    } catch (e) { }
   }
-  
+
   // Specific migrations
-  try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN services_json TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN is_active INTEGER DEFAULT 1`); } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN quota_json TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN services_json TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN is_active INTEGER DEFAULT 1`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN quota_json TEXT`); } catch (e) { }
   try {
     db.exec(`ALTER TABLE vault_accounts ADD COLUMN plan TEXT`);
-  } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN workspace_id TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN device_id TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN machine_id TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) {}
+  } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN workspace_id TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN device_id TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN machine_id TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) { }
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -158,7 +158,7 @@ export const vault = {
     let rawList;
     try {
       rawList = db.prepare('SELECT * FROM vault_accounts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all();
-    } catch(e) {
+    } catch (e) {
       if (e.message.includes('no such column')) {
         rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
       } else throw e;
@@ -167,12 +167,12 @@ export const vault = {
     return list.map(a => ({
       ...a,
       // Show plaintext - this is a personal tool
-      password:      a.password || '',
+      password: a.password || '',
       two_fa_secret: a.two_fa_secret || '',
-      access_token:  '********',
+      access_token: '********',
       refresh_token: '********',
-      tags:          safeParseJson(a.tags, []),
-      cookies:       safeParseJson(a.cookies, []),
+      tags: safeParseJson(a.tags, []),
+      cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     }));
   },
@@ -182,12 +182,12 @@ export const vault = {
     if (!a) return null;
     return {
       ...a,
-      password:      a.password,
+      password: a.password,
       two_fa_secret: a.two_fa_secret,
-      access_token:  a.access_token,
+      access_token: a.access_token,
       refresh_token: a.refresh_token,
-      tags:          safeParseJson(a.tags, []),
-      cookies:       safeParseJson(a.cookies, []),
+      tags: safeParseJson(a.tags, []),
+      cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     };
   },
@@ -197,7 +197,7 @@ export const vault = {
     let rawList;
     try {
       rawList = db.prepare('SELECT * FROM vault_accounts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all();
-    } catch(e) {
+    } catch (e) {
       if (e.message.includes('no such column')) {
         rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
       } else throw e;
@@ -205,7 +205,7 @@ export const vault = {
     const list = rawList.filter(a => a.email && a.email.trim() !== '');
     return list.map(a => ({
       ...a,
-      tags:    safeParseJson(a.tags, []),
+      tags: safeParseJson(a.tags, []),
       cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
     }));
@@ -228,7 +228,7 @@ export const vault = {
         id = byEmail.id; // Tái sử dụng ID cũ để D1 thực hiện UPDATE thay vì INSERT
         existing = byEmail;
         console.log(`[Vault] Reusing ID for email ${data.email} → ID: ${id}`);
-        
+
         // Nếu bản ghi cũ đang bị xóa ảo, khôi phục lại
         if (byEmail.deleted_at) {
           db.prepare('UPDATE vault_accounts SET deleted_at = NULL WHERE id = ?').run(id);
@@ -238,17 +238,17 @@ export const vault = {
     }
 
     // Mapping D1 schema `last_error` to Tools schema `notes`
-    let rawNotes = data.notes !== undefined ? data.notes : 
-                   (data.last_error !== undefined ? data.last_error : 
-                   (data.lastError !== undefined ? data.lastError : (existing ? existing.notes : '')));
-    
+    let rawNotes = data.notes !== undefined ? data.notes :
+      (data.last_error !== undefined ? data.last_error :
+        (data.lastError !== undefined ? data.lastError : (existing ? existing.notes : '')));
+
     let finalStatus = (data.status || 'idle').toLowerCase();
-    
+
     // [Protective Logic] Nếu local đang processing, không cho cloud ghi đè về pending
     if (existing && existing.status === 'processing' && finalStatus === 'pending') {
-      finalStatus = 'processing'; 
+      finalStatus = 'processing';
     }
-    
+
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data
     let authData = { notes: rawNotes || '' };
     if (data.provider === 'codex' && (finalStatus === 'pending' || finalStatus === 'relogin')) {
@@ -361,13 +361,13 @@ export const vault = {
       : null;
 
     const record = {
-      id, 
-      provider: data.provider !== undefined ? data.provider : (existing ? existing.provider : 'codex'), 
-      label: data.label !== undefined ? data.label : (existing ? existing.label : ''), 
-      email: data.email !== undefined ? data.email : (existing ? existing.email : ''), 
+      id,
+      provider: data.provider !== undefined ? data.provider : (existing ? existing.provider : 'codex'),
+      label: data.label !== undefined ? data.label : (existing ? existing.label : ''),
+      email: data.email !== undefined ? data.email : (existing ? existing.email : ''),
       password: data.password !== undefined ? data.password : (existing ? existing.password : null),
       two_fa_secret: data.two_fa_secret !== undefined ? data.two_fa_secret : (existing ? existing.two_fa_secret : null),
-      proxy_url: data.proxy_url !== undefined ? data.proxy_url : (existing ? existing.proxy_url : null), 
+      proxy_url: data.proxy_url !== undefined ? data.proxy_url : (existing ? existing.proxy_url : null),
       cookies: JSON.stringify(parseJSON(data.cookies || (existing ? existing.cookies : '[]'))),
       access_token: data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null),
       refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
@@ -383,7 +383,15 @@ export const vault = {
       quota_json: data.quota_json !== undefined ? (typeof data.quota_json === 'object' ? JSON.stringify(data.quota_json) : data.quota_json) : (data.quotaJson !== undefined ? (typeof data.quotaJson === 'object' ? JSON.stringify(data.quotaJson) : data.quotaJson) : (existing ? existing.quota_json : null)),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,
-      deleted_at: data.deleted_at || (existing ? existing.deleted_at : null)
+      // [CRITICAL FIX] Vault là kho độc lập.
+      // Chỉ cho phép ghi deleted_at vào local trong 2 trường hợp:
+      //   1. Người dùng tự xóa trực tiếp (skipSync = false, data.deleted_at được set bởi deleteAccount())
+      //   2. Local record hiện tại đã có deleted_at (cập nhật lại timestamp)
+      // KHÔNG cho phép remote sync (skipSync=true) ghi deleted_at vào record đang sống (existing.deleted_at IS NULL)
+      deleted_at: skipSync
+        ? (existing?.deleted_at || null)   // Khi sync từ cloud: giữ nguyên giá trị LOCAL, bỏ qua remote deleted_at
+        : (data.deleted_at || (existing ? existing.deleted_at : null))  // Khi user tự xóa: cho phép
+
     };
 
     stmt.run(
@@ -396,7 +404,7 @@ export const vault = {
 
     // [Real-time Push]
     if (!skipSync) {
-      SyncManager.pushVault('account', record).catch(() => {});
+      SyncManager.pushVault('account', record).catch(() => { });
     }
 
     return record;
@@ -407,7 +415,7 @@ export const vault = {
     db.prepare('UPDATE vault_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
     const record = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (!skipSync && record) {
-      SyncManager.pushVault('account', record).catch(() => {});
+      SyncManager.pushVault('account', record).catch(() => { });
     }
     return record;
   },
@@ -455,24 +463,24 @@ export const vault = {
     const existingServices = safeParseJson(existing?.services_json, {});
     const inputServices = typeof data.services === 'object' ? data.services : safeParseJson(data.services_json, {});
     const mergedServices = { ...existingServices, ...inputServices };
-    
+
     // Auto sync chatgpt_status to services if present
     if (data.chatgpt_status === 'done') mergedServices.chatgpt = 'done';
     else if (data.chatgpt_status === 'failed') mergedServices.chatgpt = 'failed';
 
     const record = {
-      email:             data.email,
-      password:          data.password !== undefined ? data.password : (existing ? existing.password : null),
-      refresh_token:     data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
-      client_id:         data.client_id !== undefined ? data.client_id : (existing ? existing.client_id : null),
-      mail_status:       data.mail_status || (existing ? existing.mail_status : 'unknown'),
-      chatgpt_status:    data.chatgpt_status || (existing ? existing.chatgpt_status : 'not_created'),
+      email: data.email,
+      password: data.password !== undefined ? data.password : (existing ? existing.password : null),
+      refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
+      client_id: data.client_id !== undefined ? data.client_id : (existing ? existing.client_id : null),
+      mail_status: data.mail_status || (existing ? existing.mail_status : 'unknown'),
+      chatgpt_status: data.chatgpt_status || (existing ? existing.chatgpt_status : 'not_created'),
       linked_chatgpt_id: data.linked_chatgpt_id || (existing ? existing.linked_chatgpt_id : null),
-      services_json:     JSON.stringify(mergedServices),
-      last_checked_at:   data.last_checked_at || (existing ? existing.last_checked_at : null),
-      notes:             data.notes !== undefined ? data.notes : (existing ? existing.notes : ''),
-      updated_at:        now,
-      created_at:        existing ? existing.created_at : now
+      services_json: JSON.stringify(mergedServices),
+      last_checked_at: data.last_checked_at || (existing ? existing.last_checked_at : null),
+      notes: data.notes !== undefined ? data.notes : (existing ? existing.notes : ''),
+      updated_at: now,
+      created_at: existing ? existing.created_at : now
     };
 
     stmt.run(
@@ -482,7 +490,7 @@ export const vault = {
     );
 
     if (!skipSync) {
-      SyncManager.pushVault('email_pool', record).catch(() => {});
+      SyncManager.pushVault('email_pool', record).catch(() => { });
     }
 
     return record;
@@ -495,14 +503,14 @@ export const vault = {
       // SyncManager delete currently doesn't support a separate delete type, 
       // but we can pass deleted_at if we want to mimic account logic.
       // For now, email pool can just be deleted.
-      SyncManager.pushVault('email_pool', { ...record, deleted_at: dayjs().toISOString() }).catch(() => {});
+      SyncManager.pushVault('email_pool', { ...record, deleted_at: dayjs().toISOString() }).catch(() => { });
     }
     return record;
   },
 
   // CRUD PROXIES
   getProxies: () => db.prepare('SELECT * FROM vault_proxies ORDER BY created_at DESC').all(),
-  
+
   upsertProxy: (data, skipSync = false) => {
     const id = data.id || `prx_${uuidv4().slice(0, 8)}`;
     const now = dayjs().toISOString();
@@ -523,10 +531,10 @@ export const vault = {
         updated_at  = excluded.updated_at
     `);
     const record = {
-      id, label: data.label || '', url: data.url, type: data.type || 'http', 
-      country: data.country || null, provider: data.provider || null, 
+      id, label: data.label || '', url: data.url, type: data.type || 'http',
+      country: data.country || null, provider: data.provider || null,
       is_active: data.is_active ?? 1, last_tested: data.last_tested || null,
-      latency_ms: data.latency_ms || null, notes: data.notes || '', 
+      latency_ms: data.latency_ms || null, notes: data.notes || '',
       updated_at: now, created_at: now
     };
     stmt.run(
@@ -537,7 +545,7 @@ export const vault = {
 
     // [Real-time Push]
     if (!skipSync) {
-      SyncManager.pushVault('proxy', record).catch(() => {});
+      SyncManager.pushVault('proxy', record).catch(() => { });
     }
 
     return record;
@@ -548,7 +556,7 @@ export const vault = {
     db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
     const record = db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
     if (!skipSync && record) {
-      SyncManager.pushVault('proxy', record).catch(() => {});
+      SyncManager.pushVault('proxy', record).catch(() => { });
     }
     return record;
   },
@@ -583,10 +591,10 @@ export const vault = {
         notes         = excluded.notes
     `);
     const record = {
-      id, provider: data.provider, label: data.label || '', 
-      api_key: encrypt(data.api_key), base_url: data.base_url || null, 
+      id, provider: data.provider, label: data.label || '',
+      api_key: encrypt(data.api_key), base_url: data.base_url || null,
       is_active: data.is_active ?? 1, daily_limit: data.daily_limit || null,
-      monthly_limit: data.monthly_limit || null, notes: data.notes || '', 
+      monthly_limit: data.monthly_limit || null, notes: data.notes || '',
       updated_at: now, created_at: now
     };
     stmt.run(
@@ -619,12 +627,12 @@ export const vault = {
 
     return {
       ...a,
-      password:      decrypt(a.password),
+      password: decrypt(a.password),
       two_fa_secret: decrypt(a.two_fa_secret),
-      access_token:  decrypt(a.access_token),
+      access_token: decrypt(a.access_token),
       refresh_token: decrypt(a.refresh_token),
-      tags:          JSON.parse(a.tags || '[]'),
-      cookies:       JSON.parse(a.cookies || '[]'),
+      tags: JSON.parse(a.tags || '[]'),
+      cookies: JSON.parse(a.cookies || '[]'),
       loginUrl,
       codeVerifier
     };

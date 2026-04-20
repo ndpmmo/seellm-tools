@@ -86,7 +86,7 @@ export const SyncManager = {
     const cacheKey = `${type}:${data.id}`;
     const normalizedState = type === 'account' ? normalizeAccountState(data) : data;
     const fingerprint = hashJson(normalizedState);
-    
+
     if (!force && lastPushCache.get(cacheKey) === fingerprint) {
       // console.log(`[SyncManager] 💤 Bỏ qua Push (Nội dung không đổi): ${data.email || data.id}`);
       return;
@@ -134,7 +134,7 @@ export const SyncManager = {
     const payload = {};
     if (type === 'account') {
       payload.vaultAccounts = [{ ...data, created_at: createdAt, updated_at: updatedAt }];
-      
+
       // Push đồng thời sang schema Gateway để Gateway nhìn thấy
       if (data.status !== 'idle' || data.deleted_at) {
         payload.managedAccounts = [{
@@ -167,11 +167,11 @@ export const SyncManager = {
           version,
         }];
       }
-      
+
       // Luôn đồng bộ is_active vào codex_connections kể cả khi không có token
       // Chỉ dùng is_active trực tiếp từ data, không phụ thuộc vào status
-      const connectionIsActive = (data.is_active !== undefined && data.is_active !== null) 
-        ? (data.is_active === 0 ? 0 : 1) 
+      const connectionIsActive = (data.is_active !== undefined && data.is_active !== null)
+        ? (data.is_active === 0 ? 0 : 1)
         : 1;
       const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
       const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
@@ -207,7 +207,7 @@ export const SyncManager = {
       payload.vaultEmailPool = [{ ...data, updated_at: data.updated_at || now }];
     }
     if (type === 'proxy') payload.vaultProxies = [{ ...data, updated_at: data.updated_at || now }];
-    if (type === 'key')   payload.vaultKeys   = [{ ...data, updated_at: data.updated_at || now }];
+    if (type === 'key') payload.vaultKeys = [{ ...data, updated_at: data.updated_at || now }];
 
     try {
       console.log(`[SyncManager] ☁️ Pushing ${type} to D1: ${data.email || data.id}`);
@@ -219,19 +219,19 @@ export const SyncManager = {
         },
         body: JSON.stringify(payload),
       });
-      
+
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'D1 push failed');
-      
+
       const counts = result.counts || {};
-      console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections||0}, managedAccounts=${counts.managedAccounts||0}, vaultAccounts=${counts.vaultAccounts||0}`);
-      
+      console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections || 0}, managedAccounts=${counts.managedAccounts || 0}, vaultAccounts=${counts.vaultAccounts || 0}`);
+
       // Nếu là lệnh xóa, dọn cache
       if (data.deleted_at) {
         lastPushCache.delete(cacheKey);
         lastPushState.delete(cacheKey);
       }
-      
+
       return result;
     } catch (e) {
       console.error(`[SyncManager] ❌ Error syncing ${type}:`, e.message);
@@ -273,7 +273,7 @@ export const SyncManager = {
         try {
           const m = await import('../db/vault.js');
           localVault = m.vault;
-        } catch(e) { localVault = null; }
+        } catch (e) { localVault = null; }
 
         const accounts = [...(data.data?.vaultAccounts || [])];
         const gatewayAccounts = data.data?.managedAccounts || [];
@@ -283,7 +283,7 @@ export const SyncManager = {
           if (!existing && ga.email) {
             existing = accounts.find(a => a.email && a.email.toLowerCase() === ga.email.toLowerCase());
           }
-          
+
           // Nếu local DB có account cùng email nhưng chưa trong list, thêm vào
           if (!existing && ga.email && localVault) {
             // Tìm Kể CẢ deleted — tránh tạo duplicate khi local bị deleted_at tạm thời
@@ -327,26 +327,31 @@ export const SyncManager = {
               });
             }
           } else {
-              try {
+            try {
               if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
-                // Khi Gateway gửi deleted_at (đã xóa account), chuyển về idle thay vì bỏ qua
-                // Vault là kho độc lập — xóa ở Gateway = thu hồi về kho lạnh (idle)
+                // Khi Gateway gửi deleted_at (xóa account), chuyển về idle thay vì bỏ qua
+                // Vault là kho ĐỘC LẬP — xóa ở Gateway = thu hồi về kho lạnh (idle)
                 if (ga.deleted_at && !existing.deleted_at) {
                   // Gateway đã xóa account này khỏi D1 managed_accounts.
-                  // Vault là kho lưu trữ ĐỘC LẬP → không xóa, không đổi status.
-                  // #accounts sẽ tự không hiện nữa vì nó đọc thẳng từ D1.
-                  existing.deleted_at = ga.deleted_at; // Đánh dấu để bỏ qua khi filter
+                  // [FIX] TUYỆT ĐỐI KHÔNG set deleted_at vào Vault local.
+                  // Chỉ đão status về 'idle' để nời cho biết account đã được thu hồi.
+                  existing.status = 'idle';
+                  // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
                 } else {
                   existing.status = ga.status || existing.status;
                   existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
                   existing.quota_json = ga.quota_json || existing.quota_json;
                   existing.notes = ga.last_error || existing.notes;
-                  existing.deleted_at = ga.deleted_at;
+                  // [FIX] Chỉ lan truyền deleted_at từ Gateway nếu local đã có deleted_at trước rồi (nhất quán)
+                  // Nếu local chưa có deleted_at, giữ nguyên null
+                  if (ga.deleted_at && existing.deleted_at) {
+                    existing.deleted_at = ga.deleted_at;
+                  }
                 }
                 if (!existing.created_at && ga.created_at) existing.created_at = ga.created_at;
                 existing.updated_at = ga.updated_at;
               }
-            } catch(e) {}
+            } catch (e) { }
           }
         }
 
@@ -387,15 +392,15 @@ export const SyncManager = {
               if (conn.updated_at && (!existing.updated_at || new Date(conn.updated_at) > new Date(existing.updated_at))) {
                 existing.updated_at = conn.updated_at;
               }
-            } catch(e) {}
+            } catch (e) { }
           }
         }
 
         return {
-          cursor:   data.cursor,
+          cursor: data.cursor,
           accounts: validAccounts,
-          proxies:  data.data?.vaultProxies || [],
-          keys:     data.data?.vaultKeys || [],
+          proxies: data.data?.vaultProxies || [],
+          keys: data.data?.vaultKeys || [],
           emailPool: data.data?.vaultEmailPool || []
         };
       }
