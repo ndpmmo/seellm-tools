@@ -83,7 +83,7 @@ function CopyBadge({ text, label, icon: Icon, colorClass = 'text-slate-400', hov
 }
 
 const PROVIDERS = [
-  { id: 'openai', name: 'OpenAI / Codex', color: '#10a37f' },
+  { id: 'openai', name: 'ChatGPT | Codex', color: '#10a37f' },
   { id: 'anthropic', name: 'Anthropic', color: '#da7756' },
   { id: 'gemini', name: 'Gemini', color: '#1a73e8' },
   { id: 'cursor', name: 'Cursor', color: '#ffffff' },
@@ -92,6 +92,9 @@ const PROVIDERS = [
 // ChatGPT và Codex là cùng 1 nền tảng OpenAI
 const isOpenAI = (provider: string) =>
   provider === 'openai' || provider === 'codex';
+
+const getProviderName = (provider: string) =>
+  isOpenAI(provider) ? 'ChatGPT | Codex' : (PROVIDERS.find(p => p.id === provider)?.name ?? provider);
 
 /* ══════════════════════════════════════════════════════════ */
 export function VaultAccountsView() {
@@ -514,8 +517,8 @@ export function VaultAccountsView() {
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full" style={{ background: PROVIDERS.find(p => p.id === it.provider)?.color || '#999' }} />
-                        <span className="text-[12.5px] capitalize text-slate-300">{it.provider}</span>
+                        <div className="w-2 h-2 rounded-full" style={{ background: isOpenAI(it.provider) ? '#10a37f' : (PROVIDERS.find(p => p.id === it.provider)?.color || '#999') }} />
+                        <span className="text-[12.5px] text-slate-300">{getProviderName(it.provider)}</span>
                       </div>
                     </td>
                     <td className="px-5 py-3.5"><StatusBadge status={it.status} notes={it.notes} /></td>
