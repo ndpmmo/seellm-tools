@@ -69,7 +69,7 @@ function CopyBadge({ text, label, icon: Icon, colorClass = 'text-slate-400', hov
   };
 
   return (
-    <div 
+    <div
       onClick={onCopy}
       className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 cursor-pointer transition-all select-none ${hoverBorderClass}`}
     >
@@ -83,12 +83,15 @@ function CopyBadge({ text, label, icon: Icon, colorClass = 'text-slate-400', hov
 }
 
 const PROVIDERS = [
-  { id: 'openai', name: 'OpenAI', color: '#10a37f' },
+  { id: 'openai', name: 'OpenAI / Codex', color: '#10a37f' },
   { id: 'anthropic', name: 'Anthropic', color: '#da7756' },
   { id: 'gemini', name: 'Gemini', color: '#1a73e8' },
   { id: 'cursor', name: 'Cursor', color: '#ffffff' },
-  { id: 'codex', name: 'Codex', color: '#6366f1' },
 ];
+
+// ChatGPT và Codex là cùng 1 nền tảng OpenAI
+const isOpenAI = (provider: string) =>
+  provider === 'openai' || provider === 'codex';
 
 /* ══════════════════════════════════════════════════════════ */
 export function VaultAccountsView() {
@@ -140,7 +143,16 @@ export function VaultAccountsView() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const filtered = items.filter(it => (providerFilter === 'all' || it.provider === providerFilter) && (!search || it.email.toLowerCase().includes(search.toLowerCase()) || it.label?.toLowerCase().includes(search.toLowerCase())));
+  const filtered = items.filter(it => {
+    const providerMatch =
+      providerFilter === 'all'
+        ? true
+        : providerFilter === 'openai'
+          ? isOpenAI(it.provider)  // nhóm openai + codex cùng bucket
+          : it.provider === providerFilter;
+    const searchMatch = !search || it.email.toLowerCase().includes(search.toLowerCase()) || it.label?.toLowerCase().includes(search.toLowerCase());
+    return providerMatch && searchMatch;
+  });
 
   /* ── CRUD ── */
   const save = async () => {
@@ -220,7 +232,7 @@ export function VaultAccountsView() {
   const syncAll = async () => {
     if (!filtered.length) return;
     if (!confirm(`Đồng bộ toàn bộ ${filtered.length} tài khoản trong danh sách này lên D1?`)) return;
-    
+
     setSyncingAll(true);
     let success = 0;
     let fail = 0;
@@ -330,7 +342,7 @@ export function VaultAccountsView() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10">
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
 
       {/* ═══ ACTIONS ═══ */}
       <div className="flex gap-3 mb-6 mt-2 relative z-10">
@@ -353,7 +365,7 @@ export function VaultAccountsView() {
         <Card className="mb-6 animate-slideDown">
           <CardHeader>
             <CardTitle>
-              {uiState.editId ? <Pencil size={14} /> : <Plus size={14} />} 
+              {uiState.editId ? <Pencil size={14} /> : <Plus size={14} />}
               {uiState.editId ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản mới vào Vault'}
             </CardTitle>
           </CardHeader>
@@ -418,8 +430,8 @@ export function VaultAccountsView() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Danh sách tài khoản (Định dạng: email|pass hoặc email|pass|2fa)</label>
-              <textarea 
-                className="w-full h-40 bg-black/30 border border-white/10 rounded-md p-3 text-[13px] font-mono text-slate-200 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" 
+              <textarea
+                className="w-full h-40 bg-black/30 border border-white/10 rounded-md p-3 text-[13px] font-mono text-slate-200 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
                 placeholder="user1@gmail.com|pass123&#10;user2@gmail.com|pass456|2FASECRETXXX..."
                 value={uiState.bulkText} onChange={e => setUiState(s => ({ ...s, bulkText: e.target.value }))}
               />
@@ -441,10 +453,10 @@ export function VaultAccountsView() {
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
           </CardTitle>
           <div className="flex gap-2 ml-auto shrink-0">
-            <Button 
-              size="sm" 
-              variant="secondary" 
-              onClick={syncAll} 
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={syncAll}
               disabled={syncingAll || filtered.length === 0}
               className="!text-indigo-400 !border-indigo-500/30 hover:!bg-indigo-500/10"
             >
@@ -478,75 +490,76 @@ export function VaultAccountsView() {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.map(it => {
-                const allowRun = it.provider === 'codex' && (it.status === 'idle' || it.status === 'stopped');
-                const allowDeploy = it.provider === 'codex' && (it.status === 'idle' || it.status === 'stopped');
+                const allowRun = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
+                const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
                 return (
-                <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <div className="font-semibold text-[13px] text-slate-200">{it.email || 'No email'}</div>
-                      <PlanBadge plan={it.plan} />
-                      {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('auto-register') && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">AUTO</span>
-                      )}
-                      {it.two_fa_secret && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">2FA</span>
-                      )}
-                    </div>
-                    <div className="flex gap-1.5 flex-wrap">
-                      <CopyBadge text={it.password} icon={Key} colorClass="text-amber-400" hoverBorderClass="hover:border-amber-400/50" />
-                      <CopyBadge text={it.two_fa_secret} icon={Shield} colorClass="text-emerald-400" hoverBorderClass="hover:border-emerald-400/50" />
-                      {it.label && <span className="inline-flex items-center px-2 py-0.5 bg-indigo-500/10 text-indigo-300 rounded-md border border-indigo-500/20 text-[11px]">{it.label}</span>}
-                      {it.proxy_url && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/5 text-slate-400 rounded-md border border-white/10 text-[11px]"><Globe size={10} /> <span className="max-w-[120px] truncate">{it.proxy_url}</span></span>}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ background: PROVIDERS.find(p => p.id === it.provider)?.color || '#999' }} />
-                      <span className="text-[12.5px] capitalize text-slate-300">{it.provider}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5"><StatusBadge status={it.status} notes={it.notes} /></td>
-                  <td className="px-5 py-3.5 text-[11px] text-slate-400 whitespace-nowrap">
-                    <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
-                    <div className="mt-0.5">Cập: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    {it.exported_to ? (
-                      <div>
-                        <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold mb-0.5">
-                          <Database size={10} /> {it.exported_to.toUpperCase()}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          {fmtDateTimeVN(it.exported_at)}
-                        </div>
+                  <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="font-semibold text-[13px] text-slate-200">{it.email || 'No email'}</div>
+                        <PlanBadge plan={it.plan} />
+                        {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('auto-register') && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">AUTO</span>
+                        )}
+                        {it.two_fa_secret && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">2FA</span>
+                        )}
                       </div>
-                    ) : <span className="text-slate-500 text-[11px] italic">Chưa export</span>}
-                  </td>
-                  <td className="px-5 py-3.5 text-right">
-                    <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      {allowRun && (
-                        <Button size="icon-sm" title="Deploy to Codex (PKCE OAuth)" onClick={() => retry(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
-                      )}
-                      {allowDeploy && (
-                        <Button size="icon-sm" title="Deploy v2 – Auto-Connect trực tiếp" onClick={() => deployConnect(it.id, it.email)} className="!text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/10"><Globe size={13} /></Button>
-                      )}
-                      {(it.status !== 'idle') && it.provider === 'codex' && (
-                        <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)}><X size={13} /></Button>
-                      )}
-                      {(it.status === 'error') && it.provider === 'codex' && (
-                        <Button size="icon-sm" variant="ghost" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></Button>
-                      )}
-                      {it.provider === 'codex' && (
-                        <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>
-                      )}
-                      <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
-                      <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
-                      <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
-                    </div>
-                  </td>
-                </tr>
-              );})}
+                      <div className="flex gap-1.5 flex-wrap">
+                        <CopyBadge text={it.password} icon={Key} colorClass="text-amber-400" hoverBorderClass="hover:border-amber-400/50" />
+                        <CopyBadge text={it.two_fa_secret} icon={Shield} colorClass="text-emerald-400" hoverBorderClass="hover:border-emerald-400/50" />
+                        {it.label && <span className="inline-flex items-center px-2 py-0.5 bg-indigo-500/10 text-indigo-300 rounded-md border border-indigo-500/20 text-[11px]">{it.label}</span>}
+                        {it.proxy_url && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/5 text-slate-400 rounded-md border border-white/10 text-[11px]"><Globe size={10} /> <span className="max-w-[120px] truncate">{it.proxy_url}</span></span>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ background: PROVIDERS.find(p => p.id === it.provider)?.color || '#999' }} />
+                        <span className="text-[12.5px] capitalize text-slate-300">{it.provider}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5"><StatusBadge status={it.status} notes={it.notes} /></td>
+                    <td className="px-5 py-3.5 text-[11px] text-slate-400 whitespace-nowrap">
+                      <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
+                      <div className="mt-0.5">Cập: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {it.exported_to ? (
+                        <div>
+                          <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold mb-0.5">
+                            <Database size={10} /> {it.exported_to.toUpperCase()}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {fmtDateTimeVN(it.exported_at)}
+                          </div>
+                        </div>
+                      ) : <span className="text-slate-500 text-[11px] italic">Chưa export</span>}
+                    </td>
+                    <td className="px-5 py-3.5 text-right">
+                      <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        {allowRun && (
+                          <Button size="icon-sm" title="Deploy to Codex (PKCE OAuth)" onClick={() => retry(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
+                        )}
+                        {allowDeploy && (
+                          <Button size="icon-sm" title="Deploy v2 – Auto-Connect trực tiếp" onClick={() => deployConnect(it.id, it.email)} className="!text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/10"><Globe size={13} /></Button>
+                        )}
+                        {(it.status !== 'idle') && isOpenAI(it.provider) && (
+                          <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)}><X size={13} /></Button>
+                        )}
+                        {(it.status === 'error') && isOpenAI(it.provider) && (
+                          <Button size="icon-sm" variant="ghost" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></Button>
+                        )}
+                        {isOpenAI(it.provider) && (
+                          <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>
+                        )}
+                        <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
+                        <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
+                        <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && !loading && (
                 <tr><td colSpan={6} className="py-16 text-center text-slate-500 text-[13px]">Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
               )}
