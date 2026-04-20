@@ -8,11 +8,10 @@ import { Terminal as TerminalIcon, ShieldAlert, CheckCircle2, AlertCircle, Info,
 function StatusBadge({ status }: { status: string }) {
   const isRunning = status === 'running';
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
-      isRunning ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-      status === 'error' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 
-      'bg-slate-500/10 text-slate-400 border-slate-500/20'
-    }`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isRunning ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+      status === 'error' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+        'bg-slate-500/10 text-slate-400 border-slate-500/20'
+      }`}>
       {status}
     </span>
   );
@@ -70,8 +69,10 @@ function Terminal({ proc }: { proc: ProcessInfo }) {
 
 export function TerminalView() {
   const { processes, selectedLog, setSelectedLog } = useApp();
-  const procs = Object.values(processes);
-  const sel   = selectedLog ? processes[selectedLog] : procs[0] || null;
+  const procs = Object.values(processes)
+    .filter(p => p.status === 'running')
+    .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
+  const sel = selectedLog ? processes[selectedLog] : procs[0] || null;
 
   useEffect(() => {
     if (!selectedLog && procs.length) setSelectedLog(procs[0].id);
@@ -97,11 +98,10 @@ export function TerminalView() {
             )}
             {procs.map(p => (
               <div key={p.id}
-                className={`p-3.5 rounded-xl cursor-pointer mb-2 border transition-all duration-200 ${
-                  sel?.id === p.id 
-                    ? 'border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] ring-1 ring-indigo-500/20' 
-                    : 'border-white/5 bg-white/[0.02] hover:bg-white/5 hover:border-white/10 hover:-translate-y-[1px]'
-                }`}
+                className={`p-3.5 rounded-xl cursor-pointer mb-2 border transition-all duration-200 ${sel?.id === p.id
+                  ? 'border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] ring-1 ring-indigo-500/20'
+                  : 'border-white/5 bg-white/[0.02] hover:bg-white/5 hover:border-white/10 hover:-translate-y-[1px]'
+                  }`}
                 onClick={() => setSelectedLog(p.id)}>
                 <div className="font-semibold text-[13.5px] text-slate-200 truncate">{p.name}</div>
                 <div className="flex items-center justify-between mt-3">

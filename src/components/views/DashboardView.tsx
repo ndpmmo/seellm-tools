@@ -8,11 +8,10 @@ import { Settings, Play, Camera, Layers, Zap, HeartPulse, RefreshCw } from 'luci
 function StatusBadge({ status }: { status: string }) {
   const isRunning = status === 'running';
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
-      isRunning ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-      status === 'error' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 
-      'bg-slate-500/10 text-slate-400 border-slate-500/20'
-    }`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${isRunning ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+      status === 'error' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+        'bg-slate-500/10 text-slate-400 border-slate-500/20'
+      }`}>
       {status}
     </span>
   );
@@ -34,7 +33,7 @@ function ProcCard({ p }: { p: ProcessInfo }) {
           </div>
           <StatusBadge status={p.status} />
         </div>
-        
+
         <div className="bg-black/20 rounded-lg p-3 text-[11px] flex flex-col gap-1.5 border border-white/5">
           <div className="flex justify-between">
             <span className="text-slate-500">Bắt đầu</span>
@@ -51,7 +50,7 @@ function ProcCard({ p }: { p: ProcessInfo }) {
             </div>
           )}
         </div>
-        
+
         <div className="flex gap-2 mt-auto pt-1">
           <Button variant="secondary" size="sm" className="flex-1" onClick={logs}>📋 Xem Logs</Button>
           {p.status === 'running' && (
@@ -67,9 +66,11 @@ function ProcCard({ p }: { p: ProcessInfo }) {
 
 export function DashboardView() {
   const { processes, startCamofox, startWorker, startConnectWorker, connected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
-  const procs = Object.values(processes);
-  const running = procs.filter(p => p.status === 'running').length;
-  const errors = procs.filter(p => p.status === 'error').length;
+  const procs = Object.values(processes)
+    .filter(p => p.status === 'running')
+    .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
+  const running = procs.length;
+  const errors = Object.values(processes).filter(p => p.status === 'error').length;
   const [cfPing, setCf] = useState<boolean | null>(null);
   const [gwPing, setGw] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
@@ -88,7 +89,7 @@ export function DashboardView() {
   useEffect(() => { check(); const t = setInterval(check, 20000); return () => clearInterval(t); }, [check]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5">
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-6 custom-scrollbar">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-5 mt-2">
         <StatBox label="Processes" value={procs.length} icon={Settings} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/50" />
@@ -114,7 +115,7 @@ export function DashboardView() {
                 <Button variant="success" size="sm" onClick={startCamofox} disabled={isCamofox}>▶ Start</Button>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
               <div>
                 <div className="text-[13px] font-bold text-slate-100 flex items-center gap-2">🤖 Auto-Login Worker</div>
@@ -125,7 +126,7 @@ export function DashboardView() {
                 <Button variant="primary" size="sm" onClick={startWorker} disabled={isWorker}>▶ Start</Button>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-between p-3.5 bg-indigo-500/10 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-colors">
               <div>
                 <div className="text-[13px] font-bold text-indigo-400 flex items-center gap-2">
@@ -156,32 +157,29 @@ export function DashboardView() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
                 <span className="text-[12.5px] font-semibold text-slate-300">🦊 Camofox Browser</span>
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
-                  cfPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' : 
-                  cfPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                }`}>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${cfPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                  cfPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                    'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                  }`}>
                   {cfPing === null ? 'Đang kiểm tra...' : cfPing ? '✓ Online' : '✗ Offline'}
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
                 <span className="text-[12.5px] font-semibold text-slate-300">🌐 SeeLLM Gateway</span>
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
-                  gwPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' : 
-                  gwPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                }`}>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${gwPing === null ? 'bg-slate-500/10 text-slate-400 border-slate-500/20' :
+                  gwPing ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                    'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                  }`}>
                   {gwPing === null ? 'Đang kiểm tra...' : gwPing ? '✓ Online' : '✗ Offline'}
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
                 <span className="text-[12.5px] font-semibold text-slate-300">⚡ Web UI Socket</span>
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${
-                  connected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${connected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                   'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                }`}>
+                  }`}>
                   {connected ? '✓ Connected' : '✗ Disconnected'}
                 </span>
               </div>
