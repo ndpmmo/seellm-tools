@@ -140,9 +140,9 @@ export function ProxiesView() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatBox icon={Globe} value={proxies.length} label="Tổng Proxies" colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/30" />
         <StatBox icon={Server} value={totalSlots} label="Tổng Slots" colorClass="text-cyan-400" bgClass="bg-cyan-500/10" borderClass="border-cyan-500/30" />
         <StatBox icon={Activity} value={busySlots} label="Slots Đang Dùng" colorClass="text-amber-400" bgClass="bg-amber-500/10" borderClass="border-amber-500/30" />

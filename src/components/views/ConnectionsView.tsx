@@ -27,8 +27,8 @@ export function ConnectionsView() {
   useEffect(() => { loadData(); }, [loadData]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
-      <Card className="flex flex-col flex-1 min-h-[400px]">
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+      <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader className="bg-black/10 border-b border-white/5 py-4 px-5">
           <CardTitle>
             <Link2 size={16} className="text-indigo-400" />

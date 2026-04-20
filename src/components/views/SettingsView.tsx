@@ -36,7 +36,7 @@ function Field({ label, hint, full, children }: { label: string; hint?: string; 
 }
 
 export function SettingsView() {
-  const { config, saveConfig } = useApp();
+  const { config, saveConfig, addToast } = useApp();
   const [f, setF] = useState<AppConfig>({
     camofoxPath: '', camofoxNodePath: '/usr/local/bin/node', camofoxPort: 3000,
     camofoxApi: 'http://localhost:9377',
@@ -52,75 +52,77 @@ export function SettingsView() {
   const save = async () => { setSaving(true); await saveConfig(f); setSaving(false); };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5 pt-2">
-      <Section title="Camofox Browser Server" icon={Settings}>
-        <Field label="Đường dẫn cài đặt" hint="Thư mục gốc chứa server.js của camofox-browser" full>
-          <Input mono className="font-mono text-xs" value={f.camofoxPath} onChange={e => set('camofoxPath', e.target.value)} placeholder="/Users/.../camofox-browser" />
-        </Field>
-        <Field label="Node chạy Camofox" hint="Đặt cố định Node tương thích để tránh lệch ABI native module" full>
-          <Input mono className="font-mono text-xs" value={f.camofoxNodePath || ''} onChange={e => set('camofoxNodePath', e.target.value)} placeholder="/usr/local/bin/node" />
-        </Field>
-        <Field label="Port chạy Camofox" hint="Mặc định: 3000 (hoặc 3005 nếu bị xung đột)">
-          <Input type="number" value={f.camofoxPort} onChange={e => set('camofoxPort', Number(e.target.value))} />
-        </Field>
-        <Field label="Camofox API URL" hint="URL API nội bộ (thường port 9377)">
-          <Input mono className="font-mono text-xs" value={f.camofoxApi} onChange={e => set('camofoxApi', e.target.value)} placeholder="http://localhost:9377" />
-        </Field>
-      </Section>
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-6 custom-scrollbar">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Section title="Camofox Browser Server" icon={Settings}>
+          <Field label="Đường dẫn cài đặt" hint="Thư mục gốc chứa server.js của camofox-browser" full>
+            <Input mono className="font-mono text-xs" value={f.camofoxPath} onChange={e => set('camofoxPath', e.target.value)} placeholder="/Users/.../camofox-browser" />
+          </Field>
+          <Field label="Node chạy Camofox" hint="Đặt cố định Node tương thích để tránh lệch ABI native module" full>
+            <Input mono className="font-mono text-xs" value={f.camofoxNodePath || ''} onChange={e => set('camofoxNodePath', e.target.value)} placeholder="/usr/local/bin/node" />
+          </Field>
+          <Field label="Port chạy Camofox" hint="Mặc định: 3000 (hoặc 3005 nếu bị xung đột)">
+            <Input type="number" value={f.camofoxPort} onChange={e => set('camofoxPort', Number(e.target.value))} />
+          </Field>
+          <Field label="Camofox API URL" hint="URL API nội bộ (thường port 9377)">
+            <Input mono className="font-mono text-xs" value={f.camofoxApi} onChange={e => set('camofoxApi', e.target.value)} placeholder="http://localhost:9377" />
+          </Field>
+        </Section>
 
-      <Section title="SeeLLM Gateway" icon={Globe}>
-        <Field label="Gateway URL">
-          <Input mono className="font-mono text-xs" value={f.gatewayUrl} onChange={e => set('gatewayUrl', e.target.value)} placeholder="http://localhost:20128" />
-        </Field>
-        <Field label="Worker Auth Token">
-          <div className="relative flex items-center">
-            <Input
-              type={showToken ? 'text' : 'password'}
-              mono className="font-mono text-xs pr-9"
-              value={f.workerAuthToken}
-              onChange={e => set('workerAuthToken', e.target.value)}
-              placeholder="Nhập token xác thực..."
-            />
-            <button className="absolute right-2.5 text-slate-500 hover:text-slate-300 transition-colors" onClick={() => setShowToken(!showToken)}>
-              {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
-        </Field>
-      </Section>
-
-      <Section title="Worker Config" icon={Cpu}>
-        <Field label="Poll Interval (ms)" hint="Tần suất kiểm tra task mới. Mặc định: 15000ms">
-          <Input type="number" value={f.pollIntervalMs} onChange={e => set('pollIntervalMs', Number(e.target.value))} />
-        </Field>
-        <Field label="Max Threads" hint="Tối đa bao nhiêu tài khoản xử lý song song">
-          <Input type="number" min={1} max={10} value={f.maxThreads} onChange={e => set('maxThreads', Number(e.target.value))} />
-        </Field>
-      </Section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle><FolderOpen size={14} className="text-cyan-400" /> Thư mục dữ liệu</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {DATA_DIRS.map(([path, desc]) => (
-            <div key={path} className="flex items-center gap-4 px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5">
-              <code className="text-[12px] text-cyan-400 font-mono min-w-[190px] shrink-0">{path}</code>
-              <span className="text-[12px] text-slate-500">{desc}</span>
+        <Section title="SeeLLM Gateway" icon={Globe}>
+          <Field label="Gateway URL">
+            <Input mono className="font-mono text-xs" value={f.gatewayUrl} onChange={e => set('gatewayUrl', e.target.value)} placeholder="http://localhost:20128" />
+          </Field>
+          <Field label="Worker Auth Token">
+            <div className="relative flex items-center">
+              <Input
+                type={showToken ? 'text' : 'password'}
+                mono className="font-mono text-xs pr-9"
+                value={f.workerAuthToken}
+                onChange={e => set('workerAuthToken', e.target.value)}
+                placeholder="Nhập token xác thực..."
+              />
+              <button className="absolute right-2.5 text-slate-500 hover:text-slate-300 transition-colors" onClick={() => setShowToken(!showToken)}>
+                {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
             </div>
-          ))}
-        </CardContent>
-      </Card>
+          </Field>
+        </Section>
 
-      <div className="flex gap-3">
-        <Button variant="primary" size="lg" onClick={save} disabled={saving} className="min-w-[140px]">
-          {saving
-            ? <><span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> Đang lưu...</>
-            : <><Save size={15} /> Lưu cài đặt</>
-          }
-        </Button>
-        <Button variant="ghost" size="lg" onClick={() => config && setF(config)}>
-          <RotateCcw size={14} /> Hoàn tác
-        </Button>
+        <Section title="Worker Config" icon={Cpu}>
+          <Field label="Poll Interval (ms)" hint="Tần suất kiểm tra task mới. Mặc định: 15000ms">
+            <Input type="number" value={f.pollIntervalMs} onChange={e => set('pollIntervalMs', Number(e.target.value))} />
+          </Field>
+          <Field label="Max Threads" hint="Tối đa bao nhiêu tài khoản xử lý song song">
+            <Input type="number" min={1} max={10} value={f.maxThreads} onChange={e => set('maxThreads', Number(e.target.value))} />
+          </Field>
+        </Section>
+
+        <Card>
+          <CardHeader>
+            <CardTitle><FolderOpen size={14} className="text-cyan-400" /> Thư mục dữ liệu</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {DATA_DIRS.map(([path, desc]) => (
+              <div key={path} className="flex items-center gap-4 px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5">
+                <code className="text-[12px] text-cyan-400 font-mono min-w-[190px] shrink-0">{path}</code>
+                <span className="text-[12px] text-slate-500">{desc}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-3">
+          <Button variant="primary" size="lg" onClick={save} disabled={saving} className="min-w-[140px]">
+            {saving
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> Đang lưu...</>
+              : <><Save size={15} /> Lưu cài đặt</>
+            }
+          </Button>
+          <Button variant="ghost" size="lg" onClick={() => config && setF(config)}>
+            <RotateCcw size={14} /> Hoàn tác
+          </Button>
+        </div>
       </div>
     </div>
   );

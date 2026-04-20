@@ -1,5 +1,27 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.3] - 2026-04-21
+
+### 🧹 D1 Cloud Purge & Smart Sync Hardening
+
+Comprehensive cleanup of Cloudflare D1 environment and implementation of definitive sync rules to prevent database pollution.
+
+#### 🧼 D1 Hard Cleanup (Wrangler execution)
+- **Database Purge**: Executed a hard `DELETE` via `wrangler d1` to permanently remove 17+ orphaned/redundant records from `codex_managed_accounts` and `codex_connections`.
+- **Foreign Key Cleanup**: Cleared legacy `codex_account_limits` and `codex_proxy_slots` records that were tied to deleted accounts.
+
+#### 🧠 Smart Synchronization (SyncManager)
+- **4-Rule Sync Dispatch**: Rewrote `_executePush` logic to be context-aware:
+  - **Account Deleted**: Sends a minimal tombstone record to Gateway side.
+  - **Account Idle**: Recalls the account from Gateway (soft-delete in D1) but preserves it in local Vault.
+  - **Account Active**: Syncs full credentials and status to keep the fleet running.
+- **D1 Pollution Prevention**: Guaranteed that non-active/idle accounts are automatically hard-deleted or ignored by Gateway handlers during sync.
+
+#### 🐛 Process Monitoring & Worker Robustness
+- **Status-Based Filtering**: Updated Dashboard and Terminal sidebar to only display `RUNNING` processes, hiding stopped or historical worker instances.
+- **`NEED_PHONE` Detection**: Optimized the auto-connect worker to explicitly detect and flag accounts requiring phone verification with a specific label.
+- **ReferenceError Fix**: Resolved `USER_ID is not defined` crash in `auto-connect-worker.js` during fallback session capture.
+
 ## [0.2.2] - 2026-04-21
 
 ### 🛡️ Data Integrity & D1 Sync Optimization

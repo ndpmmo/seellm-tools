@@ -217,7 +217,7 @@ const PAGE_SIZE = 100;
 
 /* ══════════════════════════════════════════════════════════ */
 export function AccountsView() {
-  const { addToast } = useApp();
+  const { refreshAccounts, accounts, connected, addToast } = useApp();
   const itemsRef = useRef<any[]>([]);
   const connectionsCacheRef = useRef<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -477,18 +477,8 @@ export function AccountsView() {
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 flex flex-col gap-5">
-
-      {/* ═══ STATS ═══ */}
-      <div className="grid grid-cols-4 gap-5 mt-2">
-        <StatBox icon={Users} value={cnt.total} label="Tất cả" colorClass="text-indigo-400" bgClass="bg-indigo-500/10" borderClass="border-indigo-500/50" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
-        <StatBox icon={CheckCircle} value={cnt.ready} label="Ready" colorClass="text-emerald-400" bgClass="bg-emerald-500/10" borderClass="border-emerald-500/50" active={statusFilter === 'ready'} onClick={() => setStatusFilter('ready')} />
-        <StatBox icon={Clock} value={cnt.pending} label="Pending" colorClass="text-amber-400" bgClass="bg-amber-500/10" borderClass="border-amber-500/50" active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
-        <StatBox icon={XCircle} value={cnt.error} label="Error" colorClass="text-rose-400" bgClass="bg-rose-500/10" borderClass="border-rose-500/50" active={statusFilter === 'error'} onClick={() => setStatusFilter('error')} />
-      </div>
-
-      {/* ═══ ADD / BULK ═══ */}
-      <Card>
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+      <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader>
           <CardTitle><Plus size={14} className="text-indigo-400" /> Thêm Tài Khoản</CardTitle>
           <Button 

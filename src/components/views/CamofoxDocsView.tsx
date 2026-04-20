@@ -3,7 +3,7 @@ import { FileText, Info, Code, AlertTriangle, CheckCircle } from 'lucide-react';
 
 export function CamofoxDocsView() {
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-10 pt-2">
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 custom-scrollbar">
       <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
         <div className="px-5 py-3.5 border-b border-white/5">
           <h3 className="text-[13.5px] font-semibold text-slate-100 flex items-center gap-2">
