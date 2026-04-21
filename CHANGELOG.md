@@ -1,5 +1,23 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.4] - 2026-04-21
+
+### ✨ Vault Enhancements & UI Polish
+
+Improved data portability in the Email Vault and refined the layout density across management views.
+
+#### 📋 Intelligent Copy (Vault Emails)
+- **Copy Full Record**: Implemented a secondary copy action (Database icon) that reconstructs the raw credential string (`email|password|refresh_token|client_id`) in a single click.
+- **Improved Semantic Icons**: Replaced generic `Activity` icons with `Database` icons for raw data operations, providing better visual cues.
+- **Contextual Feedback**: Added specific toast messages to distinguish between copying just the email and copying the full record.
+
+#### 📐 Layout & UX Optimization
+- **AccountsView Refinement**: Resolved a structural layout bug where the "Add Account" card occupied 50% of vertical space, creating a large empty gap. The view now collapses correctly based on content.
+- **Consistent Scaling**: Updated `Cards` and `Containers` to use `shrink-0` for input forms and `flex-1` for data tables, ensuring high-density information display.
+
+#### 🐛 Stability Fixes
+- **ReferenceError Fix**: Resolved a crash in `VaultEmailsView` where `Activity` was used without being imported after icon refactoring.
+
 ## [0.2.3] - 2026-04-21
 
 ### 🧹 D1 Cloud Purge & Smart Sync Hardening

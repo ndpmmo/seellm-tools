@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Mail, Search, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
-    ShieldCheck, Import, Filter, Copy, Check, Activity, Play,
+    ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
@@ -97,10 +97,16 @@ export function VaultEmailsView() {
         return matchSearch && matchStatus;
     });
 
-    const onCopy = (text: string) => {
+    const onCopy = (text: string, label = 'Email') => {
         navigator.clipboard.writeText(text);
         setCopied(text);
+        addToast(`Đã sao chép ${label}`, 'success');
         setTimeout(() => setCopied(null), 1500);
+    };
+
+    const onCopyFull = (it: any) => {
+        const raw = `${it.email}|${it.password || ''}|${it.refresh_token || ''}|${it.client_id || ''}`;
+        onCopy(raw, 'Full String');
     };
 
     const handleImport = async () => {
@@ -307,14 +313,31 @@ export function VaultEmailsView() {
                                             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
                                                 <Mail size={15} />
                                             </div>
-                                            <div>
+                                            <div className="flex flex-col gap-0.5">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-[13px] text-slate-200">{it.email}</span>
-                                                    <button className="text-slate-600 hover:text-indigo-400 transition-colors" onClick={() => onCopy(it.email)}>
-                                                        {copied === it.email ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                                                    </button>
+                                                    <span className="text-[12.5px] font-medium text-slate-200">{it.email}</span>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => onCopy(it.email)}
+                                                            className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-indigo-400 transition-colors"
+                                                            title="Copy Email"
+                                                        >
+                                                            {copied === it.email ? <Check size={12} /> : <Copy size={12} />}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => onCopyFull(it)}
+                                                            className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-amber-400 transition-colors"
+                                                            title="Copy Full String (email|pass|token|uuid)"
+                                                        >
+                                                            <Database size={12} />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <div className="text-[11px] text-slate-600 mt-0.5 font-mono">Pass: {it.password}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-mono text-slate-500 truncate max-w-[200px]">
+                                                        {it.password ? '•'.repeat(8) : 'no-pass'} | {it.refresh_token ? 'token-set' : 'no-token'}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </td>

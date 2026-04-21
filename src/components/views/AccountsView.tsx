@@ -74,7 +74,7 @@ function CopyBtn({ text }: { text?: string }) {
 function MonoCell({ value, icon: Icon, colorClass = 'text-slate-400' }: { value?: string, icon?: any, colorClass?: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return <span className="text-slate-500">—</span>;
-  
+
   const onCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(value);
@@ -83,7 +83,7 @@ function MonoCell({ value, icon: Icon, colorClass = 'text-slate-400' }: { value?
   };
 
   return (
-    <div 
+    <div
       onClick={onCopy}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/20 border border-white/5 cursor-pointer transition-all hover:border-indigo-400/50 hover:bg-black/40 group select-none"
     >
@@ -382,13 +382,13 @@ export function AccountsView() {
     setEdit2fa(it.two_fa_secret || '');
     setEditProxy(it.proxy_url || '');
   };
-  const saveEdit = async () => { 
-    if (!editId) return; 
-    setEditSaving(true); 
-    
-    const payload: any = { 
-      proxyUrl: editProxy, 
-      proxy_url: editProxy 
+  const saveEdit = async () => {
+    if (!editId) return;
+    setEditSaving(true);
+
+    const payload: any = {
+      proxyUrl: editProxy,
+      proxy_url: editProxy
     };
 
     if (editPass && !editPass.includes('***')) payload.password = editPass;
@@ -397,11 +397,11 @@ export function AccountsView() {
       payload.two_fa_secret = edit2fa;
     }
 
-    await patch(`/api/d1/accounts/${editId}`, payload); 
-    addToast('✅ Đã lưu', 'success'); 
-    setEditId(null); 
-    setEditSaving(false); 
-    load(); 
+    await patch(`/api/d1/accounts/${editId}`, payload);
+    addToast('✅ Đã lưu', 'success');
+    setEditId(null);
+    setEditSaving(false);
+    load();
   };
   const cancelEdit = () => setEditId(null);
   const assignFromPool = async (id: string, selectedProxyId?: string) => {
@@ -453,7 +453,7 @@ export function AccountsView() {
   const syncAll = async () => {
     if (!filtered.length) return;
     if (!confirm(`Đồng bộ tất cả ${filtered.length} tài khoản đang hiển thị lên D1?`)) return;
-    
+
     setSyncingAll(true);
     let success = 0;
     let fail = 0;
@@ -478,12 +478,12 @@ export function AccountsView() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
-      <Card className="flex-1 flex flex-col min-h-0">
+      <Card className="flex flex-col shrink-0">
         <CardHeader>
           <CardTitle><Plus size={14} className="text-indigo-400" /> Thêm Tài Khoản</CardTitle>
-          <Button 
-            size="sm" 
-            variant={bulkOpen ? 'primary' : 'ghost'} 
+          <Button
+            size="sm"
+            variant={bulkOpen ? 'primary' : 'ghost'}
             onClick={() => setBulkOpen(v => !v)}
             className="ml-auto"
           >
@@ -531,10 +531,10 @@ export function AccountsView() {
         <CardHeader className="bg-black/10 border-b border-white/5 py-3 px-5 flex-wrap gap-y-3">
           <CardTitle>Managed Accounts <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span></CardTitle>
           <div className="flex flex-wrap gap-2 items-center ml-auto">
-            <Button 
+            <Button
               size="sm"
               variant="secondary"
-              onClick={syncAll} 
+              onClick={syncAll}
               disabled={syncingAll || filtered.length === 0}
               className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
             >
@@ -593,14 +593,12 @@ export function AccountsView() {
                       <div className="flex items-center gap-3">
                         <div
                           onClick={() => toggleActive(it.id, it.is_active)}
-                          className={`w-3 h-3 rounded-full cursor-pointer shrink-0 transition-all border-2 ${
-                            it.is_active === 0 ? 'bg-slate-600 border-white/10 hover:border-slate-400' : 'bg-emerald-500 border-emerald-500/30 hover:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                          }`}
+                          className={`w-3 h-3 rounded-full cursor-pointer shrink-0 transition-all border-2 ${it.is_active === 0 ? 'bg-slate-600 border-white/10 hover:border-slate-400' : 'bg-emerald-500 border-emerald-500/30 hover:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                            }`}
                           title={it.is_active === 0 ? "Đang tạm dừng (Nhấn để bật)" : "Đang hoạt động (Nhấn để tắt)"}
                         />
-                        <div className={`font-semibold text-[13.5px] truncate max-w-[180px] ${
-                          it.is_active === 0 ? 'text-slate-500 line-through' : 'text-slate-200'
-                        }`}>
+                        <div className={`font-semibold text-[13.5px] truncate max-w-[180px] ${it.is_active === 0 ? 'text-slate-500 line-through' : 'text-slate-200'
+                          }`}>
                           {it.email}
                         </div>
                       </div>
@@ -635,11 +633,10 @@ export function AccountsView() {
                                 <span>{(it.discovered_limit / 1000).toFixed(0)}k limit</span>
                               </div>
                               <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div className={`h-full ${
-                                  ((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit > 0.8 ? 'bg-rose-500' : 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)]'
-                                }`} style={{
-                                  width: `${Math.min(100, (((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit) * 100)}%`
-                                }} />
+                                <div className={`h-full ${((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit > 0.8 ? 'bg-rose-500' : 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)]'
+                                  }`} style={{
+                                    width: `${Math.min(100, (((it.current_tokens_in || 0) + (it.current_tokens_out || 0)) / it.discovered_limit) * 100)}%`
+                                  }} />
                               </div>
                             </div>
                           ) : null}
@@ -657,11 +654,10 @@ export function AccountsView() {
                                   const remain = safePercentRemaining(q.used, q.total);
                                   return (
                                     <div key={i} title={`${q.name}: ${q.used}/${q.total}`}
-                                      className={`text-[9px] px-1.5 py-px rounded border font-bold flex items-center gap-1 uppercase tracking-widest ${
-                                        base === 'rose' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                                        base === 'amber' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                      }`}>
+                                      className={`text-[9px] px-1.5 py-px rounded border font-bold flex items-center gap-1 uppercase tracking-widest ${base === 'rose' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                          base === 'amber' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                            'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                        }`}>
                                       <div className={`w-1 h-1 rounded-full ${base === 'rose' ? 'bg-rose-400' : base === 'amber' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                                       {q.name}: {remain ?? 0}%
                                     </div>
@@ -748,7 +744,7 @@ export function AccountsView() {
       </Card>
 
       {confirmModal && (
-        <ConfirmModal 
+        <ConfirmModal
           title={confirmModal.title}
           message={confirmModal.message}
           onConfirm={confirmModal.onConfirm}
