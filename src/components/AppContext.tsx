@@ -47,6 +47,8 @@ interface IApp {
   getScripts: () => Promise<string[]>;
   refreshSessions: () => Promise<void>;
   refreshLogFiles: () => Promise<void>;
+  refreshAccounts: () => Promise<void>;
+  accounts: any[];
   addToast: (msg: string, type?: Toast['type']) => void;
 }
 
@@ -63,6 +65,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [logFiles, setLogFiles] = useState<LogFile[]>([]);
   const [liveShots, setLiveShots] = useState<Record<string, Screenshot>>({});
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
@@ -140,6 +143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }).catch(console.error);
     fetch('/api/sessions').then(r => r.json()).then(setSessions).catch(console.error);
     fetch('/api/logfiles').then(r => r.json()).then(setLogFiles).catch(console.error);
+    fetch('/api/vault/accounts').then(r => r.json()).then(res => setAccounts(res.data || [])).catch(console.error);
   }, []);
 
   async function post(url: string, body?: unknown) {
@@ -217,6 +221,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLogFiles(l);
   }, []);
 
+  const refreshAccounts = useCallback(async () => {
+    const res = await fetch('/api/vault/accounts').then(r => r.json());
+    setAccounts(res.data || []);
+  }, []);
+
   return (
     <Ctx.Provider value={{
       processes, config, connected, view, sessions, logFiles,
@@ -224,7 +233,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, startConnectWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,
-      refreshSessions, refreshLogFiles,
+      refreshSessions, refreshLogFiles, refreshAccounts,
+      accounts,
       addToast,
     }}>
       {children}

@@ -414,9 +414,18 @@ All 13 views fully migrated to Tailwind CSS:
 ## [0.1.11] - 2026-04-10
 
 ### Added
+- **Infrastructure Modernization**: Unified Proxy Management with bulk import and real-time network detection.
+- **Proxy Intelligence**:
+  - Auto-validation and country detection using `ifconfig.co/json` (dual-stack support).
+  - Proxy IP Verification Diagnostic: Workers now check and log exit IP at session start.
+- **Data Integrity**:
+  - Implemented URL-based proxy deduplication and soft-delete restoration.
+  - Added comprehensive `POST /api/vault/sync/all` endpoint for full state reconciliation with D1.
 - **Smart Sync Trigger**: Implemented a local webhook trigger system. When toggling an account's status in Tools, it now sends an immediate notification to the Gateway over the local network to trigger an on-demand pull, reducing sync latency to near-zero.
 
 ### Fixed
+- **Soft-Delete Handling**: Local vault queries now correctly filter out `deleted_at IS NOT NULL` records.
+- **Build Errors**: Fixed missing `accounts` and `refreshAccounts` members in `AppContext` type definition.
 - **Direct D1 Sync**: Switched the account toggle mechanism to use a direct Worker PATCH endpoint instead of the standard synchronization pipeline. This bypasses version-based conflict checks on Cloudflare D1, ensuring status changes are always applied immediately.
 - **Sync Resilience**: Improved error handling and fallback logic in the D1 Proxy and SyncManager services.
 
