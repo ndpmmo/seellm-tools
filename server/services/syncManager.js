@@ -83,7 +83,9 @@ export const SyncManager = {
       return;
     }
 
-    const cacheKey = `${type}:${data.id}`;
+    // email_pool dùng email làm PK, các type khác dùng id
+    const cacheKeyId = data.email || data.id;
+    const cacheKey = `${type}:${cacheKeyId}`;
     const normalizedState = type === 'account' ? normalizeAccountState(data) : data;
     const fingerprint = hashJson(normalizedState);
 
@@ -93,10 +95,10 @@ export const SyncManager = {
     }
 
     // --- DEBOUNCING (SAVE WRITES) ---
-    // Nếu có nhiều yêu cầu đẩy cho cùng 1 account trong thời gian ngắn (ví dụ worker đổi status liên tục)
-    // Chúng ta sẽ đợi 45 giây để gom lại nén thành 1 lần đẩy duy nhất.
+    // Chỉ debounce cho type 'account' khi không phải thay đổi critical.
+    // Các type khác (email_pool, proxy, key) → push ngay lập tức.
     const shouldPushImmediately =
-      type === 'account' ? isCriticalAccountChange(lastPushState.get(cacheKey), normalizedState) : false;
+      type !== 'account' || isCriticalAccountChange(lastPushState.get(cacheKey), normalizedState);
 
     if (!force && !shouldPushImmediately) {
       if (debounceTimeouts.has(cacheKey)) {
@@ -114,6 +116,33 @@ export const SyncManager = {
     }
 
     return await this._executePush(type, data, fingerprint);
+  },
+
+  /**
+   * Pushes all records of a specific type from local SQLite to D1.
+   * Useful for "Sync All" recovery or initial setup.
+   */
+  async pushAllVaultPool() {
+    console.log('[SyncManager] 🔄 Starting full Email Pool sync to D1...');
+    try {
+      const { vault } = await import('../db/vault.js');
+      const allEmails = vault.db.prepare('SELECT * FROM vault_email_pool').all();
+      
+      console.log(`[SyncManager] Found ${allEmails.length} records to sync.`);
+      
+      let successCount = 0;
+      for (const record of allEmails) {
+        // Force push by bypassing cache
+        const result = await this.pushVault('email_pool', record, true);
+        if (result && result.ok) successCount++;
+      }
+      
+      console.log(`[SyncManager] ✅ Full sync completed: ${successCount}/${allEmails.length} pushed.`);
+      return { ok: true, total: allEmails.length, success: successCount };
+    } catch (e) {
+      console.error('[SyncManager] ❌ Full sync failed:', e.message);
+      return { ok: false, error: e.message };
+    }
   },
 
   async _executePush(type, data, fingerprint) {

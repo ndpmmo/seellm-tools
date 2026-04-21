@@ -1,5 +1,25 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.5] - 2026-04-21
+
+### 🚀 Email Pool Modernization & Multi-Method Sync
+
+Major infrastructure update to support Graph API and OAuth2 authentication methods for email accounts, with real-time D1 synchronization.
+
+#### 📧 Multi-Method Authentication Support
+- **Auto-Detection UI**: Refactored `VaultEmailsView` to intelligently parse input strings, automatically detecting whether an entry is Graph API (4 parts) or OAuth2 (3 parts) based on content.
+- **Enhanced Validation**: Updated `vault_email_pool` schema to include `auth_method` and improved `services_json` handling to prevent data loss during status updates.
+- **Credential Flexibility**: Modified `scripts/auto-register-worker.js` to support the new 5-part credential format, enabling password-less registration for OAuth2 accounts.
+
+#### ☁️ Real-time D1 Synchronization
+- **SyncManager Hardening**: Fixed a critical bug where `cacheKey` collisions prevented email pool updates from reaching D1.
+- **Immediate Push**: Configured Email Pool, Proxy, and Key updates to bypass the sync debounce period, ensuring instant cloud availability.
+- **Full Sync Utility**: Added a **"Sync All to D1"** button in the UI to allow manual bulk recovery of the email pool to Cloudflare.
+
+#### 🐛 Stability & Connectivity
+- **Graph API Scope fix**: Removed strict permission requirements in `ms-graph-email.js` to resolve `AADSTS70000` errors during mailbox access.
+- **Automated Health Checks**: Integrated real-time worker triggers during email import to verify credential validity immediately upon addition.
+
 ## [0.2.4] - 2026-04-21
 
 ### ✨ Vault Enhancements & UI Polish

@@ -128,8 +128,20 @@ async function saveStep(tabId, userId, runDir, label) {
 // ============================================
 
 export async function runAutoRegister(taskInput) {
-  const [email, emailPassword, refreshToken, clientId] = taskInput.split('|');
-  if (!email || !emailPassword || !refreshToken || !clientId) throw new Error("Input string is invalid (expected email|pass|refresh_token|client_id)");
+  const parts = taskInput.split('|');
+  let email, emailPassword, authMethod, refreshToken, clientId;
+
+  if (parts.length >= 5) {
+    [email, emailPassword, authMethod, refreshToken, clientId] = parts;
+  } else {
+    // Fallback format cũ: email|password|refresh_token|client_id
+    [email, emailPassword, refreshToken, clientId] = parts;
+    authMethod = 'graph';
+  }
+
+  if (!email || !refreshToken || !clientId) {
+    throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id)");
+  }
 
   // Update pool status to processing
   await updatePoolStatus(email, { chatgpt_status: 'processing' });

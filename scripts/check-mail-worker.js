@@ -6,15 +6,27 @@
 import { getAccessToken, fetchMails } from './lib/ms-graph-email.js';
 
 async function runCheck(input) {
-    const [email, password, refreshToken, clientId] = input.split('|');
-    console.log(`[Check] 🔍 Đang kiểm tra Email: ${email}`);
+    const parts = input.split('|');
+    let email, password, authMethod, refreshToken, clientId;
+    
+    // Format received from UI: email|password|auth_method|refresh_token|client_id
+    [email, password, authMethod, refreshToken, clientId] = parts;
+
+    console.log(`[Check] 🔍 Đang kiểm tra Email: ${email} (Label: ${authMethod.toUpperCase()})`);
 
     try {
+        // Both modes use Microsoft Graph API, so we just use the refresh token
+        if (!refreshToken || !clientId) {
+            throw new Error('Thiếu Refresh Token hoặc Client ID');
+        }
+
         const token = await getAccessToken(refreshToken, clientId);
         console.log(`[Check] ✅ Lấy Access Token thành công.`);
-
+        
         const mails = await fetchMails(token, { top: 1 });
-        console.log(`[Check] ✅ Kết nối Mailbox thành công. Tìm thấy ${mails.length} email.`);
+        const message = `Kết nối Mailbox thành công. Tìm thấy ${mails.length} email.`;
+
+        console.log(`[Check] ✅ ${message}`);
 
         // Cập nhật trạng thái vào Pool
         await fetch(`http://localhost:4000/api/vault/email-pool`, {

@@ -130,6 +130,7 @@ function applyMigrations() {
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN device_id TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN machine_id TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN auth_method TEXT DEFAULT 'graph'`); } catch (e) { }
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -442,12 +443,13 @@ export const vault = {
 
     const stmt = db.prepare(`
       INSERT INTO vault_email_pool (
-        email, password, refresh_token, client_id, mail_status, chatgpt_status, linked_chatgpt_id, services_json, last_checked_at, notes, updated_at, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        email, password, refresh_token, client_id, auth_method, mail_status, chatgpt_status, linked_chatgpt_id, services_json, last_checked_at, notes, updated_at, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(email) DO UPDATE SET
         password          = COALESCE(excluded.password, vault_email_pool.password),
         refresh_token     = COALESCE(excluded.refresh_token, vault_email_pool.refresh_token),
         client_id         = COALESCE(excluded.client_id, vault_email_pool.client_id),
+        auth_method       = COALESCE(excluded.auth_method, vault_email_pool.auth_method),
         mail_status       = excluded.mail_status,
         chatgpt_status    = excluded.chatgpt_status,
         linked_chatgpt_id = excluded.linked_chatgpt_id,
@@ -471,6 +473,7 @@ export const vault = {
       password: data.password !== undefined ? data.password : (existing ? existing.password : null),
       refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
       client_id: data.client_id !== undefined ? data.client_id : (existing ? existing.client_id : null),
+      auth_method: data.auth_method || (existing ? existing.auth_method : 'graph'),
       mail_status: data.mail_status || (existing ? existing.mail_status : 'unknown'),
       chatgpt_status: data.chatgpt_status || (existing ? existing.chatgpt_status : 'not_created'),
       linked_chatgpt_id: data.linked_chatgpt_id || (existing ? existing.linked_chatgpt_id : null),
@@ -482,7 +485,7 @@ export const vault = {
     };
 
     stmt.run(
-      record.email, record.password, record.refresh_token, record.client_id,
+      record.email, record.password, record.refresh_token, record.client_id, record.auth_method,
       record.mail_status, record.chatgpt_status, record.linked_chatgpt_id,
       record.services_json, record.last_checked_at, record.notes, record.updated_at, record.created_at
     );

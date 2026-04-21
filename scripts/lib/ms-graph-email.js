@@ -18,8 +18,7 @@ export async function getAccessToken(refreshToken, clientId) {
     const params = new URLSearchParams({
         client_id: clientId,
         grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        scope: 'https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/User.Read offline_access',
+        refresh_token: refreshToken
     });
 
     const res = await fetch(GRAPH_TOKEN_URL, {

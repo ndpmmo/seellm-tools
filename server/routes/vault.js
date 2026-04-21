@@ -212,6 +212,15 @@ router.delete('/email-pool/:email', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+router.post('/email-pool/sync-all', async (req, res) => {
+  try {
+    const result = await SyncManager.pushAllVaultPool();
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/email-pool/check', async (req, res) => {
   try {
     const { email } = req.body;

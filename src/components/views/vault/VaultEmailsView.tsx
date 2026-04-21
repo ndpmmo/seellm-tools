@@ -111,21 +111,49 @@ export function VaultEmailsView() {
 
     const handleImport = async () => {
         const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
-        if (!lines.length) return addToast('Nhập định dạng email|pass|refresh|client_id', 'error');
+        if (!lines.length) return addToast('Vui lòng nhập danh sách', 'error');
         let count = 0;
+        
         for (const line of lines) {
-            const [email, password, refresh_token, client_id] = line.split('|');
-            if (!email) continue;
+            const parts = line.split('|');
+            let email, password, refresh_token, client_id, auth_method;
+
+            if (parts.length === 3) {
+                // OAuth2 mode: email|refresh_token|client_id
+                [email, refresh_token, client_id] = parts;
+                password = ''; 
+                auth_method = 'oauth2';
+            } else if (parts.length >= 4) {
+                // Graph API mode: email|password|refresh_token|client_id
+                [email, password, refresh_token, client_id] = parts;
+                auth_method = 'graph';
+            } else {
+                continue; // invalid
+            }
+
+            if (!email || !refresh_token) continue;
+
             try {
+                // 1. Insert to Pool
                 await fetch('/api/vault/email-pool', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password, refresh_token, client_id }),
+                    body: JSON.stringify({ email, password, refresh_token, client_id, auth_method }),
                 });
                 count++;
+
+                // 2. Auto-trigger check-mail-worker
+                const raw = `${email}|${password || ''}|${auth_method}|${refresh_token}|${client_id}`;
+                fetch('/api/processes/script/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scriptName: 'check-mail-worker.js', args: [raw] }),
+                }).catch(() => {});
+                
             } catch (_) { }
         }
-        addToast(`✅ Đã import ${count} email vào Pool`, 'success');
+
+        addToast(`✅ Đã import và bắt đầu kiểm tra ${count} email`, 'success');
         setInputText('');
         setShowImport(false);
         fetchPool();
@@ -167,7 +195,7 @@ export function VaultEmailsView() {
     });
 
     const checkStatus = async (it: any) => {
-        const raw = `${it.email}|${it.password}|${it.refresh_token}|${it.client_id}`;
+        const raw = `${it.email}|${it.password || ''}|${it.auth_method || 'graph'}|${it.refresh_token || ''}|${it.client_id || ''}`;
         addToast(`🔍 Đang kiểm tra: ${it.email}`, 'info');
         try {
             const res = await fetch('/api/processes/script/run', {
@@ -180,7 +208,7 @@ export function VaultEmailsView() {
     };
 
     const startRegistration = async (it: any) => {
-        const raw = `${it.email}|${it.password}|${it.refresh_token}|${it.client_id}`;
+        const raw = `${it.email}|${it.password || ''}|${it.auth_method || 'graph'}|${it.refresh_token || ''}|${it.client_id || ''}`;
         addToast(`🚀 Bắt đầu đăng ký: ${it.email}`, 'info');
         try {
             const res = await fetch('/api/processes/script/run', {
@@ -193,6 +221,23 @@ export function VaultEmailsView() {
                 setView('vault-register');
             }
         } catch (_) { }
+    };
+
+    const syncAllToD1 = async () => {
+        setActionLoading(true);
+        addToast('🔄 Đang ép đồng bộ toàn bộ Pool lên Cloud D1...', 'info');
+        try {
+            const res = await fetch('/api/vault/email-pool/sync-all', { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) {
+                addToast(`✅ Đồng bộ thành công ${data.success}/${data.total} email!`, 'success');
+            } else {
+                addToast(`❌ Lỗi đồng bộ: ${data.error}`, 'error');
+            }
+        } catch (e: any) {
+            addToast(`❌ Lỗi kết nối server: ${e.message}`, 'error');
+        }
+        setActionLoading(false);
     };
 
     const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.email));
@@ -244,6 +289,10 @@ export function VaultEmailsView() {
                             <Button variant="ghost" size="sm" onClick={() => setShowImport(v => !v)}>
                                 <Import size={14} /> Import Pool
                             </Button>
+                            <Button variant="ghost" size="sm" onClick={syncAllToD1} disabled={actionLoading}>
+                                <Database size={14} className={actionLoading ? 'animate-pulse text-indigo-400' : ''} />
+                                {actionLoading ? 'Đang Sync...' : 'Sync All to D1'}
+                            </Button>
                             <Button variant="primary" size="sm" onClick={() => setView('vault-register')}>
                                 <Play size={13} /> Auto Register →
                             </Button>
@@ -258,13 +307,14 @@ export function VaultEmailsView() {
                 {showImport && (
                     <div className="px-5 py-4 border-b border-white/5 bg-black/20">
                         <label className="block text-[11.5px] font-semibold text-slate-400 mb-2">
-                            Dán danh sách: <code className="text-indigo-400 font-mono">email|password|refresh_token|client_id</code>
+                            Dán danh sách (Tự động nhận diện 3 cột hoặc 4 cột): <br/>
+                            <code className="text-indigo-400 font-mono mt-1 inline-block">email|pass|refresh|client</code> hoặc <code className="text-teal-400 font-mono mt-1 inline-block">email|refresh|client</code>
                         </label>
                         <textarea
                             className="w-full h-36 bg-black/40 border border-white/10 rounded-md p-3 text-[11.5px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 resize-none"
                             value={inputText}
                             onChange={e => setInputText(e.target.value)}
-                            placeholder={"user1@hotmail.com|pass123|refresh_token|client_id\nuser2@hotmail.com|pass456|..."}
+                            placeholder="user1@hotmail.com|pass123|refresh|client_id&#10;user2@hotmail.com|refresh|client_id"
                         />
                         <div className="mt-3 flex justify-end gap-2">
                             <Button variant="ghost" onClick={() => setShowImport(false)}>Hủy</Button>
@@ -335,7 +385,10 @@ export function VaultEmailsView() {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-[10px] font-mono text-slate-500 truncate max-w-[200px]">
-                                                        {it.password ? '•'.repeat(8) : 'no-pass'} | {it.refresh_token ? 'token-set' : 'no-token'}
+                                                        {it.password ? '•'.repeat(8) : 'no-pass'} {it.refresh_token ? '| token' : ''}
+                                                    </span>
+                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${it.auth_method === 'oauth2' ? 'bg-teal-500/10 text-teal-400 border-teal-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                                        {it.auth_method === 'oauth2' ? 'OAuth2' : 'GraphAPI'}
                                                     </span>
                                                 </div>
                                             </div>
