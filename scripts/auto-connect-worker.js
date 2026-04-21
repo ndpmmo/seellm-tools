@@ -606,6 +606,25 @@ async function runConnectFlow(task) {
 
         // Đợi trang tải hoàn toàn (chatgpt landing page chậm)
         await new Promise(r => setTimeout(r, 5000));
+        
+        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy
+        try {
+          console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
+          const ipCheck = await evalJson(tabId, USER_ID, `
+            fetch('https://ifconfig.co/json')
+              .then(r => r.json())
+              .catch(e => ({ error: e.message }))
+          `, 15000);
+
+          if (ipCheck && ipCheck.ip) {
+            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip} (${ipCheck.country || 'N/A'})`);
+          } else if (ipCheck && ipCheck.error) {
+            console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP qua Proxy: ${ipCheck.error}`);
+          }
+        } catch (err) {
+          console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
+        }
+
         await saveStep(tabId, USER_ID, runDir, '01_login_page');
 
         let state = await getState(tabId, USER_ID);

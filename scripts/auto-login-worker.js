@@ -1184,6 +1184,25 @@ async function runLoginFlow(task) {
     
     // Chờ hệ thống khởi động (2 giây) thay vì 15 giây tốn thời gian, sau đó dùng waitForSelector
     await new Promise(r => setTimeout(r, 2000));
+
+    // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy
+    try {
+      console.log(`🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
+      const ipCheck = await evalJson(tabId, USER_ID, `
+        fetch('https://ifconfig.co/json')
+          .then(r => r.json())
+          .catch(e => ({ error: e.message }))
+      `, 15000);
+
+      if (ipCheck && ipCheck.ip) {
+        console.log(`✅ [Diagnostic] Exit IP: ${ipCheck.ip} (${ipCheck.country || 'N/A'})`);
+      } else if (ipCheck && ipCheck.error) {
+        console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP qua Proxy: ${ipCheck.error}`);
+      }
+    } catch (err) {
+      console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
+    }
+
     await saveStep(tabId, 'khoi_dong');
 
     // 2. Nhận diện và Xử lý trang Email
