@@ -158,6 +158,14 @@ router.get('/proxies', (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Lightweight list for workshop proxy selector dropdown
+router.get('/proxies/list', (req, res) => {
+  try {
+    const items = vault.getProxies().map(p => ({ id: p.id, label: p.label || '', url: p.url, type: p.type, is_active: p.is_active }));
+    res.json({ ok: true, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/proxies', async (req, res) => {
   try {
     const record = vault.upsertProxy(req.body);
@@ -168,6 +176,52 @@ router.post('/proxies', async (req, res) => {
 router.delete('/proxies/:id', async (req, res) => {
   try { vault.deleteProxy(req.params.id); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/vault/proxies/:id/test — HTTP request to detect public exit IP and version
+router.post('/proxies/:id/test', async (req, res) => {
+  const { id } = req.params;
+  const proxy = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+  if (!proxy) return res.status(404).json({ error: 'Proxy not found' });
+
+  const start = Date.now();
+  try {
+    const proxyUrlStr = proxy.url.includes('://') ? proxy.url : `http://${proxy.url}`;
+
+    // Test proxy exit IP and Country using proxy with curl (ip-api.com is very stable)
+    const { execFile } = await import('child_process');
+    const getTargetInfo = () => new Promise((resolve, reject) => {
+      // Use ifconfig.co/json as it natively supports IPv6/IPv4 and returns ISO country
+      execFile('curl', ['-L', '-s', '-x', proxyUrlStr, 'https://ifconfig.co/json', '--max-time', '15'], (error, stdout) => {
+        if (error) return reject(new Error(`Connection failed: ${error.message}`));
+        try {
+          const result = JSON.parse(stdout);
+          if (result.ip) resolve({ ip: result.ip, country: result.country_iso });
+          else reject(new Error('Invalid response data'));
+        } catch(e) {
+          reject(new Error('Format error (JSON expected)'));
+        }
+      });
+    });
+
+    const info = await getTargetInfo();
+    const networkType = info.ip.includes(':') ? 'IPv6' : 'IPv4';
+    const latency = Date.now() - start;
+
+    // notes example: "IPv6 (2404:6800:4003:c00::88)"
+    const notesStr = `${networkType} (${info.ip})`;
+    
+    // Determine country to save: prefer detected if existing is blank
+    const currentCountry = (proxy.country || '').trim();
+    const updatedCountry = currentCountry || (info.country || '').trim() || null;
+
+    const now = new Date().toISOString();
+    vault.upsertProxy({ ...proxy, is_active: 1, last_tested: now, latency_ms: latency, notes: notesStr, country: updatedCountry }, true);
+    res.json({ ok: true, latency, status: 'active', exitIp: info.ip, networkType, country: updatedCountry });
+  } catch (e) {
+    vault.upsertProxy({ ...proxy, is_active: 0, last_tested: new Date().toISOString(), latency_ms: null }, true);
+    res.json({ ok: true, latency: null, status: 'dead', error: e.message });
+  }
 });
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -773,7 +827,47 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
 });
 
 // Sync toàn bộ
+router.post('/sync/all', async (req, res) => {
+  try {
+    const results = { accounts: 0, emailPool: 0, proxies: 0, keys: 0 };
+
+    // 1. Sync Accounts
+    const accounts = vault.getAccountsFull();
+    for (const a of accounts) {
+      await SyncManager.pushVault('account', a);
+      results.accounts++;
+    }
+
+    // 2. Sync Email Pool
+    const pool = vault.getEmailPoolFull();
+    for (const e of pool) {
+      await SyncManager.pushVault('email_pool', e);
+      results.emailPool++;
+    }
+
+    // 3. Sync Proxies (including soft-deleted ones to ensure D1 is updated)
+    const proxies = vault.db.prepare('SELECT * FROM vault_proxies').all();
+    for (const p of proxies) {
+      await SyncManager.pushVault('proxy', p);
+      results.proxies++;
+    }
+
+    // 4. Sync API Keys (including soft-deleted ones)
+    const keys = vault.db.prepare('SELECT * FROM vault_api_keys').all();
+    for (const k of keys) {
+      await SyncManager.pushVault('key', k);
+      results.keys++;
+    }
+
+    console.log(`[Bulk Sync All] Pushed: Accounts=${results.accounts}, Pool=${results.emailPool}, Proxies=${results.proxies}, Keys=${results.keys}`);
+    res.json({ ok: true, results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/sync', async (req, res) => {
+  // Legacy /sync for backward compatibility (only accounts)
   try {
     const accounts = vault.getAccountsFull();
     let pushed = 0;
@@ -781,11 +875,8 @@ router.post('/sync', async (req, res) => {
       await SyncManager.pushVault('account', a);
       pushed++;
     }
-    console.log(`[Bulk Sync] Pushed ${pushed} accounts to D1`);
     res.json({ ok: true, pushed });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 export default router;

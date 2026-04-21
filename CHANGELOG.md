@@ -1,5 +1,25 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.6] - 2026-04-22
+
+### 🛡️ Proxy Management Professionalization & Cloud Integrity
+
+Unified proxy infrastructure with automated geolocation, deduplication, and a redundant cloud synchronization layer.
+
+#### 🛰️ Automated Proxy Intelligence
+- **Dual-Stack Geolocation**: Switched to `ifconfig.co/json` to reliably detect country codes for both IPv4 and IPv6 exit IPs.
+- **Auto-Test on Import**: Implemented immediate network testing and geo-tagging for manually added or bulk-imported proxies.
+- **Smart Deduplication**: Added URL-based proximity checks in `upsertProxy`. Re-adding an existing URL now restores the original record, preventing ID fragmentation.
+
+#### ☁️ Cloud Consistency (D1 Support)
+- **Soft-Delete Sync**: Updated D1 Worker to support and respect `deleted_at`, ensuring local deletions are permanently reflected on Cloudflare.
+- **Schema Migration**: Implemented a `/sync/migrate` endpoint to bridge D1 table gaps by adding missing state columns.
+- **Comprehensive Sync-All**: Added a global synchronization endpoint (`/api/vault/sync/all`) to reconcile Accounts, Proxies, and Keys in a single transaction.
+
+#### 🧹 UI/UX Cleanup
+- **Phantom Record Suppression**: Hardened database queries to exclude soft-deleted proxies from all dropdowns and selector menus.
+- **Dropdown Redundancy Fix**: Resolved the "multiplying proxies" bug in Vault Workshop by enforcing clean state filtering on the backend.
+
 ## [0.2.5] - 2026-04-21
 
 ### 🚀 Email Pool Modernization & Multi-Method Sync

@@ -129,18 +129,19 @@ async function saveStep(tabId, userId, runDir, label) {
 
 export async function runAutoRegister(taskInput) {
   const parts = taskInput.split('|');
-  let email, emailPassword, authMethod, refreshToken, clientId;
+  let email, emailPassword, authMethod, refreshToken, clientId, proxyUrl;
 
   if (parts.length >= 5) {
-    [email, emailPassword, authMethod, refreshToken, clientId] = parts;
+    [email, emailPassword, authMethod, refreshToken, clientId, proxyUrl] = parts;
   } else {
     // Fallback format cũ: email|password|refresh_token|client_id
     [email, emailPassword, refreshToken, clientId] = parts;
     authMethod = 'graph';
   }
+  proxyUrl = (proxyUrl || '').trim() || null;
 
   if (!email || !refreshToken || !clientId) {
-    throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id)");
+    throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id[|proxyUrl])");
   }
 
   // Update pool status to processing
@@ -168,8 +169,10 @@ export async function runAutoRegister(taskInput) {
       userId: USER_ID,
       url: "https://chatgpt.com/auth/login",
       headless: false,
-      humanize: true
+      humanize: true,
+      ...(proxyUrl ? { proxy: proxyUrl } : {})
     });
+    console.log(proxyUrl ? `🔌 Dùng proxy: ${proxyUrl}` : '🌐 Không dùng proxy');
     tabId = tabRes.tabId;
     await new Promise(r => setTimeout(r, 8000));
     await saveStep(tabId, USER_ID, runDir, '01_login_page');

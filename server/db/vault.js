@@ -510,40 +510,66 @@ export const vault = {
   },
 
   // CRUD PROXIES
-  getProxies: () => db.prepare('SELECT * FROM vault_proxies ORDER BY created_at DESC').all(),
+  getProxies: () => db.prepare('SELECT * FROM vault_proxies WHERE deleted_at IS NULL ORDER BY created_at DESC').all(),
 
   upsertProxy: (data, skipSync = false) => {
-    const id = data.id || `prx_${uuidv4().slice(0, 8)}`;
+    let id = data.id;
+    let existing = null;
     const now = dayjs().toISOString();
+
+    // Deduplication logic: If no ID, check if URL already exists
+    if (!id && data.url) {
+      const byUrl = db.prepare('SELECT * FROM vault_proxies WHERE url = ? LIMIT 1').get(data.url);
+      if (byUrl) {
+        id = byUrl.id;
+        existing = byUrl;
+        // If it was deleted, restore it
+        if (byUrl.deleted_at) {
+          db.prepare('UPDATE vault_proxies SET deleted_at = NULL WHERE id = ?').run(id);
+          existing.deleted_at = null;
+        }
+      }
+    }
+
+    if (!id) id = `prx_${uuidv4().slice(0, 8)}`;
+    
     const stmt = db.prepare(`
       INSERT INTO vault_proxies (
-        id, label, url, type, country, provider, is_active, last_tested, latency_ms, notes, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        id, label, url, type, country, provider, is_active, last_tested, latency_ms, notes, updated_at, deleted_at, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
-        label       = excluded.label,
+        label       = COALESCE(excluded.label, vault_proxies.label),
         url         = excluded.url,
         type        = excluded.type,
-        country     = excluded.country,
-        provider    = excluded.provider,
+        country     = COALESCE(excluded.country, vault_proxies.country),
+        provider    = COALESCE(excluded.provider, vault_proxies.provider),
         is_active   = excluded.is_active,
         last_tested = excluded.last_tested,
         latency_ms  = excluded.latency_ms,
         notes       = excluded.notes,
-        updated_at  = excluded.updated_at
+        updated_at  = excluded.updated_at,
+        deleted_at  = excluded.deleted_at
     `);
     const record = {
-      id, label: data.label || '', url: data.url, type: data.type || 'http',
-      country: data.country || null, provider: data.provider || null,
-      is_active: data.is_active ?? 1, last_tested: data.last_tested || null,
-      latency_ms: data.latency_ms || null, notes: data.notes || '',
+      id, 
+      label: data.label || (existing ? existing.label : ''), 
+      url: data.url, 
+      type: data.type || (existing ? existing.type : 'http'),
+      country: data.country || (existing ? existing.country : null),
+      provider: data.provider || (existing ? existing.provider : null),
+      is_active: data.is_active ?? 1,
+      last_tested: data.last_tested || (existing ? existing.last_tested : null),
+      latency_ms: data.latency_ms || (existing ? existing.latency_ms : null),
+      notes: data.notes || (existing ? existing.notes : ''),
+      deleted_at: data.deleted_at || null,
       updated_at: now,
-      // Preserve created_at from remote data (e.g. when syncing from D1)
-      created_at: data.created_at || now,
+      created_at: data.created_at || (existing ? existing.created_at : now),
     };
+
     stmt.run(
       record.id, record.label, record.url, record.type, record.country,
       record.provider, record.is_active, record.last_tested,
-      record.latency_ms, record.notes, record.updated_at, record.created_at
+      record.latency_ms, record.notes, record.updated_at, record.deleted_at, record.created_at
     );
 
 
@@ -567,7 +593,7 @@ export const vault = {
 
   // CRUD API KEYS
   getApiKeys: () => {
-    const list = db.prepare('SELECT * FROM vault_api_keys ORDER BY created_at DESC').all();
+    const list = db.prepare('SELECT * FROM vault_api_keys WHERE deleted_at IS NULL ORDER BY created_at DESC').all();
     return list.map(k => ({ ...k, key_value: '****************' }));
   },
 
@@ -582,8 +608,8 @@ export const vault = {
     const now = dayjs().toISOString();
     const stmt = db.prepare(`
       INSERT INTO vault_api_keys (
-        id, provider, label, key_value, base_url, is_active, daily_limit, monthly_limit, notes, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        id, provider, label, key_value, base_url, is_active, daily_limit, monthly_limit, notes, updated_at, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
         label         = excluded.label,

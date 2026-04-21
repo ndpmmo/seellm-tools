@@ -13,7 +13,7 @@ import { TerminalView } from './views/TerminalView';
 import { ScriptsView } from './views/ScriptsView';
 import { SettingsView } from './views/SettingsView';
 import { LogFilesView } from './views/LogFilesView';
-import { AccountsView } from './views/AccountsView';
+import { ServicesView } from './views/ServicesView';
 import { ProxiesView } from './views/ProxiesView';
 import { ConnectionsView } from './views/ConnectionsView';
 import { ChangelogView } from './views/ChangelogView';
@@ -22,8 +22,7 @@ import { CamofoxDocsView } from './views/CamofoxDocsView';
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
 import { VaultProxiesView } from './views/vault/VaultProxiesView';
-import { VaultAutoRegisterView } from './views/vault/VaultAutoRegisterView';
-import { VaultEmailsView } from './views/vault/VaultEmailsView';
+import { VaultWorkshopView } from './views/vault/VaultWorkshopView';
 
 // ── Nav Item ─────────────────────────────────────────────
 function NavItem({
@@ -98,15 +97,14 @@ function Sidebar() {
         <NavItem id="screenshots" icon={FileImage} label="Screenshots" />
 
         <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Vault (Local)</div>
-        <NavItem id="vault-accounts" icon={Users} label="Accounts" />
-        <NavItem id="vault-emails" icon={Mail} label="Emails Pool" />
-        <NavItem id="vault-register" icon={Bot} label="Auto Register" />
-        <NavItem id="vault-proxies" icon={Globe} label="Proxies" />
+        <NavItem id="vault-accounts" icon={Users} label="Account Vault" />
+        <NavItem id="vault-workshop" icon={Zap} label="Vault Workshop" />
+        <NavItem id="vault-proxies" icon={Globe} label="Proxy Manager" />
         <NavItem id="vault-keys" icon={Zap} label="API Keys" />
 
-        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">D1 Cloud (D1)</div>
-        <NavItem id="accounts" icon={Bot} label="Codex Accts" />
-        <NavItem id="proxies" icon={Globe} label="Proxy Pool" />
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Cloud (D1 Edge)</div>
+        <NavItem id="services" icon={Bot} label="Managed Services" />
+        <NavItem id="proxies" icon={Globe} label="Gateway Proxies" />
         <NavItem id="connections" icon={Link2} label="Connections" />
 
         <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Công cụ</div>
@@ -155,13 +153,12 @@ function Sidebar() {
 // ── Topbar ────────────────────────────────────────────────
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   dashboard: { title: 'Dashboard', desc: 'Tổng quan hệ thống và trạng thái realtime' },
-  'vault-accounts': { title: 'Vault Accounts', desc: 'Quản lý tài khoản cá nhân đa nhà cung cấp · Local Vault' },
-  'vault-emails': { title: 'Emails Pool', desc: 'Quản lý kho tài khoản Email (Hotmail/Outlook) để dập account' },
-  'vault-register': { title: 'Auto Register', desc: 'Tự động dập UID/Email hàng loạt · Vault Local' },
-  'vault-proxies': { title: 'Vault Proxies', desc: 'Danh sách Proxy cá nhân được bảo mật · Local Vault' },
+  'vault-accounts': { title: 'Account Vault', desc: 'Kho tài khoản cá nhân đa nhà cung cấp · Local SQLite' },
+  'vault-workshop': { title: 'Vault Workshop', desc: 'Hệ thống quản lý và dập account tự động tập trung' },
+  'vault-proxies': { title: 'Proxy Manager', desc: 'Kho proxy tổng hợp — lưu, kiểm tra, phân loại · Local Vault' },
   'vault-keys': { title: 'Vault API Keys', desc: 'Quản lý API Keys cá nhân · Local Vault' },
-  accounts: { title: 'Codex Accounts', desc: 'Quản lý tài khoản Managed · D1 Cloud Edge' },
-  proxies: { title: 'Proxy Pool', desc: 'Quản lý Proxy Pool Automation · D1 Cloud Edge' },
+  services: { title: 'Managed Services', desc: 'Tài khoản cloud đa dịch vụ: ChatGPT · Claude · Gemini · Cursor · D1 Edge' },
+  proxies: { title: 'Gateway Proxies', desc: 'Proxy Pool cho ChatGPT/Codex Automation · D1 Cloud Edge (Gateway)' },
   connections: { title: 'Connections', desc: 'Danh sách token đã xác thực · D1 Cloud Edge' },
   screenshots: { title: 'Screenshots', desc: 'Ảnh chụp màn hình từ các phiên login' },
   terminal: { title: 'Terminal Logs', desc: 'Output realtime từ các processes' },
@@ -173,8 +170,8 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
 };
 
 const PAGE_ICONS: Record<string, React.ElementType> = {
-  dashboard: LayoutDashboard, accounts: Users, proxies: Globe,
-  'vault-emails': Mail,
+  dashboard: LayoutDashboard, services: Bot, proxies: Globe,
+  'vault-workshop': Zap,
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
   changelog: HistoryIcon, 'camofox-docs': FileText,
@@ -218,13 +215,12 @@ function ContentRouter() {
 
       {/* Vault */}
       {view === 'vault-accounts' && <VaultAccountsView />}
-      {view === 'vault-emails' && <VaultEmailsView />}
-      {view === 'vault-register' && <VaultAutoRegisterView />}
+      {view === 'vault-workshop' && <VaultWorkshopView />}
       {view === 'vault-proxies' && <VaultProxiesView />}
       {view === 'vault-keys' && <div className="content">Coming Soon (M1 Backend done, UI Pending)</div>}
 
       {/* D1 */}
-      {view === 'accounts' && <AccountsView />}
+      {view === 'services' && <ServicesView />}
       {view === 'proxies' && <ProxiesView />}
       {view === 'connections' && <ConnectionsView />}
 
