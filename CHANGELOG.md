@@ -1,5 +1,29 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.11] - 2026-04-23
+
+### 📌 Changelog Traceability Update (Detailed Commit Mapping)
+
+This patch focuses on improving release auditability by documenting exact commit history for the latest proxy hardening wave and confirming release metadata consistency.
+
+#### 🧾 Detailed Commit Mapping (Latest Proxy Series)
+- `e932133` — `feat(proxy): unify proxy state and bulk assignment UX across vault/services/workshop/proxies`
+  - Unified proxy state API and cross-screen mapping.
+  - Added bulk assign/unassign flow and improved visibility across views.
+- `1775967` — `fix(proxies): fallback to legacy inspect endpoint when proxy state route is unavailable`
+  - Added safe fallback path to avoid UI blind spots when unified state endpoint is temporarily unavailable.
+- `c0c33e8` — `fix(proxy): enforce fail-closed proxy verification with ipv6-aware diagnostics`
+  - Introduced strict verification policy in workers to stop immediately when proxy validation fails.
+- `d61bd9c` — `fix(proxy): harden proxy verification and normalize worker proxy inputs`
+  - Normalized schema-less proxy strings and strengthened diagnostics across worker flows.
+  - Added gateway delete-notify cooldown circuit breaker to reduce repeated network-failure noise.
+
+#### 🔢 Version Consistency
+- Bumped application version to `0.2.11` in:
+  - `package.json`
+  - `package-lock.json`
+- No runtime behavior changes in this patch beyond documentation/release metadata alignment.
+
 ## [0.2.10] - 2026-04-23
 
 ### 🧩 Proxy Reliability Hardening & Gateway-Down Resilience
