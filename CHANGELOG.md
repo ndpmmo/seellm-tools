@@ -1,5 +1,31 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.14] - 2026-04-23
+
+### ✅ Verification Pass: All proxy workers + build stability
+
+Post-fix verification was executed to ensure proxy logic and worker runtime remain stable across all main automation paths.
+
+#### 🧪 Runtime verification completed
+- `scripts/auto-register-worker.js`
+  - Proxy diagnostic verified: Exit IP and Local IP are different when proxy is assigned.
+  - Worker flow continues after diagnostic (no false stop).
+- `scripts/auto-connect-worker.js`
+  - Worker starts and runs poll loop normally without startup crash.
+- `scripts/auto-login-worker.js`
+  - Worker starts and runs poll loop normally without startup crash.
+
+#### 🧱 Build verification completed
+- Ran production build successfully:
+  - `npm run build`
+  - Next.js compile + type checks completed without errors.
+
+#### 🌐 Proxy connectivity re-check
+- `scripts/test-camofox-proxy-ip.js` passed with:
+  - Local IP: `2405:4803:d75e:760:b41b:8110:b027:375f`
+  - Proxy Exit IP: `2001:19f0:4400:4a41:688d:ec3a:13ab:132a`
+  - Status: proxy applied correctly (`Exit IP != Local IP`) and `chatgpt.com/auth/login` accessible.
+
 ## [0.2.13] - 2026-04-23
 
 ### 🔧 Root-Cause Fix: Camoufox ignored per-task proxy on `/tabs`
