@@ -1,5 +1,20 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.16] - 2026-04-23
+
+### 🔬 Deep verification: proxy diagnostics now validate the real worker session
+
+#### ✅ Diagnostic scope tightened
+- Updated all main workers so proxy verification no longer opens a probe under a different `userId`.
+- The verification tab now uses the same worker `userId`, ensuring the check reflects the exact browser session that the task is using.
+
+#### 🧪 Final runtime confirmation
+- Re-ran end-to-end verification against the real patched Camoufox API:
+  - Host public IP: `2405:4803:d75e:760:b41b:8110:b027:375f`
+  - Main worker session IP: `2001:19f0:4400:4a41:688d:ec3a:13ab:132a`
+  - Same-user follow-up tab IP: `2001:19f0:4400:4a41:688d:ec3a:13ab:132a`
+- Conclusion: proxy is applied on the actual worker session and persists across tabs in the same session.
+
 ## [0.2.15] - 2026-04-23
 
 ### 🔎 Clarified Host-vs-Proxy IP diagnostics and re-verified same-session proxy routing

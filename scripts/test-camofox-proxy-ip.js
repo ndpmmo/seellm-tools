@@ -120,6 +120,46 @@ async function testIpPhase() {
   return { exitIp, raw: String(bodyText || '').slice(0, 220) };
 }
 
+async function testSameUserSessionPhase() {
+  const opened = await openTabWithProxy(CHATGPT_URL);
+  const mainTabId = opened.tabId;
+  if (!mainTabId) throw new Error('Missing tabId in same-user phase');
+
+  let followupTabId = '';
+  try {
+    await new Promise(r => setTimeout(r, 5000));
+
+    const mainGoto = await post(`/tabs/${mainTabId}/goto`, {
+      userId: USER_ID,
+      url: IP_CHECK_URL,
+    }, 30000);
+    const mainIpText = await evalInTab(mainTabId, `document.body && document.body.innerText ? document.body.innerText : ''`, 25000);
+    const mainIp = extractIp(mainIpText);
+
+    const followup = await post('/tabs', {
+      userId: USER_ID,
+      sessionKey: `${USER_ID}_followup`,
+      url: IP_CHECK_URL,
+      persistent: false,
+      headless: false,
+      humanize: true,
+    }, 30000);
+    followupTabId = followup.tabId;
+    await new Promise(r => setTimeout(r, 5000));
+    const followupIpText = await evalInTab(followupTabId, `document.body && document.body.innerText ? document.body.innerText : ''`, 25000);
+    const followupIp = extractIp(followupIpText);
+
+    return {
+      mainUrl: mainGoto?.url || '',
+      mainIp,
+      followupIp,
+    };
+  } finally {
+    if (mainTabId) await del(`/tabs/${mainTabId}?userId=${USER_ID}`);
+    if (followupTabId) await del(`/tabs/${followupTabId}?userId=${USER_ID}`);
+  }
+}
+
 async function testChatgptPhase() {
   const opened = await openTabWithProxy(CHATGPT_URL);
   const tabId = opened.tabId;
@@ -172,6 +212,10 @@ async function main() {
     } else if (ipPhase.exitIp) {
       console.log('[Diag] OK: Exit IP khác Host Public IP.');
     }
+
+    const sameUser = await testSameUserSessionPhase();
+    console.log(`[Diag] Same-user main tab IP: ${sameUser.mainIp || '(missing)'}`);
+    console.log(`[Diag] Same-user followup tab IP: ${sameUser.followupIp || '(missing)'}`);
 
     const chat = await testChatgptPhase();
     console.log(`[Diag] ChatGPT URL: ${chat.state?.href || '(missing)'}`);

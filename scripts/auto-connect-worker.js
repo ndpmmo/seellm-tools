@@ -239,29 +239,28 @@ async function getLocalPublicIp() {
     return null;
 }
 
-async function probeProxyExitIp(proxyUrl, parentUserId) {
-    const probeUserId = `${parentUserId}_probe`;
+async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
     let probeTabId = null;
     try {
         const opened = await camofoxPost('/tabs', {
-            userId: probeUserId,
+            userId,
             sessionKey: `probe_${Date.now()}`,
             url: 'https://api64.ipify.org/?format=json',
-            proxy: proxyUrl || undefined,
+            ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
             persistent: false,
             headless: false,
             humanize: true,
         }, 25000);
         probeTabId = opened.tabId;
         await new Promise(r => setTimeout(r, 3500));
-        const bodyText = await evalJson(probeTabId, probeUserId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
+        const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
         const ip = extractIpFromText(bodyText);
         if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
         return { ip, source: 'https://api64.ipify.org/?format=json' };
     } catch (e) {
         return { error: e.message || String(e) };
     } finally {
-        if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${probeUserId}`);
+        if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${userId}`);
     }
 }
 
@@ -703,7 +702,7 @@ async function runConnectFlow(task) {
         // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
         try {
           console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-          const ipCheck = await probeProxyExitIp(effectiveProxy || null, USER_ID);
+          const ipCheck = await probeProxyExitIp(USER_ID, effectiveProxy || null, true);
           if (ipCheck && ipCheck.ip) {
             console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
             if (effectiveProxy) {
