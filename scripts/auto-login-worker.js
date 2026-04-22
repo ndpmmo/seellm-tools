@@ -1211,9 +1211,14 @@ async function runLoginFlow(task) {
         console.log(`✅ [Diagnostic] Exit IP: ${ip} (${country})`);
       } else if (ipCheck && ipCheck.error) {
         console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
+        // [HARD-FAIL]
+        if (proxyUrl) {
+          throw new Error(`Proxy không hoạt động hoặc không thể kết nối. Dừng tiến trình.`);
+        }
       }
     } catch (err) {
       console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
+      if (proxyUrl) throw err;
     }
 
     await saveStep(tabId, 'khoi_dong');

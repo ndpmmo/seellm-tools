@@ -633,9 +633,14 @@ async function runConnectFlow(task) {
             console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ip} (${country})`);
           } else if (ipCheck && ipCheck.error) {
             console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
+            // [HARD-FAIL]
+            if (account.proxyUrl || account.proxy) {
+              throw new Error(`Proxy không hoạt động. Dừng tiến trình.`);
+            }
           }
         } catch (err) {
           console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
+          if (account.proxyUrl || account.proxy) throw err;
         }
 
         await saveStep(tabId, USER_ID, runDir, '01_login_page');

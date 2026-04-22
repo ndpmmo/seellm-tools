@@ -202,9 +202,16 @@ export async function runAutoRegister(taskInput) {
         console.log(`✅ [Diagnostic] Exit IP: ${ip} (${country})`);
       } else if (ipCheck && ipCheck.error) {
         console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
+        // [HARD-FAIL] Nếu có gán proxy mà kiểm tra thất bại thì dừng luôn
+        if (proxyUrl) {
+          throw new Error(`Proxy không hoạt động hoặc không thể kết nối (Diagnostic failed). Dừng tiến trình để bảo mật.`);
+        }
       }
     } catch (err) {
       console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
+      if (proxyUrl) {
+        throw err; // Re-throw để dừng tiến trình ở block catch chính
+      }
     }
 
     await saveStep(tabId, USER_ID, runDir, '01_login_page');
