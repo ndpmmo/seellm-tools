@@ -4,7 +4,7 @@ import {
   Plus, Upload, Search, RefreshCw,
   Copy, Check, Pencil, Trash2, RotateCcw,
   Save, X, AlertCircle, ChevronDown, ChevronUp,
-  Users, CheckCircle, Clock, XCircle, Globe, Database, Key, Shield, Bot
+  Users, CheckCircle, Clock, XCircle, Globe, Database, Key, Shield, Bot, Square, CheckSquare
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { fmtDateTimeVN, ConfirmModal, Spinner } from '../Views';
@@ -197,12 +197,15 @@ export function ServicesView() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProxyId, setBulkProxyId] = useState('');
+  const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
   const loadProxies = useCallback(async () => {
     try {
-      const r = await fetch('/api/d1/inspect/proxies').catch(() => null as any);
+      const r = await fetch('/api/proxy/state').catch(() => null as any);
       if (!r?.ok) return;
       const d = await r.json().catch(() => ({}));
       setProxies(Array.isArray(d?.proxies) ? d.proxies : []);
@@ -278,6 +281,7 @@ export function ServicesView() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadProxies(); }, [loadProxies]);
 
   // Derived stats per provider
   const providerCounts = Object.keys(PROVIDERS).reduce((acc, k) => {
@@ -371,6 +375,40 @@ export function ServicesView() {
       addToast('✅ Đã gán proxy từ pool', 'success'); load();
     } catch (e: any) { addToast(e.message, 'error'); }
     finally { setAssigningId(null); }
+  };
+
+  const unassignProxy = async (id: string) => {
+    setAssigningId(id);
+    try {
+      const r = await fetch('/api/proxy-assign/unassign', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ accountId: id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast('✅ Đã gỡ proxy', 'success');
+      load();
+    } catch (e: any) { addToast(e.message, 'error'); }
+    finally { setAssigningId(null); }
+  };
+
+  const bulkProxyAction = async (action: 'assign' | 'unassign') => {
+    const accountIds = Array.from(selectedIds);
+    if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
+    setBulkProxyRunning(true);
+    try {
+      const r = await fetch('/api/proxy-assign/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, accountIds, proxyId: action === 'assign' && bulkProxyId ? bulkProxyId : null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast(`✅ Bulk ${action}: ${d.done || 0}/${d.total || accountIds.length}`, 'success');
+      setSelectedIds(new Set());
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Bulk proxy thất bại', 'error');
+    } finally {
+      setBulkProxyRunning(false);
+    }
   };
 
   const autoAssign = async () => {
@@ -499,6 +537,20 @@ export function ServicesView() {
             <Button size="icon-sm" variant="secondary" onClick={autoAssign} disabled={autoAssigning} className="w-auto px-2 border-white/10 text-cyan-400 hover:bg-cyan-500/10">
               <Globe size={12} className="mr-1.5" /> {autoAssigning ? 'Đang gán…' : 'Auto Proxy'}
             </Button>
+            <select
+              className="h-8 rounded-md bg-black/40 border border-white/10 text-[11px] text-slate-300 px-2 outline-none focus:border-indigo-500/50"
+              value={bulkProxyId}
+              onChange={e => setBulkProxyId(e.target.value)}
+            >
+              <option value="">(Auto proxy tốt nhất)</option>
+              {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}
+            </select>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('assign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
+              Gán đã chọn ({selectedIds.size})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+              Gỡ đã chọn
+            </Button>
             <Button size="icon-sm" variant="ghost" onClick={() => load()} disabled={loading} className="border border-white/5 bg-white/5 hover:bg-white/10">
               <RefreshCw size={13} className={`${loading ? 'animate-spin' : ''} text-slate-300`} />
             </Button>
@@ -531,6 +583,18 @@ export function ServicesView() {
           <table className="w-full min-w-[1100px] border-collapse text-left">
             <thead>
               <tr className="bg-white/5 border-y border-white/5">
+                <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
+                  <button
+                    onClick={() => {
+                      if (selectedIds.size === filtered.length && filtered.length > 0) setSelectedIds(new Set());
+                      else setSelectedIds(new Set(filtered.map(it => it.id)));
+                    }}
+                    className="text-slate-400 hover:text-indigo-400"
+                    title="Chọn tất cả"
+                  >
+                    {selectedIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Email / Label</th>
                 <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Provider</th>
                 <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
@@ -543,13 +607,26 @@ export function ServicesView() {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={8} className="text-center p-10 text-slate-500 text-[13px]">{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
+                <tr><td colSpan={9} className="text-center p-10 text-slate-500 text-[13px]">{search ? `Không tìm thấy "${search}"` : 'Chưa có tài khoản nào'}</td></tr>
               )}
               {filtered.map(it => {
                 const ed = editId === it.id;
                 const prov = getProvider(normalizeProvider(it.provider));
                 return (
                   <tr key={it.id} className={`transition-colors group hover:bg-white/[0.02] ${ed ? 'bg-indigo-500/5' : ''}`}>
+                    <td className="px-4 py-3.5 align-middle">
+                      <button
+                        onClick={() => setSelectedIds(prev => {
+                          const n = new Set(prev);
+                          if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
+                          return n;
+                        })}
+                        className="text-slate-400 hover:text-indigo-400"
+                        title="Chọn dòng"
+                      >
+                        {selectedIds.has(it.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                    </td>
 
                     {/* Email + Toggle */}
                     <td className="px-4 py-3.5 min-w-[220px] align-middle">
@@ -644,6 +721,7 @@ export function ServicesView() {
                       ) : (
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button variant="secondary" size="icon-sm" title="Gán proxy" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="text-cyan-400 border-white/10 hover:bg-cyan-500/10"><Globe size={13} /></Button>
+                          {it.proxy_url && <Button variant="secondary" size="icon-sm" title="Gỡ proxy" onClick={() => unassignProxy(it.id)} disabled={assigningId === it.id} className="text-amber-400 border-white/10 hover:bg-amber-500/10"><X size={13} /></Button>}
                           <Button variant="secondary" size="icon-sm" title="Sync lên D1" onClick={() => bypassSync(it.id, it.email)} className="text-indigo-400 border-white/10 hover:bg-indigo-500/10"><Database size={13} /></Button>
                           <Button variant="secondary" size="icon-sm" title="Sửa" onClick={() => openEdit(it)} className="text-slate-400 border-white/10 hover:bg-white/10"><Pencil size={13} /></Button>
                           <Button variant="secondary" size="icon-sm" title="Re-run → pending" onClick={() => reset(it.id)} className="text-emerald-400 border-white/10 hover:bg-emerald-500/10"><RotateCcw size={13} /></Button>

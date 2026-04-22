@@ -8,7 +8,8 @@ const TEST_URL = 'https://ifconfig.co/json';
 async function test() {
     console.log(`[Diagnostic] Testing Camoufox API at ${CAMOUFOX_API}...`);
     try {
-        const ping = await fetch(`${CAMOUFOX_API}/ping`).catch(e => ({ ok: false, error: e.message }));
+        const ping = await fetch(`${CAMOUFOX_API}/health`).catch(e => ({ ok: false, error: e.message }));
+
         if (!ping.ok) {
             console.error(`[Diagnostic] ❌ Camoufox API is not reachable: ${ping.error || 'Unknown error'}`);
             console.log(`[Diagnostic] Tip: Make sure the Camoufox server is running on port 3144.`);
@@ -22,9 +23,11 @@ async function test() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 userId: 'diag_user',
+                sessionKey: 'diag_session',
                 url: TEST_URL,
                 proxy: PROXY_URL,
                 headless: false
+
             })
         });
 

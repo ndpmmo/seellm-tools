@@ -89,12 +89,30 @@ export function VaultWorkshopView() {
 
     useEffect(() => { fetchPool(); }, [fetchPool]);
 
-    // Load vault proxies for selector
+    // Load unified proxy state for selector + restore account mappings
     useEffect(() => {
-        fetch('/api/vault/proxies/list')
+        fetch('/api/proxy/state')
             .then(r => r.json())
-            .then(d => setVaultProxies(d.items || []))
-            .catch(() => {});
+            .then(d => {
+                const p = Array.isArray(d?.proxies) ? d.proxies : [];
+                setVaultProxies(p.map((it: any) => ({ id: it.id, label: it.label || '', url: it.url })));
+                const bindings = Array.isArray(d?.bindings) ? d.bindings : [];
+                const mapFromBindings: Record<string, string> = {};
+                for (const b of bindings) {
+                    if (b?.email && b?.proxy_url) mapFromBindings[String(b.email)] = String(b.proxy_url);
+                }
+                setProxyMap(prev => {
+                    const merged = { ...mapFromBindings, ...prev };
+                    localStorage.setItem('workshopProxyMap_v1', JSON.stringify(merged));
+                    return merged;
+                });
+            })
+            .catch(() => {
+                fetch('/api/vault/proxies/list')
+                    .then(r => r.json())
+                    .then(d => setVaultProxies(d.items || []))
+                    .catch(() => {});
+            });
     }, []);
 
     // Restore proxy map from localStorage
@@ -686,4 +704,3 @@ export function VaultWorkshopView() {
 }
 
 const SquareTerminal = ({ size, className }: any) => <Terminal size={size} className={className} />;
-

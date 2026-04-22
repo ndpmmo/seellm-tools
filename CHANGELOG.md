@@ -1,5 +1,42 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.8] - 2026-04-23
+
+### 🔗 Unified Proxy UX Across Vault Accounts, Workshop, Services, and Proxy Pool
+
+This release unifies proxy assignment data flows and introduces bulk operations so all proxy-related screens are easier to read, safer to operate, and visually consistent.
+
+#### 🧠 Unified Proxy Backend State
+- **New Aggregated API**: Added `GET /api/proxy/state` to return a consolidated payload (`proxies`, `proxySlots`, `accounts`, `bindings`, `proxyStats`) for all UI screens.
+- **Binding Resolver**: Implemented centralized proxy-account binding resolution that maps by `proxy_id`, `proxy_url`, and slot ownership.
+- **Operational Consistency**: Added `POST /api/proxy-assign/bulk` with `assign|unassign` actions to support multi-account proxy operations in one request.
+
+#### ⚡ Professional Bulk Operations in Account Screens
+- **`VaultAccountsView`**:
+  - Added row selection with select-all control.
+  - Added bulk proxy tools: assign selected (specific proxy or auto-best), unassign selected.
+  - Switched proxy selector datasource to unified `proxy/state` endpoint.
+- **`ServicesView`**:
+  - Added row selection with select-all control.
+  - Added bulk proxy assign/unassign actions.
+  - Added per-row unassign shortcut in action bar.
+  - Switched proxy datasource to unified `proxy/state` endpoint.
+
+#### 🛰️ Proxy Visibility Upgrade in Proxy Pool
+- **`ProxiesView` now shows account ownership directly**:
+  - New “Assigned Accounts” panel per proxy card.
+  - Displays mapped account/email and slot index for each assignment.
+  - Added one-click unassign per mapped account from the proxy screen.
+- **Slot Tooltips Improved**:
+  - Busy slot hover now shows account email when available (instead of raw ID-only display).
+
+#### 🧩 Vault Workshop Synchronization Improvement
+- **Unified Data Source First**:
+  - `VaultWorkshopView` now loads proxy catalog and existing account mappings from `GET /api/proxy/state`.
+  - Falls back to legacy `/api/vault/proxies/list` only when unified state endpoint is unavailable.
+- **Mapping Continuity**:
+  - Server-provided mappings are merged into persisted local proxy preferences for smoother transition.
+
 ## [0.2.7] - 2026-04-22
 
 ### 🏗️ Proxy Hardening, Auto-Sync & Workshop UI Synchronization

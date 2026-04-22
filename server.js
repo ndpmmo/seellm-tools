@@ -707,6 +707,42 @@ app.prepare().then(() => {
     return match?.id || null;
   }
 
+  function buildProxyBindings(accounts = [], proxies = [], proxySlots = []) {
+    const byId = new Map((proxies || []).map((p) => [String(p.id), p]));
+    const byUrl = new Map((proxies || []).map((p) => [normalizeProxyUrl(p.url), p]));
+    const slotByAccount = new Map(
+      (proxySlots || [])
+        .filter((s) => s && !s.deleted_at && s.connection_id)
+        .map((s) => [String(s.connection_id), s])
+    );
+
+    const bindings = [];
+    for (const a of accounts || []) {
+      const accountId = String(a?.id || '');
+      if (!accountId) continue;
+      const proxyUrl = normalizeProxyUrl(a?.proxy_url);
+      const proxyId = a?.proxy_id || null;
+      const slot = slotByAccount.get(accountId) || null;
+      const matchedProxy =
+        (proxyId ? byId.get(String(proxyId)) : null) ||
+        (proxyUrl ? byUrl.get(proxyUrl) : null) ||
+        (slot?.proxy_id ? byId.get(String(slot.proxy_id)) : null) ||
+        null;
+
+      bindings.push({
+        account_id: accountId,
+        email: a?.email || '',
+        provider: a?.provider || 'openai',
+        proxy_id: matchedProxy?.id || proxyId || slot?.proxy_id || null,
+        proxy_url: proxyUrl || normalizeProxyUrl(matchedProxy?.url) || null,
+        proxy_label: matchedProxy?.label || '',
+        slot_id: slot?.id || null,
+        slot_index: slot?.slot_index ?? null,
+      });
+    }
+    return bindings;
+  }
+
   function getAssignableProxy(proxies = [], capByProxy, usedByProxy, explicitProxyId = null) {
     if (explicitProxyId) {
       const p = proxies.find(x => x.id === explicitProxyId);
@@ -930,6 +966,162 @@ app.prepare().then(() => {
         return res.status(409).json({ error: slotSync.error || 'Slot sync failed after account patch' });
       }
       return res.json({ ok: true, accountId, proxy: { id: chosen.id, url: chosen.url, label: chosen.label || '' } });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ▶ Tools API: consolidated proxy state for all screens
+  ex.get('/api/proxy/state', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: "Missing D1 config (url or secret)" });
+    }
+
+    try {
+      const [accountsR, proxiesR] = await Promise.all([
+        d1Request(cfg, 'inspect/accounts?limit=1000'),
+        d1Request(cfg, 'inspect/proxies'),
+      ]);
+      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
+      const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+      const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
+      const bindings = buildProxyBindings(accounts, proxies, proxySlots);
+
+      const proxyStats = proxies.map((p) => {
+        const totalSlots = proxySlots.filter((s) => s && !s.deleted_at && s.proxy_id === p.id).length
+          || Number(p.slot_count || p.slotCount || 0)
+          || 0;
+        const freeSlots = freeByProxy.get(p.id) || 0;
+        return {
+          proxy_id: p.id,
+          total_slots: totalSlots,
+          free_slots: freeSlots,
+          used_slots: Math.max(0, totalSlots - freeSlots),
+        };
+      });
+
+      return res.json({
+        ok: true,
+        proxies,
+        proxySlots,
+        accounts,
+        bindings,
+        proxyStats,
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ▶ Tools API: unassign proxy from one account
+  ex.post('/api/proxy-assign/unassign', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: "Missing D1 config (url or secret)" });
+    }
+    const { accountId } = req.body || {};
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    try {
+      const proxiesR = await d1Request(cfg, 'inspect/proxies');
+      const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+
+      const account = vault.getAccount(accountId);
+      if (!account) return res.status(404).json({ error: 'Account not found in local vault' });
+
+      const patchBody = { proxyUrl: '', proxyId: null };
+      const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
+      if (!patchR.ok) {
+        return res.status(patchR.status).json(patchR.data || { error: patchR.text || 'Patch failed' });
+      }
+
+      mirrorPatchedAccountToLocal(accountId, patchBody);
+      const slotSync = await rebindProxySlotForAccount({
+        cfg,
+        accountId,
+        targetProxyId: null,
+        proxySlots,
+      });
+      if (!slotSync.ok) {
+        return res.status(409).json({ error: slotSync.error || 'Slot sync failed after account patch' });
+      }
+      return res.json({ ok: true, accountId });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ▶ Tools API: bulk assign / unassign proxies
+  ex.post('/api/proxy-assign/bulk', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: "Missing D1 config (url or secret)" });
+    }
+    const { action, accountIds, proxyId } = req.body || {};
+    const ids = Array.isArray(accountIds) ? accountIds.filter(Boolean) : [];
+    if (!['assign', 'unassign'].includes(String(action || ''))) {
+      return res.status(400).json({ error: 'action must be assign or unassign' });
+    }
+    if (!ids.length) return res.status(400).json({ error: 'accountIds is required' });
+
+    try {
+      const [accountsR, proxiesR] = await Promise.all([
+        d1Request(cfg, 'inspect/accounts?limit=1000'),
+        d1Request(cfg, 'inspect/proxies'),
+      ]);
+      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
+      const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+      const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
+
+      let done = 0;
+      const errors = [];
+      for (const accountId of ids) {
+        try {
+          const account = accounts.find((a) => a.id === accountId) || vault.getAccount(accountId);
+          if (!account) throw new Error('Account not found');
+
+          if (action === 'unassign') {
+            const patchBody = { proxyUrl: '', proxyId: null };
+            const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
+            if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+            mirrorPatchedAccountToLocal(accountId, patchBody);
+            const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: null, proxySlots });
+            if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
+            done++;
+            continue;
+          }
+
+          let chosen = null;
+          if (proxyId) {
+            chosen = proxies.find((p) => p.id === proxyId) || null;
+            if (!chosen) throw new Error('Proxy not found');
+            if ((freeByProxy.get(chosen.id) || 0) <= 0) throw new Error('Proxy has no free slot');
+          } else {
+            const ranked = proxies
+              .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
+              .filter((x) => x.free > 0)
+              .sort((a, b) => b.free - a.free);
+            if (!ranked.length) throw new Error('No proxy with free slots');
+            chosen = ranked[0].proxy;
+          }
+
+          const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
+          const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
+          if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+          mirrorPatchedAccountToLocal(accountId, patchBody);
+          const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: chosen.id, proxySlots });
+          if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
+          freeByProxy.set(chosen.id, Math.max(0, (freeByProxy.get(chosen.id) || 0) - 1));
+          done++;
+        } catch (e) {
+          errors.push({ accountId, error: e.message || String(e) });
+        }
+      }
+
+      return res.json({ ok: true, action, total: ids.length, done, failed: errors.length, errors });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }

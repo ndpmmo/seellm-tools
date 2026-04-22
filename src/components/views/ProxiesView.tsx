@@ -16,6 +16,16 @@ interface ProxyItem {
 interface ProxySlot {
   id: string; proxy_id: string; slot_index: number; connection_id?: string; updated_at: string;
 }
+interface ProxyBinding {
+  account_id: string;
+  email: string;
+  provider: string;
+  proxy_id?: string | null;
+  proxy_url?: string | null;
+  proxy_label?: string;
+  slot_id?: string | null;
+  slot_index?: number | null;
+}
 
 function parseBulkProxies(raw: string) {
   return raw.split('\n')
@@ -32,6 +42,7 @@ export function ProxiesView() {
   const { addToast } = useApp();
   const [proxies, setProxies] = useState<ProxyItem[]>([]);
   const [slots, setSlots] = useState<ProxySlot[]>([]);
+  const [bindings, setBindings] = useState<ProxyBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -51,12 +62,13 @@ export function ProxiesView() {
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch('/api/d1/inspect/proxies');
+      const r = await fetch('/api/proxy/state');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (data.error) throw new Error(data.error);
       setProxies(data.proxies || []);
       setSlots(data.proxySlots || []);
+      setBindings(data.bindings || []);
     } catch (e: any) { setError(e.message); }
     setLoading(false);
   }, []);
@@ -126,6 +138,20 @@ export function ProxiesView() {
         setConfirmModal(null);
       }
     });
+  };
+
+  const unassignAccount = async (accountId: string) => {
+    const r = await fetch('/api/proxy-assign/unassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) addToast(d.error || 'Gỡ proxy thất bại', 'error');
+    else {
+      addToast('✅ Đã gỡ proxy khỏi tài khoản', 'success');
+      loadData();
+    }
   };
 
   const importBulk = async () => {
@@ -222,6 +248,7 @@ export function ProxiesView() {
           {filtered.map(p => {
             const pSlots = slots.filter(s => s.proxy_id === p.id).sort((a, b) => a.slot_index - b.slot_index);
             const busyCount = pSlots.filter(s => s.connection_id).length;
+            const proxyBindings = bindings.filter(b => b.proxy_id === p.id || b.proxy_url === p.url).sort((a, b) => (a.email || '').localeCompare(b.email || ''));
             const isEditing = editProxyId === p.id;
             return (
               <div key={p.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-indigo-500/5 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
@@ -272,10 +299,11 @@ export function ProxiesView() {
                 <div className="flex flex-wrap gap-1.5 items-center">
                   {pSlots.map(s => {
                     const isBusy = !!s.connection_id;
+                    const owner = bindings.find(b => b.account_id === s.connection_id);
                     return (
                       <div
                         key={s.id}
-                        title={isBusy ? `Đang dùng bởi ${s.connection_id}\n\n• Click: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống • Click: Xóa slot'}
+                        title={isBusy ? `Đang dùng bởi ${owner?.email || s.connection_id}\n\n• Click: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống • Click: Xóa slot'}
                         onClick={e => { if (isBusy && !e.altKey) resetSlot(s.id); else removeSlot(s.id, isBusy); }}
                         className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold cursor-pointer border transition-all ${isBusy ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.15)]' : 'bg-white/5 text-slate-500 border-white/5 hover:border-white/20'}`}
                       >
@@ -287,6 +315,30 @@ export function ProxiesView() {
                     className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-indigo-400 border border-dashed border-white/10 hover:border-indigo-500/50 transition-all">
                     <Plus size={12} />
                   </button>
+                </div>
+                <div className="mt-3 pt-3 border-t border-white/5">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Assigned Accounts ({proxyBindings.length})</div>
+                  {!proxyBindings.length ? (
+                    <div className="text-[11px] text-slate-500 italic">Chưa có tài khoản gán vào proxy này.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {proxyBindings.map(b => (
+                        <div key={`${p.id}-${b.account_id}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20">
+                          <span className="text-[10px] font-semibold text-cyan-300">{b.email || b.account_id}</span>
+                          {b.slot_index !== null && b.slot_index !== undefined && (
+                            <span className="text-[10px] text-slate-400">slot {b.slot_index}</span>
+                          )}
+                          <button
+                            onClick={() => unassignAccount(b.account_id)}
+                            className="text-amber-400 hover:text-amber-300"
+                            title="Gỡ proxy khỏi tài khoản này"
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );

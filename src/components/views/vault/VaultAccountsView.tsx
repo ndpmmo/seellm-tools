@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   AlertCircle, ChevronDown, ChevronUp, Users, Tag,
-  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw, Copy, Check
+  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN } from '../../Views';
@@ -109,6 +109,9 @@ export function VaultAccountsView() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProxyId, setBulkProxyId] = useState('');
+  const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -134,7 +137,7 @@ export function VaultAccountsView() {
       const d = await r.json(); if (d.error) throw new Error(d.error);
       setItems(d.items || []);
 
-      const pr = await fetch('/api/d1/inspect/proxies').catch(() => null as any);
+      const pr = await fetch('/api/proxy/state').catch(() => null as any);
       if (pr?.ok) {
         const pd = await pr.json().catch(() => ({}));
         setProxies(Array.isArray(pd?.proxies) ? pd.proxies : []);
@@ -288,6 +291,47 @@ export function VaultAccountsView() {
       addToast(e.message || 'Auto-assign thất bại', 'error');
     } finally {
       setAutoAssigning(false);
+    }
+  };
+
+  const unassignProxy = async (id: string) => {
+    setAssigningId(id);
+    try {
+      const r = await fetch('/api/proxy-assign/unassign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast('✅ Đã gỡ proxy khỏi tài khoản', 'success');
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Gỡ proxy thất bại', 'error');
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
+  const bulkProxyAction = async (action: 'assign' | 'unassign') => {
+    const accountIds = Array.from(selectedIds);
+    if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
+    setBulkProxyRunning(true);
+    try {
+      const r = await fetch('/api/proxy-assign/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, accountIds, proxyId: action === 'assign' && bulkProxyId ? bulkProxyId : null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addToast(`✅ Bulk ${action}: ${d.done || 0}/${d.total || accountIds.length}`, 'success');
+      setSelectedIds(new Set());
+      load();
+    } catch (e: any) {
+      addToast(e.message || 'Bulk proxy thất bại', 'error');
+    } finally {
+      setBulkProxyRunning(false);
     }
   };
 
@@ -473,6 +517,20 @@ export function VaultAccountsView() {
             <Button size="sm" variant="secondary" onClick={autoAssignFromPool} disabled={autoAssigning} className="border-white/10 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500/30">
               <Globe size={12} className="mr-1.5" /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
             </Button>
+            <select
+              className="h-8 rounded-md bg-black/40 border border-white/10 text-[11px] text-slate-300 px-2 outline-none focus:border-indigo-500/50"
+              value={bulkProxyId}
+              onChange={e => setBulkProxyId(e.target.value)}
+            >
+              <option value="">(Auto proxy tốt nhất)</option>
+              {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}
+            </select>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('assign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
+              Gán đã chọn ({selectedIds.size})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+              Gỡ đã chọn
+            </Button>
             <Button size="icon-sm" variant="secondary" onClick={load}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </Button>
@@ -483,6 +541,18 @@ export function VaultAccountsView() {
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-white/5 border-b border-white/5">
+                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
+                  <button
+                    onClick={() => {
+                      if (selectedIds.size === filtered.length && filtered.length > 0) setSelectedIds(new Set());
+                      else setSelectedIds(new Set(filtered.map(it => it.id)));
+                    }}
+                    className="text-slate-400 hover:text-indigo-400"
+                    title="Chọn tất cả"
+                  >
+                    {selectedIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                </th>
                 <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tài khoản / Label</th>
                 <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Provider</th>
                 <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
@@ -497,6 +567,19 @@ export function VaultAccountsView() {
                 const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
                 return (
                   <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={() => setSelectedIds(prev => {
+                          const n = new Set(prev);
+                          if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
+                          return n;
+                        })}
+                        className="text-slate-400 hover:text-indigo-400"
+                        title="Chọn dòng"
+                      >
+                        {selectedIds.has(it.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                    </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="font-semibold text-[13px] text-slate-200">{it.email || 'No email'}</div>
@@ -555,6 +638,9 @@ export function VaultAccountsView() {
                         {isOpenAI(it.provider) && (
                           <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>
                         )}
+                        {isOpenAI(it.provider) && it.proxy_url && (
+                          <Button size="icon-sm" variant="ghost" title="Gỡ proxy" onClick={() => unassignProxy(it.id)} disabled={assigningId === it.id} className="!text-amber-400"><X size={13} /></Button>
+                        )}
                         <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
                         <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
                         <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
@@ -564,7 +650,7 @@ export function VaultAccountsView() {
                 );
               })}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={6} className="py-16 text-center text-slate-500 text-[13px]">Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
+                <tr><td colSpan={7} className="py-16 text-center text-slate-500 text-[13px]">Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
               )}
             </tbody>
           </table>
