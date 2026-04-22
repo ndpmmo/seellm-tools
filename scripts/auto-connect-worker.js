@@ -10,6 +10,7 @@
  */
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import https from 'node:https';
 import { createHmac } from 'node:crypto';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -201,6 +202,23 @@ function normalizeProxyUrl(input) {
 }
 
 let LOCAL_PUBLIC_IP_CACHE = null;
+
+async function fetchTextNoProxy(url, timeoutMs = 12000) {
+    return await new Promise((resolve, reject) => {
+        try {
+            const req = https.get(url, { timeout: timeoutMs }, (res) => {
+                let data = '';
+                res.on('data', (chunk) => { data += String(chunk); });
+                res.on('end', () => resolve(data));
+            });
+            req.on('timeout', () => req.destroy(new Error('timeout')));
+            req.on('error', reject);
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
 async function getLocalPublicIp() {
     if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
     const urls = [
@@ -210,9 +228,7 @@ async function getLocalPublicIp() {
     ];
     for (const url of urls) {
         try {
-            const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
-            if (!r.ok) continue;
-            const t = await r.text();
+            const t = await fetchTextNoProxy(url, 12000);
             const ip = extractIpFromText(t);
             if (ip) {
                 LOCAL_PUBLIC_IP_CACHE = ip;

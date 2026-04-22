@@ -8,6 +8,7 @@
  *   node scripts/test-camofox-proxy-ip.js <proxyUrl>
  */
 import { CAMOUFOX_API } from './config.js';
+import https from 'node:https';
 
 const RAW_PROXY = (process.argv[2] || '').trim();
 const USER_ID = `proxy_diag_${Date.now()}`;
@@ -74,8 +75,15 @@ async function del(path, timeoutMs = 10000) {
 
 async function getLocalIp() {
   try {
-    const r = await fetch(IP_CHECK_URL, { signal: AbortSignal.timeout(12000) });
-    const t = await r.text();
+    const t = await new Promise((resolve, reject) => {
+      const req = https.get(IP_CHECK_URL, { timeout: 12000 }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += String(chunk); });
+        res.on('end', () => resolve(data));
+      });
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.on('error', reject);
+    });
     return extractIp(t);
   } catch (_) {
     return '';

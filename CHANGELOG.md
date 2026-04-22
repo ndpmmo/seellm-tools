@@ -1,5 +1,25 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.12] - 2026-04-23
+
+### 🩹 Worker Proxy Diagnostics Stabilization & Crash Fix
+
+#### ✅ Fixed Auto-Register crash on proxy validation failure
+- `scripts/auto-register-worker.js`:
+  - Fixed runtime crash `TypeError: Cannot read properties of undefined (reading 'success')` in CLI mode.
+  - `runAutoRegister(...)` now always returns a structured failure object in `catch`.
+  - Added top-level `.catch(...)` for CLI runner to prevent unhandled failure exits.
+
+#### 🌐 Reduced false proxy mismatch due local-IP detection path
+- `scripts/auto-register-worker.js`
+- `scripts/auto-connect-worker.js`
+- `scripts/auto-login-worker.js`
+  - Reworked `getLocalPublicIp()` to use direct `https` requests (no implicit fetch proxy path), improving reliability of local-vs-exit IP comparison.
+
+#### 🧪 Improved diagnostic script parity
+- `scripts/test-camofox-proxy-ip.js`
+  - Updated local IP check to use direct `https` request for consistency with worker diagnostics.
+
 ## [0.2.11] - 2026-04-23
 
 ### 📌 Changelog Traceability Update (Detailed Commit Mapping)

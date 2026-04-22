@@ -11,6 +11,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { createHmac } from 'node:crypto';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN } from './config.js';
@@ -130,6 +131,23 @@ function normalizeProxyUrl(input) {
 }
 
 let LOCAL_PUBLIC_IP_CACHE = null;
+
+async function fetchTextNoProxy(url, timeoutMs = 12000) {
+  return await new Promise((resolve, reject) => {
+    try {
+      const req = https.get(url, { timeout: timeoutMs }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += String(chunk); });
+        res.on('end', () => resolve(data));
+      });
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.on('error', reject);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 async function getLocalPublicIp() {
   if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
   const urls = [
@@ -139,9 +157,7 @@ async function getLocalPublicIp() {
   ];
   for (const url of urls) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
-      if (!r.ok) continue;
-      const t = await r.text();
+      const t = await fetchTextNoProxy(url, 12000);
       const ip = extractIpFromText(t);
       if (ip) {
         LOCAL_PUBLIC_IP_CACHE = ip;
@@ -633,6 +649,7 @@ export async function runAutoRegister(taskInput) {
     });
 
     if (tabId) { await camofoxPost(`/tabs/${tabId}?userId=${USER_ID}`, {}, 5000).catch(() => { }); }
+    return { success: false, email, error: err.message || String(err) };
   }
 }
 
@@ -644,12 +661,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   runAutoRegister(input).then((res) => {
-    if (res.success) {
+    if (res?.success) {
       console.log(`\n🎉 HOÀN TẤT: ${res.email}`);
       process.exit(0);
     } else {
-      console.error(`\n❌ THẤT BẠI: ${res.error}`);
+      console.error(`\n❌ THẤT BẠI: ${res?.error || 'Unknown error'}`);
       process.exit(1);
     }
+  }).catch((err) => {
+    console.error(`\n❌ THẤT BẠI: ${err?.message || String(err)}`);
+    process.exit(1);
   });
 }
