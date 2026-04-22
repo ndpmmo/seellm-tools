@@ -108,15 +108,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     socket.on('process:log', ({ id, log }: { id: string; log: LogEntry }) => {
       setProcesses(p => {
-        const e = p[id]; if (!e) return p;
+        const e = p[id] || { 
+          id, name: `Script ${id}`, command: '', cwd: '', 
+          status: 'running', startedAt: new Date().toISOString(), logs: [] 
+        };
         return { ...p, [id]: { ...e, logs: [...e.logs, log].slice(-5000) } };
       });
     });
 
-    socket.on('process:status', ({ id, status, exitCode, pid }: any) => {
+    socket.on('process:status', ({ id, status, exitCode, pid, name }: any) => {
       setProcesses(p => {
-        const e = p[id]; if (!e) return p;
-        return { ...p, [id]: { ...e, status: status || e.status, exitCode: exitCode ?? e.exitCode, pid: pid ?? e.pid } };
+        const e = p[id] || { 
+          id, name: name || `Script ${id}`, command: '', cwd: '', 
+          status: status || 'running', startedAt: new Date().toISOString(), logs: [] 
+        };
+        return { ...p, [id]: { ...e, status: status || e.status, exitCode: exitCode ?? e.exitCode, pid: pid ?? e.pid, name: name || e.name } };
       });
     });
 

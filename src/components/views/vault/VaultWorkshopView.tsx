@@ -114,6 +114,13 @@ export function VaultWorkshopView() {
         localStorage.setItem('autoRegTasks_v4', JSON.stringify(tasks));
     }, [tasks]);
 
+    // Auto-scroll logs
+    useEffect(() => {
+        if (logsEndRef.current) {
+            logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [processes, selectedTaskEmail]);
+
     // Sync Task Session ID from logs
     useEffect(() => {
         tasks.forEach(task => {

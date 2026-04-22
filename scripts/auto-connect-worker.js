@@ -607,19 +607,32 @@ async function runConnectFlow(task) {
         // Đợi trang tải hoàn toàn (chatgpt landing page chậm)
         await new Promise(r => setTimeout(r, 5000));
         
-        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy
+        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy (Dùng đa nguồn để tránh lỗi NetworkError)
         try {
           console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
           const ipCheck = await evalJson(tabId, USER_ID, `
-            fetch('https://ifconfig.co/json')
-              .then(r => r.json())
-              .catch(e => ({ error: e.message }))
-          `, 15000);
+            (async () => {
+              const services = [
+                'https://ifconfig.co/json',
+                'https://api.ipify.org?format=json',
+                'https://ip-api.com/json'
+              ];
+              for (const url of services) {
+                try {
+                  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                  if (r.ok) return await r.json();
+                } catch (e) { continue; }
+              }
+              return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại' };
+            })()
+          `, 25000);
 
-          if (ipCheck && ipCheck.ip) {
-            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip} (${ipCheck.country || 'N/A'})`);
+          if (ipCheck && (ipCheck.ip || ipCheck.query)) {
+            const ip = ipCheck.ip || ipCheck.query;
+            const country = ipCheck.country || ipCheck.countryCode || 'N/A';
+            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ip} (${country})`);
           } else if (ipCheck && ipCheck.error) {
-            console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP qua Proxy: ${ipCheck.error}`);
+            console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
           }
         } catch (err) {
           console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
