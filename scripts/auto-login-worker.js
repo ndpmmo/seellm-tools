@@ -180,6 +180,13 @@ function extractIpFromText(raw) {
   return ipv6 ? ipv6[0] : null;
 }
 
+function normalizeProxyUrl(input) {
+  const s = String(input || '').trim();
+  if (!s) return null;
+  if (s.includes('://')) return s;
+  return `http://${s}`;
+}
+
 let LOCAL_PUBLIC_IP_CACHE = null;
 async function getLocalPublicIp() {
   if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
@@ -1192,6 +1199,11 @@ async function runLoginFlow(task) {
   console.log(`\n[${new Date().toLocaleTimeString()}] [*] Bắt đầu xử lý đăng nhập cho: ${task.email}`);
   console.log(`[${new Date().toLocaleTimeString()}] [1] Khởi tạo trình duyệt Camofox...`);
   const account = task;
+  const effectiveProxy = normalizeProxyUrl(account.proxyUrl || account.proxy || null);
+  if (effectiveProxy) {
+    account.proxyUrl = effectiveProxy;
+    account.proxy = effectiveProxy;
+  }
   const USER_ID = `seellm_worker_${task.id}`;
   const SESSION_KEY = `codex_${task.id}`;
   let tabId;
@@ -1203,6 +1215,7 @@ async function runLoginFlow(task) {
     throw new Error('Missing Email Address in record');
   }
   console.log(`[*] Bắt đầu xử lý: ${account.email}`);
+  if (effectiveProxy) console.log(`[*] Proxy: ${effectiveProxy}`);
   console.log(`===========================================`);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1232,7 +1245,7 @@ async function runLoginFlow(task) {
       userId: USER_ID,
       sessionKey: SESSION_KEY,
       url: loginUrl,
-      proxy: account.proxyUrl || account.proxy || undefined,
+      proxy: effectiveProxy || undefined,
       // --- CẤU HÌNH ẨN DANH NÂNG CAO & SẠCH TUYỆT ĐỐI ---
       persistent: false,
       os: 'macos',
@@ -1252,10 +1265,10 @@ async function runLoginFlow(task) {
     // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
     try {
       console.log(`🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-      const ipCheck = await probeProxyExitIp(account.proxyUrl || account.proxy || null, USER_ID);
+      const ipCheck = await probeProxyExitIp(effectiveProxy || null, USER_ID);
       if (ipCheck && ipCheck.ip) {
         console.log(`✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
-        if (account.proxyUrl || account.proxy) {
+        if (effectiveProxy) {
           const localIp = await getLocalPublicIp();
           if (localIp) {
             console.log(`ℹ️ [Diagnostic] Local IP: ${localIp}`);
@@ -1269,15 +1282,15 @@ async function runLoginFlow(task) {
       } else if (ipCheck && ipCheck.error) {
         console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
         // [HARD-FAIL]
-        if (account.proxyUrl || account.proxy) {
+        if (effectiveProxy) {
           throw new Error(`Proxy không hoạt động hoặc không thể kết nối. Dừng tiến trình.`);
         }
-      } else if (account.proxyUrl || account.proxy) {
+      } else if (effectiveProxy) {
         throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
       }
     } catch (err) {
       console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-      if (account.proxyUrl || account.proxy) throw err;
+      if (effectiveProxy) throw err;
     }
 
     await saveStep(tabId, 'khoi_dong');

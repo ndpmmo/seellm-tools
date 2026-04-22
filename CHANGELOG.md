@@ -1,5 +1,40 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.10] - 2026-04-23
+
+### 🧩 Proxy Reliability Hardening & Gateway-Down Resilience
+
+Focused improvements to prevent false proxy usage, normalize malformed proxy inputs, and reduce noisy gateway errors when local gateway service is offline.
+
+#### 🔐 Strict Proxy Validation in Workers
+- **Applied to `auto-connect-worker.js`, `auto-login-worker.js`, `auto-register-worker.js`**.
+- Added fail-closed checks for proxy-required tasks:
+  - Stop when Exit IP cannot be read.
+  - Stop when Local IP cannot be read for verification.
+  - Stop when Exit IP equals Local IP (proxy not actually applied).
+- This guarantees tasks do not proceed over local network path when proxy is expected.
+
+#### 🧱 Proxy URL Normalization
+- Added `normalizeProxyUrl(...)` in workers so inputs like:
+  - `user:pass@host:port`
+  are automatically normalized to:
+  - `http://user:pass@host:port`
+- This prevents inconsistent behavior caused by schema-less proxy strings stored in vault records.
+
+#### 🌐 Improved Diagnostic Test Coverage
+- Upgraded `scripts/test-camofox-proxy-ip.js`:
+  - Auto-normalizes proxy URL input.
+  - Tests both IP-routing and real `chatgpt.com/auth/login` accessibility.
+  - Prints local-vs-exit IP comparison and page-state indicators (login/signup/challenge flags).
+- Expanded parser support for both IPv4 and IPv6 formats.
+
+#### 🛡️ Gateway Notification Circuit Breaker
+- Updated `server.js` D1 account-delete interceptor:
+  - Added local gateway availability probe before delete notify.
+  - Added 60-second cooldown when gateway is unreachable (network failure).
+  - Suppresses repetitive noisy error spam while preserving core D1 delete flow.
+- Result: account synchronization with cloud D1 remains stable even when `gatewayUrl` local service is down.
+
 ## [0.2.9] - 2026-04-23
 
 ### 🛡️ Strict Proxy Enforcement, IPv6-Aware Diagnostics & Camoufox Verification

@@ -122,6 +122,13 @@ function extractIpFromText(raw) {
   return ipv6 ? ipv6[0] : null;
 }
 
+function normalizeProxyUrl(input) {
+  const s = String(input || '').trim();
+  if (!s) return null;
+  if (s.includes('://')) return s;
+  return `http://${s}`;
+}
+
 let LOCAL_PUBLIC_IP_CACHE = null;
 async function getLocalPublicIp() {
   if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
@@ -204,7 +211,7 @@ export async function runAutoRegister(taskInput) {
     [email, emailPassword, refreshToken, clientId] = parts;
     authMethod = 'graph';
   }
-  proxyUrl = (proxyUrl || '').trim() || null;
+  proxyUrl = normalizeProxyUrl(proxyUrl);
 
   if (!email || !refreshToken || !clientId) {
     throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id[|proxyUrl])");

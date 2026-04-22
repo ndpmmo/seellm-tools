@@ -570,6 +570,60 @@ app.prepare().then(() => {
     return { ok: res.ok, status: res.status, data, text, targetUrl };
   }
 
+  const gatewayProbeState = {
+    downUntil: 0,
+    lastError: '',
+    lastWarnAt: 0,
+  };
+
+  async function checkGatewayAvailability(gatewayUrl) {
+    const base = String(gatewayUrl || '').trim().replace(/\/+$/, '');
+    if (!base) return { ok: false, reason: 'missing_gateway_url' };
+
+    const now = Date.now();
+    if (gatewayProbeState.downUntil > now) {
+      return { ok: false, reason: 'cooldown' };
+    }
+
+    try {
+      // Accept any HTTP response as "service reachable" (even 404/401), only network failures mark down.
+      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(1500) });
+      if (r.status >= 100 && r.status < 600) {
+        gatewayProbeState.downUntil = 0;
+        return { ok: true, reason: 'reachable' };
+      }
+    } catch (e) {
+      gatewayProbeState.downUntil = now + 60_000;
+      gatewayProbeState.lastError = e.message || String(e);
+      if (now - gatewayProbeState.lastWarnAt > 15_000) {
+        gatewayProbeState.lastWarnAt = now;
+        console.warn(`[D1 Proxy] ⚠️ Gateway local unavailable (${gatewayProbeState.lastError}). Skip notify for 60s.`);
+      }
+      return { ok: false, reason: 'unreachable' };
+    }
+    return { ok: false, reason: 'unknown' };
+  }
+
+  async function notifyGatewayDeleteAccount(gatewayUrl, accountId) {
+    const base = String(gatewayUrl || '').trim().replace(/\/+$/, '');
+    if (!base || !accountId) return false;
+    const availability = await checkGatewayAvailability(base);
+    if (!availability.ok) return false;
+    try {
+      await fetch(`${base}/api/automation/accounts/codex/${accountId}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(5000),
+      });
+      return true;
+    } catch (e) {
+      // Put probe into cooldown immediately after a hard network failure.
+      gatewayProbeState.downUntil = Date.now() + 60_000;
+      gatewayProbeState.lastError = e.message || String(e);
+      console.warn(`[D1 Proxy] ⚠️ Gateway delete notify failed (${gatewayProbeState.lastError}). Skip notify for 60s.`);
+      return false;
+    }
+  }
+
   function mirrorPatchedAccountToLocal(id, payload = {}) {
     const existing = vault.getAccountFull(id);
     const patch = { id, provider: existing?.provider || 'openai' };
@@ -838,14 +892,11 @@ app.prepare().then(() => {
       // Thông báo Gateway xóa connection tương ứng (đồng bộ Gateway ← Tools)
       const cfg = loadConfig();
       if (id && cfg.gatewayUrl) {
-        fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/automation/accounts/codex/${id}`, {
-          method: 'DELETE',
-          signal: AbortSignal.timeout(5000)
-        }).then(() => {
-          console.log(`[D1 Proxy] ✅ Đã truyền lệnh xóa cho Gateway (accounts/codex/${id}).`);
-        }).catch(e => {
-          console.log(`[D1 Proxy] ⚠️ Lỗi khi gọi Gateway xóa: ${e.message}`);
-        });
+        notifyGatewayDeleteAccount(cfg.gatewayUrl, id).then((ok) => {
+          if (ok) {
+            console.log(`[D1 Proxy] ✅ Đã truyền lệnh xóa cho Gateway (accounts/codex/${id}).`);
+          }
+        }).catch(() => { });
       }
       return next(); // Proxy lệnh xóa lên D1 Cloud
     } catch (e) {

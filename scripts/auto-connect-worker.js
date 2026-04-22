@@ -193,6 +193,13 @@ function extractIpFromText(raw) {
     return ipv6 ? ipv6[0] : null;
 }
 
+function normalizeProxyUrl(input) {
+    const s = String(input || '').trim();
+    if (!s) return null;
+    if (s.includes('://')) return s;
+    return `http://${s}`;
+}
+
 let LOCAL_PUBLIC_IP_CACHE = null;
 async function getLocalPublicIp() {
     if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
@@ -631,12 +638,18 @@ async function saveStep(tabId, userId, runDir, label) {
 async function runConnectFlow(task) {
     _stepCount = 0;
     const USER_ID = `seellm_connect_${task.id}`;
+    const effectiveProxy = normalizeProxyUrl(task.proxyUrl || task.proxy_url || null);
+    if (effectiveProxy) {
+        task.proxyUrl = effectiveProxy;
+        task.proxy_url = effectiveProxy;
+    }
     const { email, password } = task;
     const totpSecret = task.twoFaSecret || task.two_fa_secret || null;
 
     console.log(`\n[Connect] ════════════════════════════════`);
     console.log(`[Connect] 🔌 Bắt đầu: ${email}`);
     console.log(`[Connect] ════════════════════════════════`);
+    if (effectiveProxy) console.log(`[Connect] 🔌 Proxy: ${effectiveProxy}`);
 
     if (!email || !password) {
         return sendConnectResult(task, 'error', 'Thiếu email hoặc password');
@@ -656,7 +669,7 @@ async function runConnectFlow(task) {
             userId: USER_ID,
             sessionKey: `cg_connect_${task.id}`,
             url: LOGIN_URL,
-            proxy: task.proxyUrl || task.proxy_url || undefined,
+            proxy: effectiveProxy || undefined,
             persistent: false,
             os: 'macos',
             screen: { width: 1440, height: 900 },
@@ -674,10 +687,10 @@ async function runConnectFlow(task) {
         // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
         try {
           console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-          const ipCheck = await probeProxyExitIp(task.proxyUrl || task.proxy_url || null, USER_ID);
+          const ipCheck = await probeProxyExitIp(effectiveProxy || null, USER_ID);
           if (ipCheck && ipCheck.ip) {
             console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
-            if (task.proxyUrl || task.proxy_url) {
+            if (effectiveProxy) {
               const localIp = await getLocalPublicIp();
               if (localIp) {
                 console.log(`[Connect] ℹ️ [Diagnostic] Local IP: ${localIp}`);
@@ -691,15 +704,15 @@ async function runConnectFlow(task) {
           } else if (ipCheck && ipCheck.error) {
             console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
             // [HARD-FAIL]
-            if (task.proxyUrl || task.proxy_url) {
+            if (effectiveProxy) {
               throw new Error(`Proxy không hoạt động. Dừng tiến trình.`);
             }
-          } else if (task.proxyUrl || task.proxy_url) {
+          } else if (effectiveProxy) {
             throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
           }
         } catch (err) {
           console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-          if (task.proxyUrl || task.proxy_url) throw err;
+          if (effectiveProxy) throw err;
         }
 
         await saveStep(tabId, USER_ID, runDir, '01_login_page');
@@ -1353,7 +1366,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
     if (authCode) {
         console.log(`[Connect] [D] Exchanging code for tokens...`);
         try {
-            const tokenData = await exchangeCodeForTokens(authCode, pkce, task.proxyUrl || task.proxy_url);
+            const tokenData = await exchangeCodeForTokens(authCode, pkce, effectiveProxy);
             const accessToken = tokenData.access_token || '';
             const refreshToken = tokenData.refresh_token || '';
             const idToken = tokenData.id_token || '';

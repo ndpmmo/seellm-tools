@@ -9,15 +9,23 @@
  */
 import { CAMOUFOX_API } from './config.js';
 
-const PROXY_URL = (process.argv[2] || '').trim();
+const RAW_PROXY = (process.argv[2] || '').trim();
 const USER_ID = `proxy_diag_${Date.now()}`;
 const IP_CHECK_URL = 'https://api64.ipify.org/?format=json';
 const CHATGPT_URL = 'https://chatgpt.com/auth/login';
 
-if (!PROXY_URL) {
+if (!RAW_PROXY) {
   console.log('Usage: node scripts/test-camofox-proxy-ip.js <proxyUrl>');
   process.exit(1);
 }
+
+function normalizeProxyUrl(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  if (s.includes('://')) return s;
+  return `http://${s}`;
+}
+const PROXY_URL = normalizeProxyUrl(RAW_PROXY);
 
 function extractIp(raw) {
   const text = String(raw || '').trim();
