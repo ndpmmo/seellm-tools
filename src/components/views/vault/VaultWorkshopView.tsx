@@ -140,6 +140,41 @@ export function VaultWorkshopView() {
             }
         });
     }, [processes, tasks]);
+    
+    // Sync missing tasks from global background processes (for persistence/refresh)
+    useEffect(() => {
+        Object.keys(processes).forEach(pid => {
+            const proc = processes[pid];
+            // Match relevant worker scripts
+            const isRelevant = proc.name === 'auto-register-worker.js' || proc.name === 'check-mail-worker.js';
+            if (isRelevant) {
+                setTasks(curr => {
+                    if (curr.some(t => t.processId === pid)) return curr;
+
+                    // Extract email from logs or args
+                    let email = 'Unknown';
+                    const regLog = proc.logs.find(l => l.text?.includes('Bắt đầu đăng ký:'));
+                    if (regLog) {
+                        email = regLog.text.split('Bắt đầu đăng ký:')[1]?.split(' ')[0]?.trim() || 'Unknown';
+                    } else if (proc.args && proc.args[0]) {
+                        email = proc.args[0].split('|')[0] || 'Unknown';
+                    }
+
+                    if (email === 'Unknown') return curr;
+
+                    const newTask = {
+                        id: `synced_${pid}_${Date.now()}`,
+                        email: email,
+                        status: proc.status,
+                        ts: proc.startedAt || new Date().toISOString(),
+                        processId: pid,
+                        userId: null
+                    };
+                    return [newTask, ...curr];
+                });
+            }
+        });
+    }, [processes]);
 
     // Common Actions
     const startRegistration = async (emailRecord: any, proxyUrl?: string) => {

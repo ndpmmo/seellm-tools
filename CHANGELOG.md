@@ -1,5 +1,26 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.7] - 2026-04-22
+
+### 🏗️ Proxy Hardening, Auto-Sync & Workshop UI Synchronization
+
+Stabilized the proxy assignment engine, hardened automation workers against network failures, and ensured 100% data consistency between local and cloud environments.
+
+#### 🛡️ Robust Proxy Assignment & Auto-Sync
+- **Intelligent Auto-Sync**: Implemented automatic account mirroring to Cloud D1 during proxy assignment. If a local account is not yet on the cloud, the system now pushes it automatically before binding slots, eliminating "Account not found" errors.
+- **Graceful Slot Handling**: Relaxed strict slot requirements in `rebindProxySlotForAccount` to allow URL-only assignment when pre-defined slots are missing, ensuring uninterrupted operation.
+- **Recursive Auto-Assignment**: Enhanced the `Auto Assign Proxy` tool to support accounts stored only in the local vault by performing a pre-emptive sync to the cloud.
+
+#### 🔌 Hardened Automation Workers
+- **Multi-Source Resilience**: Expanded the diagnostic loop to include `icanhazip.com`, `ip-api.com`, and `ipify.org`. Increased timeouts and added detailed error reporting for `fetch failed` scenarios.
+- **Hard-Fail Security Policy**: Enforced mandatory proxy verification. If a proxy is assigned but the connection check fails, the process terminates immediately to prevent IP leaks.
+- **Variable Scoping Fixes**: Resolved critical `ReferenceError` bugs (e.g., `account is not defined`) in error-handling blocks across all main worker scripts.
+
+#### 🔄 UI & Diagnostic Empowerment
+- **Workshop Queue Persistence**: Rebuilt `VaultWorkshopView` to reconstruct the active task queue from global process state on refresh, providing a seamless multi-tab experience.
+- **Diagnostic Tooling**: Added `scripts/test-proxy-connection.js` and `scripts/test-proxy-direct.js` to allow rapid verification of Camoufox API and proxy credentials independently of the main UI.
+- **Process Visibility**: Exposed full command-line arguments and precise start timestamps in the process management API to better track long-running automation tasks.
+
 ## [0.2.6] - 2026-04-22
 
 ### 🛡️ Proxy Management Professionalization & Cloud Integrity

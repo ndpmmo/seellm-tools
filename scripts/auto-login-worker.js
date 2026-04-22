@@ -1193,17 +1193,26 @@ async function runLoginFlow(task) {
           const services = [
             'https://ifconfig.co/json',
             'https://api.ipify.org?format=json',
-            'https://ip-api.com/json'
+            'https://ip-api.com/json',
+            'https://ipv4.icanhazip.com'
           ];
+          let lastError = '';
           for (const url of services) {
             try {
-              const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-              if (r.ok) return await r.json();
-            } catch (e) { continue; }
+              const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+              if (r.ok) {
+                if (url.includes('icanhazip')) return { ip: (await r.text()).trim() };
+                return await r.json();
+              }
+              lastError = 'Status ' + r.status + ' from ' + url;
+            } catch (e) {
+              lastError = e.message + ' (' + url + ')';
+              continue;
+            }
           }
-          return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại' };
+          return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại. Lỗi cuối: ' + lastError };
         })()
-      `, 25000);
+      `, 45000);
 
       if (ipCheck && (ipCheck.ip || ipCheck.query)) {
         const ip = ipCheck.ip || ipCheck.query;
@@ -1212,13 +1221,13 @@ async function runLoginFlow(task) {
       } else if (ipCheck && ipCheck.error) {
         console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
         // [HARD-FAIL]
-        if (proxyUrl) {
+        if (account.proxyUrl || account.proxy) {
           throw new Error(`Proxy không hoạt động hoặc không thể kết nối. Dừng tiến trình.`);
         }
       }
     } catch (err) {
       console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-      if (proxyUrl) throw err;
+      if (account.proxyUrl || account.proxy) throw err;
     }
 
     await saveStep(tabId, 'khoi_dong');

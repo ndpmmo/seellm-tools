@@ -615,17 +615,26 @@ async function runConnectFlow(task) {
               const services = [
                 'https://ifconfig.co/json',
                 'https://api.ipify.org?format=json',
-                'https://ip-api.com/json'
+                'https://ip-api.com/json',
+                'https://ipv4.icanhazip.com'
               ];
+              let lastError = '';
               for (const url of services) {
                 try {
-                  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-                  if (r.ok) return await r.json();
-                } catch (e) { continue; }
+                  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                  if (r.ok) {
+                    if (url.includes('icanhazip')) return { ip: (await r.text()).trim() };
+                    return await r.json();
+                  }
+                  lastError = 'Status ' + r.status + ' from ' + url;
+                } catch (e) { 
+                  lastError = e.message + ' (' + url + ')';
+                  continue; 
+                }
               }
-              return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại' };
+              return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại. Lỗi cuối: ' + lastError };
             })()
-          `, 25000);
+          `, 45000);
 
           if (ipCheck && (ipCheck.ip || ipCheck.query)) {
             const ip = ipCheck.ip || ipCheck.query;
@@ -634,13 +643,13 @@ async function runConnectFlow(task) {
           } else if (ipCheck && ipCheck.error) {
             console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
             // [HARD-FAIL]
-            if (account.proxyUrl || account.proxy) {
+            if (task.proxyUrl || task.proxy_url) {
               throw new Error(`Proxy không hoạt động. Dừng tiến trình.`);
             }
           }
         } catch (err) {
           console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-          if (account.proxyUrl || account.proxy) throw err;
+          if (task.proxyUrl || task.proxy_url) throw err;
         }
 
         await saveStep(tabId, USER_ID, runDir, '01_login_page');

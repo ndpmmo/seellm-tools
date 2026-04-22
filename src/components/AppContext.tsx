@@ -12,7 +12,7 @@ export interface ProcessInfo {
   id: string; name: string; command: string; cwd: string;
   pid?: number; status: 'running' | 'stopped' | 'error';
   startedAt: string; stoppedAt?: string | null; exitCode?: number | null;
-  logFile?: string;
+  logFile?: string; args?: string[];
   logs: LogEntry[];
 }
 

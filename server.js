@@ -68,6 +68,7 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
     proc, id, name,
     command: `${command} ${args.join(' ')}`,
     cwd, pid: proc.pid, status: 'running',
+    args,
     startedAt: new Date().toISOString(),
     stoppedAt: null, exitCode: null,
     logFile,
@@ -582,8 +583,9 @@ app.prepare().then(() => {
     if (payload.status !== undefined) patch.status = payload.status;
     if (payload.isActive !== undefined) patch.is_active = payload.isActive ? 1 : 0;
     if (payload.is_active !== undefined) patch.is_active = payload.is_active ? 1 : 0;
-    if (payload.last_error !== undefined) patch.notes = payload.last_error || '';
-    if (payload.lastError !== undefined) patch.notes = payload.lastError || '';
+    if (payload.last_error !== undefined) patch.last_error = payload.last_error || '';
+    if (payload.lastError !== undefined) patch.last_error = payload.lastError || '';
+    if (payload.notes !== undefined) patch.notes = payload.notes || '';
 
     if (!existing && !patch.email) return false;
     if (!patch.email && existing?.email) patch.email = existing.email;
@@ -687,7 +689,10 @@ app.prepare().then(() => {
 
     // Claim slot in target proxy
     const freeSlot = findFreeSlot(proxySlots, normalizedTarget);
-    if (!freeSlot) return { ok: false, error: 'Target proxy has no free slot' };
+    if (!freeSlot) {
+      console.warn(`[D1 Proxy] Proxy ${normalizedTarget} has no free pre-defined slots. Proceeding with URL assignment only.`);
+      return { ok: true, changed: true, warning: 'No pre-defined free slot available' };
+    }
     const claimed = await pushProxySlotState(cfg, freeSlot, accountId);
     if (!claimed) return { ok: false, error: 'Failed to claim target proxy slot' };
     freeSlot.connection_id = accountId;
@@ -877,8 +882,21 @@ app.prepare().then(() => {
       const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
-      const account = accounts.find(a => a.id === accountId);
-      if (!account) return res.status(404).json({ error: 'Account not found in D1' });
+      let account = accounts.find(a => a.id === accountId);
+      if (!account) {
+        console.log(`[D1 Proxy] Account ${accountId} not found in D1. Attempting auto-sync from local...`);
+        const localAcc = vault.getAccount(accountId);
+        if (!localAcc) return res.status(404).json({ error: 'Account not found in local vault' });
+
+        try {
+          const syncResult = await SyncManager.pushVault('account', localAcc);
+          if (!syncResult || !syncResult.ok) throw new Error('Sync failed');
+        } catch (err) {
+          console.error(`[D1 Proxy] Auto-sync failed for ${accountId}:`, err.message);
+          return res.status(500).json({ error: 'Account not mirrored in Cloud D1. Please click "Sync All to D1" first.' });
+        }
+        account = localAcc;
+      }
 
       const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
       let chosen = null;
@@ -933,16 +951,29 @@ app.prepare().then(() => {
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
 
-      const pending = accounts.filter(a => !normalizeProxyUrl(a?.proxy_url) && !a?.deleted_at);
+      // Lấy danh sách local không có proxy (bỏ qua những cái đã xóa)
+      const localAccounts = vault.getAccountsFull().filter(a => !normalizeProxyUrl(a?.proxy_url) && !a?.deleted_at);
       const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
 
       let assigned = 0;
-      for (const account of pending) {
+      for (const account of localAccounts) {
         const ranked = proxies
           .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
           .filter((x) => x.free > 0)
           .sort((a, b) => b.free - a.free);
         if (!ranked.length) break;
+
+        // Nếu account chưa có trên D1, tự động đồng bộ lên trước khi gán
+        if (!accounts.find(a => a.id === account.id)) {
+          console.log(`[D1 Proxy] Auto-syncing missing account ${account.email} before assign...`);
+          try {
+            await SyncManager.pushVault('account', account);
+          } catch (err) {
+            console.error(`[D1 Proxy] Auto-sync failed for ${account.email}:`, err.message);
+            continue; // Bỏ qua account bị lỗi sync
+          }
+        }
+
         const chosen = ranked[0].proxy;
         const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
         const patchR = await d1Request(cfg, `accounts/${account.id}`, { method: 'PATCH', body: patchBody });
