@@ -54,6 +54,15 @@ function makeLogPath(id, name) {
   return path.join(LOGS_DIR, `${ts}_${safe}.log`);
 }
 
+function appendToProcessLog(logFile, text) {
+  try {
+    mkdirSync(path.dirname(logFile), { recursive: true });
+    appendFileSync(logFile, text);
+  } catch (err) {
+    console.error(`[ProcessLog] append failed for ${logFile}: ${err.message}`);
+  }
+}
+
 function spawnProcess(id, name, command, args, cwd, env = {}) {
   if (processes[id]?.status === 'running') return { error: `"${id}" đang chạy rồi` };
 
@@ -76,7 +85,7 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
   };
 
   // Write header to log file
-  appendFileSync(logFile, `# ${name}\n# Started: ${entry.startedAt}\n# PID: ${proc.pid}\n\n`);
+  appendToProcessLog(logFile, `# ${name}\n# Started: ${entry.startedAt}\n# PID: ${proc.pid}\n\n`);
 
   function pushLog(type, raw) {
     raw.toString().split('\n').filter(Boolean).forEach(line => {
@@ -84,7 +93,7 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
       entry.logs.push(log);
       if (entry.logs.length > 5000) entry.logs.shift();
       // Write to log file
-      appendFileSync(logFile, `[${log.ts}] [${type}] ${line}\n`);
+      appendToProcessLog(logFile, `[${log.ts}] [${type}] ${line}\n`);
       io?.emit('process:log', { id, log });
     });
   }
@@ -97,7 +106,7 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
     entry.exitCode = code;
     entry.stoppedAt = new Date().toISOString();
     pushLog('system', `Thoát với code ${code} (signal: ${signal})`);
-    appendFileSync(logFile, `\n# Stopped: ${entry.stoppedAt} | Exit: ${code}\n`);
+    appendToProcessLog(logFile, `\n# Stopped: ${entry.stoppedAt} | Exit: ${code}\n`);
     io?.emit('process:status', { id, status: entry.status, exitCode: code });
   });
   proc.on('error', err => {

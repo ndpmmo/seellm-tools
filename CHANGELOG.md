@@ -1,5 +1,13 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.17] - 2026-04-23
+
+### 🪵 Process log writer now auto-recovers if `data/logs` is removed
+
+- Fixed `server.js` process logging so it recreates the parent log directory before each append.
+- Prevents repeated `ENOENT` / `uncaughtException` when `data/logs` is deleted while the server is still running.
+- Result: process output continues normally and log streaming no longer crashes on missing log directory.
+
 ## [0.2.16] - 2026-04-23
 
 ### 🔬 Deep verification: proxy diagnostics now validate the real worker session
