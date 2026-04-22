@@ -62,13 +62,22 @@ export function ProxiesView() {
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch('/api/proxy/state');
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      if (data.error) throw new Error(data.error);
-      setProxies(data.proxies || []);
-      setSlots(data.proxySlots || []);
-      setBindings(data.bindings || []);
+      const unified = await fetch('/api/proxy/state').catch(() => null as any);
+      if (unified?.ok) {
+        const data = await unified.json();
+        if (data.error) throw new Error(data.error);
+        setProxies(data.proxies || []);
+        setSlots(data.proxySlots || []);
+        setBindings(data.bindings || []);
+      } else {
+        const legacy = await fetch('/api/d1/inspect/proxies');
+        if (!legacy.ok) throw new Error(`HTTP ${legacy.status}`);
+        const data = await legacy.json();
+        if (data.error) throw new Error(data.error);
+        setProxies(data.proxies || []);
+        setSlots(data.proxySlots || []);
+        setBindings([]);
+      }
     } catch (e: any) { setError(e.message); }
     setLoading(false);
   }, []);
