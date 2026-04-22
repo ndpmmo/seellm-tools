@@ -203,6 +203,10 @@ export function ServicesView() {
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
+  const patchItemLocal = useCallback((id: string, patch: Record<string, any>) => {
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patch } : it)));
+  }, []);
+
   const loadProxies = useCallback(async () => {
     try {
       const r = await fetch('/api/proxy/state').catch(() => null as any);
@@ -329,12 +333,23 @@ export function ServicesView() {
       message: 'Bạn có chắc muốn xóa tài khoản này? Thao tác này xóa toàn bộ dữ liệu liên quan.',
       onConfirm: async () => {
         await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' });
-        addToast('Đã xoá tài khoản', 'info'); load(); setConfirmModal(null);
+        setItems(prev => prev.filter(it => it.id !== id));
+        setSelectedIds(prev => {
+          const n = new Set(prev);
+          n.delete(id);
+          return n;
+        });
+        addToast('Đã xoá tài khoản', 'info');
+        setConfirmModal(null);
       }
     });
   };
 
-  const reset = async (id: string) => { await patch(`/api/d1/accounts/${id}`, { status: 'pending' }); addToast('→ pending', 'info'); load(); };
+  const reset = async (id: string) => {
+    await patch(`/api/d1/accounts/${id}`, { status: 'pending' });
+    patchItemLocal(id, { status: 'pending', test_status: 'pending', last_error: null, last_error_type: null, error_code: null });
+    addToast('→ pending', 'info');
+  };
 
   const toggleActive = async (id: string, current: any, provider: string) => {
     try {
@@ -346,8 +361,8 @@ export function ServicesView() {
         body: JSON.stringify({ action: 'TOGGLE_ACTIVE', isActive: !isActive })
       });
       if (!r.ok) throw new Error('Cập nhật trạng thái thất bại');
+      patchItemLocal(id, { is_active: !isActive ? 1 : 0 });
       addToast(!isActive ? '✅ Đã bật tài khoản' : '🛑 Đã tắt tài khoản', 'info');
-      load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -363,7 +378,15 @@ export function ServicesView() {
     if (editPass && !editPass.includes('***')) payload.password = editPass;
     if (edit2fa && !edit2fa.includes('***')) { payload.twoFaSecret = edit2fa; payload.two_fa_secret = edit2fa; }
     await patch(`/api/d1/accounts/${editId}`, payload);
-    addToast('✅ Đã lưu', 'success'); setEditId(null); setEditSaving(false); load();
+    patchItemLocal(editId, {
+      proxy_url: editProxy,
+      proxyUrl: editProxy,
+      ...(payload.password ? { password: payload.password } : {}),
+      ...(payload.twoFaSecret ? { two_fa_secret: payload.twoFaSecret } : {}),
+    });
+    addToast('✅ Đã lưu', 'success');
+    setEditId(null);
+    setEditSaving(false);
   };
 
   const assignFromPool = async (id: string) => {
@@ -372,7 +395,12 @@ export function ServicesView() {
       const r = await fetch('/api/proxy-assign/assign', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ accountId: id }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
-      addToast('✅ Đã gán proxy từ pool', 'success'); load();
+      patchItemLocal(id, {
+        proxy_id: d?.proxy?.id ?? null,
+        proxy_url: d?.proxy?.url ?? '',
+        proxy_label: d?.proxy?.label ?? null,
+      });
+      addToast('✅ Đã gán proxy từ pool', 'success');
     } catch (e: any) { addToast(e.message, 'error'); }
     finally { setAssigningId(null); }
   };
@@ -383,8 +411,12 @@ export function ServicesView() {
       const r = await fetch('/api/proxy-assign/unassign', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ accountId: id }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      patchItemLocal(id, {
+        proxy_id: null,
+        proxy_url: '',
+        proxy_label: null,
+      });
       addToast('✅ Đã gỡ proxy', 'success');
-      load();
     } catch (e: any) { addToast(e.message, 'error'); }
     finally { setAssigningId(null); }
   };

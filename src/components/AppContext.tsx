@@ -1,5 +1,5 @@
 'use client';
-import React, { createContext, useContext, useCallback, useState, useEffect } from 'react';
+import React, { createContext, useContext, useCallback, useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ interface IApp {
   getScripts: () => Promise<string[]>;
   refreshSessions: () => Promise<void>;
   refreshLogFiles: () => Promise<void>;
+  refreshProcesses: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
   accounts: any[];
   addToast: (msg: string, type?: Toast['type']) => void;
@@ -67,6 +68,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const sessionsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -94,15 +96,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') window.location.hash = v;
   }, []);
 
+  const refreshProcesses = useCallback(async () => {
+    try {
+      const list: ProcessInfo[] = await fetch('/api/processes').then(r => r.json());
+      const m: Record<string, ProcessInfo> = {};
+      list.forEach(p => { if (p) m[p.id] = p; });
+      setProcesses(m);
+    } catch { }
+  }, []);
+
+  const queueRefreshSessions = useCallback(() => {
+    if (sessionsRefreshTimer.current) return;
+    sessionsRefreshTimer.current = setTimeout(async () => {
+      sessionsRefreshTimer.current = null;
+      try {
+        const s = await fetch('/api/sessions').then(r => r.json());
+        setSessions(s);
+      } catch { }
+    }, 900);
+  }, []);
+
   // Socket.io
   useEffect(() => {
     const socket: Socket = io('/', { path: '/socket.io', transports: ['websocket'] });
-    socket.on('connect', () => setConnected(true));
+    socket.on('connect', () => {
+      setConnected(true);
+      refreshProcesses();
+    });
     socket.on('disconnect', () => setConnected(false));
 
     socket.on('processes:sync', (list: ProcessInfo[]) => {
       const m: Record<string, ProcessInfo> = {};
-      list.forEach(p => { if (p) m[p.id] = p; });
+      list.forEach(p => {
+        if (!p) return;
+        m[p.id] = p;
+        socket.emit('process:getLogs', { id: p.id });
+      });
       setProcesses(m);
     });
 
@@ -113,6 +142,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           status: 'running', startedAt: new Date().toISOString(), logs: [] 
         };
         return { ...p, [id]: { ...e, logs: [...e.logs, log].slice(-5000) } };
+      });
+    });
+
+    socket.on('process:logsHistory', ({ id, logs }: { id: string; logs: LogEntry[] }) => {
+      setProcesses(p => {
+        const e = p[id] || {
+          id, name: `Script ${id}`, command: '', cwd: '',
+          status: 'running', startedAt: new Date().toISOString(), logs: []
+        };
+        return { ...p, [id]: { ...e, logs: Array.isArray(logs) ? logs.slice(-5000) : e.logs } };
       });
     });
 
@@ -132,12 +171,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
       }));
-      // Refresh sessions so gallery updates
-      fetch('/api/sessions').then(r => r.json()).then(setSessions).catch(() => { });
+      // Keep sessions in sync without immediate full reload on every frame.
+      setSessions(prev => {
+        const idx = prev.findIndex(s => s.id === data.sessionId);
+        if (idx === -1) return prev;
+        const session = prev[idx];
+        const exists = session.images.some(img => img.filename === data.filename);
+        const nextShot: Screenshot = { filename: data.filename, url: data.url, email: data.email, ts: data.ts };
+        const nextSession: Session = {
+          ...session,
+          mtime: data.ts || session.mtime,
+          imageCount: exists ? session.imageCount : session.imageCount + 1,
+          images: exists ? session.images : [nextShot, ...session.images].slice(0, 200),
+        };
+        const out = [...prev];
+        out[idx] = nextSession;
+        return out;
+      });
+      queueRefreshSessions();
     });
 
-    return () => { socket.disconnect(); };
-  }, []);
+    return () => {
+      if (sessionsRefreshTimer.current) {
+        clearTimeout(sessionsRefreshTimer.current);
+        sessionsRefreshTimer.current = null;
+      }
+      socket.disconnect();
+    };
+  }, [queueRefreshSessions, refreshProcesses]);
 
   // Initial load
   useEffect(() => {
@@ -151,6 +212,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fetch('/api/logfiles').then(r => r.json()).then(setLogFiles).catch(console.error);
     fetch('/api/vault/accounts').then(r => r.json()).then(res => setAccounts(res.data || [])).catch(console.error);
   }, []);
+
+  // Fallback sync when socket disconnects or misses updates.
+  useEffect(() => {
+    const interval = connected ? 30000 : 7000;
+    const t = setInterval(() => {
+      refreshProcesses();
+      if (!connected) queueRefreshSessions();
+    }, interval);
+    return () => clearInterval(t);
+  }, [connected, queueRefreshSessions, refreshProcesses]);
 
   async function post(url: string, body?: unknown) {
     const r = await fetch(url, {
@@ -178,35 +249,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (res.error) { addToast(`Camofox: ${res.error}`, 'error'); return; }
     addToast('🦊 Camofox đã khởi động!', 'success');
     optimisticAdd('camofox', '🦊 Camofox Browser Server', 'node server.js', res.pid);
-  }, [addToast, config]);
+    refreshProcesses();
+  }, [addToast, config, refreshProcesses]);
 
   const startWorker = useCallback(async () => {
     const res = await post('/api/processes/worker/start');
     if (res.error) { addToast(`Worker: ${res.error}`, 'error'); return; }
     addToast('🤖 Worker đã khởi động!', 'success');
     optimisticAdd('worker', '🤖 Auto-Login Worker', 'node scripts/auto-login-worker.js', res.pid);
-  }, [addToast]);
+    refreshProcesses();
+  }, [addToast, refreshProcesses]);
 
   const startConnectWorker = useCallback(async () => {
     const res = await post('/api/processes/connect-worker/start');
     if (res.error) { addToast(`Connect Worker: ${res.error}`, 'error'); return; }
     addToast('🔌 Auto-Connect Worker đã khởi động!', 'success');
     optimisticAdd('connect-worker', '🔌 Auto-Connect Worker', 'node scripts/auto-connect-worker.js', res.pid);
-  }, [addToast]);
+    refreshProcesses();
+  }, [addToast, refreshProcesses]);
 
   const stopProcess = useCallback(async (id: string) => {
     const res = await post(`/api/processes/${id}/stop`);
     if (res.error) addToast(`Lỗi: ${res.error}`, 'error');
     else addToast('Đã dừng process', 'info');
-  }, [addToast]);
+    refreshProcesses();
+  }, [addToast, refreshProcesses]);
 
   const runScript = useCallback(async (name: string, args: string[] = []): Promise<string | null> => {
     const res = await post('/api/processes/script/run', { scriptName: name, args });
     if (res.error) { addToast(`Lỗi: ${res.error}`, 'error'); return null; }
     addToast(`📜 Đang chạy ${name}`, 'success');
     optimisticAdd(res.id, `📜 ${name}`, `node scripts/${name}`, res.pid);
+    refreshProcesses();
     return res.id;
-  }, [addToast]);
+  }, [addToast, refreshProcesses]);
 
   const saveConfig = useCallback(async (cfg: Partial<AppConfig>) => {
     const res = await post('/api/config', cfg);
@@ -239,7 +315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, startConnectWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,
-      refreshSessions, refreshLogFiles, refreshAccounts,
+      refreshSessions, refreshLogFiles, refreshProcesses, refreshAccounts,
       accounts,
       addToast,
     }}>

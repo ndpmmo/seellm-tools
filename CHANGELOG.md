@@ -1,5 +1,38 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.18] - 2026-04-23
+
+### ⚡ Realtime UI and state-sync optimization across Dashboard / Services / Vault
+
+#### ✅ Core realtime reliability (`AppContext`)
+- Added `process:logsHistory` handling and automatic `process:getLogs` requests after `processes:sync`.
+- Added `refreshProcesses()` as shared process snapshot refresh API for all UI actions.
+- Added fallback periodic sync when socket is disconnected to prevent stale process/session state.
+- Reduced screenshot refresh pressure:
+  - new screenshots now patch `sessions` state locally first,
+  - full `/api/sessions` refresh is debounced instead of called per event.
+- Start/stop/run actions now trigger a process snapshot refresh after optimistic updates, improving immediate status consistency.
+
+#### ✅ Faster screen updates without full reload loops
+- `src/components/views/ServicesView.tsx`
+  - Added local row patching for `reset`, `toggle active`, `save edit`, `assign proxy`, `unassign proxy`, and delete.
+  - Reduced full table reloads for deterministic single-row actions.
+- `src/components/views/AccountsView.tsx`
+  - Added local row patching for `reset`, `toggle active`, `save edit`, `assign proxy`, and delete.
+  - Preserved full reload only for flows that still require server-side recompute.
+- `src/components/views/vault/VaultAccountsView.tsx`
+  - Split loader into `loadAccounts()` and `loadProxies()` to avoid re-fetching proxy state after every account action.
+  - Switched multiple account actions to lightweight local patching or `loadAccounts()` only.
+  - Manual refresh button now refreshes both account and proxy sources explicitly.
+- `src/components/views/vault/VaultProxiesView.tsx`
+  - Proxy test now patches row state directly (`is_active`, latency, last tested, notes/IP, country) instead of full reload each test.
+  - Reduced import/test reload amplification and improved immediate visual feedback.
+  - Delete flows now update local table instantly.
+
+#### 🧪 Verification
+- `npm run build` passed successfully (Next.js compile + TypeScript check).
+- `npm run lint` still reports legacy repository-wide warnings/errors outside this patch scope (baseline existed before this release).
+
 ## [0.2.17] - 2026-04-23
 
 ### 🪵 Process log writer now auto-recovers if `data/logs` is removed

@@ -334,6 +334,10 @@ export function AccountsView() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const patchItemLocal = useCallback((id: string, patchData: Record<string, any>) => {
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
+  }, []);
+
   const cnt = {
     total: items.length,
     ready: items.filter(i => getStatusBucket(i) === 'ready').length,
@@ -354,13 +358,17 @@ export function AccountsView() {
       message: `Bạn có chắc muốn xóa tài khoản này? Thao tác này sẽ xóa toàn bộ dữ liệu liên quan.`,
       onConfirm: async () => {
         await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' });
+        setItems(prev => prev.filter(it => it.id !== id));
         addToast('Đã xoá tài khoản', 'info');
-        load();
         setConfirmModal(null);
       }
     });
   };
-  const reset = async (id: string) => { await patch(`/api/d1/accounts/${id}`, { status: 'pending' }); addToast('→ pending', 'info'); load(); };
+  const reset = async (id: string) => {
+    await patch(`/api/d1/accounts/${id}`, { status: 'pending' });
+    patchItemLocal(id, { status: 'pending', test_status: 'pending', last_error: null, last_error_type: null, error_code: null });
+    addToast('→ pending', 'info');
+  };
   const toggleActive = async (id: string, currentStatus: any) => {
     try {
       // currentStatus = 0 (tắt) hoặc 1 (bật) hoặc undefined
@@ -371,8 +379,8 @@ export function AccountsView() {
         body: JSON.stringify({ action: 'TOGGLE_ACTIVE', isActive: !isActive })
       });
       if (!r.ok) throw new Error('Cập nhật trạng thái thất bại');
+      patchItemLocal(id, { is_active: !isActive ? 1 : 0 });
       addToast(!isActive ? '✅ Đã bật tài khoản' : '🛑 Đã tắt tài khoản', 'info');
-      load();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
   const openEdit = async (it: any) => {
@@ -398,10 +406,15 @@ export function AccountsView() {
     }
 
     await patch(`/api/d1/accounts/${editId}`, payload);
+    patchItemLocal(editId, {
+      proxy_url: editProxy,
+      proxyUrl: editProxy,
+      ...(payload.password ? { password: payload.password } : {}),
+      ...(payload.twoFaSecret ? { two_fa_secret: payload.twoFaSecret } : {}),
+    });
     addToast('✅ Đã lưu', 'success');
     setEditId(null);
     setEditSaving(false);
-    load();
   };
   const cancelEdit = () => setEditId(null);
   const assignFromPool = async (id: string, selectedProxyId?: string) => {
@@ -414,8 +427,12 @@ export function AccountsView() {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      patchItemLocal(id, {
+        proxy_id: d?.proxy?.id ?? null,
+        proxy_url: d?.proxy?.url ?? '',
+        proxy_label: d?.proxy?.label ?? null,
+      });
       addToast('✅ Đã gán proxy từ pool', 'success');
-      load();
     } catch (e: any) {
       addToast(e.message || 'Gán proxy thất bại', 'error');
     } finally {

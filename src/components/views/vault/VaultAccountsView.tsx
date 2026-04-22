@@ -129,14 +129,23 @@ export function VaultAccountsView() {
   });
 
   /* ── Load ── */
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  const loadAccounts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
       const r = await fetch('/api/vault/accounts');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json(); if (d.error) throw new Error(d.error);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
       setItems(d.items || []);
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }, []);
 
+  const loadProxies = useCallback(async () => {
+    try {
       const pr = await fetch('/api/proxy/state').catch(() => null as any);
       if (pr?.ok) {
         const pd = await pr.json().catch(() => ({}));
@@ -144,10 +153,16 @@ export function VaultAccountsView() {
       } else {
         setProxies([]);
       }
-    } catch (e: any) { setError(e.message); }
-    setLoading(false);
+    } catch {
+      setProxies([]);
+    }
   }, []);
-  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => { void Promise.all([loadAccounts(), loadProxies()]); }, [loadAccounts, loadProxies]);
+
+  const patchAccountLocal = useCallback((id: string, patchData: Record<string, any>) => {
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
+  }, []);
 
   const filtered = items.filter(it => {
     const providerMatch =
@@ -182,15 +197,15 @@ export function VaultAccountsView() {
       if (d.error) throw new Error(d.error);
       addToast(uiState.editId ? '✅ Đã cập nhật' : '✅ Đã thêm vào Vault', 'success');
       setUiState(s => ({ ...s, isAdding: false, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '', notes: '', tags: [] }));
-      load();
+      loadAccounts();
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
   const del = async (id: string) => {
     if (!confirm('Xóa tài khoản này khỏi Vault?')) return;
     await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
+    setItems(prev => prev.filter(it => it.id !== id));
     addToast('Đã xoá', 'info');
-    load();
   };
 
   const retry = async (id: string, email: string) => {
@@ -199,7 +214,7 @@ export function VaultAccountsView() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`🚀 Đã gửi lệnh Deploy/Retry cho ${email}`, 'success');
-      load();
+      patchAccountLocal(id, { status: 'pending' });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -211,7 +226,7 @@ export function VaultAccountsView() {
       // Khởi động connect-worker nếu chưa chạy
       fetch('/api/processes/connect-worker/start', { method: 'POST' }).catch(() => { });
       addToast(`🔌 Deploy v2: Đã xếp hàng Auto-Connect cho ${email}`, 'success');
-      load();
+      patchAccountLocal(id, { status: 'pending' });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -221,7 +236,7 @@ export function VaultAccountsView() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`🛑 Đã thu hồi ${email} về trạng thái Idle`, 'info');
-      load();
+      patchAccountLocal(id, { status: 'idle' });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -231,7 +246,7 @@ export function VaultAccountsView() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`☁️ Đã ép đồng bộ ${email} lên D1 thành công`, 'success');
-      load();
+      patchAccountLocal(id, { updated_at: new Date().toISOString() });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -256,7 +271,7 @@ export function VaultAccountsView() {
 
     addToast(`☁️ Hoàn thành đồng bộ Vault -> D1: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
     setSyncingAll(false);
-    load();
+    loadAccounts();
   };
 
   const assignFromPool = async (id: string, proxyId?: string) => {
@@ -269,8 +284,11 @@ export function VaultAccountsView() {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      patchAccountLocal(id, {
+        proxy_id: d?.proxy?.id ?? null,
+        proxy_url: d?.proxy?.url ?? '',
+      });
       addToast('✅ Đã gán proxy từ pool', 'success');
-      load();
     } catch (e: any) { addToast(e.message || 'Gán proxy thất bại', 'error'); }
     finally { setAssigningId(null); }
   };
@@ -286,7 +304,7 @@ export function VaultAccountsView() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
       addToast(`✅ Auto-assign ${d.assigned || 0}/${d.total || 0}`, 'success');
-      load();
+      loadAccounts();
     } catch (e: any) {
       addToast(e.message || 'Auto-assign thất bại', 'error');
     } finally {
@@ -304,8 +322,8 @@ export function VaultAccountsView() {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      patchAccountLocal(id, { proxy_id: null, proxy_url: '' });
       addToast('✅ Đã gỡ proxy khỏi tài khoản', 'success');
-      load();
     } catch (e: any) {
       addToast(e.message || 'Gỡ proxy thất bại', 'error');
     } finally {
@@ -327,7 +345,7 @@ export function VaultAccountsView() {
       if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
       addToast(`✅ Bulk ${action}: ${d.done || 0}/${d.total || accountIds.length}`, 'success');
       setSelectedIds(new Set());
-      load();
+      loadAccounts();
     } catch (e: any) {
       addToast(e.message || 'Bulk proxy thất bại', 'error');
     } finally {
@@ -361,7 +379,7 @@ export function VaultAccountsView() {
       }
       addToast(`✅ Đã nhập thành công ${count} tài khoản`, 'success');
       setUiState(s => ({ ...s, isAdding: false, isBulk: false, bulkText: '' }));
-      load();
+      loadAccounts();
     } catch (e: any) {
       addToast(e.message, 'error');
     } finally {
@@ -531,7 +549,7 @@ export function VaultAccountsView() {
             <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
               Gỡ đã chọn
             </Button>
-            <Button size="icon-sm" variant="secondary" onClick={load}>
+            <Button size="icon-sm" variant="secondary" onClick={() => { loadAccounts(); loadProxies(); }}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </Button>
           </div>

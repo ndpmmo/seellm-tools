@@ -134,6 +134,10 @@ export function VaultProxiesView() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const patchProxyLocal = useCallback((id: string, patchData: Record<string, any>) => {
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
+  }, []);
+
   // Derived stats
   const stats = {
     total: items.length,
@@ -166,7 +170,11 @@ export function VaultProxiesView() {
     else { 
       addToast('✅ Đã lưu proxy', 'success'); 
       setAddingOpen(false); setEditId(null); setForm({ label: '', url: '', type: 'http', country: '', notes: '' }); 
-      load(); 
+      if (editingId) {
+        patchProxyLocal(editingId, { ...body, id: editingId });
+      } else {
+        load();
+      }
       if (d.id) testOne(d.id);
     }
   };
@@ -174,7 +182,13 @@ export function VaultProxiesView() {
   const del = async (id: string) => {
     if (!confirm('Xóa proxy này?')) return;
     await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' });
-    addToast('Đã xóa', 'info'); load();
+    setItems(prev => prev.filter(it => it.id !== id));
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
+    addToast('Đã xóa', 'info');
   };
 
   const delSelected = async () => {
@@ -182,8 +196,10 @@ export function VaultProxiesView() {
     for (const id of Array.from(selected)) {
       await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' }).catch(() => {});
     }
+    const deletedIds = new Set(selected);
+    setItems(prev => prev.filter(it => !deletedIds.has(it.id)));
     setSelected(new Set());
-    addToast(`Đã xóa ${selected.size} proxy`, 'info'); load();
+    addToast(`Đã xóa ${selected.size} proxy`, 'info');
   };
 
   const testOne = async (id: string) => {
@@ -191,9 +207,15 @@ export function VaultProxiesView() {
     try {
       const r = await fetch(`/api/vault/proxies/${id}/test`, { method: 'POST' });
       const d = await r.json();
+      patchProxyLocal(id, {
+        is_active: d.status === 'active' ? 1 : 0,
+        latency_ms: d.latency ?? null,
+        last_tested: new Date().toISOString(),
+        notes: d.status === 'active' && d.exitIp ? `${d.networkType || (String(d.exitIp).includes(':') ? 'IPv6' : 'IPv4')} (${d.exitIp})` : undefined,
+        country: d.country || undefined,
+      });
       if (d.status === 'active') addToast(`✅ Active · ${d.latency}ms`, 'success');
       else addToast(`❌ Down: ${d.error || 'unreachable'}`, 'error');
-      load();
     } catch (e: any) { addToast(e.message, 'error'); }
     setTestingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
@@ -208,12 +230,18 @@ export function VaultProxiesView() {
       try {
         const r = await fetch(`/api/vault/proxies/${it.id}/test`, { method: 'POST' });
         const d = await r.json();
+        patchProxyLocal(it.id, {
+          is_active: d.status === 'active' ? 1 : 0,
+          latency_ms: d.latency ?? null,
+          last_tested: new Date().toISOString(),
+          notes: d.status === 'active' && d.exitIp ? `${d.networkType || (String(d.exitIp).includes(':') ? 'IPv6' : 'IPv4')} (${d.exitIp})` : it.notes,
+          country: d.country || it.country,
+        });
         if (d.status === 'active') ok++; else fail++;
       } catch { fail++; }
       setTestingIds(prev => { const n = new Set(prev); n.delete(it.id); return n; });
       await new Promise(res => setTimeout(res, 200)); // slight delay to avoid overwhelming
     }
-    load();
     addToast(`✅ ${ok} active · ❌ ${fail} down`, ok > 0 ? 'success' : 'error');
     setTestingAll(false);
   };
@@ -243,7 +271,8 @@ export function VaultProxiesView() {
       } catch {}
     }
     addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra...`, 'success');
-    setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); load();
+    setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
+    await load();
     
     // Auto-test newly added proxies one by one
     for (const id of newIds) {
