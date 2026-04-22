@@ -178,6 +178,70 @@ async function navigate(tabId, userId, url, timeoutMs = 15000) {
     }
 }
 
+function extractIpFromText(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    try {
+        const j = JSON.parse(text);
+        if (j?.ip) return String(j.ip).trim();
+        if (j?.query) return String(j.query).trim();
+        if (j?.address) return String(j.address).trim();
+    } catch (_) { }
+    const ipv4 = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
+    if (ipv4) return ipv4[0];
+    const ipv6 = text.match(/\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b/);
+    return ipv6 ? ipv6[0] : null;
+}
+
+let LOCAL_PUBLIC_IP_CACHE = null;
+async function getLocalPublicIp() {
+    if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
+    const urls = [
+        'https://api64.ipify.org/?format=json',
+        'https://ifconfig.co/json',
+        'https://ident.me/.json',
+    ];
+    for (const url of urls) {
+        try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+            if (!r.ok) continue;
+            const t = await r.text();
+            const ip = extractIpFromText(t);
+            if (ip) {
+                LOCAL_PUBLIC_IP_CACHE = ip;
+                return ip;
+            }
+        } catch (_) { }
+    }
+    return null;
+}
+
+async function probeProxyExitIp(proxyUrl, parentUserId) {
+    const probeUserId = `${parentUserId}_probe`;
+    let probeTabId = null;
+    try {
+        const opened = await camofoxPost('/tabs', {
+            userId: probeUserId,
+            sessionKey: `probe_${Date.now()}`,
+            url: 'https://api64.ipify.org/?format=json',
+            proxy: proxyUrl || undefined,
+            persistent: false,
+            headless: false,
+            humanize: true,
+        }, 25000);
+        probeTabId = opened.tabId;
+        await new Promise(r => setTimeout(r, 3500));
+        const bodyText = await evalJson(probeTabId, probeUserId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
+        const ip = extractIpFromText(bodyText);
+        if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
+        return { ip, source: 'https://api64.ipify.org/?format=json' };
+    } catch (e) {
+        return { error: e.message || String(e) };
+    } finally {
+        if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${probeUserId}`);
+    }
+}
+
 // ================================================================
 // PAGE STATE DETECTION
 // ================================================================
@@ -607,45 +671,31 @@ async function runConnectFlow(task) {
         // Đợi trang tải hoàn toàn (chatgpt landing page chậm)
         await new Promise(r => setTimeout(r, 5000));
         
-        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy (Dùng đa nguồn để tránh lỗi NetworkError)
+        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
         try {
           console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-          const ipCheck = await evalJson(tabId, USER_ID, `
-            (async () => {
-              const services = [
-                'https://ifconfig.co/json',
-                'https://api.ipify.org?format=json',
-                'https://ip-api.com/json',
-                'https://ipv4.icanhazip.com'
-              ];
-              let lastError = '';
-              for (const url of services) {
-                try {
-                  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-                  if (r.ok) {
-                    if (url.includes('icanhazip')) return { ip: (await r.text()).trim() };
-                    return await r.json();
-                  }
-                  lastError = 'Status ' + r.status + ' from ' + url;
-                } catch (e) { 
-                  lastError = e.message + ' (' + url + ')';
-                  continue; 
+          const ipCheck = await probeProxyExitIp(task.proxyUrl || task.proxy_url || null, USER_ID);
+          if (ipCheck && ipCheck.ip) {
+            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
+            if (task.proxyUrl || task.proxy_url) {
+              const localIp = await getLocalPublicIp();
+              if (localIp) {
+                console.log(`[Connect] ℹ️ [Diagnostic] Local IP: ${localIp}`);
+                if (String(localIp).toLowerCase() === String(ipCheck.ip).toLowerCase()) {
+                  throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Local IP).`);
                 }
+              } else {
+                throw new Error(`Không thể xác định Local IP để xác thực proxy.`);
               }
-              return { error: 'Tất cả các dịch vụ kiểm tra IP đều thất bại. Lỗi cuối: ' + lastError };
-            })()
-          `, 45000);
-
-          if (ipCheck && (ipCheck.ip || ipCheck.query)) {
-            const ip = ipCheck.ip || ipCheck.query;
-            const country = ipCheck.country || ipCheck.countryCode || 'N/A';
-            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ip} (${country})`);
+            }
           } else if (ipCheck && ipCheck.error) {
             console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
             // [HARD-FAIL]
             if (task.proxyUrl || task.proxy_url) {
               throw new Error(`Proxy không hoạt động. Dừng tiến trình.`);
             }
+          } else if (task.proxyUrl || task.proxy_url) {
+            throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
           }
         } catch (err) {
           console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);

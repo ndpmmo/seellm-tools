@@ -1,5 +1,37 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.9] - 2026-04-23
+
+### 🛡️ Strict Proxy Enforcement, IPv6-Aware Diagnostics & Camoufox Verification
+
+Focused hardening for automation workers to guarantee fail-closed behavior when proxy assignment is required.
+
+#### 🔒 Fail-Closed Proxy Policy (All Main Workers)
+- **Applied to `auto-login-worker.js`, `auto-connect-worker.js`, `auto-register-worker.js`**.
+- If an account/email has `proxy` assigned, workers now stop immediately when:
+  - Exit IP cannot be fetched.
+  - Local IP cannot be fetched for verification.
+  - Exit IP equals Local IP (proxy bypass / proxy not applied).
+- This prevents tasks from continuing on local network path when a proxy is expected.
+
+#### 🌐 IPv6-Compatible Proxy Checks
+- Updated worker diagnostic probes to use IPv6-friendly endpoint:
+  - `https://api64.ipify.org/?format=json`
+- Expanded IP parsing to support:
+  - JSON fields: `ip`, `query`, `address`
+  - Both IPv4 and IPv6 textual formats.
+
+#### 🧪 New End-to-End Camoufox Proxy Test Script
+- Added `scripts/test-camofox-proxy-ip.js` with deep checks:
+  1. Camoufox `/health`
+  2. Exit IP check via browser context
+  3. Local IP comparison (proxy-applied detection)
+  4. Real navigation to `https://chatgpt.com/auth/login`
+  5. Page-state verification (URL/title/login/signup/challenge flags + snapshot snippet)
+
+#### 🧭 Environment Type Reference Refresh
+- `next-env.d.ts` route-types import path updated by Next.js runtime (`.next/dev/types/routes.d.ts`).
+
 ## [0.2.8] - 2026-04-23
 
 ### 🔗 Unified Proxy UX Across Vault Accounts, Workshop, Services, and Proxy Pool
