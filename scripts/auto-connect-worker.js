@@ -709,12 +709,12 @@ async function runConnectFlow(task) {
             if (effectiveProxy) {
               const localIp = await getLocalPublicIp();
               if (localIp) {
-                console.log(`[Connect] ℹ️ [Diagnostic] Local IP: ${localIp}`);
+                console.log(`[Connect] ℹ️ [Diagnostic] Host Public IP: ${localIp}`);
                 if (String(localIp).toLowerCase() === String(ipCheck.ip).toLowerCase()) {
-                  throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Local IP).`);
+                  throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Host Public IP).`);
                 }
               } else {
-                throw new Error(`Không thể xác định Local IP để xác thực proxy.`);
+                throw new Error(`Không thể xác định Host Public IP để xác thực proxy.`);
               }
             }
           } else if (ipCheck && ipCheck.error) {

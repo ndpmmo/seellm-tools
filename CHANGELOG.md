@@ -1,5 +1,22 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.15] - 2026-04-23
+
+### 🔎 Clarified Host-vs-Proxy IP diagnostics and re-verified same-session proxy routing
+
+#### ✅ Diagnostic meaning clarified
+- Updated worker and diagnostic logs to use `Host Public IP` instead of `Local IP`.
+- This avoids confusion between:
+  - the host machine public IP used for comparison, and
+  - the browser/tab exit IP that should come from proxy.
+
+#### 🧪 Same-session proxy routing verified
+- Re-tested Camoufox session behavior directly on the patched server:
+  - main tab created with proxy used exit IP `2001:19f0:4400:4a41:688d:ec3a:13ab:132a`
+  - second tab with the same `userId` and no extra proxy field still used the same proxy exit IP
+  - control tab under a different `userId` and no proxy used host IP `2405:4803:d75e:760:b41b:8110:b027:375f`
+- Conclusion: proxy is now attached to the browser session correctly and persists across tabs within the same worker session.
+
 ## [0.2.14] - 2026-04-23
 
 ### ✅ Verification Pass: All proxy workers + build stability

@@ -162,15 +162,15 @@ async function main() {
     console.log(`[Diag] Health: ${JSON.stringify(health)}`);
 
     const localIp = await getLocalIp();
-    console.log(`[Diag] Local IP (${IP_CHECK_URL}): ${localIp || '(unavailable)'}`);
+    console.log(`[Diag] Host Public IP (${IP_CHECK_URL}): ${localIp || '(unavailable)'}`);
 
     const ipPhase = await testIpPhase();
     console.log(`[Diag] Proxy Exit IP: ${ipPhase.exitIp || '(missing)'}`);
     console.log(`[Diag] IP Raw: ${ipPhase.raw}`);
     if (localIp && ipPhase.exitIp && localIp === ipPhase.exitIp) {
-      console.log('[Diag] WARN: Exit IP trùng local IP -> khả năng proxy chưa được áp dụng.');
+      console.log('[Diag] WARN: Exit IP trùng Host Public IP -> khả năng proxy chưa được áp dụng.');
     } else if (ipPhase.exitIp) {
-      console.log('[Diag] OK: Exit IP khác local IP.');
+      console.log('[Diag] OK: Exit IP khác Host Public IP.');
     }
 
     const chat = await testChatgptPhase();
