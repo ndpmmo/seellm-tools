@@ -1,5 +1,27 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.13] - 2026-04-23
+
+### 🔧 Root-Cause Fix: Camoufox ignored per-task proxy on `/tabs`
+
+#### 🧠 Root cause identified
+- Worker scripts already sent proxy correctly (`proxy`, `proxyUrl`, and normalized values).
+- The Camoufox API server used by Tools (`http://localhost:3144`) did not apply request proxy fields when creating session/context.
+- Result: browser traffic stayed on local network, causing:
+  - `Exit IP == Local IP`
+  - hard-fail message: `Proxy chưa được áp dụng (Exit IP trùng Local IP).`
+
+#### ✅ Permanent fix applied and validated
+- Patched local Camoufox server (`/Users/ndpmmo/Documents/Tools/camofox-browser/server.js`) to:
+  - accept inline proxy from `POST /tabs` request body,
+  - parse multiple proxy formats (`proxy` string/object, `proxyUrl`, `proxyServer+proxyUsername+proxyPassword`),
+  - persist proxy binding per `userId` session,
+  - recreate session context when proxy changes.
+- Restarted Camoufox and re-tested:
+  - with proxy: exit IP `2001:19f0:4400:4a41:688d:ec3a:13ab:132a`
+  - without proxy: exit IP remained local (`2405:...` / `42.115...`)
+  - auto-register diagnostic now passes proxy check (Exit IP != Local IP).
+
 ## [0.2.12] - 2026-04-23
 
 ### 🩹 Worker Proxy Diagnostics Stabilization & Crash Fix
