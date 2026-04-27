@@ -1,5 +1,36 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.22] - 2026-04-28
+
+### 🔧 Vault Workshop — Add Register+Connect Action
+
+Added UI controls to trigger `auto-register-worker.js` with OAuth Codex flow enabled, allowing users to register ChatGPT accounts and automatically obtain Codex OAuth refresh tokens in one action.
+
+#### ✅ UI Changes
+- Added `Link2` icon import for the new action button
+- Added `startRegistrationWithConnect()` function to trigger worker with `oauth=1` flag
+- Added `startAllPendingWithConnect()` function for bulk registration with OAuth
+- Added per-row "Register + Connect Codex" button (emerald green) in Pool Actions column
+- Added "Start Pending + Connect" bulk button in Pool header
+- Added "OAUTH" badge in Queue List for tasks running in register+connect mode
+- Task mode persisted via localStorage (`autoRegTasks_v4`)
+
+#### 🔧 Behavior
+- **Register Only (Play button)**: Standard registration without OAuth (backward compatible)
+- **Register + Connect (Link2 button)**: Registration with Codex OAuth flow enabled:
+  - Appends `|oauth=1` to task input string
+  - Worker runs PKCE OAuth flow after MFA setup
+  - Conditional phone bypass via workspace consent API
+  - Codex refresh token saved to account notes/tags
+- Bulk actions process pending emails with 5-second delay between each
+
+#### 📊 Summary
+- **Files changed**: `src/components/views/vault/VaultWorkshopView.tsx`, `package.json`
+- **Breaking changes**: None
+- **Backward compatibility**: Maintained - original Register action unchanged
+
+---
+
 ## [0.2.21] - 2026-04-28
 
 ### 🚀 Codex OAuth & Phone Bypass — Full Implementation

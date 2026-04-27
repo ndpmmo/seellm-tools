@@ -4,7 +4,7 @@ import {
     Mail, Search, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle, Clock, Zap, List,
-    LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal
+    LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
@@ -238,6 +238,38 @@ export function VaultWorkshopView() {
         } catch (_) { }
     };
 
+    const startRegistrationWithConnect = async (emailRecord: any, proxyUrl?: string) => {
+        const proxy = proxyUrl || proxyMap[emailRecord.email] || '';
+        const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}|oauth=1`;
+
+        const newTask = {
+            id: Math.random().toString(36).slice(2),
+            email: emailRecord.email,
+            status: 'running',
+            ts: new Date().toISOString(),
+            userId: null,
+            mode: 'register+connect',
+        };
+
+        setTasks(curr => [newTask, ...curr]);
+        setSelectedTaskEmail(emailRecord.email);
+        setActiveTab('queue');
+
+        try {
+            const res = await fetch('/api/processes/script/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scriptName: 'auto-register-worker.js', args: [raw] }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            setTasks(curr => curr.map(t => t.id === newTask.id ? { ...t, processId: data.id } : t));
+            addToast(`🚀 Đăng ký + Kết nối Codex: ${emailRecord.email}`, 'success');
+        } catch (err: any) {
+            addToast(`❌ Lỗi: ${err.message}`, 'error');
+        }
+    };
+
     // Filtered Pool
     const filteredPool = items.filter(e => {
         const matchSearch = e.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -319,6 +351,17 @@ export function VaultWorkshopView() {
         addToast(`Bắt đầu đăng ký hàng loạt cho ${pending.length} email`, 'success');
         for (const e of pending) {
             await startRegistration(e);
+            await new Promise(r => setTimeout(r, 5000));
+        }
+    };
+
+    const startAllPendingWithConnect = async () => {
+        const pending = items.filter(e => e.chatgpt_status === 'not_created' || e.chatgpt_status === 'failed');
+        if (!pending.length) return addToast('Không có email nào cần đăng ký', 'info');
+
+        addToast(`Bắt đầu đăng ký + connect hàng loạt cho ${pending.length} email`, 'success');
+        for (const e of pending) {
+            await startRegistrationWithConnect(e);
             await new Promise(r => setTimeout(r, 5000));
         }
     };
@@ -441,6 +484,9 @@ export function VaultWorkshopView() {
                                         </Button>
                                         <Button variant="primary" size="sm" onClick={startAllPending} className="shadow-indigo-500/20">
                                             <Play size={14} /> Start Pending
+                                        </Button>
+                                        <Button variant="primary" size="sm" onClick={startAllPendingWithConnect} className="bg-emerald-600 hover:bg-emerald-500">
+                                            <Link2 size={14} /> Start Pending + Connect
                                         </Button>
                                         <Button variant="ghost" size="sm" onClick={syncAllToD1} disabled={actionLoading}>
                                             <Database size={14} className={actionLoading ? 'animate-pulse text-indigo-400' : ''} />
@@ -568,6 +614,7 @@ export function VaultWorkshopView() {
                                                     <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
                                                         <Button variant="ghost" size="sm" onClick={() => checkStatus(it)} className="text-cyan-400" title="Verify Mail"><Activity size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistration(it)} disabled={it.chatgpt_status === 'done' || it.chatgpt_status === 'processing'} title="Start Register"><Play size={13} /></Button>
+                                                        <Button variant="primary" size="sm" onClick={() => startRegistrationWithConnect(it)} disabled={it.chatgpt_status === 'processing'} title="Register + Connect Codex" className="bg-emerald-600 hover:bg-emerald-500"><Link2 size={13} /></Button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -600,8 +647,13 @@ export function VaultWorkshopView() {
                                         >
                                             <div className="flex justify-between items-start mb-1">
                                                 <div className="text-[13px] font-bold text-slate-100 truncate flex-1">{t.email.split('@')[0]}</div>
-                                                <div className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${status === 'running' ? 'bg-indigo-500/20 text-indigo-400 animate-pulse' : status === 'stopped' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-500/20 text-slate-400'}`}>
-                                                    {status}
+                                                <div className="flex items-center gap-1">
+                                                    {t.mode === 'register+connect' && (
+                                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 uppercase font-bold tracking-wider">OAUTH</span>
+                                                    )}
+                                                    <div className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${status === 'running' ? 'bg-indigo-500/20 text-indigo-400 animate-pulse' : status === 'stopped' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-500/20 text-slate-400'}`}>
+                                                        {status}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="text-[10px] text-slate-500">{t.email}</div>
