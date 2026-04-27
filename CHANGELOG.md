@@ -1,5 +1,53 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.31] - 2026-04-28
+
+### 🛡️ Auto-Register: Domain Guard + Misclick Prevention (Bug nghiêm trọng)
+
+Worker `auto-register-worker.js` bị 2 vấn đề khi UI ChatGPT đổi sang dạng unified "Log in or sign up":
+
+#### 🐛 Bug 1 — Click nhầm "Continue with Google"
+- Sau khi điền email, script tìm button có `textContent.includes('Continue')` → match cả "Continue with Google" → drift sang Google account creation flow.
+- Bước fill password cũng dùng `.includes('Continue')` không exclude `with` → cùng rủi ro.
+
+#### 🐛 Bug 2 — Vòng lặp vô hạn không phát hiện drift
+- Khi tab nhảy sang `accounts.google.com` (Google account creation page), script vẫn tiếp tục flow → đến bước MFA setup `window.location.href = 'chatgpt.com/#settings/Security'` từ Google domain → hang vô hạn → process bị SIGTERM.
+- Không có cơ chế phát hiện "đã drift sang domain khác".
+
+#### ✅ Fix
+**1. Email submit (line 472+)** — robust selector strategy:
+- **Strategy 1**: `form.querySelector('button[type="submit"]')` (form-scoped)
+- **Strategy 2**: button trong form, exact text "continue"/"tiếp tục", **exclude `with`**
+- **Strategy 3**: global exact match, **exclude `with`**
+- **Hard guard**: từ chối click bất kỳ button nào có `with` trong text (chặn `Continue with Google/Apple/Microsoft/phone`)
+
+**2. Password submit (line 549+)** — cùng pattern: form-scoped + exclude `with`
+
+**3. Sign-up click (line 444+)** — UI unified mới có sẵn email input → **bỏ qua** bước click sign-up tránh click nhầm. Chỉ click khi UI cũ có button "sign up" rõ ràng (loại heading "Log in or sign up").
+
+**4. `assertOnExpectedDomain()` helper** — kiểm tra hostname tại 5 checkpoint:
+- `after-load-login`, `after-signup-click`, `after-email-submit`, `after-password-submit`, `before-mfa-setup`
+- Throw ngay nếu drift sang `accounts.google.com`, `appleid.apple.com`, `login.microsoftonline.com`, `login.live.com`
+- Cảnh báo (không throw) nếu sang domain lạ khác
+
+**5. `waitForUrlChange()` watchdog** — sau click email/password, đợi URL đổi trong 8-12s; nếu không đổi → log cảnh báo (signal click vô hiệu)
+
+**6. MFA setup graceful degradation** — wrap `setupMFA()` trong try/catch domain guard; nếu drift → bỏ qua MFA, vẫn lưu account thay vì hang.
+
+#### 💡 Multi-trường hợp được handle
+| Tình huống | Trước | Sau |
+|---|---|---|
+| Click nhầm "Continue with Google" | Drift → hang | Hard-rejected |
+| UI unified mới (không có Sign-up button) | Có thể click trúng heading | Skip auto |
+| Tab drift sang accounts.google.com | Vẫn chạy → SIGTERM | Throw `[DriftGuard]` ngay |
+| Click không có hiệu ứng (URL không đổi) | Tiếp tục mù | Log cảnh báo |
+| MFA setup trên domain sai | Hang infinite | Skip + lưu account |
+
+#### 📁 Files Changed
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.2.30] - 2026-04-28
 
 ### 🌍 Multi-Language UI Detection (Đa Ngôn Ngữ)
