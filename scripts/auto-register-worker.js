@@ -21,6 +21,8 @@ import { createSaveStep } from './lib/screenshot.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
+import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId } from './lib/openai-oauth.js';
+import { getState } from './lib/openai-login-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -29,6 +31,218 @@ const IMAGES_DIR = path.join(ROOT_DIR, 'data', 'screenshots');
 const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const OAUTH_URL = 'https://auth.openai.com';
 const OPENAI_AUTH = 'https://auth.openai.com';
+
+// ============================================
+// OAUTH HELPERS
+// ============================================
+
+async function performCodexOAuth(tabId, userId, proxyUrl, saveStep) {
+  console.log(`[OAuth] Starting Codex OAuth PKCE flow...`);
+  const pkce = generatePKCE();
+  const authUrl = buildOAuthURL(pkce);
+  console.log(`[OAuth] Navigating to: ${authUrl.slice(0, 80)}...`);
+
+  await navigate(tabId, userId, authUrl, 20000);
+  await new Promise(r => setTimeout(r, 3000));
+  await saveStep('oauth_start');
+
+  // Poll for callback with ?code=
+  let authCode = '';
+  for (let i = 0; i < 30; i++) {
+    const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
+    console.log(`[OAuth] Poll #${i + 1}: ${(currentUrl || '').slice(0, 80)}`);
+
+    if (currentUrl && currentUrl.includes('code=')) {
+      try {
+        const url = new URL(currentUrl);
+        authCode = url.searchParams.get('code') || '';
+        if (authCode) {
+          console.log(`[OAuth] ✅ Code received: ${authCode.slice(0, 20)}...`);
+          break;
+        }
+      } catch (e) {
+        console.log(`[OAuth] URL parse error: ${e.message}`);
+      }
+    }
+
+    // Check if phone screen appears → try conditional bypass
+    const state = await getState(tabId, userId);
+    if (state?.hasPhoneScreen) {
+      console.log(`[OAuth] Phone screen detected, trying conditional bypass...`);
+      const bypassResult = await performWorkspaceConsentBypass(tabId, userId, saveStep, proxyUrl);
+      if (bypassResult.code) {
+        authCode = bypassResult.code;
+        console.log(`[OAuth] ✅ Bypass succeeded, code: ${authCode.slice(0, 20)}...`);
+        break;
+      } else {
+        console.log(`[OAuth] Bypass failed: ${bypassResult.error}`);
+        return { success: false, error: 'NEED_PHONE', bypassResult };
+      }
+    }
+
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (!authCode) {
+    return { success: false, error: 'No authorization code received' };
+  }
+
+  // Exchange code for tokens
+  console.log(`[OAuth] Exchanging code for tokens...`);
+  try {
+    const tokens = await exchangeCodeForTokens(authCode, pkce, proxyUrl);
+    console.log(`[OAuth] ✅ Token exchange successful`);
+    return { success: true, tokens };
+  } catch (err) {
+    console.log(`[OAuth] Token exchange failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
+
+async function performWorkspaceConsentBypass(tabId, userId, saveStep, proxyUrl) {
+  console.log(`[Bypass] Loading consent page...`);
+  const codeResult = await evalJson(tabId, userId, `
+    (async () => {
+        const AUTH_BASE = 'https://auth.openai.com';
+        const CONSENT_URL = AUTH_BASE + '/sign-in-with-chatgpt/codex/consent';
+
+        try {
+            const consentRes = await fetch(CONSENT_URL, {
+                credentials: 'include',
+                headers: { 'accept': 'text/html,application/xhtml+xml,*/*' },
+                redirect: 'follow',
+            });
+            const consentHtml = await consentRes.text();
+
+            const getAllCookies = () => {
+                const result = {};
+                document.cookie.split(';').forEach(c => {
+                    const [k, ...v] = c.trim().split('=');
+                    if (k) result[k.trim()] = v.join('=');
+                });
+                return result;
+            };
+            const cookies = getAllCookies();
+            const authSession = cookies['oai-client-auth-session'] || '';
+            const deviceId = cookies['oai-did'] || '';
+
+            let workspaceId = '';
+
+            if (authSession) {
+                try {
+                    const segments = authSession.split('.');
+                    const payload = segments[0];
+                    const pad = '='.repeat((4 - (payload.length % 4)) % 4);
+                    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/') + pad);
+                    const parsed = JSON.parse(decoded);
+                    const ws = (parsed.workspaces || [])[0];
+                    workspaceId = (ws && ws.id) ? ws.id : '';
+                } catch(e) { }
+            }
+
+            if (!workspaceId) {
+                const matches = consentHtml.match(/"id"\\\\s*[:|,]\\\\s*"([0-9a-f-]{36})"/gi) || [];
+                for (const m of matches) {
+                    const idMatch = m.match(/([0-9a-f-]{36})/i);
+                    if (idMatch && idMatch[1]) { workspaceId = idMatch[1]; break; }
+                }
+            }
+
+            if (!workspaceId) {
+                return { ok: false, error: 'No workspace found in cookie or HTML' };
+            }
+
+            const commonHeaders = {
+                'content-type': 'application/json',
+                'accept': 'application/json',
+                'referer': CONSENT_URL,
+                'origin': AUTH_BASE,
+                'oai-device-id': deviceId
+            };
+
+            const wsRes = await fetch(AUTH_BASE + '/api/accounts/workspace/select', {
+                method: 'POST',
+                credentials: 'include',
+                headers: commonHeaders,
+                body: JSON.stringify({ workspace_id: workspaceId }),
+                redirect: 'manual',
+            });
+
+            let continueUrl = '';
+            let wsData = {};
+            if (wsRes.status >= 300 && wsRes.status < 400) {
+                continueUrl = wsRes.headers.get('location') || '';
+            } else {
+                try {
+                    wsData = await wsRes.json();
+                    continueUrl = wsData.continue_url || wsData.redirect_uri || '';
+                } catch(_) { }
+            }
+
+            const orgs = (wsData?.data?.orgs) || [];
+            if (!continueUrl && orgs.length > 0 && orgs[0].id) {
+                const orgId = orgs[0].id;
+                const orgBody = { org_id: orgId };
+                if (orgs[0].projects && orgs[0].projects[0]) {
+                    orgBody.project_id = orgs[0].projects[0].id;
+                }
+
+                const orgRes = await fetch(AUTH_BASE + '/api/accounts/organization/select', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: commonHeaders,
+                    body: JSON.stringify(orgBody),
+                    redirect: 'manual'
+                });
+
+                if (orgRes.status >= 300 && orgRes.status < 400) {
+                    continueUrl = orgRes.headers.get('location') || '';
+                } else {
+                    try {
+                        const orgData = await orgRes.json();
+                        continueUrl = orgData.continue_url || orgData.redirect_uri || '';
+                    } catch(_) { }
+                }
+            }
+
+            let code = '';
+            let currentUrl = continueUrl;
+            if (currentUrl && !currentUrl.startsWith('http')) {
+                currentUrl = AUTH_BASE + currentUrl;
+            }
+
+            for (let i = 0; i < 10 && currentUrl; i++) {
+                if (currentUrl.includes('code=')) {
+                    const u = new URL(currentUrl);
+                    code = u.searchParams.get('code') || '';
+                    if (code) break;
+                }
+                const rRes = await fetch(currentUrl, {
+                    credentials: 'include',
+                    redirect: 'manual',
+                    headers: { 'accept': 'text/html,*/*' },
+                });
+                const loc = rRes.headers.get('location') || '';
+                if (!loc) {
+                    try {
+                        const b = await rRes.json();
+                        currentUrl = b.continue_url || b.redirect_uri || '';
+                    } catch(_) { break; }
+                } else {
+                    currentUrl = loc.startsWith('http') ? loc : AUTH_BASE + loc;
+                }
+            }
+
+            return { ok: !!code, code, workspaceId, continueUrl, finalUrl: currentUrl };
+        } catch(e) {
+            return { ok: false, error: e.message };
+        }
+    })();
+  `, 40000);
+
+  console.log(`[Bypass] Result:`, JSON.stringify(codeResult));
+  return codeResult || { ok: false, error: 'Unknown bypass error' };
+}
 
 // ============================================
 // HELPERS
@@ -86,16 +300,20 @@ async function getCookies(tabId, userId) {
 
 export async function runAutoRegister(taskInput) {
   const parts = taskInput.split('|');
-  let email, emailPassword, authMethod, refreshToken, clientId, proxyUrl;
+  let email, emailPassword, authMethod, refreshToken, clientId, proxyUrl, oauthFlag;
 
   if (parts.length >= 5) {
-    [email, emailPassword, authMethod, refreshToken, clientId, proxyUrl] = parts;
+    [email, emailPassword, authMethod, refreshToken, clientId, proxyUrl, oauthFlag] = parts;
   } else {
     // Fallback format cũ: email|password|refresh_token|client_id
     [email, emailPassword, refreshToken, clientId] = parts;
     authMethod = 'graph';
   }
   proxyUrl = normalizeProxyUrl(proxyUrl);
+
+  // Parse oauth flag (format: oauth=1 or oauth=true)
+  const enableOAuth = oauthFlag && (oauthFlag.includes('oauth=1') || oauthFlag.includes('oauth=true'));
+  console.log(`[Register] OAuth flow: ${enableOAuth ? 'ENABLED' : 'DISABLED'}`);
 
   if (!email || !refreshToken || !clientId) {
     throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id[|proxyUrl])");
@@ -377,9 +595,17 @@ export async function runAutoRegister(taskInput) {
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);
     const pageUrl = await evalJson(tabId, USER_ID, `location.href`);
     if (pageUrl.includes('add-phone')) {
-      console.log(`[6.1] Chặn Phone Add! Redirecing to Consent / Home...`);
-      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-      await new Promise(r => setTimeout(r, 8000));
+      console.log(`[6.1] Phát hiện add-phone → thử conditional bypass trước...`);
+      const bypassResult = await performWorkspaceConsentBypass(tabId, USER_ID, saveStep, proxyUrl);
+      if (bypassResult.ok && bypassResult.code) {
+        console.log(`[6.1] ✅ Conditional bypass thành công! Code: ${bypassResult.code.slice(0, 20)}...`);
+        // Store code for later use if OAuth is enabled
+        await saveStep('06b_phone_bypass_success');
+      } else {
+        console.log(`[6.1] ❌ Conditional bypass thất bại: ${bypassResult.error}. Redirecting to home...`);
+        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+        await new Promise(r => setTimeout(r, 8000));
+      }
     }
 
     // Thao tác các bước cuối
@@ -455,6 +681,27 @@ export async function runAutoRegister(taskInput) {
       console.log(`[7.1] 🔴 Lỗi MFA: ${mfaResult.error || 'Unknown'}. Account vẫn hoạt động bình thường.`);
     }
 
+    // 7.5. Codex OAuth flow (if enabled)
+    let codexRefreshToken = null;
+    let codexAccessToken = null;
+    if (enableOAuth) {
+      console.log(`==========================================`);
+      console.log(`[7.5] CODEX OAUTH FLOW...`);
+      console.log(`==========================================`);
+      
+      const oauthResult = await performCodexOAuth(tabId, USER_ID, proxyUrl, saveStep);
+      if (oauthResult.success && oauthResult.tokens) {
+        codexRefreshToken = oauthResult.tokens.refresh_token || null;
+        codexAccessToken = oauthResult.tokens.access_token || null;
+        console.log(`[7.5] 🟢 Codex OAuth thành công! Refresh token: ${codexRefreshToken ? 'YES' : 'NO'}`);
+        await saveStep('oauth_success');
+      } else {
+        console.log(`[7.5] 🔴 Codex OAuth thất bại: ${oauthResult.error}. Account vẫn được lưu với session token.`);
+        await saveStep('oauth_failed');
+        // Graceful fallback - continue with session token
+      }
+    }
+
     // 8. TỔNG KẾT
     const tokens = await getCookies(tabId, USER_ID);
     const sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
@@ -468,6 +715,9 @@ export async function runAutoRegister(taskInput) {
     console.log(`✅ ĐĂNG KÝ HOÀN TẤT THÀNH CÔNG: ${email}`);
     console.log(`🔑 Secret 2FA (MFA): ${twoFaSecret || 'None'}`);
     console.log(`🔑 Mật khẩu ChatGPT: ${chatGptPassword}`);
+    if (codexRefreshToken) {
+      console.log(`🔑 Codex Refresh Token: ${codexRefreshToken.slice(0, 20)}...`);
+    }
     console.log(`==========================================`);
 
     let accountId = null;
@@ -484,8 +734,8 @@ export async function runAutoRegister(taskInput) {
         status: 'idle',
         skipSync: true,
         restore_deleted: true,
-        tags: JSON.stringify(['auto-register', 'vault-register']),
-        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''} | Tạo: ${new Date().toISOString()}`
+        tags: JSON.stringify(['auto-register', 'vault-register', codexRefreshToken ? 'codex-oauth' : '']),
+        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''} | Tạo: ${new Date().toISOString()}`
       }),
     });
     const accData = await accRes.json();
