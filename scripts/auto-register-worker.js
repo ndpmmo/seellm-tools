@@ -15,7 +15,7 @@ import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
-import { getTOTP } from './lib/totp.js';
+import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
@@ -36,43 +36,138 @@ const OPENAI_AUTH = 'https://auth.openai.com';
 // OAUTH HELPERS
 // ============================================
 
+/**
+ * Try to extract an OAuth code from a URL string.
+ * @returns {string} code or empty string
+ */
+function tryExtractCode(url) {
+  if (!url || typeof url !== 'string' || !url.includes('code=')) return '';
+  try {
+    const u = new URL(url);
+    return u.searchParams.get('code') || '';
+  } catch (_) {
+    // Some redirects may be relative or malformed → regex fallback
+    const m = url.match(/[?&]code=([^&#]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+}
+
+/**
+ * Setup PerformanceObserver to capture localhost:1455 callback URL with ?code=
+ * (Browser shows about:neterror because no server runs there, but URL is observed)
+ */
+async function setupCallbackInterceptor(tabId, userId) {
+  return evalJson(tabId, userId, `
+    (() => {
+      try {
+        if (window.__oauthInterceptorInstalled) return 'already-installed';
+        window.__oauthCallbackUrl = null;
+        window.__oauthInterceptorInstalled = true;
+        const obs = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.name && entry.name.includes('code=')) {
+              window.__oauthCallbackUrl = entry.name;
+            }
+          }
+        });
+        obs.observe({ entryTypes: ['navigation', 'resource'] });
+        return 'installed';
+      } catch (e) { return 'error:' + e.message; }
+    })()
+  `, 3000);
+}
+
+/**
+ * Try to click consent/authorize button OR call workspace-select API
+ * (handles consent screen, workspace selection, organization selection)
+ */
+async function tryConsentOrWorkspaceFlow(tabId, userId) {
+  // Reuse the shared bypass function which calls workspace/select + organization/select
+  const bypassResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
+  return bypassResult; // { code, error, ... }
+}
+
 async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) {
   console.log(`[OAuth] Starting Codex OAuth PKCE flow...`);
   const pkce = generatePKCE();
   const authUrl = buildOAuthURL(pkce);
   console.log(`[OAuth] Navigating to: ${authUrl.slice(0, 80)}...`);
 
-  await navigate(tabId, userId, authUrl, { timeoutMs: 20000 });
+  // ── Setup callback interceptor BEFORE navigate (catches localhost:1455 redirect) ──
+  await setupCallbackInterceptor(tabId, userId);
+
+  await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 3000));
+
+  // Re-install interceptor after navigation (page reloads clear it)
+  await setupCallbackInterceptor(tabId, userId);
   await saveStep('oauth_start');
 
-  // Track which login steps already performed (avoid re-fill loops)
+  // ── State tracking ──
   let emailFilled = false;
   let passwordFilled = false;
   let mfaFilled = false;
+  let consentAttempted = false;
+  let consecutiveEvalFailures = 0;
+  const MAX_EVAL_FAILURES = 8;
 
-  // Poll for callback with ?code=
   let authCode = '';
   for (let i = 0; i < 40; i++) {
-    const currentUrl = await evalJson(tabId, userId, 'location.href', { timeoutMs: 4000 });
+    const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
+
+    // ── Track eval failures (tab might be closed/crashed) ──
+    if (currentUrl === null || currentUrl === undefined) {
+      consecutiveEvalFailures++;
+      console.log(`[OAuth] Poll #${i + 1}: <eval-failed ${consecutiveEvalFailures}/${MAX_EVAL_FAILURES}>`);
+      if (consecutiveEvalFailures >= MAX_EVAL_FAILURES) {
+        return { success: false, error: 'Tab eval failed repeatedly (tab may be closed)' };
+      }
+      await new Promise(r => setTimeout(r, 1500));
+      continue;
+    }
+    consecutiveEvalFailures = 0;
     console.log(`[OAuth] Poll #${i + 1}: ${(currentUrl || '').slice(0, 80)}`);
 
-    if (currentUrl && currentUrl.includes('code=')) {
-      try {
-        const url = new URL(currentUrl);
-        authCode = url.searchParams.get('code') || '';
-        if (authCode) {
-          console.log(`[OAuth] ✅ Code received: ${authCode.slice(0, 20)}...`);
-          break;
-        }
-      } catch (e) {
-        console.log(`[OAuth] URL parse error: ${e.message}`);
-      }
+    // ── 1. Code in current URL? ──
+    authCode = tryExtractCode(currentUrl);
+    if (authCode) {
+      console.log(`[OAuth] ✅ Code received from URL: ${authCode.slice(0, 20)}...`);
+      break;
     }
 
+    // ── 2. about:neterror / about:blank → check intercepted callback URL ──
+    const isErrorPage = currentUrl.startsWith('about:') || currentUrl === '' || currentUrl.includes('localhost:1455');
+    if (isErrorPage) {
+      const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
+      authCode = tryExtractCode(intercepted);
+      if (authCode) {
+        console.log(`[OAuth] ✅ Code recovered from interceptor: ${authCode.slice(0, 20)}...`);
+        break;
+      }
+      // If still on neterror with no intercepted URL → wait and retry
+      console.log(`[OAuth] Error page detected, waiting for interceptor data...`);
+      await new Promise(r => setTimeout(r, 1500));
+      continue;
+    }
+
+    // ── 3. Check page state ──
     const state = await getState(tabId, userId);
 
-    // ── auth.openai.com requires re-login → fill credentials we just created ──
+    // ── 4. Phone verification screen → workspace bypass ──
+    if (state?.hasPhoneScreen) {
+      console.log(`[OAuth] Phone screen detected, trying workspace bypass...`);
+      await saveStep('oauth_phone_bypass');
+      const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
+      if (bypassResult?.code) {
+        authCode = bypassResult.code;
+        console.log(`[OAuth] ✅ Phone bypassed via workspace API, code: ${authCode.slice(0, 20)}...`);
+        break;
+      }
+      console.log(`[OAuth] Phone bypass failed: ${bypassResult?.error}`);
+      return { success: false, error: 'NEED_PHONE', bypassResult };
+    }
+
+    // ── 5. Login form on auth.openai.com → fill credentials ──
     if (state?.hasEmailInput && !emailFilled && creds.email) {
       console.log(`[OAuth] 📧 Email input detected, filling: ${creds.email}`);
       const r = await fillEmail(tabId, userId, creds.email);
@@ -95,8 +190,10 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
 
     if (state?.hasMfaInput && !mfaFilled && creds.mfaSecret) {
       try {
-        const otp = getTOTP(creds.mfaSecret);
-        console.log(`[OAuth] 🔐 MFA input detected, filling TOTP: ${otp}`);
+        // Use getFreshTOTP to ensure code is valid for at least 8s
+        // (avoids replay if same code was just used during MFA setup on chatgpt.com)
+        const { otp } = await getFreshTOTP(creds.mfaSecret, 8);
+        console.log(`[OAuth] 🔐 MFA input detected, filling fresh TOTP: ${otp}`);
         const r = await fillMfa(tabId, userId, otp);
         console.log(`[OAuth] fillMfa →`, JSON.stringify(r));
         mfaFilled = true;
@@ -108,32 +205,42 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
       }
     }
 
-    // Check if phone screen appears → try conditional bypass
-    if (state?.hasPhoneScreen) {
-      console.log(`[OAuth] Phone screen detected, trying conditional bypass...`);
-      const bypassResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
-      if (bypassResult.ok && bypassResult.code) {
+    // ── 6. Consent / workspace / organization screen ──
+    // If on auth domain, no login form, no phone screen → likely consent or workspace
+    const onAuthDomain = currentUrl.includes('auth.openai.com');
+    const noFormVisible = !state?.hasEmailInput && !state?.hasPasswordInput && !state?.hasMfaInput;
+    const isConsentLike = state?.isConsentScreen || state?.isWorkspaceScreen || state?.isOrganizationScreen ||
+                          currentUrl.includes('/consent') || currentUrl.includes('/workspace') || currentUrl.includes('/organization');
+
+    if (onAuthDomain && noFormVisible && (isConsentLike || (i >= 4 && !consentAttempted))) {
+      console.log(`[OAuth] 🔓 Consent/workspace screen detected, attempting bypass...`);
+      consentAttempted = true;
+      await saveStep('oauth_consent_attempt');
+      const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
+      if (bypassResult?.code) {
         authCode = bypassResult.code;
-        console.log(`[OAuth] ✅ Bypass succeeded, code: ${authCode.slice(0, 20)}...`);
+        console.log(`[OAuth] ✅ Consent bypassed, code: ${authCode.slice(0, 20)}...`);
         break;
-      } else {
-        console.log(`[OAuth] Bypass failed: ${bypassResult.error}`);
-        return { success: false, error: 'NEED_PHONE', bypassResult };
       }
+      console.log(`[OAuth] Consent bypass failed: ${bypassResult?.error || 'unknown'}, continuing to poll...`);
+      // Don't fail hard — keep polling, browser may also redirect on its own
     }
 
     await new Promise(r => setTimeout(r, 1500));
   }
 
   if (!authCode) {
-    return { success: false, error: 'No authorization code received' };
+    return { success: false, error: 'No authorization code received (timeout)' };
   }
 
-  // Exchange code for tokens
+  // ── Exchange code for tokens ──
   console.log(`[OAuth] Exchanging code for tokens...`);
   try {
     const tokens = await exchangeCodeForTokens(authCode, pkce, proxyUrl);
-    console.log(`[OAuth] ✅ Token exchange successful`);
+    if (!tokens?.refresh_token && !tokens?.access_token) {
+      return { success: false, error: 'Token exchange returned empty tokens', tokens };
+    }
+    console.log(`[OAuth] ✅ Token exchange successful (refresh=${!!tokens.refresh_token}, access=${!!tokens.access_token})`);
     return { success: true, tokens };
   } catch (err) {
     console.log(`[OAuth] Token exchange failed: ${err.message}`);

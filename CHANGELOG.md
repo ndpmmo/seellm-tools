@@ -1,5 +1,47 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.23] - 2026-04-28
+
+### 🛠️ OAuth Flow Robustness — Production Hardening
+
+Comprehensive overhaul of `performCodexOAuth()` in `auto-register-worker.js` to handle all edge cases that were causing the flow to stall after registration.
+
+#### 🐛 Bugs Fixed
+- **Stuck on `/log-in`**: auth.openai.com requires re-login (separate session from chatgpt.com) → now fills email/password/MFA automatically using credentials just created
+- **Never sees `?code=`**: localhost:1455 redirect can't load → browser shows `about:neterror` → URL never updates in `location.href`. Fixed via `PerformanceObserver` interceptor
+- **TOTP replay rejection**: same OTP used for MFA setup was reused for OAuth login → now uses `getFreshTOTP()` to ensure fresh time window
+- **Stuck on consent/workspace screen**: no bypass attempted → now calls `performWorkspaceConsentBypass()` after 6s on auth domain with no form
+- **Eval failure spam**: tab crash/close caused infinite eval errors → now tracks consecutive failures (max 8) and exits gracefully
+
+#### ✅ New Logic
+- `tryExtractCode(url)`: regex fallback when URL parsing fails
+- `setupCallbackInterceptor()`: installs `PerformanceObserver` to capture OAuth callback URL pre- and post-navigate
+- `tryConsentOrWorkspaceFlow()`: wraps shared `performWorkspaceConsentBypass` for consent + workspace + organization handling
+- 7-step polling priority order: code in URL → interceptor URL → phone bypass → email/password/MFA fill → consent bypass
+
+#### 📊 Coverage Matrix
+
+| Scenario | Before | After |
+|---|---|---|
+| Direct redirect with `?code=` | ✅ | ✅ |
+| Stuck on `/log-in` (need re-login) | ❌ | ✅ |
+| Stuck on `about:neterror` (localhost:1455 down) | ❌ | ✅ |
+| Stuck on `/consent` screen | ❌ | ✅ |
+| Stuck on workspace selection | ❌ | ✅ |
+| Phone verification screen | ✅ | ✅ |
+| TOTP timing collision after MFA setup | ❌ | ✅ |
+| Tab crash / repeated eval failures | ❌ | ✅ |
+| Token exchange returns empty tokens | ❌ | ✅ |
+
+#### 📁 Files Changed
+- `scripts/auto-register-worker.js`: refactored OAuth flow (~80 lines added)
+- `package.json`: 0.2.22 → 0.2.23
+
+#### 💡 Recommended Next Step (0.2.24+)
+Consolidate OAuth poll loop into `lib/openai-oauth.js` as `performOAuthFlow(helpers, options)` so both `auto-register-worker.js` and `auto-connect-worker.js` share a single source of truth.
+
+---
+
 ## [0.2.22] - 2026-04-28
 
 ### 🔧 Vault Workshop — Add Register+Connect Action
