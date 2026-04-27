@@ -1,5 +1,57 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.21] - 2026-04-28
+
+### 🚀 Codex OAuth & Phone Bypass — Full Implementation
+
+Implemented comprehensive Codex OAuth PKCE flow with conditional phone verification bypass for both auto-connect and auto-register workers, based on reverse-engineered mechanisms from `zc-zhangchen/any-auto-register` and `lxf746/any-auto-register`.
+
+#### ✅ Phase 1: Shared OAuth Library
+- Created `scripts/lib/openai-oauth.js` with OAuth constants, PKCE helpers, token exchange, and cookie decoding
+- Added Codex CLI standard params: `prompt=login`, `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`
+- Refactored `auto-connect-worker.js` to import from shared library, removed inline OAuth code
+- Added `decodeAuthSessionCookie()` and `extractWorkspaceId()` helpers for workspace detection
+
+#### ✅ Phase 2: Unit Tests
+- Created `tests/unit/openai-oauth.test.js` with 18 unit tests
+- Tests for PKCE generation, URL building with Codex params, JWT decoding, workspace extraction
+- All tests passing (18/18)
+
+#### ✅ Phase 3: Screen Detection Extensions
+- Extended `getState()` in `scripts/lib/openai-login-flow.js` with new flags:
+  - `isConsentScreen` - detects OAuth consent screens
+  - `isWorkspaceScreen` - detects workspace selection screens
+  - `isOrganizationScreen` - detects organization selection screens
+- Enables workers to branch logic for OAuth consent flow
+
+#### ✅ Phase 4: Auto-Register OAuth Flow
+- Added OAuth flag parsing from 7th task input element (format: `oauth=1`)
+- Implemented `performCodexOAuth()` function for PKCE flow with phone screen detection
+- Implemented `performWorkspaceConsentBypass()` for conditional phone bypass via consent URL
+- Call OAuth flow after MFA setup if flag enabled, graceful fallback on failure
+- Improved phone bypass to try conditional bypass before redirect to home
+- Save Codex refresh token to account notes/tags if OAuth succeeds
+- Backward compatible: task input without oauth flag skips OAuth flow
+
+#### ✅ Phase 5: Code Consolidation
+- Moved `performWorkspaceConsentBypass()` to shared `lib/openai-oauth.js`
+- Updated both `auto-connect-worker.js` and `auto-register-worker.js` to use shared function
+- Eliminated ~150 lines of duplicate code between the two workers
+
+#### 📊 Summary
+- **Total commits**: 6 (one per phase)
+- **Code reduction**: ~230 lines of duplicate code removed
+- **New files**: `scripts/lib/openai-oauth.js`, `tests/unit/openai-oauth.test.js`
+- **Breaking changes**: None
+- **Backward compatibility**: Maintained - task input format unchanged, OAuth is optional
+
+#### 🔧 Usage
+- Auto-register with OAuth: `email|pass|method|rt|cid|proxy|oauth=1`
+- Auto-register without OAuth (default): `email|pass|method|rt|cid|proxy` (unchanged)
+- Auto-connect automatically uses Codex OAuth params (no changes needed)
+
+---
+
 ## [0.2.20] - 2026-04-27
 
 ### 🚀 Camofox Worker Optimization — Shared Helpers & Performance Improvements
