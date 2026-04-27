@@ -56,6 +56,9 @@ Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-lo
 - Added missing `camofoxGoto` import to auto-login-worker.js (was used but not imported)
 - Fixed `waitForState` import in auto-connect-worker.js (was importing from wrong module lib/camofox.js instead of lib/openai-login-flow.js)
 - Fixed MFA input in auto-connect-worker.js showing `[object Object]` instead of 6-digit code (getFreshTOTP returns `{otp, remaining}` object, need to destructure) - fixed at lines 335, 345, and 679
+- Restored `hasNewChat` fallback in `looksLoggedIn` detection (lib/openai-login-flow.js): Phase 2 had removed this heuristic but it was the working detector when ChatGPT doesn't expose profile-button selector immediately after login. Result: false-negative `Timeout 60s` errors even after successful login.
+- Added `isChatgptHome` detection: on chatgpt.com root with no signup/login text → consider logged in.
+- Hard-fail proxy check in auto-connect-worker.js: now aborts on any probe error/timeout regardless of whether proxy is configured (previously only failed when `effectiveProxy` was set, allowing worker to run with unverified network).
 
 ## [0.2.19] - 2026-04-23
 
