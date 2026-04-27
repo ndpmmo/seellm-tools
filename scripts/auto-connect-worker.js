@@ -19,7 +19,7 @@ import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitI
 import { createSaveStep } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState } from './lib/openai-login-flow.js';
-import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId } from './lib/openai-oauth.js';
+import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGES_DIR = path.join(__dirname, '..', 'data', 'screenshots');
@@ -406,159 +406,12 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep) {
         // ── Nếu auth.openai.com yêu cầu login lại → điền email/password/MFA ──
         const oauthState = await getStateWithLogging(tabId, userId);
 
-        // ── /add-phone: Bỏ qua, dùng API để lấy workspace và lấy code (giống any-auto-register) ──
+        // ── /add-phone: Bỏ qua, dùng API để lấy workspace và lấy code (shared helper) ──
         if (oauthState?.hasPhoneScreen) {
             console.log(`[Connect] [C] [Technical: Background API Calls] Phát hiện màn hình yêu cầu SĐT → Đang thực hiện luồng gọi API ngầm (Fetch) để lấy workspaceId và vượt qua bằng lệnh workspace/select...`);
             await saveStep('08b_skip_phone_consent');
 
-            // Thực hiện toàn bộ consent + workspace select qua browser fetch API
-            // Vì cookies đang có trong browser, dùng fetch() trong trang để gọi API với cookies đó
-            const codeResult = await evalJson(tabId, userId, `
-            (async () => {
-                const AUTH_BASE = 'https://auth.openai.com';
-                const CONSENT_URL = AUTH_BASE + '/sign-in-with-chatgpt/codex/consent';
-
-                try {
-                    // BƯỚC 1: Tải consent page để set cookie oai-client-auth-session
-                    const consentRes = await fetch(CONSENT_URL, {
-                        credentials: 'include',
-                        headers: { 'accept': 'text/html,application/xhtml+xml,*/*' },
-                        redirect: 'follow',
-                    });
-                    const consentHtml = await consentRes.text();
-
-                    // BƯỚC 2: Đọc dữ liệu từ cookie
-                    const getAllCookies = () => {
-                        const result = {};
-                        document.cookie.split(';').forEach(c => {
-                            const [k, ...v] = c.trim().split('=');
-                            if (k) result[k.trim()] = v.join('=');
-                        });
-                        return result;
-                    };
-                    const cookies = getAllCookies();
-                    const authSession = cookies['oai-client-auth-session'] || '';
-                    const deviceId = cookies['oai-did'] || '';
-
-                    let workspaceId = '';
-
-                    // Thử decode từ cookie
-                    if (authSession) {
-                        try {
-                            const segments = authSession.split('.');
-                            const payload = segments[0];
-                            const pad = '='.repeat((4 - (payload.length % 4)) % 4);
-                            const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/') + pad);
-                            const parsed = JSON.parse(decoded);
-                            const ws = (parsed.workspaces || [])[0];
-                            workspaceId = (ws && ws.id) ? ws.id : '';
-                        } catch(e) { }
-                    }
-
-                    // Fallback: parse từ HTML consent page (Regex tìm UUID)
-                    if (!workspaceId) {
-                        const matches = consentHtml.match(/"id"\\s*[:|,]\\s*"([0-9a-f-]{36})"/gi) || [];
-                        for (const m of matches) {
-                            const idMatch = m.match(/([0-9a-f-]{36})/i);
-                            if (idMatch && idMatch[1]) { workspaceId = idMatch[1]; break; }
-                        }
-                    }
-
-                    if (!workspaceId) {
-                        return { ok: false, error: 'No workspace found in cookie or HTML', cookieKeys: Object.keys(cookies).join(',') };
-                    }
-
-                    const commonHeaders = {
-                        'content-type': 'application/json',
-                        'accept': 'application/json',
-                        'referer': CONSENT_URL,
-                        'origin': AUTH_BASE,
-                        'oai-device-id': deviceId
-                    };
-
-                    // BƯỚC 3: POST workspace/select
-                    const wsRes = await fetch(AUTH_BASE + '/api/accounts/workspace/select', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: commonHeaders,
-                        body: JSON.stringify({ workspace_id: workspaceId }),
-                        redirect: 'manual',
-                    });
-
-                    let continueUrl = '';
-                    let wsData = {};
-                    if (wsRes.status >= 300 && wsRes.status < 400) {
-                        continueUrl = wsRes.headers.get('location') || '';
-                    } else {
-                        try {
-                            wsData = await wsRes.json();
-                            continueUrl = wsData.continue_url || wsData.redirect_uri || '';
-                        } catch(_) { }
-                    }
-
-                    // BƯỚC 4: Nếu chưa có URL hoặc cần chọn Organization (giống any-auto-register)
-                    const orgs = (wsData?.data?.orgs) || [];
-                    if (!continueUrl && orgs.length > 0 && orgs[0].id) {
-                        const orgId = orgs[0].id;
-                        const orgBody = { org_id: orgId };
-                        if (orgs[0].projects && orgs[0].projects[0]) {
-                            orgBody.project_id = orgs[0].projects[0].id;
-                        }
-
-                        const orgRes = await fetch(AUTH_BASE + '/api/accounts/organization/select', {
-                            method: 'POST',
-                            credentials: 'include',
-                            headers: commonHeaders,
-                            body: JSON.stringify(orgBody),
-                            redirect: 'manual'
-                        });
-
-                        if (orgRes.status >= 300 && orgRes.status < 400) {
-                            continueUrl = orgRes.headers.get('location') || '';
-                        } else {
-                            try {
-                                const orgData = await orgRes.json();
-                                continueUrl = orgData.continue_url || orgData.redirect_uri || '';
-                            } catch(_) { }
-                        }
-                    }
-
-                    // BƯỚC 5: Follow redirects để tìm ?code=
-                    let code = '';
-                    let currentUrl = continueUrl;
-                    if (currentUrl && !currentUrl.startsWith('http')) {
-                        currentUrl = AUTH_BASE + currentUrl;
-                    }
-
-                    for (let i = 0; i < 10 && currentUrl; i++) {
-                        if (currentUrl.includes('code=')) {
-                            const u = new URL(currentUrl);
-                            code = u.searchParams.get('code') || '';
-                            if (code) break;
-                        }
-                        const rRes = await fetch(currentUrl, {
-                            credentials: 'include',
-                            redirect: 'manual',
-                            headers: { 'accept': 'text/html,*/*' },
-                        });
-                        const loc = rRes.headers.get('location') || '';
-                        if (!loc) {
-                             // Thử parse body nếu là JSON
-                             try {
-                                 const b = await rRes.json();
-                                 currentUrl = b.continue_url || b.redirect_uri || '';
-                             } catch(_) { break; }
-                        } else {
-                            currentUrl = loc.startsWith('http') ? loc : AUTH_BASE + loc;
-                        }
-                    }
-
-                    return { ok: !!code, code, workspaceId, wsStatus: wsRes.status, continueUrl, finalUrl: currentUrl };
-                } catch(e) {
-                    return { ok: false, error: e.message };
-                }
-            })();
-            `, 40000);
+            const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
 
             console.log(`[Connect] [C] [Technical: Background API Calls] Kết quả xử lý API ngầm:`, JSON.stringify(codeResult));
 
