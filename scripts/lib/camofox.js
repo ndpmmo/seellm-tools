@@ -190,3 +190,33 @@ export async function typeByRef(tabId, userId, ref, text, { pressEnter = false, 
 export async function tripleClick(tabId, userId, selector, { timeoutMs = 5000 } = {}) {
   return camofoxPost(`/tabs/${tabId}/click`, { userId, selector, clickCount: 3 }, { timeoutMs });
 }
+
+/**
+ * Wait for a custom state condition by polling eval
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} condition - Object with key-value pairs to check in eval result
+ * @param {object} options - { timeoutMs = 30000, intervalMs = 500, evalExpression = null }
+ * @returns {Promise<object>} Final eval result when condition met
+ */
+export async function waitForState(tabId, userId, condition, { timeoutMs = 30000, intervalMs = 500, evalExpression = null } = {}) {
+  const startTime = Date.now();
+  const conditionKeys = Object.keys(condition);
+
+  // Default eval expression for looksLoggedIn check
+  const defaultEval = '({ looksLoggedIn: typeof window !== "undefined" && !document.body.innerText.includes("Sign up") })';
+  const expression = evalExpression || defaultEval;
+
+  while (Date.now() - startTime < timeoutMs) {
+    const result = await evalJson(tabId, userId, expression, { timeoutMs: intervalMs });
+
+    if (result) {
+      const matches = conditionKeys.every(key => result[key] === condition[key]);
+      if (matches) return result;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`waitForState timeout after ${timeoutMs}ms`);
+}
