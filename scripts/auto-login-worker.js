@@ -15,9 +15,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import https from 'node:https';
-import { createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate } from './lib/camofox.js';
+import { getTOTP, getFreshTOTP } from './lib/totp.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { createSaveStep } from './lib/screenshot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR   = path.join(__dirname, '..');
@@ -28,92 +31,11 @@ const CHATGPT_LOGIN_DEBUG = process.env.CHATGPT_LOGIN_DEBUG === '1';
 // TIỆN ÍCH
 // ============================================
 
-/** Tạo mã TOTP (2FA) từ secret key Base32 */
-function getSecondsRemainingInTotpWindow() {
-  return 30 - (Math.floor(Date.now() / 1000) % 30);
-}
-
-async function getFreshTOTP(secret, minRemainingSeconds = 10) {
-  if (!secret) throw new Error('Missing TOTP secret');
-  let remaining = getSecondsRemainingInTotpWindow();
-  if (remaining <= minRemainingSeconds) {
-    await new Promise((r) => setTimeout(r, (remaining + 1) * 1000));
-    remaining = getSecondsRemainingInTotpWindow();
-  }
-  return { otp: getTOTP(secret), remaining };
-}
+const CODEX_CONSENT_URL = 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent';
 
 function getTaskTotpSecret(task) {
   return task?.totpSecret || task?.twoFaSecret || task?.two_fa_secret || task?.secret || null;
 }
-
-function getTOTP(secret) {
-  function base32tohex(base32) {
-    const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let bits = '', hex = '';
-    const clean = base32.replace(/\s/g, '').toUpperCase();
-    for (let i = 0; i < clean.length; i++) {
-      const val = base32chars.indexOf(clean.charAt(i));
-      if (val === -1) continue;
-      bits += val.toString(2).padStart(5, '0');
-    }
-    for (let i = 0; i + 4 <= bits.length; i += 4) {
-      hex += parseInt(bits.substr(i, 4), 2).toString(16);
-    }
-    return hex;
-  }
-  const key = base32tohex(secret);
-  const epoch = Math.round(Date.now() / 1000);
-  const time = Buffer.from(Math.floor(epoch / 30).toString(16).padStart(16, '0'), 'hex');
-  const hmac = createHmac('sha1', Buffer.from(key, 'hex'));
-  const h = hmac.update(time).digest();
-  const offset = h[h.length - 1] & 0xf;
-  const otp = (h.readUInt32BE(offset) & 0x7fffffff) % 1000000;
-  return otp.toString().padStart(6, '0');
-}
-
-// ============================================
-// CAMOFOX API HELPERS
-// ============================================
-
-async function camofoxPost(endpoint, body, options = {}) {
-  const { timeoutMs = 30000 } = options;
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Camofox ${endpoint} failed: ${res.status} ${await res.text()}`);
-  return res.json();
-}
-
-async function camofoxGet(endpoint, options = {}) {
-  const { timeoutMs = 15000 } = options;
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Camofox GET ${endpoint} failed: ${res.status}`);
-  return res.json();
-}
-
-async function camofoxDelete(endpoint, options = {}) {
-  const { timeoutMs = 10000 } = options;
-  await fetch(`${CAMOUFOX_API}${endpoint}`, {
-    method: 'DELETE',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-}
-
-async function camofoxGoto(tabId, body, options = {}) {
-  return camofoxPost(`/tabs/${tabId}/goto`, body, options);
-}
-
-async function camofoxEval(tabId, userId, expression, options = {}) {
-  return camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, options);
-}
-
-const CODEX_CONSENT_URL = 'https://auth.openai.com/sign-in-with-chatgpt/codex/consent';
 
 function getFreshAuthBootstrapUrl(task) {
   return task?.loginUrl || task?.authUrl || CODEX_CONSENT_URL;
@@ -159,96 +81,6 @@ function isWorkspaceSessionError(url = '', snapshot = '') {
   const cleanText = normalizePageText(snapshot);
   return cleanText.includes('workspaces not found in client auth session') ||
          cleanText.includes('oops, an error occurred');
-}
-
-async function evalJson(tabId, userId, expression, timeoutMs = 5000) {
-  const res = await camofoxEval(tabId, userId, expression, { timeoutMs });
-  return res?.result ?? null;
-}
-
-function extractIpFromText(raw) {
-  const text = String(raw || '').trim();
-  if (!text) return null;
-  try {
-    const j = JSON.parse(text);
-    if (j?.ip) return String(j.ip).trim();
-    if (j?.query) return String(j.query).trim();
-    if (j?.address) return String(j.address).trim();
-  } catch (_) {}
-  const ipv4 = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
-  if (ipv4) return ipv4[0];
-  const ipv6 = text.match(/\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b/);
-  return ipv6 ? ipv6[0] : null;
-}
-
-function normalizeProxyUrl(input) {
-  const s = String(input || '').trim();
-  if (!s) return null;
-  if (s.includes('://')) return s;
-  return `http://${s}`;
-}
-
-let LOCAL_PUBLIC_IP_CACHE = null;
-
-async function fetchTextNoProxy(url, timeoutMs = 12000) {
-  return await new Promise((resolve, reject) => {
-    try {
-      const req = https.get(url, { timeout: timeoutMs }, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += String(chunk); });
-        res.on('end', () => resolve(data));
-      });
-      req.on('timeout', () => req.destroy(new Error('timeout')));
-      req.on('error', reject);
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-async function getLocalPublicIp() {
-  if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
-  const urls = [
-    'https://api64.ipify.org/?format=json',
-    'https://ifconfig.co/json',
-    'https://ident.me/.json',
-  ];
-  for (const url of urls) {
-    try {
-      const t = await fetchTextNoProxy(url, 12000);
-      const ip = extractIpFromText(t);
-      if (ip) {
-        LOCAL_PUBLIC_IP_CACHE = ip;
-        return ip;
-      }
-    } catch (_) {}
-  }
-  return null;
-}
-
-async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
-  let probeTabId = null;
-  try {
-    const opened = await camofoxPost('/tabs', {
-      userId,
-      sessionKey: `probe_${Date.now()}`,
-      url: 'https://api64.ipify.org/?format=json',
-      ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
-      persistent: false,
-      headless: false,
-      humanize: true,
-    }, { timeoutMs: 25000 });
-    probeTabId = opened.tabId;
-    await new Promise(r => setTimeout(r, 3500));
-    const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
-    const ip = extractIpFromText(bodyText);
-    if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
-    return { ip, source: 'https://api64.ipify.org/?format=json' };
-  } catch (e) {
-    return { error: e.message || String(e) };
-  } finally {
-    if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${userId}`).catch(() => {});
-  }
 }
 
 function maskSensitive(value) {
@@ -463,7 +295,7 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, saveStep
         continue;
       }
 
-      await saveStep(tabId, 'workspace_selected');
+      await saveStep('workspace_selected');
 
       const orgCandidates = extractOrganizationCandidates(res?.body || '');
       if (orgCandidates.length) {
@@ -478,7 +310,7 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, saveStep
             );
             console.log(`[${task.email}] 🏢 organization/select ${JSON.stringify(orgPayload)} => ${JSON.stringify(orgRes).slice(0, 800)}`);
             if (orgRes?.ok) {
-              await saveStep(tabId, 'organization_selected');
+              await saveStep('organization_selected');
               return { ok: true, workspaceId, orgId, workspaceResponse: res, organizationResponse: orgRes };
             }
           }
@@ -791,7 +623,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
       timeout: 15000,
     }, { timeoutMs: 18000 });
     await new Promise(r => setTimeout(r, 2500));
-    await saveStep(tabId, 'chatgpt_home');
+    await saveStep('chatgpt_home');
   } catch (err) {
     console.log(`[${task.email}] ⚠️ Không mở được chatgpt.com: ${err.message}`);
   }
@@ -811,7 +643,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
 
   for (let step = 0; step < 4; step++) {
     if (state?.looksLoggedIn) {
-      await saveStep(tabId, 'chatgpt_logged_in');
+      await saveStep('chatgpt_logged_in');
       break;
     }
 
@@ -821,7 +653,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
         console.log(`[${task.email}] 🔐 Đã bấm Log in trên ChatGPT web: ${JSON.stringify(loginClick).slice(0, 200)}`);
         debugChatgptLogin(task, `clicked-login-${step + 1}`, loginClick);
         await new Promise(r => setTimeout(r, 2500));
-        await saveStep(tabId, `chatgpt_clicked_login_${step + 1}`);
+        await saveStep(`chatgpt_clicked_login_${step + 1}`);
         debugChatgptLogin(task, `dialogs-after-login-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
       } else {
         console.log(`[${task.email}] ⚠️ Không bấm được Log in: ${loginClick?.error || loginClick?.reason || 'unknown'}`);
@@ -833,7 +665,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
       console.log(`[${task.email}] ✍️ Đã điền form đăng nhập ChatGPT web: ${JSON.stringify(filledLoginForm).slice(0, 200)}`);
       debugChatgptLogin(task, `filled-form-${step + 1}`, { ...filledLoginForm, email: task.email, password: task.password });
       await new Promise(r => setTimeout(r, 2500));
-      await saveStep(tabId, `chatgpt_modal_${filledLoginForm.stage}_${step + 1}`);
+      await saveStep(`chatgpt_modal_${filledLoginForm.stage}_${step + 1}`);
       debugChatgptLogin(task, `dialogs-after-fill-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
     } else {
       console.log(`[${task.email}] ℹ️ Không thấy form email/password ChatGPT web: ${filledLoginForm?.reason || filledLoginForm?.error || 'no-op'}`);
@@ -846,7 +678,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
         console.log(`[${task.email}] 🔢 Đã điền MFA ChatGPT web: ${JSON.stringify({ ...filledMfaForm, otp: '******' }).slice(0, 200)}`);
         debugChatgptLogin(task, `filled-mfa-${step + 1}`, { ...filledMfaForm, otp: '******' });
         await new Promise(r => setTimeout(r, 2500));
-        await saveStep(tabId, `chatgpt_modal_${filledMfaForm.stage}_${step + 1}`);
+        await saveStep(`chatgpt_modal_${filledMfaForm.stage}_${step + 1}`);
       } else if (filledMfaForm?.reason && filledMfaForm.reason !== 'not-mfa-stage' && filledMfaForm.reason !== 'no-totp-secret') {
         console.log(`[${task.email}] ℹ️ Không điền được MFA ChatGPT web: ${filledMfaForm.reason || filledMfaForm.error || 'no-op'}`);
       }
@@ -863,7 +695,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
         console.log(`[${task.email}] 🪪 Đã bấm Continue trên prompt đăng nhập web: ${JSON.stringify(continueClick).slice(0, 200)}`);
         debugChatgptLogin(task, `continue-click-${step + 1}`, continueClick);
         await new Promise(r => setTimeout(r, 2500));
-        await saveStep(tabId, `chatgpt_continue_prompt_${step + 1}`);
+        await saveStep(`chatgpt_continue_prompt_${step + 1}`);
         debugChatgptLogin(task, `dialogs-after-continue-${step + 1}`, await captureChatgptLoginDialog(tabId, userId));
       } else {
         console.log(`[${task.email}] ℹ️ Không có nút Continue phù hợp: ${continueClick?.reason || continueClick?.error || 'no-op'}`);
@@ -904,7 +736,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
         timeout: 12000,
       }, { timeoutMs: 15000 });
       await new Promise(r => setTimeout(r, 2500));
-      await saveStep(tabId, 'workspace_selected_back_to_consent');
+      await saveStep('workspace_selected_back_to_consent');
     } catch (err) {
       console.log(`[${task.email}] ⚠️ Quay lại consent sau workspace/select lỗi: ${err.message}`);
     }
@@ -928,7 +760,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
       timeout: 12000,
     }, { timeoutMs: 15000 });
     await new Promise(r => setTimeout(r, 2500));
-    await saveStep(tabId, 'workspace_bootstrap_home');
+    await saveStep('workspace_bootstrap_home');
   } catch (err) {
     console.log(`[${task.email}] ⚠️ Không mở được chatgpt.com để bootstrap: ${err.message}`);
   }
@@ -963,7 +795,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
       timeout: 15000,
     }, { timeoutMs: 18000 });
     await new Promise(r => setTimeout(r, 2500));
-    await saveStep(tabId, freshAuthUrl === CODEX_CONSENT_URL ? 'workspace_bootstrap_back_to_consent' : 'workspace_bootstrap_fresh_authorize');
+    await saveStep(freshAuthUrl === CODEX_CONSENT_URL ? 'workspace_bootstrap_back_to_consent' : 'workspace_bootstrap_fresh_authorize');
     console.log(`[${task.email}] 🔁 Đã khởi động lại auth flow bằng URL mới: ${freshAuthUrl}`);
   } catch (err) {
     console.log(`[${task.email}] ⚠️ Khởi động lại auth flow sau bootstrap lỗi: ${err.message}`);
@@ -977,7 +809,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
 
 async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, proxyUrl, saveStep }) {
   console.log(`[${task.email}] 📵 Gặp add_phone → thử mở lại luồng consent trong cùng session...`);
-  await saveStep(tabId, 'gap_add_phone');
+  await saveStep('gap_add_phone');
 
   let bypassTabId = tabId;
   let openedExtraTab = false;
@@ -1024,7 +856,7 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
     }
 
     await new Promise(r => setTimeout(r, 3000));
-    await saveStep(bypassTabId, 'thu_consent_bypass');
+    await saveStep('thu_consent_bypass');
 
     for (let i = 0; i < 20; i++) {
       const snap = await camofoxGet(`/tabs/${bypassTabId}/snapshot?userId=${userId}`);
@@ -1037,7 +869,7 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
 
       if (currentUrl.includes('localhost:1455') || currentUrl.includes('code=')) {
         console.log(`[${task.email}] ✅ Bypass add_phone thành công, đã nhận redirect.`);
-        await saveStep(bypassTabId, 'bypass_thanh_cong');
+        await saveStep('bypass_thanh_cong');
         return currentUrl;
       }
 
@@ -1056,7 +888,7 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
 
         if (afterBootstrapUrl.includes('localhost:1455') || afterBootstrapUrl.includes('code=')) {
           console.log(`[${task.email}] ✅ Bootstrap workspace thành công, đã nhận redirect.`);
-          await saveStep(bypassTabId, 'workspace_bootstrap_success');
+          await saveStep('workspace_bootstrap_success');
           return afterBootstrapUrl;
         }
 
@@ -1237,20 +1069,7 @@ async function runLoginFlow(task) {
   const runDir = path.join(IMAGES_DIR, `run_${task.id}_${timestamp}`);
   await fs.mkdir(runDir, { recursive: true });
 
-  let stepCount = 0;
-  const saveStep = async (tid, name) => {
-    stepCount++;
-    const filename = `${String(stepCount).padStart(2, '0')}_${name}.png`;
-    try {
-      const res = await fetch(
-        `${CAMOUFOX_API}/tabs/${tid}/screenshot?userId=${USER_ID}&fullPage=true`
-      );
-      if (res.ok) {
-        await fs.writeFile(path.join(runDir, filename), Buffer.from(await res.arrayBuffer()));
-        console.log(`[Ảnh ${stepCount}] Lưu: ${filename}`);
-      }
-    } catch (_) {}
-  };
+  let saveStep = null;
 
   try {
     // 1. Mở tab với proxy
@@ -1273,7 +1092,8 @@ async function runLoginFlow(task) {
     tabId = tid;
     const userAgent = browserUA;
     console.log(`[1] Tab mở thành công: ${tabId} (UA: ${userAgent?.substring(0, 30)}...)`);
-    
+
+    saveStep = createSaveStep(runDir, { tabId, userId: USER_ID });
     // Chờ hệ thống khởi động (2 giây) thay vì 15 giây tốn thời gian, sau đó dùng waitForSelector
     await new Promise(r => setTimeout(r, 2000));
 
@@ -1308,7 +1128,7 @@ async function runLoginFlow(task) {
       if (effectiveProxy) throw err;
     }
 
-    await saveStep(tabId, 'khoi_dong');
+    await saveStep('khoi_dong');
 
     // 2. Nhận diện và Xử lý trang Email
     const emailSelectors = ['username', 'email-input', 'email', 'identifier'];
@@ -1330,7 +1150,7 @@ async function runLoginFlow(task) {
       selector: emailInputSelector,
       text: account.email,
     });
-    await saveStep(tabId, 'da_dien_email');
+    await saveStep('da_dien_email');
 
     console.log(`[3] Bấm nút Continue (bằng Enter)...`);
     await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
@@ -1343,7 +1163,7 @@ async function runLoginFlow(task) {
     } catch(e) {}
     
     await new Promise(r => setTimeout(r, 1000)); // Đợi React xử lý click
-    await saveStep(tabId, 'sau_email');
+    await saveStep('sau_email');
 
     // 3. Đợi và điền Password
     const hasPasswordField = await waitForSelector(tabId, USER_ID, ['password', 'passwd'], 25000);
@@ -1360,7 +1180,7 @@ async function runLoginFlow(task) {
       selector: 'input[type="password"], input[name="password"], #password',
       text: account.password,
     });
-    await saveStep(tabId, 'da_dien_password');
+    await saveStep('da_dien_password');
 
     console.log(`[5] Gửi mật khẩu (bằng Enter)...`);
     await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
@@ -1373,7 +1193,7 @@ async function runLoginFlow(task) {
     } catch(e) {}
     
     await new Promise(r => setTimeout(r, 2000)); // Đợi điều hướng sau mật khẩu
-    await saveStep(tabId, 'sau_password');
+    await saveStep('sau_password');
 
     // 4. Phát hiện màn hình sau khi đăng nhập: 2FA hoặc SĐT
     // ─────────────────────────────────────────────────────────
@@ -1404,7 +1224,7 @@ async function runLoginFlow(task) {
         });
         if (redirectUrl) break;
         console.log(`[${task.email}] 📵 Bypass add_phone thất bại (trước 2FA) → báo lỗi như cũ.`);
-        await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+        await saveStep('yeu_cau_so_dien_thoai');
         await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
         return;
       }
@@ -1447,7 +1267,7 @@ async function runLoginFlow(task) {
             return { ...s, url: bypassUrl, bypassedPhone: true };
           }
           console.log(`[${task.email}] 📵 [${label}] Xác minh SĐT sau 2FA → bypass thất bại.`);
-          await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+          await saveStep('yeu_cau_so_dien_thoai');
           // Throw để nhảy vào catch block → sendResultToGateway('error', 'NEED_PHONE')
           throw new Error('NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
         }
@@ -1521,7 +1341,7 @@ async function runLoginFlow(task) {
           }
         }
       }
-      await saveStep(tabId, 'sau_2fa');
+      await saveStep('sau_2fa');
     }
 
     // 5. Đợi redirect về trang Consent hoặc Success
@@ -1550,7 +1370,7 @@ async function runLoginFlow(task) {
         });
         if (redirectUrl) break;
         console.log(`[${task.email}] 📵 Phát hiện màn hình yêu cầu SĐT → bypass không qua, báo thất bại.`);
-        await saveStep(tabId, 'yeu_cau_so_dien_thoai');
+        await saveStep('yeu_cau_so_dien_thoai');
         await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', null);
         return; // Thoát sớm, không chờ timeout
       }
@@ -1591,7 +1411,7 @@ async function runLoginFlow(task) {
       }
     }
 
-    await saveStep(tabId, 'ket_thuc_flow');
+    await saveStep('ket_thuc_flow');
 
     if (redirectUrl && redirectUrl.includes('code=')) {
       const urlObj = new URL(redirectUrl);
