@@ -17,7 +17,7 @@ import path from 'node:path';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, pressKey, tripleClick } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, camofoxGoto, pressKey, tripleClick } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
