@@ -19,6 +19,7 @@ import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin } from './lib/openai-login-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGES_DIR = path.join(__dirname, '..', 'data', 'screenshots');
@@ -105,322 +106,21 @@ async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
 
 
 // ================================================================
-// PAGE STATE DETECTION
+// PAGE STATE DETECTION (wrapper around shared lib for logging)
 // ================================================================
-/**
- * Detect trạng thái trang CHÍNH XÁC.
- *
- * KEY FIX: ChatGPT hiện tại hiển thị sidebar với "New chat", "Search chats"
- * ngay cả khi CHƯA đăng nhập (anonymous mode). Do đó KHÔNG dùng các text đó
- * để xác định loggedIn. Thay vào đó:
- *  - loggedIn = có profile/avatar button VÀ KHÔNG có "Sign up" button
- *  - HOẶC URL là /c/ (conversation đang mở)
- */
-async function getState(tabId, userId) {
-    const state = await evalJson(tabId, userId, `
-    (() => {
-      const href  = location.href;
-      const host  = location.hostname;
-      const body  = (document.body?.innerText || '').toLowerCase();
-
-      // ── Logged-in indicators (phải đủ chặt) ──
-      const hasProfileBtn = !!(
-        document.querySelector('[data-testid="profile-button"]') ||
-        document.querySelector('[data-testid="user-menu-button"]') ||
-        document.querySelector('[aria-label="Open user menu"]') ||
-        document.querySelector('[aria-label="User menu"]')
-      );
-      // Khi chưa đăng nhập: luôn có "Log in" và "Sign up"
-      const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
-      const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
-
-      const isConversation  = href.includes('/c/') || href.includes('/g/');
-      const looksLoggedIn   = (hasProfileBtn && !hasSignUpInPage && !hasLogInBtn) || isConversation;
-
-      // ── Auth pages (auth.openai.com hoặc /auth/*) ──
-      const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
-      const hasEmailInput   = !!document.querySelector(
-        'input[type="email"], input[name="username"], input[id="username"], input[name="email"], input[autocomplete="email"]'
-      );
-      const hasPasswordInput = !!document.querySelector(
-        'input[type="password"], input[name="password"], input[id="password"], input[autocomplete="current-password"]'
-      );
-
-      // ── MFA: URL chứa /mfa hoặc có input one-time-code ──
-      // ⚠️ QUAN TRỌNG: PHẢI exclude /add-phone vì nó bị nhận nhầm là MFA
-      const isAddPhonePage = href.includes('/add-phone');
-      const hasMfaInput = !isAddPhonePage && !!(
-        href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') ||
-        body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
-        document.querySelector('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]')
-      );
-
-      // ── Cookie banner ──
-      const hasCookieBanner = !!(
-        document.querySelector('[aria-label*="cookie" i], [id*="cookie" i], [class*="cookie" i]') ||
-        body.includes('accept all cookies') || body.includes('accept cookies')
-      );
-
-      // ── Phone verify ──
-      // Bao gồm cả URL /add-phone (OpenAI OAuth yêu cầu thêm SĐT)
-      const hasPhoneScreen = isAddPhonePage ||
-        body.includes('phone number required') || body.includes('add a phone number') ||
-        body.includes('verify your phone') || body.includes('enter your phone') ||
-        body.includes('phone number') || body.includes('add phone');
-
-      // ── Error screen ──
-      const hasError = body.includes('something went wrong') || body.includes('try again') ||
-        document.querySelector('[class*="error"]') !== null;
-
-      return {
-        href, host,
-        looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
-        onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
-        hasCookieBanner, hasPhoneScreen, hasError,
-      };
-    })()
-  `, 6000);
-
-    if (state) {
-        console.log(`[Connect] 📍 State: ${state.href.slice(0, 70)}`);
-        console.log(`[Connect]    loggedIn=${state.looksLoggedIn} | email=${state.hasEmailInput} | pass=${state.hasPasswordInput} | mfa=${state.hasMfaInput} | signUp=${state.hasSignUpInPage} | profile=${state.hasProfileBtn}`);
-    } else {
-        console.log(`[Connect] ⚠️ getState returned null`);
-    }
-    return state;
+async function getStateWithLogging(tabId, userId) {
+  const state = await getState(tabId, userId);
+  if (state) {
+    console.log(`[Connect] 📍 State: ${state.href.slice(0, 70)}`);
+    console.log(`[Connect]    loggedIn=${state.looksLoggedIn} | email=${state.hasEmailInput} | pass=${state.hasPasswordInput} | mfa=${state.hasMfaInput} | signUp=${state.hasSignUpInPage} | profile=${state.hasProfileBtn}`);
+  } else {
+    console.log(`[Connect] ⚠️ getState returned null`);
+  }
+  return state;
 }
 
 // ================================================================
-// FORM FILL HELPERS
-// ================================================================
-async function fillEmail(tabId, userId, email) {
-    const escaped = JSON.stringify(email);
-    return evalJson(tabId, userId, `
-    (() => {
-      const val = ${escaped};
-      const isVisible = el => {
-        if (!el) return false;
-        const s = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-      };
-      const setValue = (el, v) => {
-        const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-        if (nativeInput) nativeInput.set.call(el, v);
-        else el.value = v;
-        el.dispatchEvent(new Event('input',  { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      const selectors = [
-        'input[autocomplete="email"]',
-        'input[name="username"]',
-        'input[type="email"]',
-        'input[id="username"]',
-        'input[name="email"]',
-      ];
-      let input = null;
-      for (const s of selectors) {
-        const el = document.querySelector(s);
-        if (isVisible(el)) { input = el; break; }
-      }
-      if (!input) return { ok: false, reason: 'no-email-input', tried: selectors };
-      input.focus();
-      setValue(input, val);
-
-      // Tìm nút Continue / Next
-      const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-        .filter(isVisible)
-        .find(el => {
-          const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-          return t === 'continue' || t === 'next' || t === 'tiếp tục';
-        });
-      if (btn) btn.click();
-      else {
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-      }
-      return { ok: true, clicked: !!btn, value: input.value };
-    })()
-  `, 6000);
-}
-
-async function fillPassword(tabId, userId, password) {
-    const escaped = JSON.stringify(password);
-    return evalJson(tabId, userId, `
-    (() => {
-      const val = ${escaped};
-      const isVisible = el => {
-        if (!el) return false;
-        const s = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-      };
-      const setValue = (el, v) => {
-        const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-        if (nativeInput) nativeInput.set.call(el, v);
-        else el.value = v;
-        el.dispatchEvent(new Event('input',  { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      const selectors = [
-        'input[autocomplete="current-password"]',
-        'input[type="password"]',
-        'input[name="password"]',
-        'input[id="password"]',
-      ];
-      let input = null;
-      for (const s of selectors) {
-        const el = document.querySelector(s);
-        if (isVisible(el)) { input = el; break; }
-      }
-      if (!input) return { ok: false, reason: 'no-password-input', tried: selectors };
-      input.focus();
-      setValue(input, val);
-
-      const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-        .filter(isVisible)
-        .find(el => {
-          const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-          return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
-        });
-      if (btn) btn.click();
-      else {
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-      }
-      return { ok: true, clicked: !!btn, value: '***' };
-    })()
-  `, 6000);
-}
-
-async function fillMfa(tabId, userId, otp) {
-    const escaped = JSON.stringify(otp);
-    return evalJson(tabId, userId, `
-    (() => {
-      const val = ${escaped};
-      const isVisible = el => {
-        if (!el) return false;
-        const s = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
-      };
-      const setValue = (el, v) => {
-        const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-        if (nativeInput) nativeInput.set.call(el, v);
-        else el.value = v;
-        el.dispatchEvent(new Event('input',  { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      const input = Array.from(document.querySelectorAll('input')).find(el =>
-        isVisible(el) && (
-          el.autocomplete === 'one-time-code' ||
-          el.getAttribute('autocomplete') === 'one-time-code' ||
-          el.inputMode === 'numeric' ||
-          el.getAttribute('inputmode') === 'numeric' ||
-          (el.name || '').toLowerCase().includes('code') ||
-          (el.name || '').toLowerCase().includes('otp') ||
-          (el.placeholder || '').toLowerCase().includes('code') ||
-          el.maxLength === 6
-        )
-      );
-      if (!input) return { ok: false, reason: 'no-mfa-input' };
-      input.focus();
-      setValue(input, val);
-
-      const btn = Array.from(document.querySelectorAll('button, [role="button"]'))
-        .filter(isVisible)
-        .find(el => {
-          const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-          return t.includes('continue') || t.includes('verify') || t.includes('confirm') || t.includes('xác nhận');
-        });
-      if (btn) btn.click();
-      else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-      return { ok: true, clicked: !!btn };
-    })()
-  `, 6000);
-}
-
-async function tryAcceptCookies(tabId, userId) {
-    await evalJson(tabId, userId, `
-    (() => {
-      const isVisible = el => { if (!el) return false; const s = window.getComputedStyle(el); const r = el.getBoundingClientRect(); return s.display !== 'none' && r.width > 0; };
-      const btn = Array.from(document.querySelectorAll('button'))
-        .filter(isVisible)
-        .find(el => {
-          const t = (el.innerText || el.textContent || '').toLowerCase();
-          return t.includes('accept all') || t.includes('accept cookies') || t.includes('agree') || t.includes('chấp nhận');
-        });
-      if (btn) btn.click();
-      return !!btn;
-    })()
-  `, 3000);
-}
-
-/** Dismiss Google "Sign in with Google" popup overlay + bấm nút "Log in" trên landing page */
-async function dismissGooglePopupAndClickLogin(tabId, userId) {
-    return evalJson(tabId, userId, `
-    (() => {
-      const isVisible = el => {
-        if (!el) return false;
-        const s = window.getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-      };
-      const results = [];
-
-      // 1. Đóng popup "Sign in with Google" (bấm nút X / Close)
-      const closeButtons = Array.from(document.querySelectorAll(
-        '[aria-label="Close"], [aria-label="close"], button[id*="close"], [data-dismiss], .close-button'
-      )).filter(isVisible);
-      // Cũng tìm nút X trong iframe hoặc overlay
-      const xButtons = Array.from(document.querySelectorAll('button, div[role="button"]'))
-        .filter(el => isVisible(el) && (el.innerText || '').trim() === '✕' || (el.innerText || '').trim() === '×' || (el.innerText || '').trim() === 'X');
-      const googleClose = closeButtons[0] || xButtons[0];
-      if (googleClose) {
-        googleClose.click();
-        results.push('dismissed-google-popup');
-      }
-
-      // Cũng tìm Google iframe overlay và xóa nó
-      const googleIframes = document.querySelectorAll('iframe[src*="accounts.google.com"]');
-      googleIframes.forEach(iframe => {
-        const container = iframe.closest('div[style], div[class]');
-        if (container && container !== document.body) container.remove();
-        else iframe.remove();
-      });
-      if (googleIframes.length > 0) results.push('removed-google-iframe');
-
-      // 2. Bấm nút "Log in" (có thể là <button> hoặc <a>)
-      const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
-      const loginBtn = allClickable.find(el => {
-        const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-        return t === 'log in' || t === 'đăng nhập';
-      });
-
-      if (loginBtn) {
-        loginBtn.click();
-        results.push('clicked-login: ' + (loginBtn.innerText || '').trim());
-      } else {
-        // Fallback: tìm bất kỳ link nào dẫn đến /auth
-        const authLink = allClickable.find(el => {
-          const href = el.getAttribute('href') || '';
-          return href.includes('/auth') || href.includes('login');
-        });
-        if (authLink) {
-          authLink.click();
-          results.push('clicked-auth-link: ' + (authLink.getAttribute('href') || ''));
-        } else {
-          results.push('no-login-button-found');
-          results.push('visible-buttons: ' + allClickable.map(e => (e.innerText || '').trim()).filter(Boolean).slice(0, 10).join(' | '));
-        }
-      }
-
-      return { ok: results.some(r => r.startsWith('clicked')), actions: results };
-    })()
-  `, 5000);
-}
-
-
-// ================================================================
-// FETCH SESSION IN-PAGE
+// FETCH SESSION IN-PAGE (auto-connect specific)
 // ================================================================
 async function fetchSessionInPage(tabId, userId) {
     return evalJson(tabId, userId, `
@@ -438,7 +138,6 @@ async function fetchSessionInPage(tabId, userId) {
     })()
   `, 12000);
 }
-
 
 // ================================================================
 // CORE CONNECT FLOW
@@ -528,7 +227,7 @@ async function runConnectFlow(task) {
 
         await saveStep('01_login_page');
 
-        let state = await getState(tabId, USER_ID);
+        let state = await getStateWithLogging(tabId, USER_ID);
 
         // ── Nếu đã logged in (cookie còn hạn) ────────────────────────────
         if (state?.looksLoggedIn) {
@@ -553,7 +252,7 @@ async function runConnectFlow(task) {
         console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
         await new Promise(r => setTimeout(r, 4000));
         await saveStep('01b_after_login_click');
-        state = await getState(tabId, USER_ID);
+        state = await getStateWithLogging(tabId, USER_ID);
 
         // ── Retry: nếu vẫn chưa ở auth domain ────────────────────────────
         if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
@@ -561,7 +260,7 @@ async function runConnectFlow(task) {
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await new Promise(r => setTimeout(r, 5000));
             await saveStep('01c_retry');
-            state = await getState(tabId, USER_ID);
+            state = await getStateWithLogging(tabId, USER_ID);
         }
 
         // ── Fallback cuối: nếu chưa redirect → navigate bằng auth0 authorize URL ─
@@ -576,7 +275,7 @@ async function runConnectFlow(task) {
                 15000);
             await new Promise(r => setTimeout(r, 5000));
             await saveStep('01d_fallback');
-            state = await getState(tabId, USER_ID);
+            state = await getStateWithLogging(tabId, USER_ID);
         }
 
         // ── BƯỚC 2: Điền EMAIL ───────────────────────────────────────────
@@ -591,12 +290,12 @@ async function runConnectFlow(task) {
                 console.log(`[Connect] [2] fillEmail result:`, JSON.stringify(r));
                 await new Promise(r2 => setTimeout(r2, 3000));
                 await saveStep(`02_email_${attempt + 1}`);
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
                 if (r?.ok) emailDone = true;
             } else {
                 console.log(`[Connect] [2] Chưa thấy email input, đợi thêm...`);
                 await new Promise(r => setTimeout(r, 2500));
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
             }
         }
 
@@ -617,12 +316,12 @@ async function runConnectFlow(task) {
                 console.log(`[Connect] [3] fillPassword →`, JSON.stringify(r));
                 await new Promise(r2 => setTimeout(r2, 3500));
                 await saveStep(`03_password_${attempt + 1}`);
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
                 if (r?.ok) passDone = true;
             } else {
                 console.log(`[Connect] [3] Chưa thấy password input, đợi...`);
                 await new Promise(r => setTimeout(r, 2500));
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
             }
         }
 
@@ -638,7 +337,7 @@ async function runConnectFlow(task) {
             console.log(`[Connect] [4] fillMfa →`, JSON.stringify(r));
             await new Promise(r2 => setTimeout(r2, 4000));
             await saveStep('04_mfa');
-            state = await getState(tabId, USER_ID);
+            state = await getStateWithLogging(tabId, USER_ID);
 
             // Retry MFA nếu vẫn còn ở màn MFA
             if (state?.hasMfaInput) {
@@ -647,7 +346,7 @@ async function runConnectFlow(task) {
                 await fillMfa(tabId, USER_ID, otp2);
                 await new Promise(r2 => setTimeout(r2, 4000));
                 await saveStep('04b_mfa_retry');
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
             }
         }
 
@@ -656,7 +355,7 @@ async function runConnectFlow(task) {
         let loggedIn = !!state?.looksLoggedIn;
         for (let i = 0; i < 30 && !loggedIn; i++) {
             await new Promise(r => setTimeout(r, 2000));
-            state = await getState(tabId, USER_ID);
+            state = await getStateWithLogging(tabId, USER_ID);
 
             if (state?.hasCookieBanner) await tryAcceptCookies(tabId, USER_ID);
 
@@ -670,12 +369,12 @@ async function runConnectFlow(task) {
                 console.log(`[Connect] ↩️ Bounce → email input lại, điền lại email...`);
                 await fillEmail(tabId, USER_ID, email);
                 await new Promise(r => setTimeout(r, 3000));
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
             } else if (state?.hasPasswordInput && i > 2) {
                 console.log(`[Connect] ↩️ Bounce → password input lại, điền lại password...`);
                 await fillPassword(tabId, USER_ID, password);
                 await new Promise(r => setTimeout(r, 3500));
-                state = await getState(tabId, USER_ID);
+                state = await getStateWithLogging(tabId, USER_ID);
             }
 
             loggedIn = !!state?.looksLoggedIn;
@@ -809,7 +508,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep) {
         }
 
         // ── Nếu auth.openai.com yêu cầu login lại → điền email/password/MFA ──
-        const oauthState = await getState(tabId, userId);
+        const oauthState = await getStateWithLogging(tabId, userId);
 
         // ── /add-phone: Bỏ qua, dùng API để lấy workspace và lấy code (giống any-auto-register) ──
         if (oauthState?.hasPhoneScreen) {
