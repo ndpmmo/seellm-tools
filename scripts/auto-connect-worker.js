@@ -676,7 +676,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep) {
         if (oauthState?.hasMfaInput) {
             if (totpSecret) {
                 console.log(`[Connect] [C] [Technical: DOM Manipulation] Đang sinh mã TOTP và điền mã 2FA nhanh vào ô input...`);
-                const otp = await getFreshTOTP(totpSecret, 8);
+                const { otp } = await getFreshTOTP(totpSecret, 8);
                 const mfaResult = await fillMfa(tabId, userId, otp);
                 console.log(`[Connect] [C] fillMfa result:`, JSON.stringify(mfaResult));
                 await new Promise(r => setTimeout(r, 4000));
