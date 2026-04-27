@@ -195,6 +195,7 @@ async function runConnectFlow(task) {
         await new Promise(r => setTimeout(r, 5000));
         
         // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
+        // [HARD-FAIL]: Nếu không probe được IP thì abort luôn — không cho chạy tiếp với network không xác định
         try {
           console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
           const ipCheck = await probeProxyExitIp(USER_ID, effectiveProxy || null, true);
@@ -213,16 +214,13 @@ async function runConnectFlow(task) {
             }
           } else if (ipCheck && ipCheck.error) {
             console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
-            // [HARD-FAIL]
-            if (effectiveProxy) {
-              throw new Error(`Proxy không hoạt động. Dừng tiến trình.`);
-            }
-          } else if (effectiveProxy) {
-            throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
+            throw new Error(`Proxy/Network không hoạt động (${ipCheck.error}). Dừng tiến trình.`);
+          } else {
+            throw new Error(`Không lấy được Exit IP. Dừng tiến trình.`);
           }
         } catch (err) {
-          console.log(`[Connect] ⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-          if (effectiveProxy) throw err;
+          console.log(`[Connect] ❌ [Diagnostic] Hard-fail: ${err.message}`);
+          throw err;
         }
 
         await saveStep('01_login_page');

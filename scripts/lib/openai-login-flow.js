@@ -30,8 +30,14 @@ export async function getState(tabId, userId) {
       const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
       const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
 
+      // Dấu hiệu dự phòng: có "new chat" hoặc "search chats" mà KHÔNG CÓ "log in" hay "sign up"
+      // (ChatGPT đôi khi không expose profile-button selector ngay sau khi login)
+      const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
+
       const isConversation  = href.includes('/c/') || href.includes('/g/');
-      const looksLoggedIn   = (hasProfileBtn && !hasSignUpInPage && !hasLogInBtn) || isConversation;
+      // Trên chatgpt.com root mà không có auth/signup → coi như logged in (cookie còn hạn)
+      const isChatgptHome   = (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
+      const looksLoggedIn   = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
 
       // ── Auth pages (auth.openai.com hoặc /auth/*) ──
       const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
