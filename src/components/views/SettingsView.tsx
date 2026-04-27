@@ -42,6 +42,7 @@ export function SettingsView() {
     camofoxApi: 'http://localhost:9377',
     gatewayUrl: 'http://localhost:20128',
     workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
+    forceEnLocale: true,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -95,6 +96,26 @@ export function SettingsView() {
           </Field>
           <Field label="Max Threads" hint="Tối đa bao nhiêu tài khoản xử lý song song">
             <Input type="number" min={1} max={10} value={f.maxThreads} onChange={e => set('maxThreads', Number(e.target.value))} />
+          </Field>
+          <Field
+            label="Ép Locale English (en-US)"
+            hint="Khi BẬT: Camofox dùng locale en-US + Accept-Language header bất kể proxy GeoIP, ChatGPT/Google sẽ render UI tiếng Anh thay vì ngôn ngữ địa phương (Đức, Phần Lan, Pháp...). Yêu cầu khởi động lại worker."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('forceEnLocale', !f.forceEnLocale)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.forceEnLocale
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.forceEnLocale ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.forceEnLocale ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.forceEnLocale ? 'BẬT — Ép en-US' : 'TẮT — Theo GeoIP của proxy'}
+            </button>
           </Field>
         </Section>
 

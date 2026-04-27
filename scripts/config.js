@@ -18,6 +18,7 @@ const defaults = {
   workerAuthToken: '',
   pollIntervalMs: 15000,
   maxThreads: 3,
+  forceEnLocale: true,
 };
 
 export function loadConfig() {
@@ -43,3 +44,6 @@ export const TOOLS_API_URL = process.env.TOOLS_API_URL || config.toolsApiUrl;
 export const WORKER_AUTH_TOKEN = process.env.WORKER_AUTH_TOKEN || config.workerAuthToken;
 export const POLL_INTERVAL_MS = config.pollIntervalMs;
 export const MAX_THREADS = config.maxThreads;
+export const FORCE_EN_LOCALE = config.forceEnLocale !== false; // default true
+/** Locale string truyền cho camofox khi bật forceEnLocale */
+export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;

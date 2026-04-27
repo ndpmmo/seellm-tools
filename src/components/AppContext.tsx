@@ -20,6 +20,8 @@ export interface AppConfig {
   camofoxPath: string; camofoxNodePath?: string; camofoxPort: number; camofoxApi: string;
   gatewayUrl: string; workerAuthToken: string;
   pollIntervalMs: number; maxThreads: number;
+  /** Ép Camofox dùng locale 'en-US' bất kể proxy GeoIP, để UI luôn render English */
+  forceEnLocale?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

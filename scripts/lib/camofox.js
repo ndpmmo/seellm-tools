@@ -5,20 +5,31 @@
  * Consolidated from auto-login, auto-connect, and auto-register.
  */
 
-import { CAMOUFOX_API } from '../config.js';
+import { CAMOUFOX_API, FORCE_LOCALE_STR } from '../config.js';
 
 /**
- * POST request to Camoufox API
+ * POST request to Camoufox API.
+ * Auto-injects `locale: <FORCE_LOCALE_STR>` (default 'en-US') khi tạo tab mới
+ * (POST /tabs) nếu setting `forceEnLocale` bật. Caller có thể override bằng
+ * cách truyền `locale` trong body — body có ưu tiên cao hơn.
+ *
  * @param {string} endpoint - API path (e.g., '/tabs', '/tabs/:id/click')
  * @param {object} body - JSON body
  * @param {object} options - { timeoutMs = 30000 }
  * @returns {Promise<object>} JSON response
  */
 export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
+  // Inject locale chỉ khi tạo tab mới (POST /tabs hoặc /tabs/open)
+  let finalBody = body;
+  if (FORCE_LOCALE_STR && (endpoint === '/tabs' || endpoint === '/tabs/open')) {
+    if (body && body.locale === undefined && body.forceLocale === undefined) {
+      finalBody = { ...body, locale: FORCE_LOCALE_STR };
+    }
+  }
   const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(finalBody),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`Camofox ${endpoint} → ${res.status}: ${await res.text()}`);

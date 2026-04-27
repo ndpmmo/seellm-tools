@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Upload, Search, RefreshCw, Trash2, Globe, Activity,
   ChevronDown, ChevronUp, Check, X, Pencil, Save, Copy,
-  Zap, MapPin, Server, Clock, AlertCircle, Database, CheckSquare, Square
+  Zap, MapPin, Server, Clock, AlertCircle, Database, CheckSquare, Square, Lock
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN } from '../../Views';
@@ -48,7 +48,7 @@ function parseBulk(raw: string) {
 
     // Handle string format like host:port:user:pass with no delimiter
     if (cols.length === 1 && line.split(':').length === 4 && !line.includes('@')) {
-       rawUrl = line; 
+       rawUrl = line;
     }
 
     const type = detectType(rawUrl);
@@ -56,6 +56,15 @@ function parseBulk(raw: string) {
 
     return { url: finalUrl, label, country, type: type === 'http' && finalUrl.startsWith('socks') ? detectType(finalUrl) : type };
   }).filter(r => r.url.length > 4);
+}
+
+function isLocalRelay(url: string): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url.includes('://') ? url : `http://${url}`);
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h.startsWith('127.');
+  } catch { return false; }
 }
 
 function TypeBadge({ type }: { type: string }) {
@@ -68,6 +77,14 @@ function TypeBadge({ type }: { type: string }) {
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${s[type?.toLowerCase()] || s.http}`}>
       {type?.toUpperCase() || 'HTTP'}
+    </span>
+  );
+}
+
+function LocalRelayBadge() {
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-purple-500/10 text-purple-400 border-purple-500/20">
+      🔒 LOCAL
     </span>
   );
 }
@@ -214,8 +231,8 @@ export function VaultProxiesView() {
         notes: d.status === 'active' && d.exitIp ? `${d.networkType || (String(d.exitIp).includes(':') ? 'IPv6' : 'IPv4')} (${d.exitIp})` : undefined,
         country: d.country || undefined,
       });
-      if (d.status === 'active') addToast(`✅ Active · ${d.latency}ms`, 'success');
-      else addToast(`❌ Down: ${d.error || 'unreachable'}`, 'error');
+      if (d.status === 'active') addToast(`${d.isLocalRelay ? '🔒 ' : ''}✅ Active · ${d.latency}ms`, 'success');
+      else addToast(`${d.isLocalRelay ? '🔒 ' : ''}❌ Down: ${d.error || 'unreachable'}`, 'error');
     } catch (e: any) { addToast(e.message, 'error'); }
     setTestingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
@@ -373,6 +390,12 @@ export function VaultProxiesView() {
                 <div className="col-span-3">
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">Proxy URL *</label>
                   <Input placeholder="http://user:pass@host:port" value={form.url} onChange={setFormField('url')} className="font-mono text-[12px]" />
+                  {isLocalRelay(form.url) && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-purple-300 bg-purple-500/5 border border-purple-500/10 rounded px-2 py-1">
+                      <Lock size={9} className="text-purple-400" />
+                      <span>Local relay proxy — sẽ skip kiểm tra IP thoát</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">Label</label>
@@ -417,8 +440,8 @@ export function VaultProxiesView() {
           </div>
         </CardHeader>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-left">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full min-w-[1000px] border-collapse text-left">
             <thead>
               <tr className="bg-white/[0.03] border-b border-white/5">
                 <th className="px-4 py-3 w-10">
@@ -459,7 +482,10 @@ export function VaultProxiesView() {
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex flex-col gap-1.5 items-start">
-                        <TypeBadge type={it.type} />
+                        <div className="flex items-center gap-1.5">
+                          <TypeBadge type={it.type} />
+                          {isLocalRelay(it.url) && <LocalRelayBadge />}
+                        </div>
                         {it.notes && it.notes.includes('IPv') && (
                           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${it.notes.includes('IPv6') ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
                             {it.notes.split(' ')[0]}

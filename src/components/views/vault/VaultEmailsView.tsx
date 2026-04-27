@@ -324,8 +324,8 @@ export function VaultEmailsView() {
                 )}
 
                 {/* Table */}
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto custom-scrollbar">
+                    <table className="w-full min-w-[1000px] text-left border-collapse">
                         <thead>
                             <tr className="bg-white/[0.03] border-b border-white/5">
                                 <th className="px-4 py-3 w-10">

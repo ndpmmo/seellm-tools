@@ -1,5 +1,54 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.32] - 2026-04-28
+
+### 🎨 UI Scrollbar + 🌐 Force-Locale Toggle + 🔧 DB Reset
+
+#### 🎨 UI Improvements — Scrollbar luôn visible + horizontal scroll bảng
+
+Trước đây trên macOS, scrollbar tự ẩn sau khi không scroll → user nghĩ "không scroll được". Bảng cũng không có `min-width` → khi viewport hẹp, cột dồn lại không có horizontal scroll.
+
+**Files**:
+- `src/app/globals.css`: thêm rule `.custom-scrollbar` — scrollbar 10px luôn visible với indigo thumb, áp dụng cho tất cả container đang dùng class này (đã sẵn ở mọi view)
+- `src/components/views/vault/VaultAccountsView.tsx`: table `min-w-[1100px]` + container `overflow-x-auto custom-scrollbar`
+- `src/components/views/vault/VaultProxiesView.tsx`: bump min-w 900→1000, thêm `custom-scrollbar`
+- `src/components/views/vault/VaultEmailsView.tsx`: thêm `min-w-[1000px]` + `custom-scrollbar`
+- `src/components/views/vault/VaultWorkshopView.tsx`: thêm `min-w-[1100px]` + `custom-scrollbar`
+
+Các bảng `AccountsView`, `ServicesView`, `ConnectionsView` đã có `min-w` từ trước → chỉ áp scrollbar visible qua global CSS.
+
+#### 🌐 Force-Locale 'en-US' Toggle (Cross-repo)
+
+**Setting mới** (mặc định BẬT): "Ép Locale English" trong Settings → Worker Config. Khi bật, Camofox dùng `locale: en-US` + header `Accept-Language: en-US,en;q=0.9` bất kể proxy GeoIP. ChatGPT/Google render UI tiếng Anh dù proxy ở Đức/Phần Lan/Pháp.
+
+**Cross-repo changes**:
+
+`camofox-browser/server.js`:
+- `getSession()` nhận `options.forceLocale`. Khi có giá trị → set `contextOptions.locale` + `extraHTTPHeaders['Accept-Language']`
+- Track `session.forceLocale` để recreate context khi setting thay đổi
+- `POST /tabs` đọc `req.body.locale` (hoặc `forceLocale`) và pass vào getSession
+
+`seellm-tools`:
+- `server/db/config.js`: thêm default `forceEnLocale: true`
+- `scripts/config.js`: export `FORCE_LOCALE_STR` (= 'en-US' nếu bật, null nếu tắt)
+- `scripts/lib/camofox.js`: `camofoxPost('/tabs', ...)` tự động inject `locale: 'en-US'` nếu setting bật. Caller có thể override bằng cách pass `locale` vào body.
+- `src/components/AppContext.tsx`: thêm `forceEnLocale?: boolean` vào `AppConfig`
+- `src/components/views/SettingsView.tsx`: thêm toggle BẬT/TẮT trong Section "Worker Config"
+
+#### 🔧 DB Reset
+Reset email `priscaisoldemaximilian3464@hotmail.com` từ `chatgpt_status='processing'` (kẹt sau lỗi) về `not_created` để có thể retry lại.
+
+#### 📁 Files Changed
+- `src/app/globals.css`
+- `src/components/views/vault/Vault{Accounts,Proxies,Emails,Workshop}View.tsx`
+- `src/components/views/SettingsView.tsx`
+- `src/components/AppContext.tsx`
+- `server/db/config.js`
+- `scripts/config.js`, `scripts/lib/camofox.js`
+- `../camofox-browser/server.js` (cross-repo)
+
+---
+
 ## [0.2.31] - 2026-04-28
 
 ### 🛡️ Auto-Register: Domain Guard + Misclick Prevention (Bug nghiêm trọng)

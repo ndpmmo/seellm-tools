@@ -555,8 +555,8 @@ export function VaultAccountsView() {
           </div>
         </CardHeader>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full min-w-[1100px] border-collapse text-left">
             <thead>
               <tr className="bg-white/5 border-b border-white/5">
                 <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">

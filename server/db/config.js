@@ -17,6 +17,7 @@ export function loadConfig() {
     d1SyncSecret:   '',
     pollIntervalMs: 15000,
     maxThreads:    3,
+    forceEnLocale: true,
   };
   try {
     if (existsSync(CONFIG_PATH)) {
