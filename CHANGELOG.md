@@ -52,8 +52,9 @@ Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-lo
 - **Documentation**: 1 new tuning guide created
 - **Syntax checks**: All files pass `node --check`
 
-#### 🔧 Bug Fix
+#### 🔧 Bug Fixes
 - Added missing `camofoxGoto` import to auto-login-worker.js (was used but not imported)
+- Fixed `waitForState` import in auto-connect-worker.js (was importing from wrong module lib/camofox.js instead of lib/openai-login-flow.js)
 
 ## [0.2.19] - 2026-04-23
 
