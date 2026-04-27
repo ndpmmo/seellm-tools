@@ -1,5 +1,25 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.26] - 2026-04-28
+
+### 🐛 ChatGPT Login UI Update — `data-testid="login-button"`
+
+ChatGPT đổi giao diện trang `/auth/login` (mới: "Get started" với 3 nút: Log in / Sign up / Try it first). Worker `auto-connect-worker.js` không click được nút Log in → kẹt ở trang login, không thấy email input → fail.
+
+#### 🐛 Bug Fixes
+- **`scripts/lib/openai-login-flow.js` — `dismissGooglePopupAndClickLogin()`**:
+  - Ưu tiên selector `button[data-testid="login-button"]` (UI mới của ChatGPT)
+  - Fix bug `allClickable is not defined` khi không tìm thấy nút (gây eval 500 error trong logs)
+  - Fallback sang text-match `log in / login / sign in` nếu testid không có
+
+#### 🧪 Verified
+E2E test (proxy local relay): accept cookie → click Log in → navigate sang `auth.openai.com/log-in-or-create-account` → email input detected. Tổng thời gian ~3s.
+
+#### 📁 Files Changed
+- `scripts/lib/openai-login-flow.js`
+
+---
+
 ## [0.2.25] - 2026-04-28
 
 ### 🐛 Critical Bug Fixes — Auto-Login Worker Phone Bypass & Navigation

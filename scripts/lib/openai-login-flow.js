@@ -315,14 +315,15 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       });
       if (googleIframes.length > 0) results.push('removed-google-iframes');
 
-      // 2. Bấm nút "Log in" (màu xanh dương, text "Log in")
-      const loginBtn = Array.from(document.querySelectorAll('button, a[role="button"], div[role="button"]'))
-        .filter(isVisible)
-        .find(el => {
+      // 2. Bấm nút "Log in" — ưu tiên data-testid="login-button" (UI mới)
+      const allClickable = Array.from(document.querySelectorAll('button, a[role="button"], div[role="button"]')).filter(isVisible);
+      const loginBtn =
+        document.querySelector('button[data-testid="login-button"]') ||
+        allClickable.find(el => {
           const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-          return t === 'log in' || t === 'login';
+          return t === 'log in' || t === 'login' || t === 'sign in';
         });
-      if (loginBtn) {
+      if (loginBtn && isVisible(loginBtn)) {
         loginBtn.click();
         results.push('clicked-login-button');
       } else {
