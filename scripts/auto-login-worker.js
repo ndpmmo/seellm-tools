@@ -17,10 +17,11 @@ import path from 'node:path';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, pressKey, tripleClick } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen } from './lib/openai-login-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR   = path.join(__dirname, '..');
@@ -41,44 +42,8 @@ function getFreshAuthBootstrapUrl(task) {
   return task?.loginUrl || task?.authUrl || CODEX_CONSENT_URL;
 }
 
-function normalizePageText(input = '') {
-  return input.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
-}
-
-function isPhoneVerificationScreen(url = '', snapshot = '') {
-  const cleanText = normalizePageText(snapshot);
-  const lowerUrl = String(url || '').toLowerCase();
-  return cleanText.includes('phone number required') ||
-         cleanText.includes('add a phone number') ||
-         cleanText.includes('verify your phone') ||
-         cleanText.includes('enter your phone') ||
-         (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
-         (lowerUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')));
-}
-
-function isConsentScreen(url = '', snapshot = '') {
-  const lowerUrl = String(url || '').toLowerCase();
-  const lowerHtml = String(snapshot || '').toLowerCase();
-  if (lowerUrl.includes('/log-in') || lowerUrl.includes('/password') || lowerUrl.includes('/mfa-challenge')) {
-    return false;
-  }
-  if (lowerUrl.includes('consent')) return true;
-  return (lowerHtml.includes('authorize') || lowerHtml.includes('allow')) && lowerHtml.includes('continue');
-}
-
-function isAuthLoginLikeScreen(url = '', snapshot = '') {
-  const lowerUrl = String(url || '').toLowerCase();
-  const cleanText = normalizePageText(snapshot);
-  return lowerUrl.includes('/log-in') ||
-         lowerUrl.includes('/password') ||
-         lowerUrl.includes('/mfa-challenge') ||
-         cleanText.includes('welcome back') ||
-         cleanText.includes('enter your password') ||
-         cleanText.includes('verify your identity');
-}
-
 function isWorkspaceSessionError(url = '', snapshot = '') {
-  const cleanText = normalizePageText(snapshot);
+  const cleanText = snapshot.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
   return cleanText.includes('workspaces not found in client auth session') ||
          cleanText.includes('oops, an error occurred');
 }
@@ -1153,7 +1118,7 @@ async function runLoginFlow(task) {
     await saveStep('da_dien_email');
 
     console.log(`[3] Bấm nút Continue (bằng Enter)...`);
-    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    await pressKey(tabId, USER_ID, 'Enter');
     // Backup click nếu Enter không hoạt động
     try {
       await camofoxPost(`/tabs/${tabId}/click`, {
@@ -1170,7 +1135,7 @@ async function runLoginFlow(task) {
     if (!hasPasswordField) {
       // OpenAI thi thoảng bắt chọn "Personal account" hoặc có màn hình trung gian
       console.log(`[4] ⚠️ Chưa thấy ô Password, thử bấm Enter lần nữa hoặc click lân cận...`);
-      await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+      await pressKey(tabId, USER_ID, 'Enter');
       await new Promise(r => setTimeout(r, 5000));
     }
 
@@ -1183,7 +1148,7 @@ async function runLoginFlow(task) {
     await saveStep('da_dien_password');
 
     console.log(`[5] Gửi mật khẩu (bằng Enter)...`);
-    await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+    await pressKey(tabId, USER_ID, 'Enter');
     // Backup click nếu Enter không kích hoạt form
     try {
       await camofoxPost(`/tabs/${tabId}/click`, {
@@ -1285,7 +1250,7 @@ async function runLoginFlow(task) {
         console.log(`[${task.email}] 🔢 Nhập OTP: ${otp} (còn ${remaining}s)`);
 
         await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
-        await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+        await pressKey(tabId, USER_ID, 'Enter');
         await new Promise(r => setTimeout(r, 6000));
 
         // ✅ Kiểm tra SĐT ngay sau OTP lần 1
@@ -1302,12 +1267,12 @@ async function runLoginFlow(task) {
           const { otp: otpFast, remaining: remainingFast } = await getFreshTOTP(account.twoFaSecret, 0);
           console.log(`[${task.email}] 🔄 Retry nhanh OTP: ${otpFast} (còn ${remainingFast}s)`);
           try {
-            await camofoxPost(`/tabs/${tabId}/triple-click`, { userId: USER_ID, selector: mfaSelector });
+            await tripleClick(tabId, USER_ID, mfaSelector);
           } catch(e) {
             try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(_) {}
           }
           await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otpFast });
-          await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+          await pressKey(tabId, USER_ID, 'Enter');
           await new Promise(r => setTimeout(r, 3500));
 
           const fastRetrySnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
@@ -1325,12 +1290,12 @@ async function runLoginFlow(task) {
             const { otp: otp2, remaining: remaining2 } = await getFreshTOTP(account.twoFaSecret, 2);
             console.log(`[${task.email}] 🔄 Retry OTP chu kỳ mới: ${otp2} (còn ${remaining2}s)`);
             try {
-              await camofoxPost(`/tabs/${tabId}/triple-click`, { userId: USER_ID, selector: mfaSelector });
+              await tripleClick(tabId, USER_ID, mfaSelector);
             } catch(e) {
               try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch(_) {}
             }
             await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
-            await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+            await pressKey(tabId, USER_ID, 'Enter');
             await new Promise(r => setTimeout(r, 4500));
           }
 
@@ -1391,7 +1356,7 @@ async function runLoginFlow(task) {
           console.log(`[${task.email}] Đã CLICK Consent bằng chuột.`);
         } catch(e) {
           // Fallback cực mạnh: Bấm Tab rồi Enter, hoặc nhấn mạnh Enter
-          await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+          await pressKey(tabId, USER_ID, 'Enter');
           console.log(`[${task.email}] Đã bấm phím Enter đè lên màn hình Consent.`);
         }
         // Đợi 2s để trang bắt đầu tải chuyển hướng thay vì lặp vào retry ngay
@@ -1407,7 +1372,7 @@ async function runLoginFlow(task) {
       // Nếu kẹt ở màn hình login (OpenAI đôi khi quay vòng)
       if (i > 5 && (curUrl.includes('login') || html.includes('forgot password'))) {
         console.log(`[${task.email}] ⚠️ Có vẻ bị kẹt ở Login, thử Enter lần nữa...`);
-        await camofoxPost(`/tabs/${tabId}/press`, { userId: USER_ID, key: 'Enter' });
+        await pressKey(tabId, USER_ID, 'Enter');
       }
     }
 

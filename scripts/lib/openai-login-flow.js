@@ -339,3 +339,62 @@ export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 3
   }
   return null;
 }
+
+/**
+ * Normalize page text for comparison
+ * @param {string} input - Raw HTML/text
+ * @returns {string} Normalized lowercase text
+ */
+function normalizePageText(input = '') {
+  return input.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+}
+
+/**
+ * Check if current screen is phone verification screen
+ * @param {string} url - Current URL
+ * @param {string} snapshot - Page snapshot/text
+ * @returns {boolean}
+ */
+export function isPhoneVerificationScreen(url = '', snapshot = '') {
+  const cleanText = normalizePageText(snapshot);
+  const lowerUrl = String(url || '').toLowerCase();
+  return cleanText.includes('phone number required') ||
+         cleanText.includes('add a phone number') ||
+         cleanText.includes('verify your phone') ||
+         cleanText.includes('enter your phone') ||
+         (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
+         (lowerUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')));
+}
+
+/**
+ * Check if current screen is OAuth consent screen
+ * @param {string} url - Current URL
+ * @param {string} snapshot - Page snapshot/text
+ * @returns {boolean}
+ */
+export function isConsentScreen(url = '', snapshot = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const lowerHtml = String(snapshot || '').toLowerCase();
+  if (lowerUrl.includes('/log-in') || lowerUrl.includes('/password') || lowerUrl.includes('/mfa-challenge')) {
+    return false;
+  }
+  if (lowerUrl.includes('consent')) return true;
+  return (lowerHtml.includes('authorize') || lowerHtml.includes('allow')) && lowerHtml.includes('continue');
+}
+
+/**
+ * Check if current screen is auth/login-like screen
+ * @param {string} url - Current URL
+ * @param {string} snapshot - Page snapshot/text
+ * @returns {boolean}
+ */
+export function isAuthLoginLikeScreen(url = '', snapshot = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const cleanText = normalizePageText(snapshot);
+  return lowerUrl.includes('/log-in') ||
+         lowerUrl.includes('/password') ||
+         lowerUrl.includes('/mfa-challenge') ||
+         cleanText.includes('welcome back') ||
+         cleanText.includes('enter your password') ||
+         cleanText.includes('verify your identity');
+}
