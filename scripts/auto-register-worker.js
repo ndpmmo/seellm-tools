@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './config.js';
-import { camofoxPost, camofoxDelete, evalJson } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
 import { getTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
@@ -445,15 +445,7 @@ export async function runAutoRegister(taskInput) {
     console.log(`[7] BẬT BẢO MẬT 2FA / MFA CHO ACCOUNT NÀY...`);
     console.log(`==========================================`);
 
-    // Helper để gọi Camoufox API (tái sử dụng camofoxPostWithSessionKey)
-    const apiHelper = async (path, body = null) => {
-      if (body) return camofoxPostWithSessionKey(path, body);
-      // GET request
-      const res = await fetch(`${CAMOUFOX_API}${path}?sessionKey=${WORKER_AUTH_TOKEN}`);
-      return res.json();
-    };
-
-    const mfaResult = await setupMFA(tabId, USER_ID, apiHelper);
+    const mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
     let twoFaSecret = null;
 
     if (mfaResult.success) {
