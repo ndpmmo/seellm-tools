@@ -77,6 +77,9 @@ export async function getState(tabId, userId) {
         looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError,
+        isConsentScreen: isConsentScreen(href, body),
+        isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || body.includes('select workspace') || body.includes('choose workspace'),
+        isOrganizationScreen: lowerUrl.includes('/organization') || body.includes('select organization') || body.includes('choose organization'),
       };
     })()
   `, 5000);
