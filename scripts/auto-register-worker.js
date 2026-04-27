@@ -13,8 +13,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
-import { createHmac } from 'node:crypto';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN } from './config.js';
+import { camofoxPost, camofoxDelete, evalJson } from './lib/camofox.js';
+import { getTOTP } from './lib/totp.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { createSaveStep } from './lib/screenshot.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
@@ -30,27 +33,10 @@ const OPENAI_AUTH = 'https://auth.openai.com';
 // ============================================
 // HELPERS
 // ============================================
-function getTOTP(secret) {
-  function base32tohex(base32) {
-    const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let bits = '', hex = '';
-    const clean = base32.replace(/\s/g, '').toUpperCase();
-    for (let i = 0; i < clean.length; i++) {
-      const val = base32chars.indexOf(clean.charAt(i));
-      if (val === -1) continue;
-      bits += val.toString(2).padStart(5, '0');
-    }
-    for (let i = 0; i + 4 <= bits.length; i += 4) hex += parseInt(bits.substr(i, 4), 2).toString(16);
-    return hex;
-  }
-  const key = base32tohex(secret);
-  const epoch = Math.round(Date.now() / 1000);
-  const time = Buffer.from(Math.floor(epoch / 30).toString(16).padStart(16, '0'), 'hex');
-  const hmac = createHmac('sha1', Buffer.from(key, 'hex'));
-  const h = hmac.update(time).digest();
-  const offset = h[h.length - 1] & 0xf;
-  const otp = (h.readUInt32BE(offset) & 0x7fffffff) % 1000000;
-  return otp.toString().padStart(6, '0');
+// Wrapper for camofoxPost that injects sessionKey (auto-register specific)
+async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 30000) {
+  const payload = { ...body, sessionKey: WORKER_AUTH_TOKEN };
+  return camofoxPost(endpoint, payload, { timeoutMs });
 }
 
 function generateRandomUserInfo() {
@@ -73,125 +59,17 @@ function generateRandomUserInfo() {
   };
 }
 
-async function camofoxPost(endpoint, body, timeoutMs = 30000) {
-  // Đảm bảo luôn truyền sessionKey
-  const payload = { ...body, sessionKey: WORKER_AUTH_TOKEN };
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Camofox POST ${endpoint} failed: ${res.status}`);
-  return res.json();
-}
 
 async function updatePoolStatus(email, data) {
   try {
-    await fetch(`http://localhost:4000/api/vault/email-pool`, {
+    const TOOLS_API_URL = process.env.TOOLS_API_URL || 'http://localhost:4000';
+    await fetch(`${TOOLS_API_URL}/api/vault/email-pool`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, ...data }),
     });
   } catch (err) {
     console.log(`[Pool] Update failed for ${email}: ${err.message}`);
-  }
-}
-
-async function evalJson(tabId, userId, expression, timeoutMs = 12000) {
-  try {
-    const res = await camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, timeoutMs);
-    return res?.result ?? null;
-  } catch (e) {
-    console.log(`[Eval] failed: ${e.message}`);
-    return null;
-  }
-}
-
-function extractIpFromText(raw) {
-  const text = String(raw || '').trim();
-  if (!text) return null;
-  try {
-    const j = JSON.parse(text);
-    if (j?.ip) return String(j.ip).trim();
-    if (j?.query) return String(j.query).trim();
-    if (j?.address) return String(j.address).trim();
-  } catch (_) { }
-  const ipv4 = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
-  if (ipv4) return ipv4[0];
-  const ipv6 = text.match(/\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b/);
-  return ipv6 ? ipv6[0] : null;
-}
-
-function normalizeProxyUrl(input) {
-  const s = String(input || '').trim();
-  if (!s) return null;
-  if (s.includes('://')) return s;
-  return `http://${s}`;
-}
-
-let LOCAL_PUBLIC_IP_CACHE = null;
-
-async function fetchTextNoProxy(url, timeoutMs = 12000) {
-  return await new Promise((resolve, reject) => {
-    try {
-      const req = https.get(url, { timeout: timeoutMs }, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += String(chunk); });
-        res.on('end', () => resolve(data));
-      });
-      req.on('timeout', () => req.destroy(new Error('timeout')));
-      req.on('error', reject);
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-async function getLocalPublicIp() {
-  if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
-  const urls = [
-    'https://api64.ipify.org/?format=json',
-    'https://ifconfig.co/json',
-    'https://ident.me/.json',
-  ];
-  for (const url of urls) {
-    try {
-      const t = await fetchTextNoProxy(url, 12000);
-      const ip = extractIpFromText(t);
-      if (ip) {
-        LOCAL_PUBLIC_IP_CACHE = ip;
-        return ip;
-      }
-    } catch (_) { }
-  }
-  return null;
-}
-
-async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
-  let probeTabId = null;
-  try {
-    const opened = await camofoxPost('/tabs', {
-      userId,
-      sessionKey: `probe_${Date.now()}`,
-      url: 'https://api64.ipify.org/?format=json',
-      ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
-      persistent: false,
-      headless: false,
-      humanize: true,
-    }, 25000);
-    probeTabId = opened.tabId;
-    await new Promise(r => setTimeout(r, 3500));
-    const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
-    const ip = extractIpFromText(bodyText);
-    if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
-    return { ip, source: 'https://api64.ipify.org/?format=json' };
-  } catch (e) {
-    return { error: e.message || String(e) };
-  } finally {
-    if (probeTabId) {
-      try { await fetch(`${CAMOUFOX_API}/tabs/${probeTabId}?userId=${userId}`, { method: 'DELETE' }); } catch (_) { }
-    }
   }
 }
 
@@ -202,14 +80,6 @@ async function getCookies(tabId, userId) {
   return Array.isArray(data.cookies) ? data.cookies : (Array.isArray(data) ? data : []);
 }
 
-async function saveStep(tabId, userId, runDir, label) {
-  try {
-    const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=true`);
-    if (res.ok) {
-      await fs.writeFile(path.join(runDir, `${label}.png`), Buffer.from(await res.arrayBuffer()));
-    }
-  } catch (e) { }
-}
 
 // ============================================
 // MAIN REGISTER FLOW
@@ -249,11 +119,12 @@ export async function runAutoRegister(taskInput) {
   await fs.mkdir(runDir, { recursive: true }).catch(() => { });
 
   let tabId = null;
+  let saveStep = null;
 
   try {
     // 1. Khởi động - Đi từ trang login để tránh bị blank page
     console.log(`🚀 [Phase 1] Truy cập trang Login...`);
-    const tabRes = await camofoxPost('/tabs', {
+    const tabRes = await camofoxPostWithSessionKey('/tabs', {
       userId: USER_ID,
       url: "https://chatgpt.com/auth/login",
       headless: false,
@@ -262,6 +133,10 @@ export async function runAutoRegister(taskInput) {
     });
     console.log(proxyUrl ? `🔌 Dùng proxy: ${proxyUrl}` : '🌐 Không dùng proxy');
     tabId = tabRes.tabId;
+    console.log(`Tab ID: ${tabId}`);
+
+    saveStep = createSaveStep(runDir, { tabId, userId: USER_ID });
+
     await new Promise(r => setTimeout(r, 5000));
 
     // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
@@ -297,7 +172,7 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    await saveStep(tabId, USER_ID, runDir, '01_login_page');
+    await saveStep('01_login_page');
 
     // Click "Sign up" để sang luồng đăng ký
     console.log(`🖱️  Chuyển sang luồng Đăng ký...`);
@@ -307,7 +182,7 @@ export async function runAutoRegister(taskInput) {
       if(signup) signup.click();
     })()`);
     await new Promise(r => setTimeout(r, 5000));
-    await saveStep(tabId, USER_ID, runDir, '02_register_page');
+    await saveStep('02_register_page');
 
     // 2. Điền Email & Submit
     console.log(`📝 [Phase 2] Đang điền Email: ${email}...`);
@@ -334,7 +209,7 @@ export async function runAutoRegister(taskInput) {
     // Đợi nhảy sang trang Password
     console.log("⏳ Chờ OpenAI xử lý Email và chuyển qua trang Password...");
     await new Promise(r => setTimeout(r, 12000));
-    await saveStep(tabId, USER_ID, runDir, '02_password_load');
+    await saveStep('02_password_load');
 
     // 3. Form Điền Mật khẩu (create-account/password)
     console.log(`[3] Điền Password -> ${chatGptPassword}`);
@@ -362,7 +237,7 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
     await new Promise(r => setTimeout(r, 8000));
-    await saveStep(tabId, USER_ID, runDir, '03_after_password_submit');
+    await saveStep('03_after_password_submit');
 
     // 4. Giải OTP
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
@@ -396,14 +271,14 @@ export async function runAutoRegister(taskInput) {
               })()
             `);
       await new Promise(r => setTimeout(r, 6000));
-      await saveStep(tabId, USER_ID, runDir, '04_pin_verified');
+      await saveStep('04_pin_verified');
     }
 
     // 5. Cấp User Info (tên, ngày sinh)
     console.log(`[5] Bypass thông tin Form About...`);
     const userInfo = generateRandomUserInfo();
     await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
-    await saveStep(tabId, USER_ID, runDir, '04b_before_about');
+    await saveStep('04b_before_about');
 
     const aboutFillInfo = await evalJson(tabId, USER_ID, `
           (() => {
@@ -497,14 +372,14 @@ export async function runAutoRegister(taskInput) {
     }
 
     await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
-    await saveStep(tabId, USER_ID, runDir, '05_about_completed');
+    await saveStep('05_about_completed');
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);
     const pageUrl = await evalJson(tabId, USER_ID, `location.href`);
     if (pageUrl.includes('add-phone')) {
       console.log(`[6.1] Chặn Phone Add! Redirecing to Consent / Home...`);
-      await camofoxPost(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
       await new Promise(r => setTimeout(r, 8000));
     }
 
@@ -538,7 +413,7 @@ export async function runAutoRegister(taskInput) {
       })()
     `);
     await new Promise(r => setTimeout(r, 6000));
-    await saveStep(tabId, USER_ID, runDir, '06_skip_survey');
+    await saveStep('06_skip_survey');
 
     // Thao tác đóng Welcome Modal (OK, let's go)
     console.log(`[6.1] Đóng Welcome Modal...`);
@@ -562,18 +437,18 @@ export async function runAutoRegister(taskInput) {
       })()
     `);
     await new Promise(r => setTimeout(r, 5000));
-    await saveStep(tabId, USER_ID, runDir, '07_inside_chat');
+    await saveStep('07_inside_chat');
 
-    await saveStep(tabId, USER_ID, runDir, '06_home_reached');
+    await saveStep('06_home_reached');
 
     // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
     console.log(`[7] BẬT BẢO MẬT 2FA / MFA CHO ACCOUNT NÀY...`);
     console.log(`==========================================`);
 
-    // Helper để gọi Camoufox API (tái sử dụng camofoxPost)
+    // Helper để gọi Camoufox API (tái sử dụng camofoxPostWithSessionKey)
     const apiHelper = async (path, body = null) => {
-      if (body) return camofoxPost(path, body);
+      if (body) return camofoxPostWithSessionKey(path, body);
       // GET request
       const res = await fetch(`${CAMOUFOX_API}${path}?sessionKey=${WORKER_AUTH_TOKEN}`);
       return res.json();
@@ -647,7 +522,7 @@ export async function runAutoRegister(taskInput) {
       notes: `Error: ${err.message} at ${new Date().toISOString()}`
     });
 
-    if (tabId) { await camofoxPost(`/tabs/${tabId}?userId=${USER_ID}`, {}, 5000).catch(() => { }); }
+    if (tabId) { await camofoxPostWithSessionKey(`/tabs/${tabId}?userId=${USER_ID}`, {}, 5000).catch(() => { }); }
     return { success: false, email, error: err.message || String(err) };
   }
 }
