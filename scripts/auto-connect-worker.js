@@ -14,7 +14,7 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, pressKey, waitForState } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
@@ -352,43 +352,22 @@ async function runConnectFlow(task) {
 
         // ── BƯỚC 5: Đợi login hoàn tất (poll tối đa 60s) ─────────────────
         console.log(`[Connect] [5] Đợi redirect về chatgpt.com sau login...`);
-        let loggedIn = !!state?.looksLoggedIn;
-        for (let i = 0; i < 30 && !loggedIn; i++) {
-            await new Promise(r => setTimeout(r, 2000));
-            state = await getStateWithLogging(tabId, USER_ID);
-
-            if (state?.hasCookieBanner) await tryAcceptCookies(tabId, USER_ID);
-
-            if (state?.hasPhoneScreen) {
+        
+        // Use waitForState for cleaner polling
+        const finalState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 60000, intervalMs: 2000 });
+        
+        if (!finalState) {
+            // Timeout - check for phone screen error
+            const currentState = await getStateWithLogging(tabId, USER_ID);
+            if (currentState?.hasPhoneScreen) {
                 await saveStep('05_phone_required');
                 return sendConnectResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
             }
-
-            // Phát hiện email/password input xuất hiện lại (có thể trang bounce về)
-            if (state?.hasEmailInput && i > 2) {
-                console.log(`[Connect] ↩️ Bounce → email input lại, điền lại email...`);
-                await fillEmail(tabId, USER_ID, email);
-                await new Promise(r => setTimeout(r, 3000));
-                state = await getStateWithLogging(tabId, USER_ID);
-            } else if (state?.hasPasswordInput && i > 2) {
-                console.log(`[Connect] ↩️ Bounce → password input lại, điền lại password...`);
-                await fillPassword(tabId, USER_ID, password);
-                await new Promise(r => setTimeout(r, 3500));
-                state = await getStateWithLogging(tabId, USER_ID);
-            }
-
-            loggedIn = !!state?.looksLoggedIn;
-            if (loggedIn) {
-                console.log(`[Connect] ✅ Đã đăng nhập! (poll ${i + 1})`);
-                break;
-            }
+            return sendConnectResult(task, 'error', `Timeout 60s: Không đăng nhập được. URL cuối: ${currentState?.href}`);
         }
-
+        
+        console.log(`[Connect] ✅ Đã đăng nhập!`);
         await saveStep('05_post_login');
-
-        if (!loggedIn) {
-            return sendConnectResult(task, 'error', `Timeout 60s: Không đăng nhập được. URL cuối: ${state?.href}`);
-        }
 
         await captureAndReport(tabId, USER_ID, runDir, task, email, saveStep);
 
