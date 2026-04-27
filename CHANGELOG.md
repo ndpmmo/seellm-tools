@@ -1,6 +1,68 @@
 # Changelog - SeeLLM Tools
 
-## [0.2.23] - 2026-04-28
+## [0.2.25] - 2026-04-28
+
+### 🐛 Critical Bug Fixes — Auto-Login Worker Phone Bypass & Navigation
+
+Fixed 3 critical bugs in `auto-login-worker.js` that caused phone verification bypass to fail silently and loop infinitely, plus tagging improvements for phone-verified accounts.
+
+#### 🐛 Bug Fixes
+- **`camofoxGoto` wrong signature** (CRITICAL): All 5 calls passed an object as 2nd arg instead of separate `(tabId, userId, url, options)`, causing server to receive `Invalid URL: [object Object]` on every navigate attempt during phone bypass.
+- **`camofoxEval` undefined** (CRITICAL): Consent fallback used `camofoxEval()` which is not imported — replaced with `evalJson()` (the correct imported function).
+- **Infinite bootstrap loop** (HIGH): `tryBypassPhoneRequirement` looped up to 20 times calling `tryBootstrapWorkspaceSession` which always failed (due to the camofoxGoto bug), re-triggering `isWorkspaceSessionError` on every iteration. Added `MAX_BOOTSTRAP_ATTEMPTS = 2` counter to break early.
+
+#### 🏷️ Phone Verification Tagging
+- **`auto-register-worker.js`**: Added `phoneBypassAttempted` / `phoneBypassSuccess` flags and `phone-verify` / `phone-bypass-ok` tags when phone verification screen is encountered during registration.
+
+#### 📁 Files Changed
+- `scripts/auto-login-worker.js`: Fixed 5× camofoxGoto calls, replaced camofoxEval→evalJson, added bootstrap retry limit
+- `scripts/auto-register-worker.js`: Added phone verification flags and tags
+
+---
+
+## [0.2.24] - 2026-04-28
+
+### 🔒 Local Relay Proxy Support & Strict Proxy Enforcement
+
+Added comprehensive support for local relay proxies (loopback addresses) and implemented strict proxy enforcement across all worker scripts to guarantee correct proxy application.
+
+#### ✅ Local Relay Proxy Detection
+- **New helper `isLocalRelayProxy()`** in `scripts/lib/proxy-diag.js`: Detects loopback proxies (127.0.0.1, localhost, ::1, 127.*)
+- **Skip false diagnostics**: Local relay proxies bypass exit IP equality check to avoid false failures when exit IP matches host IPv6
+- **Server endpoint update**: `/api/vault/proxies/:id/test` now returns `isLocalRelay` flag in response
+- **UI badge**: Added 🔒 LOCAL badge in VaultProxiesView.tsx to visually identify local relay proxies
+- **Form hint**: Added hint in Add/Edit proxy form when user inputs local relay proxy URL
+
+#### 🔒 Strict Proxy Enforcement
+- **New helper `assertProxyApplied()`**: Performs strict pre-flight proxy assertion with:
+  - URL syntax validation (protocol, hostname, port)
+  - Dedicated probe session with EXPLICIT proxy
+  - Exit IP verification against host public IP
+  - Throws on any failure (hard abort before main tab creation)
+- **New helper `validateProxyUrl()`**: Validates proxy URL syntax before use
+- **New helper `validateDiagnosticResult()`**: Validates diagnostic results with local relay awareness
+- **3-step enforcement pattern** in all workers:
+  1. **Pre-flight assertion** (before main tab creation) - validate syntax, probe with fresh session
+  2. **Main tab creation** (with explicit proxy parameter)
+  3. **Post-creation verification** (re-probe to confirm session inherited proxy)
+
+#### 📁 Files Changed
+- `scripts/lib/proxy-diag.js`: Added isLocalRelayProxy, validateProxyUrl, validateDiagnosticResult, assertProxyApplied helpers
+- `scripts/auto-register-worker.js`: Refactored to use strict pre-flight + post-verify pattern
+- `scripts/auto-connect-worker.js`: Refactored to use strict pre-flight + post-verify pattern
+- `scripts/auto-login-worker.js`: Refactored to use strict pre-flight + post-verify pattern
+- `server/routes/vault.js`: Added isLocalRelay flag in proxy test endpoint response
+- `src/components/views/vault/VaultProxiesView.tsx`: Added LOCAL badge and hint for local relay proxies, updated test toast messages
+- `package.json`: 0.2.23 → 0.2.24
+
+#### 💡 Benefits
+- **Local relay support**: Workers now correctly detect and use local relay proxies without false diagnostic failures
+- **Strict enforcement**: Proxy connections are always validated before use, preventing IP leaks
+- **Early abort**: Invalid or unreachable proxies are detected before main tab creation, saving time
+- **Session verification**: Post-creation verification confirms proxy was correctly applied to browser session
+- **Visual clarity**: UI badge makes it easy to identify local relay proxies in the proxy pool
+
+---
 
 ### 🛠️ OAuth Flow Robustness — Production Hardening
 

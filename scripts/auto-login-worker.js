@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, camofoxGoto, pressKey, tripleClick } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
-import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen } from './lib/openai-login-flow.js';
 
@@ -581,12 +581,7 @@ async function tryEstablishChatgptLoginSession({ task, userId, tabId, saveStep }
   console.log(`[${task.email}] 🌐 Thử thiết lập session đăng nhập tại chatgpt.com...`);
 
   try {
-    await camofoxGoto(tabId, {
-      userId,
-      url: 'https://chatgpt.com/',
-      waitUntil: 'domcontentloaded',
-      timeout: 15000,
-    }, { timeoutMs: 18000 });
+    await camofoxGoto(tabId, userId, 'https://chatgpt.com/', { timeoutMs: 18000 });
     await new Promise(r => setTimeout(r, 2500));
     await saveStep('chatgpt_home');
   } catch (err) {
@@ -694,12 +689,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
 
   if (directWorkspaceSelection?.ok) {
     try {
-      await camofoxGoto(tabId, {
-        userId,
-        url: CODEX_CONSENT_URL,
-        waitUntil: 'domcontentloaded',
-        timeout: 12000,
-      }, { timeoutMs: 15000 });
+      await camofoxGoto(tabId, userId, CODEX_CONSENT_URL, { timeoutMs: 15000 });
       await new Promise(r => setTimeout(r, 2500));
       await saveStep('workspace_selected_back_to_consent');
     } catch (err) {
@@ -718,12 +708,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
   });
 
   try {
-    await camofoxGoto(tabId, {
-      userId,
-      url: 'https://chatgpt.com/',
-      waitUntil: 'domcontentloaded',
-      timeout: 12000,
-    }, { timeoutMs: 15000 });
+    await camofoxGoto(tabId, userId, 'https://chatgpt.com/', { timeoutMs: 15000 });
     await new Promise(r => setTimeout(r, 2500));
     await saveStep('workspace_bootstrap_home');
   } catch (err) {
@@ -753,12 +738,7 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, saveStep }) {
 
   const freshAuthUrl = getFreshAuthBootstrapUrl(task);
   try {
-    await camofoxGoto(tabId, {
-      userId,
-      url: freshAuthUrl,
-      waitUntil: 'domcontentloaded',
-      timeout: 15000,
-    }, { timeoutMs: 18000 });
+    await camofoxGoto(tabId, userId, freshAuthUrl, { timeoutMs: 18000 });
     await new Promise(r => setTimeout(r, 2500));
     await saveStep(freshAuthUrl === CODEX_CONSENT_URL ? 'workspace_bootstrap_back_to_consent' : 'workspace_bootstrap_fresh_authorize');
     console.log(`[${task.email}] 🔁 Đã khởi động lại auth flow bằng URL mới: ${freshAuthUrl}`);
@@ -793,12 +773,7 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
     }
 
     try {
-      const gotoRes = await camofoxGoto(bypassTabId, {
-        userId,
-        url: CODEX_CONSENT_URL,
-        waitUntil: 'domcontentloaded',
-        timeout: 12000,
-      }, { timeoutMs: 15000 });
+      const gotoRes = await camofoxGoto(bypassTabId, userId, CODEX_CONSENT_URL, { timeoutMs: 15000 });
       console.log(`[${task.email}] ↪️ Đã goto trực tiếp sang consent trên tab hiện tại: ${gotoRes.finalUrl || CODEX_CONSENT_URL}`);
     } catch (gotoErr) {
       console.log(`[${task.email}] ⚠️ Goto trên tab hiện tại thất bại, mở tab consent mới: ${gotoErr.message}`);
@@ -823,6 +798,9 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
     await new Promise(r => setTimeout(r, 3000));
     await saveStep('thu_consent_bypass');
 
+    let bootstrapAttempts = 0;
+    const MAX_BOOTSTRAP_ATTEMPTS = 2;
+
     for (let i = 0; i < 20; i++) {
       const snap = await camofoxGet(`/tabs/${bypassTabId}/snapshot?userId=${userId}`);
       const currentUrl = snap.url || '';
@@ -839,6 +817,11 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
       }
 
       if (isWorkspaceSessionError(currentUrl, snapshot)) {
+        if (bootstrapAttempts >= MAX_BOOTSTRAP_ATTEMPTS) {
+          console.log(`[${task.email}] ⚠️ Đã thử bootstrap ${bootstrapAttempts} lần, vẫn lỗi workspace → bỏ qua.`);
+          break;
+        }
+        bootstrapAttempts++;
         const workspaceState = await tryBootstrapWorkspaceSession({
           task,
           userId,
@@ -910,7 +893,7 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
         }
 
         try {
-          const evalRes = await camofoxEval(
+          const evalRes = await evalJson(
             bypassTabId,
             userId,
             `
@@ -947,9 +930,9 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
                 return { action: 'no-op', url: location.href };
               })()
             `,
-            { timeoutMs: 3000 },
+            3000,
           );
-          console.log(`[${task.email}] 🧠 Eval consent fallback: ${JSON.stringify(evalRes.result || evalRes).slice(0, 160)}`);
+          console.log(`[${task.email}] 🧠 Eval consent fallback: ${JSON.stringify(evalRes).slice(0, 160)}`);
         } catch (evalErr) {
           console.log(`[${task.email}] ⚠️ Eval consent fallback lỗi: ${evalErr.message}`);
         }
@@ -1035,8 +1018,21 @@ async function runLoginFlow(task) {
   await fs.mkdir(runDir, { recursive: true });
 
   let saveStep = null;
+  let preFlightResult = null;
 
   try {
+    // 🔒 [PreFlight] Assert proxy applied BEFORE creating main tab
+    if (effectiveProxy) {
+      console.log(`🔒 [PreFlight] Asserting proxy applied: ${effectiveProxy}`);
+      try {
+        preFlightResult = await assertProxyApplied(effectiveProxy);
+        console.log(`✅ [PreFlight] OK — Exit IP: ${preFlightResult.exitIp} (${preFlightResult.networkType})${preFlightResult.isLocalRelay ? ' 🔒 LOCAL RELAY' : ''}`);
+      } catch (err) {
+        console.log(`🛑 [PreFlight] FAILED: ${err.message}`);
+        throw err;  // hard abort, don't even try main tab
+      }
+    }
+
     // 1. Mở tab với proxy
     const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
     console.log(`[1] Mở URL: ${loginUrl}`);
@@ -1048,9 +1044,9 @@ async function runLoginFlow(task) {
       // --- CẤU HÌNH ẨN DANH NÂNG CAO & SẠCH TUYỆT ĐỐI ---
       persistent: false,
       os: 'macos',
-      screen: { width: 1440, height: 900 }, 
-      humanize: true,          
-      headless: false,         
+      screen: { width: 1440, height: 900 },
+      humanize: true,
+      headless: false,
       randomFonts: true,
       canvas: 'random',
     });
@@ -1062,35 +1058,20 @@ async function runLoginFlow(task) {
     // Chờ hệ thống khởi động (2 giây) thay vì 15 giây tốn thời gian, sau đó dùng waitForSelector
     await new Promise(r => setTimeout(r, 2000));
 
-    // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
-    try {
-      console.log(`🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-      const ipCheck = await probeProxyExitIp(USER_ID, effectiveProxy || null, true);
-      if (ipCheck && ipCheck.ip) {
-        console.log(`✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
-        if (effectiveProxy) {
-          const localIp = await getLocalPublicIp();
-          if (localIp) {
-            console.log(`ℹ️ [Diagnostic] Host Public IP: ${localIp}`);
-            if (String(localIp).toLowerCase() === String(ipCheck.ip).toLowerCase()) {
-              throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Host Public IP).`);
-            }
-          } else {
-            throw new Error(`Không thể xác định Host Public IP để xác thực proxy.`);
-          }
-        }
-      } else if (ipCheck && ipCheck.error) {
-        console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
-        // [HARD-FAIL]
-        if (effectiveProxy) {
-          throw new Error(`Proxy không hoạt động hoặc không thể kết nối. Dừng tiến trình.`);
-        }
-      } else if (effectiveProxy) {
-        throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
+    // 🔍 [PostVerify] Re-probe to confirm session inherited proxy
+    if (effectiveProxy && preFlightResult) {
+      console.log(`🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+      const verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+      if (!verifyCheck?.ip) {
+        throw new Error(`[PostVerify] Không probe được sau khi tạo tab: ${verifyCheck?.error}`);
       }
-    } catch (err) {
-      console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-      if (effectiveProxy) throw err;
+      if (verifyCheck.ip !== preFlightResult.exitIp) {
+        // For backconnect/rotating proxies this MAY be expected; for static proxies it indicates session leak
+        console.log(`⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating proxy?)`);
+        // For local relay or static proxies, this is suspicious → warn but don't abort
+      } else {
+        console.log(`✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
+      }
     }
 
     await saveStep('khoi_dong');

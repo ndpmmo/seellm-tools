@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
-import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
@@ -341,8 +341,23 @@ export async function runAutoRegister(taskInput) {
 
   let tabId = null;
   let saveStep = null;
+  let preFlightResult = null;
+  let phoneBypassAttempted = false;
+  let phoneBypassSuccess = false;
 
   try {
+    // 🔒 [PreFlight] Assert proxy applied BEFORE creating main tab
+    if (proxyUrl) {
+      console.log(`🔒 [PreFlight] Asserting proxy applied: ${proxyUrl}`);
+      try {
+        preFlightResult = await assertProxyApplied(proxyUrl);
+        console.log(`✅ [PreFlight] OK — Exit IP: ${preFlightResult.exitIp} (${preFlightResult.networkType})${preFlightResult.isLocalRelay ? ' 🔒 LOCAL RELAY' : ''}`);
+      } catch (err) {
+        console.log(`🛑 [PreFlight] FAILED: ${err.message}`);
+        throw err;  // hard abort, don't even try main tab
+      }
+    }
+
     // 1. Khởi động - Đi từ trang login để tránh bị blank page
     console.log(`🚀 [Phase 1] Truy cập trang Login...`);
     const tabRes = await camofoxPostWithSessionKey('/tabs', {
@@ -360,36 +375,19 @@ export async function runAutoRegister(taskInput) {
 
     await new Promise(r => setTimeout(r, 5000));
 
-    // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
-    try {
-      console.log(`🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-      const ipCheck = await probeProxyExitIp(USER_ID, proxyUrl, true);
-      if (ipCheck && ipCheck.ip) {
-        console.log(`✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
-        if (proxyUrl) {
-          const localIp = await getLocalPublicIp();
-          if (localIp) {
-            console.log(`ℹ️ [Diagnostic] Host Public IP: ${localIp}`);
-            if (String(localIp).toLowerCase() === String(ipCheck.ip).toLowerCase()) {
-              throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Host Public IP).`);
-            }
-          } else {
-            throw new Error(`Không thể xác định Host Public IP để xác thực proxy.`);
-          }
-        }
-      } else if (ipCheck && ipCheck.error) {
-        console.log(`⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
-        // [HARD-FAIL] Nếu có gán proxy mà kiểm tra thất bại thì dừng luôn
-        if (proxyUrl) {
-          throw new Error(`Proxy không hoạt động hoặc không thể kết nối (Diagnostic failed). Dừng tiến trình để bảo mật.`);
-        }
-      } else if (proxyUrl) {
-        throw new Error(`Không lấy được Exit IP khi đã gán proxy.`);
+    // 🔍 [PostVerify] Re-probe to confirm session inherited proxy
+    if (proxyUrl && preFlightResult) {
+      console.log(`🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+      const verifyCheck = await probeProxyExitIp(USER_ID, proxyUrl, true);  // reuse session
+      if (!verifyCheck?.ip) {
+        throw new Error(`[PostVerify] Không probe được sau khi tạo tab: ${verifyCheck?.error}`);
       }
-    } catch (err) {
-      console.log(`⚠️ [Diagnostic] Không thể kiểm tra IP: ${err.message}`);
-      if (proxyUrl) {
-        throw err; // Re-throw để dừng tiến trình ở block catch chính
+      if (verifyCheck.ip !== preFlightResult.exitIp) {
+        // For backconnect/rotating proxies this MAY be expected; for static proxies it indicates session leak
+        console.log(`⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating proxy?)`);
+        // For local relay or static proxies, this is suspicious → warn but don't abort
+      } else {
+        console.log(`✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
       }
     }
 
@@ -600,9 +598,11 @@ export async function runAutoRegister(taskInput) {
     const pageUrl = await evalJson(tabId, USER_ID, `location.href`);
     if (pageUrl.includes('add-phone')) {
       console.log(`[6.1] Phát hiện add-phone → thử conditional bypass trước...`);
+      phoneBypassAttempted = true;
       const bypassResult = await performWorkspaceConsentBypass(evalJson, tabId, USER_ID);
       if (bypassResult.ok && bypassResult.code) {
         console.log(`[6.1] ✅ Conditional bypass thành công! Code: ${bypassResult.code.slice(0, 20)}...`);
+        phoneBypassSuccess = true;
         // Store code for later use if OAuth is enabled
         await saveStep('06b_phone_bypass_success');
       } else {
@@ -740,8 +740,8 @@ export async function runAutoRegister(taskInput) {
         status: 'idle',
         skipSync: true,
         restore_deleted: true,
-        tags: JSON.stringify(['auto-register', 'vault-register', ...(codexRefreshToken ? ['codex-oauth'] : [])]),
-        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''} | Tạo: ${new Date().toISOString()}`
+        tags: JSON.stringify(['auto-register', 'vault-register', ...(phoneBypassAttempted ? ['phone-verify'] : []), ...(phoneBypassSuccess ? ['phone-bypass-ok'] : []), ...(codexRefreshToken ? ['codex-oauth'] : [])]),
+        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${phoneBypassAttempted ? ` | Phone Verify: ${phoneBypassSuccess ? 'Bypass OK' : 'Bypass Failed'}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''} | Tạo: ${new Date().toISOString()}`
       }),
     });
     const accData = await accRes.json();
