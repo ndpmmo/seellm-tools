@@ -11,7 +11,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import https from 'node:https';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, pressKey } from './lib/camofox.js';
@@ -20,90 +19,10 @@ import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitI
 import { createSaveStep } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState } from './lib/openai-login-flow.js';
+import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId } from './lib/openai-oauth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGES_DIR = path.join(__dirname, '..', 'data', 'screenshots');
-
-// ================================================================
-// OAUTH PKCE CONSTANTS (giống any-auto-register + Codex CLI)
-// ================================================================
-const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
-const OAUTH_AUTH_URL = 'https://auth.openai.com/oauth/authorize';
-const OAUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
-const OAUTH_SCOPE = 'openid email profile offline_access';
-
-function generatePKCE() {
-    const codeVerifier = crypto.randomBytes(48).toString('base64url');
-    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-    const state = crypto.randomBytes(16).toString('base64url');
-    return { codeVerifier, codeChallenge, state };
-}
-
-function buildOAuthURL(pkce) {
-    const params = new URLSearchParams({
-        client_id: OAUTH_CLIENT_ID,
-        response_type: 'code',
-        redirect_uri: OAUTH_REDIRECT_URI,
-        scope: OAUTH_SCOPE,
-        state: pkce.state,
-        code_challenge: pkce.codeChallenge,
-        code_challenge_method: 'S256',
-        // ⚠️ KHÔNG dùng prompt=login (ép đăng nhập lại)
-        // Dùng consent hoặc bỏ prompt để tận dụng session hiện có
-    });
-    return `${OAUTH_AUTH_URL}?${params.toString()}`;
-}
-
-async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
-    const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: OAUTH_CLIENT_ID,
-        code,
-        redirect_uri: OAUTH_REDIRECT_URI,
-        code_verifier: pkce.codeVerifier,
-    });
-    const postData = params.toString();
-
-    // ── Nếu có proxy: dùng curl để đồng bộ IP với trình duyệt ──
-    if (proxyUrl) {
-        try {
-            const { execSync } = await import('node:child_process');
-            const curlCmd = [
-                'curl', '-s', '-X', 'POST',
-                '-H', '"Content-Type: application/x-www-form-urlencoded"',
-                '-H', '"Accept: application/json"',
-                '--proxy', `"${proxyUrl}"`,
-                '--data', `"${postData}"`,
-                `"${OAUTH_TOKEN_URL}"`
-            ].join(' ');
-
-            const responseText = execSync(curlCmd, { encoding: 'utf8', timeout: 15000 });
-            const data = JSON.parse(responseText);
-            if (data.error) throw new Error(data.error_description || JSON.stringify(data.error));
-            console.log(`[Connect] [Technical: Proxy] Token exchange success via proxy.`);
-            return data;
-        } catch (err) {
-            console.warn(`[Connect] [Technical: Proxy] Proxy exchange failed, falling back to direct: ${err.message}`);
-        }
-    }
-
-    const res = await fetch(OAUTH_TOKEN_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-        },
-        body: postData,
-        signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Token exchange failed: ${res.status} ${err.slice(0, 200)}`);
-    }
-    return res.json();
-}
-
 
 // ================================================================
 // PAGE STATE DETECTION (wrapper around shared lib for logging)
