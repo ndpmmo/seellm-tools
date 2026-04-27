@@ -1,5 +1,35 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.29] - 2026-04-28
+
+### 🛡️ Worker Pre-Flight Proxy Probe — Multi-Endpoint Fallback (Bug nghiêm trọng)
+
+Phát hiện lỗ hổng quan trọng trong workers: hàm `probeProxyExitIp()` ở `scripts/lib/proxy-diag.js` chỉ thử **1 endpoint** `api64.ipify.org`. Nếu endpoint đó:
+- Bị Cloudflare challenge cho IP proxy
+- Timeout / blackhole
+- Trả empty body
+
+→ `assertProxyApplied()` throw → **toàn bộ task account bị abort ngay từ pre-flight**, không kịp mở tab login.
+
+Nghĩa là một proxy hoàn toàn alive vẫn có thể bị workers từ chối nếu `api64.ipify.org` route gặp sự cố.
+
+#### ✅ Fix
+- **`scripts/lib/proxy-diag.js` — `probeProxyExitIp()`**: thử 4 endpoint trong cùng 1 tab probe:
+  1. `api64.ipify.org` (IPv4/IPv6 dual)
+  2. `api.myip.com`
+  3. `ifconfig.me/all.json`
+  4. `ipv4.icanhazip.com`
+  
+  Endpoint đầu tiên parse được IP thì dùng; navigate sang endpoint kế tiếp nếu fail. Chỉ throw `[ProxyAssert]` khi **cả 4 đều fail**.
+
+#### 💡 Tác động
+Áp dụng cho `auto-login-worker.js`, `auto-connect-worker.js`, `auto-register-worker.js` (tất cả đều gọi `assertProxyApplied()` ở pre-flight).
+
+#### 📁 Files Changed
+- `scripts/lib/proxy-diag.js`
+
+---
+
 ## [0.2.28] - 2026-04-28
 
 ### 🌐 Proxy Test — Multi-Endpoint Fallback

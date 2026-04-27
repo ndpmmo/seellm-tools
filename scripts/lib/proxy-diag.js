@@ -97,12 +97,20 @@ export async function getLocalPublicIp() {
  * @returns {Promise<{ip?: string, source?: string, error?: string}>} Result object
  */
 export async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
+  // Multiple endpoints with fallback — protects against CF challenges, timeouts, regional blocks
+  const ENDPOINTS = [
+    'https://api64.ipify.org/?format=json',
+    'https://api.myip.com',
+    'https://ifconfig.me/all.json',
+    'https://ipv4.icanhazip.com',
+  ];
   let probeTabId = null;
+  const errors = [];
   try {
     const opened = await camofoxPost('/tabs', {
       userId,
       sessionKey: `probe_${Date.now()}`,
-      url: 'https://api64.ipify.org/?format=json',
+      url: ENDPOINTS[0],
       ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
       persistent: false,
       headless: false,
@@ -110,13 +118,106 @@ export async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = 
     }, { timeoutMs: 25000 });
     probeTabId = opened.tabId;
     await new Promise(r => setTimeout(r, 3500));
-    const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, { timeoutMs: 20000 });
-    const ip = extractIpFromText(bodyText);
-    if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
-    return { ip, source: 'https://api64.ipify.org/?format=json' };
+
+    for (let i = 0; i < ENDPOINTS.length; i++) {
+      const url = ENDPOINTS[i];
+      try {
+        if (i > 0) {
+          await camofoxPost(`/tabs/${probeTabId}/navigate`, { userId, url }, { timeoutMs: 15000 });
+          await new Promise(r => setTimeout(r, 2500));
+        }
+        const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, { timeoutMs: 15000 });
+        const ip = extractIpFromText(bodyText);
+        if (ip) return { ip, source: url };
+        errors.push(`${url}: no IP in body (${String(bodyText || '').slice(0, 60)})`);
+      } catch (e) {
+        errors.push(`${url}: ${e.message?.slice(0, 80)}`);
+      }
+    }
+    return { error: `Tất cả endpoint đều fail: ${errors.join(' | ')}` };
   } catch (e) {
     return { error: e.message || String(e) };
   } finally {
     if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${userId}`);
   }
+}
+
+/**
+ * Detect loopback proxy URL (any port)
+ * @param {string} proxyUrl - Proxy URL
+ * @returns {boolean} True if loopback (127.0.0.1, ::1, localhost)
+ */
+export function isLocalRelayProxy(proxyUrl) {
+  if (!proxyUrl) return false;
+  try {
+    const u = new URL(proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`);
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h.startsWith('127.');
+  } catch { return false; }
+}
+
+/**
+ * Strict proxy URL syntax validator
+ * @param {string} proxyUrl - Proxy URL to validate
+ * @returns {string|null} Error message or null if valid
+ */
+export function validateProxyUrl(proxyUrl) {
+  if (!proxyUrl) return null;  // empty = no proxy = OK
+  const s = String(proxyUrl).trim();
+  if (!s) return null;
+  const normalized = s.includes('://') ? s : `http://${s}`;
+  let u;
+  try { u = new URL(normalized); }
+  catch { return `Proxy URL không parse được: ${s}`; }
+  const allowed = ['http:', 'https:', 'socks4:', 'socks5:'];
+  if (!allowed.includes(u.protocol)) return `Protocol không hỗ trợ: ${u.protocol}`;
+  if (!u.hostname) return 'Proxy URL thiếu hostname';
+  if (!u.port && u.protocol !== 'socks5:') return 'Proxy URL thiếu port';
+  return null;
+}
+
+/**
+ * Validate diagnostic result
+ * @param {Object} params - Validation parameters
+ * @param {string} params.proxyUrl - Proxy URL
+ * @param {string} params.exitIp - Exit IP from proxy
+ * @param {string} params.localIp - Local public IP (optional)
+ * @returns {string|null} Error message or null if valid
+ */
+export function validateDiagnosticResult({ proxyUrl, exitIp, localIp }) {
+  if (!proxyUrl) return null;
+  if (!exitIp) return 'Không lấy được Exit IP khi đã gán proxy';
+  if (isLocalRelayProxy(proxyUrl)) return null;  // local relay: skip equality check
+  if (!localIp) return 'Không thể xác định Host Public IP để xác thực proxy';
+  if (String(localIp).toLowerCase() === String(exitIp).toLowerCase()) {
+    return 'Proxy chưa được áp dụng (Exit IP trùng Host Public IP)';
+  }
+  return null;
+}
+
+/**
+ * STRICT PRE-FLIGHT: validate syntax → spawn dedicated probe session with EXPLICIT proxy → verify exit IP
+ * Throws on any failure. Only call BEFORE main tab creation.
+ * @param {string} proxyUrl - Proxy URL (already normalized)
+ * @returns {Promise<{exitIp: string, networkType: 'IPv4'|'IPv6', isLocalRelay: boolean}>}
+ */
+export async function assertProxyApplied(proxyUrl) {
+  const syntaxErr = validateProxyUrl(proxyUrl);
+  if (syntaxErr) throw new Error(`[ProxyAssert] ${syntaxErr}`);
+  if (!proxyUrl) return null;  // no proxy = nothing to assert
+
+  const probeUserId = `__proxy_assert_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+  // Force fresh session, EXPLICIT proxy
+  const result = await probeProxyExitIp(probeUserId, proxyUrl, false);
+  if (!result?.ip) {
+    throw new Error(`[ProxyAssert] Không lấy được exit IP: ${result?.error || 'unknown'}`);
+  }
+
+  const isLocalRelay = isLocalRelayProxy(proxyUrl);
+  const localIp = isLocalRelay ? null : await getLocalPublicIp();
+  const failReason = validateDiagnosticResult({ proxyUrl, exitIp: result.ip, localIp });
+  if (failReason) throw new Error(`[ProxyAssert] ${failReason}`);
+
+  const networkType = String(result.ip).includes(':') ? 'IPv6' : 'IPv4';
+  return { exitIp: result.ip, networkType, isLocalRelay };
 }
