@@ -46,11 +46,14 @@ Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-lo
 - Included live testing commands and troubleshooting guide
 
 #### 📊 Summary
-- **Total commits**: 6 (one per phase for easy rollback)
+- **Total commits**: 8 (6 phases + 1 fix + 1 version bump)
 - **Code reduction**: ~250 lines of duplicate code removed
 - **New helpers**: 7 helper functions added to shared libraries
 - **Documentation**: 1 new tuning guide created
 - **Syntax checks**: All files pass `node --check`
+
+#### 🔧 Bug Fix
+- Added missing `camofoxGoto` import to auto-login-worker.js (was used but not imported)
 
 ## [0.2.19] - 2026-04-23
 
