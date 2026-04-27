@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, pressKey } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
-import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState } from './lib/openai-login-flow.js';
@@ -86,8 +86,21 @@ async function runConnectFlow(task) {
 
     let tabId = null;
     let saveStep = null;
+    let preFlightResult = null;
 
     try {
+        // 🔒 [PreFlight] Assert proxy applied BEFORE creating main tab
+        if (effectiveProxy) {
+            console.log(`[Connect] 🔒 [PreFlight] Asserting proxy applied: ${effectiveProxy}`);
+            try {
+                preFlightResult = await assertProxyApplied(effectiveProxy);
+                console.log(`[Connect] ✅ [PreFlight] OK — Exit IP: ${preFlightResult.exitIp} (${preFlightResult.networkType})${preFlightResult.isLocalRelay ? ' 🔒 LOCAL RELAY' : ''}`);
+            } catch (err) {
+                console.log(`[Connect] 🛑 [PreFlight] FAILED: ${err.message}`);
+                throw err;  // hard abort, don't even try main tab
+            }
+        }
+
         // ── BƯỚC 1: Mở thẳng trang ĐĂNG NHẬP (không qua homepage) ──────
         // Auth URL trực tiếp để tránh bấm nút "Log in" trên homepage
         const LOGIN_URL = 'https://chatgpt.com/auth/login';
@@ -112,34 +125,21 @@ async function runConnectFlow(task) {
 
         // Đợi trang tải hoàn toàn (chatgpt landing page chậm)
         await new Promise(r => setTimeout(r, 5000));
-        
-        // 🔍 [Diagnostic] Kiểm tra IP thoát của Proxy bằng tab probe riêng (tránh false-fail do CORS)
-        // [HARD-FAIL]: Nếu không probe được IP thì abort luôn — không cho chạy tiếp với network không xác định
-        try {
-          console.log(`[Connect] 🔍 [Diagnostic] Đang kiểm tra IP thoát qua Proxy...`);
-          const ipCheck = await probeProxyExitIp(USER_ID, effectiveProxy || null, true);
-          if (ipCheck && ipCheck.ip) {
-            console.log(`[Connect] ✅ [Diagnostic] Exit IP: ${ipCheck.ip}`);
-            if (effectiveProxy) {
-              const localIp = await getLocalPublicIp();
-              if (localIp) {
-                console.log(`[Connect] ℹ️ [Diagnostic] Host Public IP: ${localIp}`);
-                if (String(localIp).toLowerCase() === String(ipCheck.ip).toLowerCase()) {
-                  throw new Error(`Proxy chưa được áp dụng (Exit IP trùng Host Public IP).`);
-                }
-              } else {
-                throw new Error(`Không thể xác định Host Public IP để xác thực proxy.`);
-              }
+
+        // 🔍 [PostVerify] Re-probe to confirm session inherited proxy
+        if (effectiveProxy && preFlightResult) {
+            console.log(`[Connect] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+            const verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+            if (!verifyCheck?.ip) {
+                throw new Error(`[Connect] [PostVerify] Không probe được sau khi tạo tab: ${verifyCheck?.error}`);
             }
-          } else if (ipCheck && ipCheck.error) {
-            console.log(`[Connect] ⚠️ [Diagnostic] Lỗi kiểm tra IP: ${ipCheck.error}`);
-            throw new Error(`Proxy/Network không hoạt động (${ipCheck.error}). Dừng tiến trình.`);
-          } else {
-            throw new Error(`Không lấy được Exit IP. Dừng tiến trình.`);
-          }
-        } catch (err) {
-          console.log(`[Connect] ❌ [Diagnostic] Hard-fail: ${err.message}`);
-          throw err;
+            if (verifyCheck.ip !== preFlightResult.exitIp) {
+                // For backconnect/rotating proxies this MAY be expected; for static proxies it indicates session leak
+                console.log(`[Connect] ⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating proxy?)`);
+                // For local relay or static proxies, this is suspicious → warn but don't abort
+            } else {
+                console.log(`[Connect] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
+            }
         }
 
         await saveStep('01_login_page');
@@ -218,6 +218,10 @@ async function runConnectFlow(task) {
 
         if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
             await saveStep('02_failed');
+            // Trước khi báo generic error → check phone screen để gán nhãn 📵 Cần SĐT đúng
+            if (state?.hasPhoneScreen) {
+                return sendConnectResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+            }
             return sendConnectResult(task, 'error', `Không tìm thấy email input sau 8 lần thử. URL: ${state?.href}`);
         }
 

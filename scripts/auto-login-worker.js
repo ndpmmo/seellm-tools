@@ -1299,13 +1299,9 @@ async function runLoginFlow(task) {
       const html = (checkSnap.snapshot || '').toLowerCase();
       const cleanText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
 
-      // 🚫 Phát hiện màn hình yêu cầu số điện thoại (Phone number required)
-      if (
-        cleanText.includes('phone number required') ||
-        cleanText.includes('add a phone number') ||
-        (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
-        (curUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')))
-      ) {
+      // 🚫 Phát hiện màn hình yêu cầu số điện thoại — dùng helper chuẩn (bao quát hơn)
+      if (isPhoneVerificationScreen(curUrl, html)) {
+        console.log(`[${task.email}] 📵 Detected phone screen at ${curUrl}`);
         redirectUrl = await tryBypassPhoneRequirement({
           task,
           userId: USER_ID,
@@ -1371,6 +1367,22 @@ async function runLoginFlow(task) {
         finalUrl: redirectUrl,
       });
     } else {
+      // Final phone-screen check trước khi báo lỗi chung — đảm bảo gán nhãn 📵 Cần SĐT đúng
+      try {
+        const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        const finalUrl = finalSnap.url || '';
+        const finalText = (finalSnap.snapshot || '').toLowerCase();
+        if (isPhoneVerificationScreen(finalUrl, finalText)) {
+          console.log(`[${task.email}] 📵 Final-check: phone screen detected at ${finalUrl} → gán nhãn NEED_PHONE`);
+          await saveStep('yeu_cau_so_dien_thoai_finalcheck');
+          await sendResultToGateway(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại', {
+            finalUrl,
+          });
+          return;
+        }
+      } catch (e) {
+        console.log(`[${task.email}] ⚠️ Final phone-check lỗi: ${e.message}`);
+      }
       console.log(`[${task.email}] ❌ THẤT BẠI: Không thấy Code sau 40s.`);
       await sendResultToGateway(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', {
         finalUrl: redirectUrl || 'unknown',

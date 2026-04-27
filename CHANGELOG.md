@@ -1,5 +1,31 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.27] - 2026-04-28
+
+### 📵 Phone Verification Tagging — Fix Generic `error` → `NEED_PHONE`
+
+Khi account yêu cầu xác minh SĐT, worker thường rơi vào timeout của vòng watch redirect và báo generic error thay vì gán nhãn `📵 Cần SĐT`. Fixed by:
+
+#### 🐛 Bug Fixes
+- **`scripts/auto-login-worker.js` redirect-watch loop**: Thay pattern inline thiếu thốn bằng helper `isPhoneVerificationScreen(curUrl, html)` toàn diện hơn.
+- **`scripts/auto-login-worker.js` final-check fallback**: Trước khi báo lỗi `Hết thời gian chờ`, làm thêm 1 final snapshot check; nếu phát hiện phone screen → gán `NEED_PHONE` đúng thay vì error chung.
+- **`scripts/auto-connect-worker.js`**: Khi không tìm thấy email input sau 8 lần thử, check `hasPhoneScreen` trước khi báo generic error.
+
+#### 🔍 Phone Screen Detection
+- **`scripts/lib/openai-login-flow.js` — `isPhoneVerificationScreen()`** mở rộng:
+  - URL signals: `/add-phone`, `/add_phone`, `/phone-verification`, `/phone-verify`, `/verify-phone`
+  - Text signals bổ sung: `add phone number`, `add your phone`, `phone number + verify`
+
+#### 💡 Result
+Giờ tất cả accounts dính phone verification (kể cả timeout) sẽ được gán nhãn `📵 Cần SĐT` (status=`error` + notes bắt đầu bằng `NEED_PHONE`).
+
+#### 📁 Files Changed
+- `scripts/auto-login-worker.js`
+- `scripts/auto-connect-worker.js`
+- `scripts/lib/openai-login-flow.js`
+
+---
+
 ## [0.2.26] - 2026-04-28
 
 ### 🐛 ChatGPT Login UI Update — `data-testid="login-button"`

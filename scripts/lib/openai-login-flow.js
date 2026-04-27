@@ -373,11 +373,21 @@ function normalizePageText(input = '') {
 export function isPhoneVerificationScreen(url = '', snapshot = '') {
   const cleanText = normalizePageText(snapshot);
   const lowerUrl = String(url || '').toLowerCase();
+  // URL signals — strongest indicator
+  if (lowerUrl.includes('/add-phone') || lowerUrl.includes('/add_phone') ||
+      lowerUrl.includes('/phone-verification') || lowerUrl.includes('/phone-verify') ||
+      lowerUrl.includes('/verify-phone')) {
+    return true;
+  }
+  // Text signals
   return cleanText.includes('phone number required') ||
          cleanText.includes('add a phone number') ||
+         cleanText.includes('add phone number') ||
          cleanText.includes('verify your phone') ||
          cleanText.includes('enter your phone') ||
+         cleanText.includes('add your phone') ||
          (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
+         (cleanText.includes('phone number') && cleanText.includes('verify')) ||
          (lowerUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')));
 }
 
