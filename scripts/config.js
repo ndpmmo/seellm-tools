@@ -14,6 +14,7 @@ const defaults = {
   camofoxPort: 3000,
   camofoxApi: 'http://localhost:9377',
   gatewayUrl: 'http://localhost:20128',
+  toolsApiUrl: 'http://localhost:4000',
   workerAuthToken: '',
   pollIntervalMs: 15000,
   maxThreads: 3,
@@ -38,6 +39,7 @@ export function loadConfig() {
 export const config = loadConfig();
 export const CAMOUFOX_API = config.camofoxApi;
 export const GATEWAY_URL = config.gatewayUrl;
+export const TOOLS_API_URL = process.env.TOOLS_API_URL || config.toolsApiUrl;
 export const WORKER_AUTH_TOKEN = process.env.WORKER_AUTH_TOKEN || config.workerAuthToken;
 export const POLL_INTERVAL_MS = config.pollIntervalMs;
 export const MAX_THREADS = config.maxThreads;

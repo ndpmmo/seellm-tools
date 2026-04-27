@@ -13,7 +13,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
-import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN } from './config.js';
+import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './config.js';
 import { camofoxPost, camofoxDelete, evalJson } from './lib/camofox.js';
 import { getTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
@@ -62,7 +62,6 @@ function generateRandomUserInfo() {
 
 async function updatePoolStatus(email, data) {
   try {
-    const TOOLS_API_URL = process.env.TOOLS_API_URL || 'http://localhost:4000';
     await fetch(`${TOOLS_API_URL}/api/vault/email-pool`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
