@@ -55,7 +55,7 @@ Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-lo
 #### 🔧 Bug Fixes
 - Added missing `camofoxGoto` import to auto-login-worker.js (was used but not imported)
 - Fixed `waitForState` import in auto-connect-worker.js (was importing from wrong module lib/camofox.js instead of lib/openai-login-flow.js)
-- Fixed MFA input in auto-connect-worker.js showing `[object Object]` instead of 6-digit code (getFreshTOTP returns `{otp, remaining}` object, need to destructure)
+- Fixed MFA input in auto-connect-worker.js showing `[object Object]` instead of 6-digit code (getFreshTOTP returns `{otp, remaining}` object, need to destructure) - fixed at lines 335, 345, and 679
 
 ## [0.2.19] - 2026-04-23
 
