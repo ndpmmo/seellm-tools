@@ -187,24 +187,35 @@ router.post('/proxies/:id/test', async (req, res) => {
   const start = Date.now();
   try {
     const proxyUrlStr = proxy.url.includes('://') ? proxy.url : `http://${proxy.url}`;
+    const isLocalRelay = /^https?:\/\/(127\.|localhost|\[?::1)/i.test(proxyUrlStr);
 
-    // Test proxy exit IP and Country using proxy with curl (ip-api.com is very stable)
+    // Test proxy exit IP through multiple endpoints (some proxies hit CF challenge on ifconfig.co)
     const { execFile } = await import('child_process');
-    const getTargetInfo = () => new Promise((resolve, reject) => {
-      // Use ifconfig.co/json as it natively supports IPv6/IPv4 and returns ISO country
-      execFile('curl', ['-L', '-s', '-x', proxyUrlStr, 'https://ifconfig.co/json', '--max-time', '15'], (error, stdout) => {
-        if (error) return reject(new Error(`Connection failed: ${error.message}`));
-        try {
-          const result = JSON.parse(stdout);
-          if (result.ip) resolve({ ip: result.ip, country: result.country_iso });
-          else reject(new Error('Invalid response data'));
-        } catch(e) {
-          reject(new Error('Format error (JSON expected)'));
-        }
+    // Each endpoint: { url, parse(stdout) → { ip, country? } | throws }
+    const endpoints = [
+      { url: 'https://api.myip.com', parse: (s) => { const j = JSON.parse(s); if (!j.ip) throw new Error('no ip'); return { ip: j.ip, country: j.cc || null }; } },
+      { url: 'https://api64.ipify.org?format=json', parse: (s) => { const j = JSON.parse(s); if (!j.ip) throw new Error('no ip'); return { ip: j.ip, country: null }; } },
+      { url: 'https://ifconfig.me/all.json', parse: (s) => { const j = JSON.parse(s); const ip = j.ip_addr || j.ip; if (!ip) throw new Error('no ip'); return { ip, country: null }; } },
+      { url: 'https://ifconfig.co/json', parse: (s) => { const j = JSON.parse(s); if (!j.ip) throw new Error('no ip'); return { ip: j.ip, country: j.country_iso || null }; } },
+    ];
+    const probe = (url) => new Promise((resolve, reject) => {
+      execFile('curl', ['-L', '-s', '-x', proxyUrlStr, url, '--max-time', '12'], (error, stdout) => {
+        if (error) return reject(new Error(error.message));
+        resolve(stdout);
       });
     });
-
-    const info = await getTargetInfo();
+    let info = null;
+    let lastErr = null;
+    for (const ep of endpoints) {
+      try {
+        const stdout = await probe(ep.url);
+        info = ep.parse(stdout);
+        if (info?.ip) break;
+      } catch (e) {
+        lastErr = `${ep.url}: ${e.message}`;
+      }
+    }
+    if (!info?.ip) throw new Error(`All endpoints failed. Last: ${lastErr}`);
     const networkType = info.ip.includes(':') ? 'IPv6' : 'IPv4';
     const latency = Date.now() - start;
 
@@ -217,7 +228,7 @@ router.post('/proxies/:id/test', async (req, res) => {
 
     const now = new Date().toISOString();
     vault.upsertProxy({ ...proxy, is_active: 1, last_tested: now, latency_ms: latency, notes: notesStr, country: updatedCountry }, true);
-    res.json({ ok: true, latency, status: 'active', exitIp: info.ip, networkType, country: updatedCountry });
+    res.json({ ok: true, latency, status: 'active', exitIp: info.ip, networkType, country: updatedCountry, isLocalRelay });
   } catch (e) {
     vault.upsertProxy({ ...proxy, is_active: 0, last_tested: new Date().toISOString(), latency_ms: null }, true);
     res.json({ ok: true, latency: null, status: 'dead', error: e.message });

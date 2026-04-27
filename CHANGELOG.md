@@ -1,5 +1,32 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.28] - 2026-04-28
+
+### 🌐 Proxy Test — Multi-Endpoint Fallback
+
+Một số proxy hoạt động bình thường nhưng bị `ifconfig.co` chặn bằng Cloudflare challenge → server hiểu nhầm là `dead`. Fix bằng cách thử nhiều endpoint detect IP.
+
+#### 🐛 Bug
+- `POST /api/vault/proxies/:id/test` chỉ dùng 1 endpoint `ifconfig.co/json`. Nếu CF block (response 403 HTML challenge) → JSON parse fail → status `dead` mặc dù proxy alive.
+
+#### ✅ Fix
+- **`server/routes/vault.js`**: Test proxy qua chuỗi endpoint với fallback:
+  1. `api.myip.com` (kèm country)
+  2. `api64.ipify.org` (IPv4/IPv6 dual)
+  3. `ifconfig.me/all.json`
+  4. `ifconfig.co/json` (last resort)
+  
+  Endpoint nào trả JSON hợp lệ trước thì dùng. Chỉ báo `dead` khi **tất cả** endpoint đều fail.
+
+#### 🧪 Verified
+- Proxy `65.21.148.44:49048` (trước báo down): nay test OK qua `api.myip.com` → IP `2a01:4f9:c010:edc:a152:a0d4:f3cc:6e23` (IPv6, FI)
+- Proxy `45.32.111.6:49594` (timeout thật): vẫn báo `dead` đúng
+
+#### 📁 Files Changed
+- `server/routes/vault.js`
+
+---
+
 ## [0.2.27] - 2026-04-28
 
 ### 📵 Phone Verification Tagging — Fix Generic `error` → `NEED_PHONE`
