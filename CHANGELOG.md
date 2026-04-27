@@ -1,5 +1,57 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.20] - 2026-04-27
+
+### 🚀 Camofox Worker Optimization — Shared Helpers & Performance Improvements
+
+Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-login) by leveraging new shared library helpers, reducing code duplication, and improving maintainability.
+
+#### ✅ Phase 0: Auto-Login Worker Migration
+- Migrated `auto-login-worker.js` to shared libraries (camofox, totp, proxy-diag, screenshot)
+- Removed 213 lines of duplicate helper functions (getTOTP, getFreshTOTP, camofoxPost, camofoxGet, camofoxDelete, evalJson, proxy diagnostics)
+- Replaced global `stepCount` with `createSaveStep()` closure for per-flow screenshot counters
+- Updated all 24 saveStep calls to new signature (label only)
+- Kept auto-login-specific functions: tryFillChatgptLoginForm, tryBypassPhoneRequirement, tryBootstrapWorkspaceSession
+
+#### ✅ Phase 1: New Helper Functions
+- **scripts/lib/camofox.js**: Added waitForSelector, pressKey, getSnapshot, clickRef, typeByRef, tripleClick helpers
+- **scripts/lib/openai-login-flow.js**: Added waitForState for polling state flags with timeout
+- All helpers include timeout and error handling for robustness
+
+#### ✅ Phase 2: Auto-Connect Worker Optimization
+- Replaced 30-iteration polling loop with `waitForState({ looksLoggedIn: true })`
+- Reduced code from 33 lines to 12 lines for login completion polling
+- Imported pressKey and waitForState from shared lib
+- Kept React nativeSetter evalJson for fill email/password (already stable)
+
+#### ✅ Phase 3: Auto-Register Worker Cleanup
+- Imported waitForSelector and pressKey from shared lib
+- Removed duplicate `apiHelper` function (redundant with camofoxPostWithSessionKey)
+- Used camofoxPostWithSessionKey directly for MFA setup
+- Kept React form fill (typeReact pattern - necessary for ChatGPT signup)
+
+#### ✅ Phase 4: Auto-Login Worker Optimization
+- Replaced 8 inline `/press` calls with `pressKey` helper
+- Replaced 2 triple-click calls with `tripleClick` helper
+- Added screen detection helpers to lib/openai-login-flow.js (isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen)
+- Imported screen detection helpers from shared lib
+- Removed duplicate screen detection functions from auto-login-worker.js
+- Kept inline waitForSelector with auto-healing (unique to auto-login-worker)
+
+#### ✅ Phase 5: Camofox Server Configuration Documentation
+- Added `docs/camofox-tuning.md` with recommended environment variables
+- Documented performance tuning, anti-detection, and resource management settings
+- Included Docker deployment examples and local development .env configuration
+- Added performance impact table comparing default vs recommended values
+- Included live testing commands and troubleshooting guide
+
+#### 📊 Summary
+- **Total commits**: 6 (one per phase for easy rollback)
+- **Code reduction**: ~250 lines of duplicate code removed
+- **New helpers**: 7 helper functions added to shared libraries
+- **Documentation**: 1 new tuning guide created
+- **Syntax checks**: All files pass `node --check`
+
 ## [0.2.19] - 2026-04-23
 
 ### 🧩 Worker Script Refactoring — Shared Library Extraction
