@@ -11,10 +11,14 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import https from 'node:https';
-import { createHmac } from 'node:crypto';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate } from './lib/camofox.js';
+import { getTOTP, getFreshTOTP } from './lib/totp.js';
+import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp } from './lib/proxy-diag.js';
+import { createSaveStep } from './lib/screenshot.js';
+import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGES_DIR = path.join(__dirname, '..', 'data', 'screenshots');
@@ -99,170 +103,6 @@ async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
     return res.json();
 }
 
-// ================================================================
-// TOTP (2FA)
-// ================================================================
-function getTOTP(secret) {
-    function base32tohex(base32) {
-        const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-        let bits = '', hex = '';
-        const clean = base32.replace(/\s/g, '').toUpperCase();
-        for (let i = 0; i < clean.length; i++) {
-            const val = base32chars.indexOf(clean.charAt(i));
-            if (val === -1) continue;
-            bits += val.toString(2).padStart(5, '0');
-        }
-        for (let i = 0; i + 4 <= bits.length; i += 4) hex += parseInt(bits.substr(i, 4), 2).toString(16);
-        return hex;
-    }
-    const key = base32tohex(secret);
-    const epoch = Math.round(Date.now() / 1000);
-    const time = Buffer.from(Math.floor(epoch / 30).toString(16).padStart(16, '0'), 'hex');
-    const hmac = createHmac('sha1', Buffer.from(key, 'hex'));
-    const h = hmac.update(time).digest();
-    const offset = h[h.length - 1] & 0xf;
-    const otp = (h.readUInt32BE(offset) & 0x7fffffff) % 1000000;
-    return otp.toString().padStart(6, '0');
-}
-
-async function getFreshTOTP(secret, minSec = 8) {
-    if (!secret) throw new Error('Missing TOTP secret');
-    const remaining = () => 30 - (Math.floor(Date.now() / 1000) % 30);
-    if (remaining() <= minSec) {
-        console.log(`[Connect] ⏳ Đợi TOTP window mới (còn ${remaining()}s)...`);
-        await new Promise(r => setTimeout(r, (remaining() + 1) * 1000));
-    }
-    const otp = getTOTP(secret);
-    console.log(`[Connect] 🔑 TOTP: ${otp} (còn ${remaining()}s)`);
-    return otp;
-}
-
-// ================================================================
-// CAMOFOX HELPERS
-// ================================================================
-async function camofoxPost(endpoint, body, timeoutMs = 30000) {
-    const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) throw new Error(`Camofox ${endpoint} → ${res.status}: ${await res.text()}`);
-    return res.json();
-}
-
-async function camofoxGet(endpoint, timeoutMs = 10000) {
-    const res = await fetch(`${CAMOUFOX_API}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) throw new Error(`Camofox GET ${endpoint} → ${res.status}`);
-    return res.json();
-}
-
-async function camofoxDelete(endpoint) {
-    await fetch(`${CAMOUFOX_API}${endpoint}`, { method: 'DELETE', signal: AbortSignal.timeout(8000) }).catch(() => { });
-}
-
-async function evalJson(tabId, userId, expression, timeoutMs = 8000) {
-    try {
-        const res = await camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, timeoutMs);
-        return res?.result ?? null;
-    } catch (e) {
-        console.log(`[Connect] ⚠️ eval failed: ${e.message.slice(0, 80)}`);
-        return null;
-    }
-}
-
-async function navigate(tabId, userId, url, timeoutMs = 15000) {
-    try {
-        await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, timeoutMs);
-    } catch (e) {
-        console.log(`[Connect] ⚠️ navigate failed: ${e.message.slice(0, 80)}`);
-    }
-}
-
-function extractIpFromText(raw) {
-    const text = String(raw || '').trim();
-    if (!text) return null;
-    try {
-        const j = JSON.parse(text);
-        if (j?.ip) return String(j.ip).trim();
-        if (j?.query) return String(j.query).trim();
-        if (j?.address) return String(j.address).trim();
-    } catch (_) { }
-    const ipv4 = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
-    if (ipv4) return ipv4[0];
-    const ipv6 = text.match(/\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b/);
-    return ipv6 ? ipv6[0] : null;
-}
-
-function normalizeProxyUrl(input) {
-    const s = String(input || '').trim();
-    if (!s) return null;
-    if (s.includes('://')) return s;
-    return `http://${s}`;
-}
-
-let LOCAL_PUBLIC_IP_CACHE = null;
-
-async function fetchTextNoProxy(url, timeoutMs = 12000) {
-    return await new Promise((resolve, reject) => {
-        try {
-            const req = https.get(url, { timeout: timeoutMs }, (res) => {
-                let data = '';
-                res.on('data', (chunk) => { data += String(chunk); });
-                res.on('end', () => resolve(data));
-            });
-            req.on('timeout', () => req.destroy(new Error('timeout')));
-            req.on('error', reject);
-        } catch (err) {
-            reject(err);
-        }
-    });
-}
-
-async function getLocalPublicIp() {
-    if (LOCAL_PUBLIC_IP_CACHE) return LOCAL_PUBLIC_IP_CACHE;
-    const urls = [
-        'https://api64.ipify.org/?format=json',
-        'https://ifconfig.co/json',
-        'https://ident.me/.json',
-    ];
-    for (const url of urls) {
-        try {
-            const t = await fetchTextNoProxy(url, 12000);
-            const ip = extractIpFromText(t);
-            if (ip) {
-                LOCAL_PUBLIC_IP_CACHE = ip;
-                return ip;
-            }
-        } catch (_) { }
-    }
-    return null;
-}
-
-async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
-    let probeTabId = null;
-    try {
-        const opened = await camofoxPost('/tabs', {
-            userId,
-            sessionKey: `probe_${Date.now()}`,
-            url: 'https://api64.ipify.org/?format=json',
-            ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
-            persistent: false,
-            headless: false,
-            humanize: true,
-        }, 25000);
-        probeTabId = opened.tabId;
-        await new Promise(r => setTimeout(r, 3500));
-        const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, 20000);
-        const ip = extractIpFromText(bodyText);
-        if (!ip) return { error: `Không parse được IP từ nội dung: ${String(bodyText || '').slice(0, 120)}` };
-        return { ip, source: 'https://api64.ipify.org/?format=json' };
-    } catch (e) {
-        return { error: e.message || String(e) };
-    } finally {
-        if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${userId}`);
-    }
-}
 
 // ================================================================
 // PAGE STATE DETECTION
@@ -294,12 +134,8 @@ async function getState(tabId, userId) {
       const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
       const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
 
-      // Có thể ChatGPT đổi selector nên không tìm thấy profile button.
-      // Dấu hiệu dự phòng: có "new chat" hoặc "search chats" mà KHÔNG CÓ "log in" hay "sign up"
-      const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
-      
       const isConversation  = href.includes('/c/') || href.includes('/g/');
-      const looksLoggedIn   = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation;
+      const looksLoggedIn   = (hasProfileBtn && !hasSignUpInPage && !hasLogInBtn) || isConversation;
 
       // ── Auth pages (auth.openai.com hoặc /auth/*) ──
       const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
@@ -582,32 +418,6 @@ async function dismissGooglePopupAndClickLogin(tabId, userId) {
   `, 5000);
 }
 
-// ================================================================
-// JWT DECODE
-// ================================================================
-function decodeJwtPayload(token) {
-    try {
-        const parts = String(token || '').split('.');
-        if (parts.length < 2) return {};
-        let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        while (b64.length % 4) b64 += '=';
-        return JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
-    } catch { return {}; }
-}
-
-function extractAccountMeta(accessToken) {
-    const payload = decodeJwtPayload(accessToken);
-    const auth = payload['https://api.openai.com/auth'] || {};
-    const profile = payload['https://api.openai.com/profile'] || {};
-    return {
-        accountId: auth.chatgpt_account_id || auth.account_id || payload.sub || '',
-        userId: auth.chatgpt_user_id || auth.user_id || payload.sub || '',
-        organizationId: auth.organization_id || '',
-        planType: auth.chatgpt_plan_type || 'free',
-        expiredAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : '',
-        email: profile.email || payload.email || '',
-    };
-}
 
 // ================================================================
 // FETCH SESSION IN-PAGE
@@ -629,29 +439,11 @@ async function fetchSessionInPage(tabId, userId) {
   `, 12000);
 }
 
-// ================================================================
-// SCREENSHOT HELPER
-// ================================================================
-let _stepCount = 0;
-async function saveStep(tabId, userId, runDir, label) {
-    _stepCount++;
-    const filename = `${String(_stepCount).padStart(2, '0')}_${label}.png`;
-    try {
-        const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=true`, {
-            signal: AbortSignal.timeout(8000),
-        });
-        if (res.ok) {
-            await fs.writeFile(path.join(runDir, filename), Buffer.from(await res.arrayBuffer()));
-            console.log(`[Connect] 📸 ${filename}`);
-        }
-    } catch (_) { }
-}
 
 // ================================================================
 // CORE CONNECT FLOW
 // ================================================================
 async function runConnectFlow(task) {
-    _stepCount = 0;
     const USER_ID = `seellm_connect_${task.id}`;
     const effectiveProxy = normalizeProxyUrl(task.proxyUrl || task.proxy_url || null);
     if (effectiveProxy) {
@@ -675,6 +467,8 @@ async function runConnectFlow(task) {
     await fs.mkdir(runDir, { recursive: true });
 
     let tabId = null;
+    let saveStep = null;
+
     try {
         // ── BƯỚC 1: Mở thẳng trang ĐĂNG NHẬP (không qua homepage) ──────
         // Auth URL trực tiếp để tránh bấm nút "Log in" trên homepage
@@ -695,6 +489,8 @@ async function runConnectFlow(task) {
         }, 25000);
         tabId = opened.tabId;
         console.log(`[Connect] [1] Tab: ${tabId}`);
+
+        saveStep = createSaveStep(runDir, { tabId, userId: USER_ID });
 
         // Đợi trang tải hoàn toàn (chatgpt landing page chậm)
         await new Promise(r => setTimeout(r, 5000));
@@ -730,14 +526,14 @@ async function runConnectFlow(task) {
           if (effectiveProxy) throw err;
         }
 
-        await saveStep(tabId, USER_ID, runDir, '01_login_page');
+        await saveStep('01_login_page');
 
         let state = await getState(tabId, USER_ID);
 
         // ── Nếu đã logged in (cookie còn hạn) ────────────────────────────
         if (state?.looksLoggedIn) {
             console.log(`[Connect] ✅ Đã có session trước! Lấy token ngay...`);
-            await captureAndReport(tabId, USER_ID, runDir, task, email);
+            await captureAndReport(tabId, USER_ID, runDir, task, email, saveStep);
             return;
         }
 
@@ -756,7 +552,7 @@ async function runConnectFlow(task) {
         const loginClick = await dismissGooglePopupAndClickLogin(tabId, USER_ID);
         console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
         await new Promise(r => setTimeout(r, 4000));
-        await saveStep(tabId, USER_ID, runDir, '01b_after_login_click');
+        await saveStep('01b_after_login_click');
         state = await getState(tabId, USER_ID);
 
         // ── Retry: nếu vẫn chưa ở auth domain ────────────────────────────
@@ -764,7 +560,7 @@ async function runConnectFlow(task) {
             console.log(`[Connect] [1c] Chưa redirect, thử bấm Log in lần 2...`);
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await new Promise(r => setTimeout(r, 5000));
-            await saveStep(tabId, USER_ID, runDir, '01c_retry');
+            await saveStep('01c_retry');
             state = await getState(tabId, USER_ID);
         }
 
@@ -779,7 +575,7 @@ async function runConnectFlow(task) {
                 '&response_type=code&response_mode=query&state=login&prompt=login',
                 15000);
             await new Promise(r => setTimeout(r, 5000));
-            await saveStep(tabId, USER_ID, runDir, '01d_fallback');
+            await saveStep('01d_fallback');
             state = await getState(tabId, USER_ID);
         }
 
@@ -794,7 +590,7 @@ async function runConnectFlow(task) {
                 const r = await fillEmail(tabId, USER_ID, email);
                 console.log(`[Connect] [2] fillEmail result:`, JSON.stringify(r));
                 await new Promise(r2 => setTimeout(r2, 3000));
-                await saveStep(tabId, USER_ID, runDir, `02_email_${attempt + 1}`);
+                await saveStep(`02_email_${attempt + 1}`);
                 state = await getState(tabId, USER_ID);
                 if (r?.ok) emailDone = true;
             } else {
@@ -805,7 +601,7 @@ async function runConnectFlow(task) {
         }
 
         if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
-            await saveStep(tabId, USER_ID, runDir, '02_failed');
+            await saveStep('02_failed');
             return sendConnectResult(task, 'error', `Không tìm thấy email input sau 8 lần thử. URL: ${state?.href}`);
         }
 
@@ -820,7 +616,7 @@ async function runConnectFlow(task) {
                 const r = await fillPassword(tabId, USER_ID, password);
                 console.log(`[Connect] [3] fillPassword →`, JSON.stringify(r));
                 await new Promise(r2 => setTimeout(r2, 3500));
-                await saveStep(tabId, USER_ID, runDir, `03_password_${attempt + 1}`);
+                await saveStep(`03_password_${attempt + 1}`);
                 state = await getState(tabId, USER_ID);
                 if (r?.ok) passDone = true;
             } else {
@@ -833,7 +629,7 @@ async function runConnectFlow(task) {
         // ── BƯỚC 4: MFA ──────────────────────────────────────────────────
         if (state?.hasMfaInput) {
             if (!totpSecret) {
-                await saveStep(tabId, USER_ID, runDir, '04_mfa_no_secret');
+                await saveStep('04_mfa_no_secret');
                 return sendConnectResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
             }
             console.log(`[Connect] [4] [Technical: DOM Manipulation] Màn hình MFA → sinh TOTP...`);
@@ -841,7 +637,7 @@ async function runConnectFlow(task) {
             const r = await fillMfa(tabId, USER_ID, otp);
             console.log(`[Connect] [4] fillMfa →`, JSON.stringify(r));
             await new Promise(r2 => setTimeout(r2, 4000));
-            await saveStep(tabId, USER_ID, runDir, '04_mfa');
+            await saveStep('04_mfa');
             state = await getState(tabId, USER_ID);
 
             // Retry MFA nếu vẫn còn ở màn MFA
@@ -850,7 +646,7 @@ async function runConnectFlow(task) {
                 const otp2 = await getFreshTOTP(totpSecret, 3);
                 await fillMfa(tabId, USER_ID, otp2);
                 await new Promise(r2 => setTimeout(r2, 4000));
-                await saveStep(tabId, USER_ID, runDir, '04b_mfa_retry');
+                await saveStep('04b_mfa_retry');
                 state = await getState(tabId, USER_ID);
             }
         }
@@ -865,7 +661,7 @@ async function runConnectFlow(task) {
             if (state?.hasCookieBanner) await tryAcceptCookies(tabId, USER_ID);
 
             if (state?.hasPhoneScreen) {
-                await saveStep(tabId, USER_ID, runDir, '05_phone_required');
+                await saveStep('05_phone_required');
                 return sendConnectResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
             }
 
@@ -889,17 +685,17 @@ async function runConnectFlow(task) {
             }
         }
 
-        await saveStep(tabId, USER_ID, runDir, '05_post_login');
+        await saveStep('05_post_login');
 
         if (!loggedIn) {
             return sendConnectResult(task, 'error', `Timeout 60s: Không đăng nhập được. URL cuối: ${state?.href}`);
         }
 
-        await captureAndReport(tabId, USER_ID, runDir, task, email);
+        await captureAndReport(tabId, USER_ID, runDir, task, email, saveStep);
 
     } catch (err) {
         console.error(`[Connect] ❌ Exception: ${err.message}`);
-        if (tabId) await saveStep(tabId, USER_ID, runDir, 'error').catch(() => { });
+        if (tabId) await saveStep('error').catch(() => { });
         await sendConnectResult(task, 'error', `Exception: ${err.message}`);
     } finally {
         if (tabId) {
@@ -912,7 +708,7 @@ async function runConnectFlow(task) {
 // ================================================================
 // CAPTURE SESSION & REPORT
 // ================================================================
-async function captureAndReport(tabId, userId, runDir, task, email) {
+async function captureAndReport(tabId, userId, runDir, task, email, saveStep) {
     console.log(`[Connect] 🔍 Bắt đầu lấy OAuth tokens (PKCE flow)...`);
 
     // ── BƯỚC A: Tạo OAuth PKCE params ──────────────────────────────────
@@ -954,7 +750,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
 
     await navigate(tabId, userId, authUrl, 20000);
     await new Promise(r => setTimeout(r, 3000));
-    await saveStep(tabId, userId, runDir, '07_oauth_redirect');
+    await saveStep('07_oauth_redirect');
 
     // ── BƯỚC C: Đợi redirect callback với ?code= ──────────────────────
     let authCode = '';
@@ -1018,7 +814,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
         // ── /add-phone: Bỏ qua, dùng API để lấy workspace và lấy code (giống any-auto-register) ──
         if (oauthState?.hasPhoneScreen) {
             console.log(`[Connect] [C] [Technical: Background API Calls] Phát hiện màn hình yêu cầu SĐT → Đang thực hiện luồng gọi API ngầm (Fetch) để lấy workspaceId và vượt qua bằng lệnh workspace/select...`);
-            await saveStep(tabId, userId, runDir, '08b_skip_phone_consent');
+            await saveStep('08b_skip_phone_consent');
 
             // Thực hiện toàn bộ consent + workspace select qua browser fetch API
             // Vì cookies đang có trong browser, dùng fetch() trong trang để gọi API với cookies đó
@@ -1177,7 +973,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
                 break;
             } else {
                 console.log(`[Connect] ⚠️ Workspace API thất bại: ${codeResult?.error || JSON.stringify(codeResult)}`);
-                await saveStep(tabId, userId, runDir, '08_error_need_phone');
+                await saveStep('08_error_need_phone');
                 return sendConnectResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
             }
         }
@@ -1375,7 +1171,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
         await new Promise(r => setTimeout(r, 1500));
     }
 
-    await saveStep(tabId, userId, runDir, '08_oauth_callback');
+    await saveStep('08_oauth_callback');
 
     // ── BƯỚC D: Exchange code → tokens ──────────────────────────────────
     if (authCode) {
@@ -1474,7 +1270,7 @@ async function captureAndReport(tabId, userId, runDir, task, email) {
         }
     }
 
-    await saveStep(tabId, userId, runDir, '06_session_captured');
+    await saveStep('06_session_captured');
 
     if (!accessToken) {
         return sendConnectResult(task, 'error',
