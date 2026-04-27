@@ -46,7 +46,7 @@ Optimized all three Camofox worker scripts (auto-connect, auto-register, auto-lo
 - Included live testing commands and troubleshooting guide
 
 #### 📊 Summary
-- **Total commits**: 8 (6 phases + 1 fix + 1 version bump)
+- **Total commits**: 9 (6 phases + 1 fix + 1 version bump + 1 changelog update)
 - **Code reduction**: ~250 lines of duplicate code removed
 - **New helpers**: 7 helper functions added to shared libraries
 - **Documentation**: 1 new tuning guide created
