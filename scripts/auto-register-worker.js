@@ -22,7 +22,7 @@ import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
-import { getState } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa } from './lib/openai-login-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -36,7 +36,7 @@ const OPENAI_AUTH = 'https://auth.openai.com';
 // OAUTH HELPERS
 // ============================================
 
-async function performCodexOAuth(tabId, userId, proxyUrl, saveStep) {
+async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) {
   console.log(`[OAuth] Starting Codex OAuth PKCE flow...`);
   const pkce = generatePKCE();
   const authUrl = buildOAuthURL(pkce);
@@ -46,9 +46,14 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep) {
   await new Promise(r => setTimeout(r, 3000));
   await saveStep('oauth_start');
 
+  // Track which login steps already performed (avoid re-fill loops)
+  let emailFilled = false;
+  let passwordFilled = false;
+  let mfaFilled = false;
+
   // Poll for callback with ?code=
   let authCode = '';
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 40; i++) {
     const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
     console.log(`[OAuth] Poll #${i + 1}: ${(currentUrl || '').slice(0, 80)}`);
 
@@ -65,8 +70,45 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep) {
       }
     }
 
-    // Check if phone screen appears → try conditional bypass
     const state = await getState(tabId, userId);
+
+    // ── auth.openai.com requires re-login → fill credentials we just created ──
+    if (state?.hasEmailInput && !emailFilled && creds.email) {
+      console.log(`[OAuth] 📧 Email input detected, filling: ${creds.email}`);
+      const r = await fillEmail(tabId, userId, creds.email);
+      console.log(`[OAuth] fillEmail →`, JSON.stringify(r));
+      emailFilled = true;
+      await new Promise(r2 => setTimeout(r2, 4000));
+      await saveStep('oauth_email_filled');
+      continue;
+    }
+
+    if (state?.hasPasswordInput && !passwordFilled && creds.password) {
+      console.log(`[OAuth] 🔑 Password input detected, filling`);
+      const r = await fillPassword(tabId, userId, creds.password);
+      console.log(`[OAuth] fillPassword →`, JSON.stringify(r));
+      passwordFilled = true;
+      await new Promise(r2 => setTimeout(r2, 4000));
+      await saveStep('oauth_password_filled');
+      continue;
+    }
+
+    if (state?.hasMfaInput && !mfaFilled && creds.mfaSecret) {
+      try {
+        const otp = getTOTP(creds.mfaSecret);
+        console.log(`[OAuth] 🔐 MFA input detected, filling TOTP: ${otp}`);
+        const r = await fillMfa(tabId, userId, otp);
+        console.log(`[OAuth] fillMfa →`, JSON.stringify(r));
+        mfaFilled = true;
+        await new Promise(r2 => setTimeout(r2, 5000));
+        await saveStep('oauth_mfa_filled');
+        continue;
+      } catch (e) {
+        console.log(`[OAuth] MFA fill error: ${e.message}`);
+      }
+    }
+
+    // Check if phone screen appears → try conditional bypass
     if (state?.hasPhoneScreen) {
       console.log(`[OAuth] Phone screen detected, trying conditional bypass...`);
       const bypassResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
@@ -544,7 +586,11 @@ export async function runAutoRegister(taskInput) {
       console.log(`[7.5] CODEX OAUTH FLOW...`);
       console.log(`==========================================`);
       
-      const oauthResult = await performCodexOAuth(tabId, USER_ID, proxyUrl, saveStep);
+      const oauthResult = await performCodexOAuth(tabId, USER_ID, proxyUrl, saveStep, {
+        email,
+        password: chatGptPassword,
+        mfaSecret: twoFaSecret,
+      });
       if (oauthResult.success && oauthResult.tokens) {
         codexRefreshToken = oauthResult.tokens.refresh_token || null;
         codexAccessToken = oauthResult.tokens.access_token || null;
