@@ -1,5 +1,44 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.19] - 2026-04-23
+
+### 🧩 Worker Script Refactoring — Shared Library Extraction
+
+Extracted common code from worker scripts into reusable shared libraries for better maintainability and consistency.
+
+#### ✅ Phase 1: Core Shared Libraries Created
+- **scripts/lib/camofox.js**: Camoufox API helpers (camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate)
+- **scripts/lib/totp.js**: TOTP code generation (getTOTP, getFreshTOTP) based on RFC 6238
+- **scripts/lib/proxy-diag.js**: Proxy diagnostics (extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp)
+- **scripts/lib/screenshot.js**: Screenshot helper with createSaveStep factory for per-flow step numbering
+- **scripts/lib/openai-auth.js**: OpenAI auth helpers (decodeJwtPayload, extractAccountMeta, parseUuidFromText)
+
+#### ✅ Phase 2: Auto-Connect Worker Migration
+- Migrated `auto-connect-worker.js` to use shared libs
+- Replaced global `_stepCount` with `createSaveStep()` closure for per-flow screenshot counters
+- Tightened `looksLoggedIn` logic: now requires `hasProfileBtn` or conversation URL, removed unreliable `hasNewChat` heuristic
+- All saveStep calls updated to new signature (label only)
+- No behavior change to OAuth PKCE flow or sendConnectResult payload
+
+#### ✅ Phase 3: Login Flow Library
+- **scripts/lib/openai-login-flow.js**: Created shared login flow helpers (getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin)
+- Updated `auto-connect-worker.js` to import from openai-login-flow lib
+- Added `getStateWithLogging` wrapper for auto-connect-specific logging
+- Kept `fetchSessionInPage` function (auto-connect specific)
+
+#### ✅ Phase 4: Auto-Register Worker Migration
+- Migrated `auto-register-worker.js` to use shared libs
+- Replaced inline helpers with imports (camofox, totp, proxy-diag, screenshot)
+- Added `camofoxPostWithSessionKey` wrapper for sessionKey injection
+- Updated all saveStep calls to use `createSaveStep` pattern
+- Replaced hardcoded `localhost:4000` with `TOOLS_API_URL` from config
+- No behavior change to registration flow or payload schema
+
+#### ✅ Configuration Enhancement
+- Added `toolsApiUrl` to config defaults (`http://localhost:4000`)
+- Exported `TOOLS_API_URL` constant with env var override
+- Updated `auto-register-worker.js` to use imported constant
+
 ## [0.2.18] - 2026-04-23
 
 ### ⚡ Realtime UI and state-sync optimization across Dashboard / Services / Vault
