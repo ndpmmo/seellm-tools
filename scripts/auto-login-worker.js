@@ -21,7 +21,7 @@ import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, camofoxGoto
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createSaveStep } from './lib/screenshot.js';
-import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, MULTILANG } from './lib/openai-login-flow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR   = path.join(__dirname, '..');
@@ -968,14 +968,25 @@ async function waitForSelector(tabId, userId, selectorPatterns, timeoutMs = 2500
     const snap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${userId}`);
     const html = (snap.snapshot || '').toLowerCase();
 
-    // [AUTO-HEALING] Phát hiện sớm các lỗi UI để thoát ngay, không chờ timeout
+    // [AUTO-HEALING] Phát hiện sớm các lỗi UI để thoát ngay (multi-language)
     const cleanText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
-    if (cleanText.includes('email is required') || cleanText.includes('enter a valid email')) throw new Error("Lỗi UI: Email không hợp lệ hoặc bị trống.");
-    if (cleanText.includes('wrong email') || cleanText.includes('we could not find your account')) throw new Error("Lỗi UI: Account không tồn tại.");
-    if (cleanText.includes('wrong password') || cleanText.includes('incorrect password')) throw new Error("Lỗi UI: Sai mật khẩu.");
-    if (cleanText.includes('suspicious login behavior') || cleanText.includes('we have detected suspicious')) throw new Error("Lỗi UI: IP Proxy bị đánh dấu Suspicious.");
-    if (cleanText.includes('access denied')) throw new Error("Lỗi UI: Access Denied (Cloudflare Block).");
-    if (cleanText.includes('phone number required') || cleanText.includes('add a phone number')) throw new Error("NEED_PHONE: Xác minh SĐT.");
+    const anyMatch = (kws) => kws.some(k => cleanText.includes(k));
+    if (cleanText.includes('email is required') || cleanText.includes('enter a valid email') ||
+        cleanText.includes('e-mail erforderlich') || cleanText.includes('email requis') ||
+        cleanText.includes('correo requerido') || cleanText.includes('email richiesto')) {
+      throw new Error("Lỗi UI: Email không hợp lệ hoặc bị trống.");
+    }
+    if (cleanText.includes('wrong email') || cleanText.includes('we could not find your account') ||
+        cleanText.includes('konto nicht gefunden') || cleanText.includes('compte introuvable') ||
+        cleanText.includes('cuenta no encontrada')) {
+      throw new Error("Lỗi UI: Account không tồn tại.");
+    }
+    if (anyMatch(MULTILANG.wrongPassword)) throw new Error("Lỗi UI: Sai mật khẩu.");
+    if (anyMatch(MULTILANG.suspiciousLogin)) throw new Error("Lỗi UI: IP Proxy bị đánh dấu Suspicious.");
+    if (anyMatch(MULTILANG.accessDenied)) throw new Error("Lỗi UI: Access Denied (Cloudflare Block).");
+    if (anyMatch(MULTILANG.phoneVerify) || isPhoneVerificationScreen(snap.url || '', html)) {
+      throw new Error("NEED_PHONE: Xác minh SĐT.");
+    }
 
     // Kiểm tra các mẫu selector được yêu cầu
     for (const pat of selectorPatterns) {

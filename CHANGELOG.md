@@ -1,5 +1,43 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.30] - 2026-04-28
+
+### 🌍 Multi-Language UI Detection (Đa Ngôn Ngữ)
+
+Khi worker dùng proxy ở quốc gia khác (ví dụ Phần Lan, Đức, Pháp...), Google/ChatGPT đôi khi render UI bằng ngôn ngữ địa phương. Trước đây mọi text-based detection chỉ match tiếng Anh → fail nhận diện popup, cookie banner, phone screen, password error...
+
+#### ✨ New: `MULTILANG` keyword library
+File `scripts/lib/openai-login-flow.js` xuất `MULTILANG` object chứa keyword sets cho 10 ngôn ngữ (en, de, fr, es, it, pt, vi, ru, ja, zh) cho các concept:
+- `acceptCookie` — nút Accept cookie banner
+- `phoneVerify` — màn hình verify phone
+- `wrongPassword` — sai mật khẩu  
+- `suspiciousLogin` — IP bị đánh dấu suspicious
+- `accessDenied` — Cloudflare/IP block
+- `consent` — màn hình Authorize/Allow
+- `workspace` / `organization` — chọn workspace/org
+- `somethingWrong` — error UI chung
+
+#### ✅ Refactored Detectors
+- **`getState()`**: cookie banner, phone screen, error, consent, workspace, organization — đều dùng `MULTILANG`
+- **`tryAcceptCookies()`**: tìm nút accept qua keyword đa ngôn ngữ (trước chỉ EN+VI)
+- **`dismissGooglePopupAndClickLogin()`**: nút Close popup Google FedCM hỗ trợ aria-label đa ngôn ngữ (`Schließen`, `Fermer`, `Cerrar`,...) + thêm symbol `✖`. Iframe selector mở rộng cho `gsi/iframe`, `oauth/iframe`.
+- **`isPhoneVerificationScreen()`**: ưu tiên URL signal (language-agnostic), text fallback đa ngôn ngữ
+- **`auto-login-worker.js waitForSelector()`** auto-healing UI error checks dùng `MULTILANG.wrongPassword`, `suspiciousLogin`, `accessDenied`, `phoneVerify`
+
+#### 💡 Strategy Áp Dụng
+1. **URL signals trước** (ngôn ngữ-bất khả tri) — `/add-phone`, `/consent`, `/log-in`...
+2. **`data-testid` / DOM structural** — không phụ thuộc text (ví dụ `[data-testid="login-button"]`)
+3. **Multi-language text** — fallback cuối cùng
+
+#### 🔮 Future Enhancement (không trong patch này)
+Camofox-browser auto-config locale theo GeoIP của proxy. Có thể patch thêm option `locale: 'en-US'` trong API `POST /tabs` để ép English UI bất kể proxy ở đâu (yêu cầu cross-repo change `camofox-browser/server.js`).
+
+#### 📁 Files Changed
+- `scripts/lib/openai-login-flow.js` (+`MULTILANG` export)
+- `scripts/auto-login-worker.js`
+
+---
+
 ## [0.2.29] - 2026-04-28
 
 ### 🛡️ Worker Pre-Flight Proxy Probe — Multi-Endpoint Fallback (Bug nghiêm trọng)

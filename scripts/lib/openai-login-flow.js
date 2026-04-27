@@ -3,9 +3,130 @@
  * 
  * Shared OpenAI login flow helpers (eval-based DOM manipulation).
  * Consolidated from auto-connect-worker for reuse in auto-login-worker.
+ *
+ * MULTI-LANGUAGE: tất cả phát hiện text-based đều dùng `MULTILANG` keywords
+ * (en, de, fr, es, it, pt, vi, ru, ja, zh) để hoạt động khi proxy ở quốc gia khác
+ * khiến UI render ngôn ngữ khác (ví dụ: Phần Lan → tiếng Đức).
  */
 
 import { evalJson } from './camofox.js';
+
+/**
+ * Multi-language keyword sets used by login-flow detectors.
+ * Always include English first (chatgpt.com mostly serves English even via foreign IPs;
+ * Google FedCM popup is the most common case rendered in local language).
+ */
+export const MULTILANG = {
+  // Cookie consent: "Accept all" buttons across languages
+  acceptCookie: [
+    'accept all', 'accept cookies', 'accept', 'agree', 'i agree', 'allow all',
+    'alle akzeptieren', 'alle annehmen', 'einverstanden', 'zustimmen', 'akzeptieren',
+    'tout accepter', 'accepter tout', 'accepter', "j'accepte",
+    'aceptar todo', 'aceptar todas', 'aceptar', 'acepto',
+    'accetta tutto', 'accetta tutti', 'accetto', 'accetta',
+    'aceitar tudo', 'aceitar todos', 'aceitar', 'aceito',
+    'chấp nhận tất cả', 'đồng ý', 'chấp nhận',
+    'принять все', 'согласен', 'принять',
+    'すべて受け入れる', '同意する', '同意',
+    '全部接受', '同意', '接受所有',
+  ],
+  // Phone verification screen
+  phoneVerify: [
+    'phone number required', 'add a phone number', 'add phone number', 'verify your phone',
+    'enter your phone', 'add your phone', 'phone verification',
+    'telefonnummer erforderlich', 'telefonnummer hinzufügen', 'telefon bestätigen', 'telefonnummer bestätigen',
+    'numéro de téléphone', 'ajouter un numéro de téléphone', 'vérifier votre téléphone',
+    'número de teléfono', 'añadir un número', 'agregar número de teléfono', 'verificar tu teléfono',
+    'numero di telefono', 'aggiungi un numero di telefono', 'verifica il tuo telefono',
+    'número de telefone', 'adicione um número', 'verificar seu telefone',
+    'số điện thoại', 'thêm số điện thoại', 'xác minh số điện thoại',
+    'номер телефона', 'добавьте номер телефона', 'подтвердите номер',
+    '電話番号', '電話番号を追加', '電話を確認',
+    '电话号码', '手机号码', '添加电话号码', '验证您的手机',
+  ],
+  // Login error: wrong password
+  wrongPassword: [
+    'wrong password', 'incorrect password', 'invalid password',
+    'falsches passwort', 'passwort ist falsch', 'ungültiges passwort',
+    'mot de passe incorrect', 'mot de passe invalide',
+    'contraseña incorrecta', 'contraseña inválida',
+    'password errata', 'password non valida',
+    'senha incorreta', 'senha inválida',
+    'sai mật khẩu', 'mật khẩu không đúng', 'mật khẩu sai',
+    'неправильный пароль', 'неверный пароль',
+    'パスワードが間違って', 'パスワードが正しくありません',
+    '密码错误', '密码不正确',
+  ],
+  // Login error: suspicious / blocked
+  suspiciousLogin: [
+    'suspicious login behavior', 'we have detected suspicious', 'suspicious activity',
+    'verdächtige anmeldeaktivität', 'verdächtige aktivität',
+    'comportement de connexion suspect', 'activité suspecte',
+    'comportamiento sospechoso', 'actividad sospechosa',
+    'comportamento sospetto', 'attività sospetta',
+    'comportamento suspeito', 'atividade suspeita',
+    'hành vi đáng ngờ',
+    'подозрительная активность',
+  ],
+  // Access denied (Cloudflare/IP block)
+  accessDenied: [
+    'access denied', 'forbidden', 'cloudflare',
+    'zugriff verweigert', 'verboten',
+    'accès refusé', 'interdit',
+    'acceso denegado', 'prohibido',
+    'accesso negato', 'vietato',
+    'acesso negado', 'proibido',
+    'truy cập bị từ chối',
+    'доступ запрещен',
+  ],
+  // Consent / authorize / allow
+  consent: [
+    'authorize', 'allow', 'continue', 'consent',
+    'autorisieren', 'zulassen', 'erlauben', 'fortfahren',
+    'autoriser', 'autoriser', 'continuer', 'permettre',
+    'autorizar', 'permitir', 'continuar',
+    'autorizza', 'consenti', 'continua', 'permetti',
+    'autorizar', 'permitir', 'continuar',
+    'cho phép', 'tiếp tục', 'ủy quyền',
+    'разрешить', 'продолжить',
+  ],
+  // Workspace / organization screens
+  workspace: [
+    'select workspace', 'choose workspace',
+    'arbeitsbereich auswählen', 'arbeitsbereich wählen',
+    'sélectionner un espace de travail',
+    'seleccionar espacio de trabajo',
+    'chọn không gian làm việc',
+  ],
+  organization: [
+    'select organization', 'choose organization',
+    'organisation auswählen',
+    'sélectionner une organisation',
+    'seleccionar organización',
+    'chọn tổ chức',
+  ],
+  // Generic error UI
+  somethingWrong: [
+    'something went wrong', 'try again',
+    'etwas ist schief gegangen', 'erneut versuchen',
+    'une erreur est survenue', 'réessayer',
+    'algo salió mal', 'inténtalo de nuevo',
+    'qualcosa è andato storto', 'riprova',
+    'algo deu errado', 'tentar novamente',
+    'đã xảy ra lỗi', 'thử lại',
+    'что-то пошло не так', 'повторить',
+  ],
+};
+
+/**
+ * Build a JS expression string that checks if any keyword matches in a body string variable.
+ * Used inside eval() so the multi-language list is embedded into the page-side code.
+ * @param {string[]} keywords
+ * @param {string} bodyVar - JS variable name in eval scope
+ */
+function jsAnyMatch(keywords, bodyVar = 'body') {
+  return JSON.stringify(keywords) + `.some(k => ${bodyVar}.includes(k))`;
+}
 
 /**
  * Get page state (logged in status, form inputs, etc.)
@@ -57,25 +178,29 @@ export async function getState(tabId, userId) {
         document.querySelector('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]')
       );
 
+      const COOKIE_KW = ${JSON.stringify(MULTILANG.acceptCookie)};
+      const PHONE_KW = ${JSON.stringify(MULTILANG.phoneVerify)};
+      const ERROR_KW = ${JSON.stringify(MULTILANG.somethingWrong)};
+      const CONSENT_KW = ${JSON.stringify(MULTILANG.consent)};
+      const WORKSPACE_KW = ${JSON.stringify(MULTILANG.workspace)};
+      const ORG_KW = ${JSON.stringify(MULTILANG.organization)};
+
       // ── Cookie banner ──
       const hasCookieBanner = !!(
         document.querySelector('[aria-label*="cookie" i], [id*="cookie" i], [class*="cookie" i]') ||
-        body.includes('accept all cookies') || body.includes('accept cookies')
+        COOKIE_KW.some(k => body.includes(k))
       );
 
       // ── Phone verify ──
-      const hasPhoneScreen = isAddPhonePage ||
-        body.includes('phone number required') || body.includes('add a phone number') ||
-        body.includes('verify your phone') || body.includes('enter your phone') ||
-        body.includes('phone number') || body.includes('add phone');
+      const hasPhoneScreen = isAddPhonePage || PHONE_KW.some(k => body.includes(k));
 
       // ── Error screen ──
-      const hasError = body.includes('something went wrong') || body.includes('try again') ||
+      const hasError = ERROR_KW.some(k => body.includes(k)) ||
         document.querySelector('[class*="error"]') !== null;
 
       // Inline consent screen logic (was referencing Node function)
       const isConsentScr = (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
-                           ((body.includes('authorize') || body.includes('allow')) && body.includes('continue'));
+                           (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'));
 
       return {
         href, host,
@@ -83,8 +208,8 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError,
         isConsentScreen: isConsentScr,
-        isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || body.includes('select workspace') || body.includes('choose workspace'),
-        isOrganizationScreen: lowerUrl.includes('/organization') || body.includes('select organization') || body.includes('choose organization'),
+        isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k)),
+        isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
       };
     })()
   `, 5000);
@@ -267,11 +392,12 @@ export async function tryAcceptCookies(tabId, userId) {
   return evalJson(tabId, userId, `
     (() => {
       const isVisible = el => { if (!el) return false; const s = window.getComputedStyle(el); const r = el.getBoundingClientRect(); return s.display !== 'none' && r.width > 0; };
+      const KW = ${JSON.stringify(MULTILANG.acceptCookie)};
       const btn = Array.from(document.querySelectorAll('button'))
         .filter(isVisible)
         .find(el => {
-          const t = (el.innerText || el.textContent || '').toLowerCase();
-          return t.includes('accept all') || t.includes('accept cookies') || t.includes('agree') || t.includes('chấp nhận');
+          const t = (el.innerText || el.textContent || '').toLowerCase().trim();
+          return KW.some(k => t === k || t.includes(k));
         });
       if (btn) btn.click();
       return !!btn;
@@ -296,20 +422,31 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       };
       const results = [];
 
-      // 1. Đóng popup "Sign in with Google" (bấm nút X / Close)
+      // 1. Đóng popup "Sign in with Google" — multi-language aria-label + iframe removal
+      // aria-label cho nút Close: en="Close", de="Schließen", fr="Fermer", es="Cerrar", it="Chiudi",
+      // pt="Fechar", vi="Đóng", ru="Закрыть", ja="閉じる", zh="关闭"
+      const closeAriaLabels = ['close','schließen','fermer','cerrar','chiudi','fechar','đóng','закрыть','閉じる','关闭'];
       const closeButtons = Array.from(document.querySelectorAll(
-        '[aria-label="Close"], [aria-label="close"], button[id*="close"], [data-dismiss], .close-button'
-      )).filter(isVisible);
+        '[aria-label], button[id*="close" i], [data-dismiss], .close-button, [class*="close" i][role="button"]'
+      )).filter(el => {
+        if (!isVisible(el)) return false;
+        const al = (el.getAttribute('aria-label') || '').toLowerCase();
+        return closeAriaLabels.some(k => al.includes(k)) || /close|dismiss/i.test(el.id || '');
+      });
       const xButtons = Array.from(document.querySelectorAll('button, div[role="button"]'))
-        .filter(el => isVisible(el) && (el.innerText || '').trim() === '✕' || (el.innerText || '').trim() === '×' || (el.innerText || '').trim() === 'X');
+        .filter(el => {
+          if (!isVisible(el)) return false;
+          const t = (el.innerText || el.textContent || '').trim();
+          return t === '✕' || t === '×' || t === 'X' || t === '✖';
+        });
       const googleClose = closeButtons[0] || xButtons[0];
       if (googleClose) {
         googleClose.click();
         results.push('dismissed-google-popup');
       }
 
-      // Cũng tìm Google iframe overlay và xóa nó
-      const googleIframes = document.querySelectorAll('iframe[src*="accounts.google.com"]');
+      // Cũng tìm Google iframe overlay và xóa nó (FedCM popup là iframe accounts.google.com)
+      const googleIframes = document.querySelectorAll('iframe[src*="accounts.google.com"], iframe[src*="gsi/iframe"], iframe[src*="oauth/iframe"]');
       googleIframes.forEach(iframe => {
         try { iframe.remove(); } catch (_) {}
       });
@@ -373,22 +510,21 @@ function normalizePageText(input = '') {
 export function isPhoneVerificationScreen(url = '', snapshot = '') {
   const cleanText = normalizePageText(snapshot);
   const lowerUrl = String(url || '').toLowerCase();
-  // URL signals — strongest indicator
+  // URL signals — strongest, language-agnostic
   if (lowerUrl.includes('/add-phone') || lowerUrl.includes('/add_phone') ||
       lowerUrl.includes('/phone-verification') || lowerUrl.includes('/phone-verify') ||
       lowerUrl.includes('/verify-phone')) {
     return true;
   }
-  // Text signals
-  return cleanText.includes('phone number required') ||
-         cleanText.includes('add a phone number') ||
-         cleanText.includes('add phone number') ||
-         cleanText.includes('verify your phone') ||
-         cleanText.includes('enter your phone') ||
-         cleanText.includes('add your phone') ||
-         (cleanText.includes('phone number') && cleanText.includes('one-time code')) ||
-         (cleanText.includes('phone number') && cleanText.includes('verify')) ||
-         (lowerUrl.includes('phone') && (cleanText.includes('verify') || cleanText.includes('continue')));
+  // Multi-language text signals (en, de, fr, es, it, pt, vi, ru, ja, zh)
+  if (MULTILANG.phoneVerify.some(k => cleanText.includes(k))) return true;
+  // Generic combined signals (any language with 'phone' in URL + verify/continue text)
+  return (lowerUrl.includes('phone') && (
+    cleanText.includes('verify') || cleanText.includes('continue') ||
+    cleanText.includes('verifizieren') || cleanText.includes('vérifier') ||
+    cleanText.includes('verificar') || cleanText.includes('xác minh') ||
+    cleanText.includes('подтвер')
+  ));
 }
 
 /**
