@@ -104,3 +104,89 @@ export async function navigate(tabId, userId, url, { timeoutMs = 15000 } = {}) {
     console.log(`[camofox] navigate failed: ${e.message.slice(0, 80)}`);
   }
 }
+
+/**
+ * Wait for element to appear/disappear using Camofox wait endpoint
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} selector - CSS selector
+ * @param {object} options - { timeoutMs = 15000, state = 'visible' }
+ * @returns {Promise<boolean>} true if element found, false on timeout
+ */
+export async function waitForSelector(tabId, userId, selector, { timeoutMs = 15000, state = 'visible' } = {}) {
+  try {
+    await camofoxPost(`/tabs/${tabId}/wait`, { userId, selector, state }, { timeoutMs });
+    return true;
+  } catch (e) {
+    console.log(`[camofox] waitForSelector(${selector}) timeout: ${e.message.slice(0, 60)}`);
+    return false;
+  }
+}
+
+/**
+ * Press keyboard key
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} key - Key name (Enter, Tab, Escape, etc)
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<void>}
+ */
+export async function pressKey(tabId, userId, key, { timeoutMs = 5000 } = {}) {
+  try {
+    await camofoxPost(`/tabs/${tabId}/press`, { userId, key }, { timeoutMs });
+  } catch (e) {
+    console.log(`[camofox] pressKey(${key}) failed: ${e.message.slice(0, 60)}`);
+  }
+}
+
+/**
+ * Get snapshot with optional screenshot
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} options - { includeScreenshot = false, offset = 0, timeoutMs = 10000 }
+ * @returns {Promise<object>} Snapshot data
+ */
+export async function getSnapshot(tabId, userId, { includeScreenshot = false, offset = 0, timeoutMs = 10000 } = {}) {
+  const params = new URLSearchParams({ userId });
+  if (includeScreenshot) params.set('includeScreenshot', 'true');
+  if (offset > 0) params.set('offset', offset.toString());
+  const endpoint = `/tabs/${tabId}/snapshot?${params.toString()}`;
+  return camofoxGet(endpoint, { timeoutMs });
+}
+
+/**
+ * Click element by ref (accessibility tree)
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} ref - Element ref (e1, e2, etc)
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<object>} Click response
+ */
+export async function clickRef(tabId, userId, ref, { timeoutMs = 5000 } = {}) {
+  return camofoxPost(`/tabs/${tabId}/click`, { userId, ref }, { timeoutMs });
+}
+
+/**
+ * Type text into element by ref
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} ref - Element ref (e1, e2, etc)
+ * @param {string} text - Text to type
+ * @param {object} options - { pressEnter = false, timeoutMs = 8000 }
+ * @returns {Promise<object>} Type response
+ */
+export async function typeByRef(tabId, userId, ref, text, { pressEnter = false, timeoutMs = 8000 } = {}) {
+  return camofoxPost(`/tabs/${tabId}/type`, { userId, ref, text, pressEnter }, { timeoutMs });
+}
+
+/**
+ * Triple-click for select-all-and-replace pattern
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} selector - CSS selector
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<object>} Click response
+ */
+export async function tripleClick(tabId, userId, selector, { timeoutMs = 5000 } = {}) {
+  return camofoxPost(`/tabs/${tabId}/click`, { userId, selector, clickCount: 3 }, { timeoutMs });
+}

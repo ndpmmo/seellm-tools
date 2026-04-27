@@ -320,3 +320,22 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
     })()
   `, 5000);
 }
+
+/**
+ * Wait for specific state flags to match expected values
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} expectedFlags - Object with expected state flags (e.g., { looksLoggedIn: true })
+ * @param {object} options - { timeoutMs = 30000, intervalMs = 1500 }
+ * @returns {Promise<object|null>} Final state object if match, null on timeout
+ */
+export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 30000, intervalMs = 1500 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const state = await getState(tabId, userId);
+    const allMatch = Object.entries(expectedFlags).every(([key, expected]) => state[key] === expected);
+    if (allMatch) return state;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return null;
+}
