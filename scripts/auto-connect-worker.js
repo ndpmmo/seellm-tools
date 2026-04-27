@@ -332,7 +332,7 @@ async function runConnectFlow(task) {
                 return sendConnectResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
             }
             console.log(`[Connect] [4] [Technical: DOM Manipulation] Màn hình MFA → sinh TOTP...`);
-            const otp = await getFreshTOTP(totpSecret, 8);
+            const { otp } = await getFreshTOTP(totpSecret, 8);
             const r = await fillMfa(tabId, USER_ID, otp);
             console.log(`[Connect] [4] fillMfa →`, JSON.stringify(r));
             await new Promise(r2 => setTimeout(r2, 4000));
@@ -342,7 +342,7 @@ async function runConnectFlow(task) {
             // Retry MFA nếu vẫn còn ở màn MFA
             if (state?.hasMfaInput) {
                 console.log(`[Connect] [4] MFA retry...`);
-                const otp2 = await getFreshTOTP(totpSecret, 3);
+                const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
                 await fillMfa(tabId, USER_ID, otp2);
                 await new Promise(r2 => setTimeout(r2, 4000));
                 await saveStep('04b_mfa_retry');
