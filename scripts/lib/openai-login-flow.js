@@ -19,6 +19,7 @@ export async function getState(tabId, userId) {
       const href  = location.href;
       const host  = location.hostname;
       const body  = (document.body?.innerText || '').toLowerCase();
+      const lowerUrl = href.toLowerCase();
 
       // ── Logged-in indicators (phải đủ chặt) ──
       const hasProfileBtn = !!(
@@ -72,12 +73,16 @@ export async function getState(tabId, userId) {
       const hasError = body.includes('something went wrong') || body.includes('try again') ||
         document.querySelector('[class*="error"]') !== null;
 
+      // Inline consent screen logic (was referencing Node function)
+      const isConsentScr = (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
+                           ((body.includes('authorize') || body.includes('allow')) && body.includes('continue'));
+
       return {
         href, host,
         looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError,
-        isConsentScreen: isConsentScreen(href, body),
+        isConsentScreen: isConsentScr,
         isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || body.includes('select workspace') || body.includes('choose workspace'),
         isOrganizationScreen: lowerUrl.includes('/organization') || body.includes('select organization') || body.includes('choose organization'),
       };

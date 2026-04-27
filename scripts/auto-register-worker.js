@@ -42,7 +42,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
   const authUrl = buildOAuthURL(pkce);
   console.log(`[OAuth] Navigating to: ${authUrl.slice(0, 80)}...`);
 
-  await navigate(tabId, userId, authUrl, 20000);
+  await navigate(tabId, userId, authUrl, { timeoutMs: 20000 });
   await new Promise(r => setTimeout(r, 3000));
   await saveStep('oauth_start');
 
@@ -54,7 +54,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
   // Poll for callback with ?code=
   let authCode = '';
   for (let i = 0; i < 40; i++) {
-    const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
+    const currentUrl = await evalJson(tabId, userId, 'location.href', { timeoutMs: 4000 });
     console.log(`[OAuth] Poll #${i + 1}: ${(currentUrl || '').slice(0, 80)}`);
 
     if (currentUrl && currentUrl.includes('code=')) {
@@ -112,7 +112,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
     if (state?.hasPhoneScreen) {
       console.log(`[OAuth] Phone screen detected, trying conditional bypass...`);
       const bypassResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
-      if (bypassResult.code) {
+      if (bypassResult.ok && bypassResult.code) {
         authCode = bypassResult.code;
         console.log(`[OAuth] ✅ Bypass succeeded, code: ${authCode.slice(0, 20)}...`);
         break;
@@ -580,7 +580,6 @@ export async function runAutoRegister(taskInput) {
 
     // 7.5. Codex OAuth flow (if enabled)
     let codexRefreshToken = null;
-    let codexAccessToken = null;
     if (enableOAuth) {
       console.log(`==========================================`);
       console.log(`[7.5] CODEX OAUTH FLOW...`);
@@ -593,7 +592,6 @@ export async function runAutoRegister(taskInput) {
       });
       if (oauthResult.success && oauthResult.tokens) {
         codexRefreshToken = oauthResult.tokens.refresh_token || null;
-        codexAccessToken = oauthResult.tokens.access_token || null;
         console.log(`[7.5] 🟢 Codex OAuth thành công! Refresh token: ${codexRefreshToken ? 'YES' : 'NO'}`);
         await saveStep('oauth_success');
       } else {
@@ -635,7 +633,7 @@ export async function runAutoRegister(taskInput) {
         status: 'idle',
         skipSync: true,
         restore_deleted: true,
-        tags: JSON.stringify(['auto-register', 'vault-register', codexRefreshToken ? 'codex-oauth' : '']),
+        tags: JSON.stringify(['auto-register', 'vault-register', ...(codexRefreshToken ? ['codex-oauth'] : [])]),
         notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''} | Tạo: ${new Date().toISOString()}`
       }),
     });
