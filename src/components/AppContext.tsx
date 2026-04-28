@@ -41,7 +41,6 @@ interface IApp {
   setSelectedLog: (id: string | null) => void;
   startCamofox: () => Promise<void>;
   startWorker: () => Promise<void>;
-  startConnectWorker: () => Promise<void>;
   stopProcess: (id: string) => Promise<void>;
   runScript: (name: string, args?: string[]) => Promise<string | null>;
   saveConfig: (cfg: Partial<AppConfig>) => Promise<void>;
@@ -260,16 +259,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const startWorker = useCallback(async () => {
     const res = await post('/api/processes/worker/start');
     if (res.error) { addToast(`Worker: ${res.error}`, 'error'); return; }
-    addToast('🤖 Worker đã khởi động!', 'success');
-    optimisticAdd('worker', '🤖 Auto-Login Worker', 'node scripts/auto-login-worker.js', res.pid);
-    refreshProcesses();
-  }, [addToast, refreshProcesses]);
-
-  const startConnectWorker = useCallback(async () => {
-    const res = await post('/api/processes/connect-worker/start');
-    if (res.error) { addToast(`Connect Worker: ${res.error}`, 'error'); return; }
-    addToast('🔌 Auto-Connect Worker đã khởi động!', 'success');
-    optimisticAdd('connect-worker', '🔌 Auto-Connect Worker', 'node scripts/auto-connect-worker.js', res.pid);
+    addToast('🤖 Unified Worker đã khởi động!', 'success');
+    optimisticAdd('worker', '🤖 Unified Auto Worker', 'node scripts/auto-worker.js', res.pid);
     refreshProcesses();
   }, [addToast, refreshProcesses]);
 
@@ -318,7 +309,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       processes, config, connected, view, sessions, logFiles,
       liveShots, selectedLog, toasts, socket,
       setView: setViewWithHash, setSelectedLog,
-      startCamofox, startWorker, startConnectWorker, stopProcess, runScript,
+      startCamofox, startWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,
       refreshSessions, refreshLogFiles, refreshProcesses, refreshAccounts,
       accounts,

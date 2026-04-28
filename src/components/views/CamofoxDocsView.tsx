@@ -43,11 +43,11 @@ export function CamofoxDocsView() {
             <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.5.2</code></li>
           </ul>
 
-          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
+          <h3 className="text-[13px] font-semibold text-amber-300 mb-2 flex items-center gap-1.5">
             <AlertTriangle size={16} className="text-amber-400" /> Vì sao cần vá
           </h3>
           <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc mb-6 text-[12.5px]">
-            <li>`auto-login-worker.js` cần native wait để bỏ polling snapshot nặng.</li>
+            <li>`auto-worker.js` (unified worker) cần native wait để bỏ polling snapshot nặng. Login flow cũ nằm trong `scripts/backup/auto-login-worker.js`.</li>
             <li>Case `add_phone` cần đọc cookies và giữ nguyên session khi chuyển sang `codex/consent`.</li>
             <li>Click selector có thể treo lâu nếu DOM khác dự kiến, nên cần thêm API mạnh hơn như `goto` và `eval`.</li>
           </ul>

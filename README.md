@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | 🦊 **Camofox Server** | Khởi động/dừng headless browser server trực tiếp từ UI |
-| 🤖 **Auto-Login Worker** | Poll task từ Gateway, tự động OAuth login qua Camofox |
+| 🤖 **Unified Auto Worker** | 1 process duy nhất — tự chọn flow connect (nhanh) hoặc login PKCE theo task |
 | 📋 **Live Terminal** | Xem log realtime từ tất cả processes qua WebSocket |
 | 📜 **Scripts tích hợp** | Chạy scripts ngay trong dự án — không trỏ ra ngoài |
 | 📡 **Health Monitor** | Ping Camofox & Gateway, hiển thị trạng thái kết nối |
@@ -28,7 +28,8 @@ seellm-tools/
 ├── server.js                        # Custom Express + Socket.io server
 ├── scripts/                         # ← Tất cả automation scripts
 │   ├── config.js                    #   Đọc cài đặt từ tools.config.json
-│   ├── auto-login-worker.js         #   Worker chính: poll & OAuth login
+│   ├── auto-worker.js               #   Worker hợp nhất: login + connect queue
+│   ├── backup/                      #   Lưu bản gốc auto-login/auto-connect để đối chiếu
 │   ├── get-session-token.js         #   Lấy session cookie từ Camofox
 │   ├── ping-servers.js              #   Kiểm tra kết nối Camofox & Gateway
 │   ├── test-camofox.js              #   Test server Camofox
@@ -66,7 +67,7 @@ Vào tab **⚙️ Cài đặt** thiết lập:
 1. Cài đặt → điền Camofox Path & Gateway URL & Auth Token
 2. Dashboard → bấm "🦊 Camofox" để khởi động browser server
 3. Scripts → chạy "test-camofox.js" để verify
-4. Dashboard → bấm "🤖 Worker" để bắt đầu auto-login
+4. Dashboard → bấm "🤖 Worker" để khởi động unified worker
 5. Logs → xem realtime output từ Worker
 6. Scripts → chạy "get-session-token.js" để lấy session
 ```
@@ -78,7 +79,7 @@ Browser (http://localhost:4000)
     ↕ WebSocket (Socket.io)
 SeeLLM Tools Server (Express + Next.js)
     ├── Manages → Camofox Browser Server (spawned process)
-    ├── Manages → Auto-Login Worker (spawned process)  
+    ├── Manages → Unified Auto Worker (spawned process)
     └── Manages → Any scripts/ script (spawned process)
                         ↕ HTTP API
               SeeLLM Gateway (external)

@@ -210,24 +210,13 @@ export function VaultAccountsView() {
     addToast('Đã xoá', 'info');
   };
 
-  const retry = async (id: string, email: string) => {
-    try {
-      const r = await fetch(`/api/vault/accounts/${id}/retry`, { method: 'POST' });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      addToast(`🚀 Đã gửi lệnh Deploy/Retry cho ${email}`, 'success');
-      patchAccountLocal(id, { status: 'pending' });
-    } catch (e: any) { addToast(e.message, 'error'); }
-  };
-
-  const deployConnect = async (id: string, email: string) => {
+  const deploy = async (id: string, email: string) => {
     try {
       const r = await fetch(`/api/vault/accounts/${id}/retry-connect`, { method: 'POST' });
       const d = await r.json();
       if (d.error) throw new Error(d.error);
-      // Khởi động connect-worker nếu chưa chạy
-      fetch('/api/processes/connect-worker/start', { method: 'POST' }).catch(() => { });
-      addToast(`🔌 Deploy v2: Đã xếp hàng Auto-Connect cho ${email}`, 'success');
+      fetch('/api/processes/worker/start', { method: 'POST' }).catch(() => { });
+      addToast(`🤖 Unified Worker: Đã xếp hàng cho ${email}`, 'success');
       patchAccountLocal(id, { status: 'pending' });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
@@ -582,7 +571,6 @@ export function VaultAccountsView() {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.map(it => {
-                const allowRun = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
                 const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
                 return (
                   <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -642,17 +630,14 @@ export function VaultAccountsView() {
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        {allowRun && (
-                          <Button size="icon-sm" title="Deploy to Codex (PKCE OAuth)" onClick={() => retry(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
-                        )}
                         {allowDeploy && (
-                          <Button size="icon-sm" title="Deploy v2 – Auto-Connect trực tiếp" onClick={() => deployConnect(it.id, it.email)} className="!text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/10"><Globe size={13} /></Button>
+                          <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
                         )}
                         {(it.status !== 'idle') && isOpenAI(it.provider) && (
                           <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)}><X size={13} /></Button>
                         )}
                         {(it.status === 'error') && isOpenAI(it.provider) && (
-                          <Button size="icon-sm" variant="ghost" title="Thử login lại" onClick={() => retry(it.id, it.email)}><RotateCcw size={13} /></Button>
+                          <Button size="icon-sm" variant="ghost" title="Thử lại" onClick={() => deploy(it.id, it.email)}><RotateCcw size={13} /></Button>
                         )}
                         {isOpenAI(it.provider) && (
                           <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>

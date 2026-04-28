@@ -64,14 +64,13 @@ function NavItem({
 
 // ── Sidebar ───────────────────────────────────────────────
 function Sidebar() {
-  const { view, setView, connected, processes, startCamofox, startWorker, startConnectWorker } = useApp();
+  const { view, setView, connected, processes, startCamofox, startWorker } = useApp();
   const procs = Object.values(processes);
   const running = procs.filter(p => p.status === 'running').length;
   const errors = procs.filter(p => p.status === 'error').length;
 
   const isCamofox = processes['camofox']?.status === 'running';
   const isWorker = processes['worker']?.status === 'running';
-  const isConnectWorker = processes['connect-worker']?.status === 'running';
 
   return (
     <aside className="w-[248px] min-w-[248px] h-screen flex flex-col bg-[#090c16]/85 border-r border-white/5 backdrop-blur-2xl relative z-10">
@@ -130,15 +129,6 @@ function Sidebar() {
             onClick={startWorker} disabled={isWorker}
           >
             🤖 {isWorker ? 'Running' : 'Start'}
-          </button>
-        </div>
-        <div className="flex gap-1.5 mt-1.5">
-          <button
-            className={`flex-1 rounded-lg text-[11px] font-bold py-2 border transition-all duration-200 ${isConnectWorker ? 'bg-indigo-500/25 text-indigo-400 border-indigo-500/25 cursor-not-allowed' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/25 hover:bg-indigo-500/20'}`}
-            onClick={startConnectWorker}
-            disabled={isConnectWorker}
-          >
-            🔌 {isConnectWorker ? 'Connect Running' : 'Start Connect v2'}
           </button>
         </div>
         <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-white/5 border border-white/5 text-[11.5px] text-slate-400">

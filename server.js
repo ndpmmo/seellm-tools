@@ -256,16 +256,18 @@ app.prepare().then(() => {
 
   ex.post('/api/processes/worker/start', (req, res) => {
     const cfg = loadConfig();
-    const r = spawnProcess('worker', '🤖 Auto-Login Worker',
-      'node', [path.join(SCRIPTS_DIR, 'auto-login-worker.js')], __dirname,
+    const r = spawnProcess('worker', '🤖 Unified Auto Worker',
+      'node', [path.join(SCRIPTS_DIR, 'auto-worker.js')], __dirname,
       { WORKER_AUTH_TOKEN: cfg.workerAuthToken });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, ...r });
   });
 
   ex.post('/api/processes/connect-worker/start', (req, res) => {
-    const r = spawnProcess('connect-worker', '🔌 Auto-Connect Worker',
-      'node', [path.join(SCRIPTS_DIR, 'auto-connect-worker.js')], __dirname, {});
+    const cfg = loadConfig();
+    const r = spawnProcess('worker', '🤖 Unified Auto Worker',
+      'node', [path.join(SCRIPTS_DIR, 'auto-worker.js')], __dirname,
+      { WORKER_AUTH_TOKEN: cfg.workerAuthToken });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, ...r });
   });

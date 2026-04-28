@@ -5,7 +5,7 @@ import { Play, RefreshCw, Terminal, FileCode } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
 
 const META: Record<string, { ico: string; desc: string; arg?: string }> = {
-  'auto-login-worker.js': { ico: '🤖', desc: 'Worker chính: poll task từ Gateway, tự động OAuth login qua Camofox' },
+  'auto-worker.js': { ico: '🤖', desc: 'Unified worker: chạy cả login + connect queue trong một process duy nhất', arg: 'both | login-only | connect-only' },
   'get-session-token.js': { ico: '🔑', desc: 'Lấy session token từ cookies Camofox sau khi login xong' },
   'ping-servers.js': { ico: '📡', desc: 'Kiểm tra kết nối Camofox và SeeLLM Gateway' },
   'test-camofox.js': { ico: '🦊', desc: 'Test server Camofox: mở tab, snapshot, screenshot' },

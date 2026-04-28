@@ -65,7 +65,7 @@ function ProcCard({ p }: { p: ProcessInfo }) {
 }
 
 export function DashboardView() {
-  const { processes, startCamofox, startWorker, startConnectWorker, connected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
+  const { processes, startCamofox, startWorker, connected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
   const procs = Object.values(processes)
     .filter(p => p.status === 'running')
     .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
@@ -77,7 +77,6 @@ export function DashboardView() {
 
   const isCamofox = processes['camofox']?.status === 'running';
   const isWorker = processes['worker']?.status === 'running';
-  const isConnectWorker = processes['connect-worker']?.status === 'running';
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -118,28 +117,12 @@ export function DashboardView() {
 
             <div className="flex items-center justify-between p-3.5 bg-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
               <div>
-                <div className="text-[13px] font-bold text-slate-100 flex items-center gap-2">🤖 Auto-Login Worker</div>
-                <div className="text-[11px] text-slate-400 mt-1">Poll task & OAuth login tự động</div>
+                <div className="text-[13px] font-bold text-slate-100 flex items-center gap-2">🤖 Unified Auto Worker</div>
+                <div className="text-[11px] text-slate-400 mt-1">1 process duy nhất — tự chọn flow connect (nhanh) hoặc login PKCE theo task</div>
               </div>
               <div className="flex items-center gap-3">
                 <StatusBadge status={processes['worker']?.status || 'stopped'} />
                 <Button variant="primary" size="sm" onClick={startWorker} disabled={isWorker}>▶ Start</Button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3.5 bg-indigo-500/10 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-colors">
-              <div>
-                <div className="text-[13px] font-bold text-indigo-400 flex items-center gap-2">
-                  🔌 Auto-Connect
-                  <span className="text-[9px] font-black bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded uppercase tracking-wider">v2</span>
-                </div>
-                <div className="text-[11px] text-indigo-300/70 mt-1">Đăng nhập chatgpt.com · Lấy token trực tiếp</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <StatusBadge status={processes['connect-worker']?.status || 'stopped'} />
-                <Button size="sm" onClick={startConnectWorker} disabled={isConnectWorker} className="bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30">
-                  ▶ Start
-                </Button>
               </div>
             </div>
           </CardContent>

@@ -1,5 +1,79 @@
 # Changelog - SeeLLM Tools
 
+## [0.3.0] - 2026-04-29
+
+### 🤖 Major — Gộp 2 worker thành 1 Unified Auto Worker (true merge)
+
+**Vấn đề:** Hệ thống chạy 2 worker riêng biệt (`auto-login-worker.js` + `auto-connect-worker.js`) gây:
+- Gấp đôi tài nguyên: 2 child process × MAX_THREADS threads
+- 2 polling loop riêng biệt, tranh nhau account
+- UI hiển thị 2 card/2 nút Start cho cùng 1 chức năng
+- Vault Accounts có 2 nút Deploy (PKCE + Connect) gây nhầm lẫn
+
+**Giải pháp — True merge (không còn supervisor):**
+
+`auto-worker.js` được viết lại hoàn toàn thành 1 script duy nhất, không spawn child process:
+
+#### 1. Unified Polling (`fetchAnyTask`)
+- 1 polling loop duy nhất, ưu tiên connect task (nhanh hơn) → login task (Tools + Gateway + D1)
+- CLI mode: `both` (default) | `login-only` | `connect-only`
+
+#### 2. Unified Thread Pool
+- 1 pool `MAX_THREADS` chung — không gấp đôi
+- `activeThreads` + `processingIds` quản lý đồng thời cho cả 2 flow
+
+#### 3. Auto Flow Router (`pollTasks`)
+- Task có `password` → `runConnectFlow` (login trực tiếp → PKCE → token exchange)
+- Task chỉ có `codeVerifier` → `runLoginFlow` (PKCE flow gốc, Gateway-originated)
+- Task từ `/connect-task` endpoint → connect flow
+- Task từ `/task` endpoint → login flow
+
+#### 4. Unified Result Reporting (`sendResult`)
+- Có `tokens.accessToken` → gửi `/connect-result` (connect flow)
+- Có `result.codeVerifier` → gửi `/result` (login PKCE flow)
+- `source=gateway` → thêm report về Gateway
+- `source=d1` → patch D1 Cloud
+
+#### 5. UI Consolidation
+- **Dashboard**: 2 card → 1 card "🤖 Unified Auto Worker"
+- **Sidebar**: 2 nút Start → 1 nút 🤖 Start
+- **Vault Accounts**: 2 nút Deploy → 1 nút "🤖 Deploy qua Unified Worker"
+- **Vault error retry**: gọi cùng `deploy()` function
+- **AppContext**: xoá `startConnectWorker` (trùng lặp `startWorker`)
+- `allowRun` + `allowDeploy` gộp thành 1 biến `allowDeploy`
+- `retry()` + `deployConnect()` gộp thành 1 hàm `deploy()`
+
+#### 6. Server Endpoints
+- `/api/processes/worker/start` → spawn `auto-worker.js` ✓
+- `/api/processes/connect-worker/start` → alias, cũng spawn `auto-worker.js` (backward compat)
+
+#### 7. Config & Locale
+- `forceEnLocale` setting → `config.js` exports `FORCE_LOCALE_STR`
+- `camofox.js` tự inject `locale: 'en-US'` khi tạo tab nếu bật
+
+**Files tạo mới / viết lại:**
+- `scripts/auto-worker.js` — Unified worker (true merge, ~950 dòng)
+
+**Files cập nhật:**
+- `server.js` — worker start endpoint → `auto-worker.js`
+- `src/components/AppContext.tsx` — xoá `startConnectWorker`, giữ `startWorker`
+- `src/components/Dashboard.tsx` — sidebar: 1 nút Start, xoá Connect Queue button
+- `src/components/views/DashboardView.tsx` — 1 card Unified Worker, xoá Connect Queue card
+- `src/components/views/vault/VaultAccountsView.tsx` — gộp 2 deploy button + 2 hàm → 1 `deploy()`
+- `src/components/views/ScriptsView.tsx` — metadata: auto-worker.js unified
+- `src/components/views/CamofoxDocsView.tsx` — cập nhật reference
+- `scripts/config.js` — thêm `forceEnLocale`, `FORCE_LOCALE_STR`
+- `scripts/lib/camofox.js` — inject locale khi tạo tab
+- `README.md` — cập nhật feature table + architecture
+
+**Files backup (không xoá):**
+- `scripts/backup/auto-login-worker.js` — bản gốc để đối chiếu
+- `scripts/backup/auto-connect-worker.js` — bản gốc để đối chiếu
+
+**Tác động:** Giảm ~50% tài nguyên CPU/RAM cho worker, đơn giản hoá UI, loại bỏ nhầm lẫn giữa 2 deploy option. Logic login/connect không thay đổi — chỉ gộp process và tối ưu routing.
+
+---
+
 ## [0.2.38] - 2026-04-29
 
 ### 📵 Fix — Badge "Cần SĐT" không hiển thị khi worker gặp NEED_PHONE qua catch block
