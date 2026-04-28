@@ -315,7 +315,7 @@ export function VaultProxiesView() {
   const TYPE_FILTERS = ['all', 'http', 'https', 'socks5', 'socks4'];
 
   return (
-    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar" style={{ height: '100vh' }}>
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
       
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mt-2">

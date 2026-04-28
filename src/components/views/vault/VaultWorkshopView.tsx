@@ -521,7 +521,7 @@ export function VaultWorkshopView() {
     };
 
     return (
-        <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar" style={{ height: '100vh' }}>
+        <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
             {/* Header / Tabs */}
             <div className="flex justify-between items-end mt-4">
                 <div className="flex flex-col gap-1">
