@@ -407,8 +407,7 @@ export function VaultAccountsView() {
   };
 
   return (
-    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
-
+    <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar" style={{ height: '100vh' }}>
       {/* ═══ ACTIONS ═══ */}
       <div className="flex gap-3 mb-6 mt-2 relative z-10">
         <div className="flex-1 relative flex items-center">

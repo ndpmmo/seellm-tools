@@ -10,7 +10,7 @@ import {
   getConsistentMachineId,
   buildStableDeviceId,
   mergeCodexProviderData,
-} from './vault-helpers.js';
+} from '../services/codexMetadata.js';
 
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
