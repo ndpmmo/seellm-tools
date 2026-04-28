@@ -295,7 +295,10 @@ async function runConnectFlow(task) {
     } catch (err) {
         console.error(`[Connect] ❌ Exception: ${err.message}`);
         if (tabId) await saveStep('error').catch(() => { });
-        await sendConnectResult(task, 'error', `Exception: ${err.message}`);
+        // Bảo toàn prefix `NEED_PHONE:` để UI hiển thị đúng badge "📵 Cần SĐT".
+        const rawMsg = err?.message || String(err);
+        const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Exception: ${rawMsg}`;
+        await sendConnectResult(task, 'error', reportMsg);
     } finally {
         if (tabId) {
             await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`);

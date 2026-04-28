@@ -11,8 +11,10 @@ import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../../u
 
 /* ── Helpers ── */
 function StatusBadge({ status, notes }: { status: string; notes?: string }) {
-  // Trường hợp đặc biệt: lỗi yêu cầu số điện thoại
-  if (status === 'error' && notes && notes.startsWith('NEED_PHONE')) {
+  // Trường hợp đặc biệt: lỗi yêu cầu số điện thoại.
+  // Dùng `includes` để bền vững với mọi prefix (vd: "Lỗi Worker: NEED_PHONE: ...",
+  // "Exception: NEED_PHONE: ..." từ catch block của các worker đời cũ).
+  if (status === 'error' && notes && notes.includes('NEED_PHONE')) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-orange-500/10 text-orange-500 border border-orange-500/20">
         <span className="w-1.5 h-1.5 rounded-full bg-current" />

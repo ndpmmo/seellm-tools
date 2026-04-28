@@ -1401,7 +1401,11 @@ async function runLoginFlow(task) {
     }
   } catch (err) {
     console.error(`[!] Lỗi xử lý ${account.email}:`, err.message);
-    await sendResultToGateway(task, 'error', `Lỗi Worker: ${err.message}`, null);
+    // Bảo toàn prefix `NEED_PHONE:` để UI hiển thị đúng badge "📵 Cần SĐT".
+    // Mọi lỗi khác mới bọc thêm `Lỗi Worker:` để dễ phân loại.
+    const rawMsg = err?.message || String(err);
+    const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Lỗi Worker: ${rawMsg}`;
+    await sendResultToGateway(task, 'error', reportMsg, null);
   } finally {
     if (tabId) {
       try {

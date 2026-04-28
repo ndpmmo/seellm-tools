@@ -1,5 +1,32 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.38] - 2026-04-29
+
+### 📵 Fix — Badge "Cần SĐT" không hiển thị khi worker gặp NEED_PHONE qua catch block
+
+**Vấn đề:** Trong `#vault-accounts`, các tài khoản gặp lỗi yêu cầu xác minh số điện thoại đôi khi vẫn hiển thị badge đỏ "Error" thay vì badge cam "📵 Cần SĐT".
+
+**Nguyên nhân gốc:** Khi luồng login/connect throw `Error('NEED_PHONE: ...')` và rơi vào catch block tổng, message được bọc thêm prefix khiến `notes` lưu vào DB là `"Lỗi Worker: NEED_PHONE: ..."` hoặc `"Exception: NEED_PHONE: ..."`. UI cũ check bằng `notes.startsWith('NEED_PHONE')` nên không khớp → fallback sang badge `error`.
+
+**Fix — bảo toàn prefix `NEED_PHONE:` ở 2 worker:**
+
+- `scripts/auto-login-worker.js` — catch block tổng giờ kiểm tra `err.message.startsWith('NEED_PHONE')` và gửi nguyên message; chỉ những lỗi khác mới bọc `Lỗi Worker:`.
+- `scripts/auto-connect-worker.js` — catch block áp dụng cùng quy tắc; chỉ những lỗi khác mới bọc `Exception:`.
+
+**Fix — UI defensive cho mọi prefix đời cũ:**
+
+- `src/components/views/vault/VaultAccountsView.tsx` — `StatusBadge` giờ dùng `notes.includes('NEED_PHONE')` thay cho `startsWith`, đảm bảo các account đã lưu sẵn `notes` với prefix bị bọc (do worker chạy trước khi fix) cũng hiển thị đúng badge "📵 Cần SĐT" mà không cần re-run.
+
+**Files cập nhật:**
+
+- `scripts/auto-login-worker.js` — preserve NEED_PHONE prefix trong catch
+- `scripts/auto-connect-worker.js` — preserve NEED_PHONE prefix trong catch
+- `src/components/views/vault/VaultAccountsView.tsx` — chuyển sang `includes` cho match badge
+
+**Tác động:** Không thay đổi behavior thành công. Chỉ chuẩn hoá nhãn lỗi để Vault hiển thị trạng thái đúng — giúp người dùng phân biệt tài khoản cần SĐT vs lỗi worker thật.
+
+---
+
 ## [0.2.37] - 2026-04-29
 
 ### 🛡️ Fix — Tombstone resurrect bug khi pull từ D1 + #connections data source clarity
