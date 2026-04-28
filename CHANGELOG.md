@@ -2,17 +2,20 @@
 
 ## [0.2.35] - 2026-04-29
 
-### ⚡ Optimistic UI update cho Email Pool + Auto-polling
+### ⚡ Optimistic UI update cho Email Pool + Socket.IO event-driven
 
 **Vấn đề:** Khi thêm email vào #vault-workshop, sau khi import phải reload toàn bộ trang mới thấy status cập nhật → chậm và UX kém.
 
 **Sửa:**
 
 1. **Optimistic insert** — sau khi POST email thành công, thêm ngay vào state với `mail_status: 'unknown'` (checking), không đợi `fetchPool()`
-2. **Auto-polling** — khi có email có status `unknown`, tự động refresh pool mỗi 5s cho đến khi status đổi → user thấy status cập nhật real-time mà không cần reload
+2. **Socket.IO event-driven** — thay vì polling 5s, dùng Socket.IO để server push notification khi email pool có thay đổi (`email-pool-updated` event) → UI cập nhật real-time
 
 **Files:**
 - `src/components/views/vault/VaultWorkshopView.tsx`
+- `src/components/AppContext.tsx`
+- `server/routes/vault.js`
+- `server.js`
 
 ---
 

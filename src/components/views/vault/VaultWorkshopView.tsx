@@ -54,7 +54,7 @@ function ServiceTag({ name, status }: { name: string; status: string }) {
 // ───────────────────────────────────────────────────────────────
 
 export function VaultWorkshopView() {
-    const { addToast, processes, liveShots } = useApp();
+    const { addToast, processes, liveShots, socket } = useApp();
     const [activeTab, setActiveTab] = useState<'pool' | 'queue' | 'results' | 'inbox'>('pool');
     
     // Pool State
@@ -99,18 +99,6 @@ export function VaultWorkshopView() {
 
     useEffect(() => { fetchPool(); }, [fetchPool]);
 
-    // Auto-poll when there are emails with unknown status (being checked)
-    useEffect(() => {
-        const hasCheckingEmails = items.some(e => e.mail_status === 'unknown');
-        if (!hasCheckingEmails) return;
-
-        const interval = setInterval(() => {
-            fetchPool();
-        }, 5000); // Poll every 5 seconds
-
-        return () => clearInterval(interval);
-    }, [items, fetchPool]);
-
     // Load unified proxy state for selector + restore account mappings
     useEffect(() => {
         fetch('/api/proxy/state')
@@ -128,14 +116,23 @@ export function VaultWorkshopView() {
                     localStorage.setItem('workshopProxyMap_v1', JSON.stringify(merged));
                     return merged;
                 });
-            })
-            .catch(() => {
-                fetch('/api/vault/proxies/list')
-                    .then(r => r.json())
-                    .then(d => setVaultProxies(d.items || []))
-                    .catch(() => {});
-            });
+            }).catch(() => {});
     }, []);
+
+    // Subscribe to socket events for real-time email pool updates
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleEmailPoolUpdate = () => {
+            console.log('[Vault] Email pool updated via socket event');
+            fetchPool();
+        };
+
+        socket.on('email-pool-updated', handleEmailPoolUpdate);
+        return () => {
+            socket.off('email-pool-updated', handleEmailPoolUpdate);
+        };
+    }, [socket, fetchPool]);
 
     // Restore proxy map from localStorage
     useEffect(() => {

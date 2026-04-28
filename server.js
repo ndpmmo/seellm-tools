@@ -228,6 +228,10 @@ app.prepare().then(() => {
   ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
   ex.use('/api/vault', vaultRouter);
 
+  // Pass Socket.IO instance to vault router for real-time events
+  const { setSocketIO } = await import('./server/routes/vault.js');
+  setSocketIO(io);
+
   // Serve screenshots + logs as static files
   ex.use('/data/screenshots', express.static(SCREENSHOTS_DIR));
   ex.use('/data/logs', express.static(LOGS_DIR));

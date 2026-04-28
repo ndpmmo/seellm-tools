@@ -36,6 +36,7 @@ interface IApp {
   liveShots: Record<string, Screenshot>; // sessionId -> latest screenshot
   selectedLog: string | null;
   toasts: Toast[];
+  socket: Socket | null;
   setView: (v: string) => void;
   setSelectedLog: (id: string | null) => void;
   startCamofox: () => Promise<void>;
@@ -70,6 +71,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const sessionsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
@@ -120,24 +122,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Socket.io
   useEffect(() => {
-    const socket: Socket = io('/', { path: '/socket.io', transports: ['websocket'] });
-    socket.on('connect', () => {
+    const socketInstance: Socket = io('/', { path: '/socket.io', transports: ['websocket'] });
+    setSocket(socketInstance);
+    socketInstance.on('connect', () => {
       setConnected(true);
       refreshProcesses();
     });
-    socket.on('disconnect', () => setConnected(false));
+    socketInstance.on('disconnect', () => setConnected(false));
 
-    socket.on('processes:sync', (list: ProcessInfo[]) => {
+    socketInstance.on('processes:sync', (list: ProcessInfo[]) => {
       const m: Record<string, ProcessInfo> = {};
       list.forEach(p => {
         if (!p) return;
         m[p.id] = p;
-        socket.emit('process:getLogs', { id: p.id });
+        socketInstance.emit('process:getLogs', { id: p.id });
       });
       setProcesses(m);
     });
 
-    socket.on('process:log', ({ id, log }: { id: string; log: LogEntry }) => {
+    socketInstance.on('process:log', ({ id, log }: { id: string; log: LogEntry }) => {
       setProcesses(p => {
         const e = p[id] || { 
           id, name: `Script ${id}`, command: '', cwd: '', 
@@ -147,7 +150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    socket.on('process:logsHistory', ({ id, logs }: { id: string; logs: LogEntry[] }) => {
+    socketInstance.on('process:logsHistory', ({ id, logs }: { id: string; logs: LogEntry[] }) => {
       setProcesses(p => {
         const e = p[id] || {
           id, name: `Script ${id}`, command: '', cwd: '',
@@ -157,7 +160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    socket.on('process:status', ({ id, status, exitCode, pid, name }: any) => {
+    socketInstance.on('process:status', ({ id, status, exitCode, pid, name }: any) => {
       setProcesses(p => {
         const e = p[id] || { 
           id, name: name || `Script ${id}`, command: '', cwd: '', 
@@ -168,7 +171,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Live screenshot pushed from server when new file appears
-    socket.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string; email?: string }) => {
+    socketInstance.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string; email?: string }) => {
       setLiveShots(prev => ({
         ...prev,
         [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
@@ -198,7 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(sessionsRefreshTimer.current);
         sessionsRefreshTimer.current = null;
       }
-      socket.disconnect();
+      socketInstance.disconnect();
     };
   }, [queueRefreshSessions, refreshProcesses]);
 
@@ -313,7 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       processes, config, connected, view, sessions, logFiles,
-      liveShots, selectedLog, toasts,
+      liveShots, selectedLog, toasts, socket,
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, startConnectWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,

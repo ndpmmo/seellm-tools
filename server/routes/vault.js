@@ -10,10 +10,16 @@ import {
   getConsistentMachineId,
   buildStableDeviceId,
   mergeCodexProviderData,
-} from '../services/codexMetadata.js';
+} from './vault-helpers.js';
 
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
+
+// Socket.IO instance - set from server.js
+let io: any = null;
+export function setSocketIO(socketIO: any) {
+  io = socketIO;
+}
 
 /* ─── PKCE Generator ─────────────────────────────────────────────────────── */
 function generateCodexOAuthUrl() {
@@ -269,11 +275,17 @@ router.post('/email-pool', async (req, res) => {
   try {
     const record = vault.upsertEmailPool(req.body);
     res.json({ ok: true, email: record.email });
+    // Emit event for real-time UI update
+    if (io) io.emit('email-pool-updated', { email: record.email });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.delete('/email-pool/:email', async (req, res) => {
-  try { vault.deleteEmailPool(req.params.email); res.json({ ok: true }); }
+  try { 
+    vault.deleteEmailPool(req.params.email); 
+    res.json({ ok: true }); 
+    if (io) io.emit('email-pool-updated', { email: req.params.email });
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
