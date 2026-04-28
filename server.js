@@ -20,7 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig, saveConfig } from './server/db/config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import vaultRouter from './server/routes/vault.js';
+import vaultRouter, { setSocketIO } from './server/routes/vault.js';
 import { vault } from './server/db/vault.js';
 import { SyncManager } from './server/services/syncManager.js';
 
@@ -227,10 +227,6 @@ app.prepare().then(() => {
   const ex = express();
   ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
   ex.use('/api/vault', vaultRouter);
-
-  // Pass Socket.IO instance to vault router for real-time events
-  const { setSocketIO } = await import('./server/routes/vault.js');
-  setSocketIO(io);
 
   // Serve screenshots + logs as static files
   ex.use('/data/screenshots', express.static(SCREENSHOTS_DIR));
@@ -1443,6 +1439,7 @@ app.prepare().then(() => {
   const httpServer = createServer(ex);
 
   io = new SocketIO(httpServer, { cors: { origin: '*' }, path: '/socket.io' });
+  setSocketIO(io); // Pass to vault router for real-time email pool events
   io.on('connection', socket => {
     const transport = socket.conn?.transport?.name || 'unknown';
     console.log('[Socket] Client:', socket.id, `transport=${transport}`);

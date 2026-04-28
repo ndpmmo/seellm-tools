@@ -16,8 +16,8 @@ const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
 
 // Socket.IO instance - set from server.js
-let io: any = null;
-export function setSocketIO(socketIO: any) {
+let io = null;
+export function setSocketIO(socketIO) {
   io = socketIO;
 }
 

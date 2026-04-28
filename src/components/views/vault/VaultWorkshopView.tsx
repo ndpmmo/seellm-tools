@@ -124,7 +124,6 @@ export function VaultWorkshopView() {
         if (!socket) return;
 
         const handleEmailPoolUpdate = () => {
-            console.log('[Vault] Email pool updated via socket event');
             fetchPool();
         };
 
@@ -132,7 +131,7 @@ export function VaultWorkshopView() {
         return () => {
             socket.off('email-pool-updated', handleEmailPoolUpdate);
         };
-    }, [socket, fetchPool]);
+    }, [socket]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Restore proxy map from localStorage
     useEffect(() => {
