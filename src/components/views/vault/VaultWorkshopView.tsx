@@ -99,6 +99,18 @@ export function VaultWorkshopView() {
 
     useEffect(() => { fetchPool(); }, [fetchPool]);
 
+    // Auto-poll when there are emails with unknown status (being checked)
+    useEffect(() => {
+        const hasCheckingEmails = items.some(e => e.mail_status === 'unknown');
+        if (!hasCheckingEmails) return;
+
+        const interval = setInterval(() => {
+            fetchPool();
+        }, 5000); // Poll every 5 seconds
+
+        return () => clearInterval(interval);
+    }, [items, fetchPool]);
+
     // Load unified proxy state for selector + restore account mappings
     useEffect(() => {
         fetch('/api/proxy/state')
@@ -295,6 +307,7 @@ export function VaultWorkshopView() {
         const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
         if (!lines.length) return addToast('Vui lòng nhập danh sách', 'error');
         let count = 0;
+        const newEmails: any[] = [];
         
         for (const line of lines) {
             const parts = line.split('|');
@@ -314,12 +327,28 @@ export function VaultWorkshopView() {
             if (!email || !refresh_token) continue;
 
             try {
-                await fetch('/api/vault/email-pool', {
+                const res = await fetch('/api/vault/email-pool', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password, refresh_token, client_id, auth_method }),
                 });
-                count++;
+                if (res.ok) {
+                    count++;
+                    // Optimistic update: add email to state immediately with checking status
+                    newEmails.push({
+                        email,
+                        password: '********',
+                        refresh_token: '********',
+                        client_id: '********',
+                        auth_method,
+                        mail_status: 'unknown',
+                        chatgpt_status: null,
+                        linked_chatgpt_id: null,
+                        services: {},
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                    });
+                }
 
                 // Auto-trigger check-mail-worker
                 const raw = `${email}|${password || ''}|${auth_method}|${refresh_token}|${client_id}`;
@@ -331,10 +360,16 @@ export function VaultWorkshopView() {
             } catch (_) { }
         }
 
-        addToast(`✅ Đã import và bắt đầu kiểm tra ${count} email`, 'success');
+        if (count > 0) {
+            addToast(`✅ Đã import và bắt đầu kiểm tra ${count} email`, 'success');
+            // Optimistic update: add new emails to the top of the list
+            setItems(prev => [...newEmails, ...prev]);
+        }
+
         setInputText('');
         setShowImport(false);
-        fetchPool();
+        // Remove fetchPool() call to avoid full reload - optimistic update already done
+        // fetchPool();
     };
 
     const syncAllToD1 = async () => {

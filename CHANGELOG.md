@@ -1,5 +1,21 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.35] - 2026-04-29
+
+### ⚡ Optimistic UI update cho Email Pool + Auto-polling
+
+**Vấn đề:** Khi thêm email vào #vault-workshop, sau khi import phải reload toàn bộ trang mới thấy status cập nhật → chậm và UX kém.
+
+**Sửa:**
+
+1. **Optimistic insert** — sau khi POST email thành công, thêm ngay vào state với `mail_status: 'unknown'` (checking), không đợi `fetchPool()`
+2. **Auto-polling** — khi có email có status `unknown`, tự động refresh pool mỗi 5s cho đến khi status đổi → user thấy status cập nhật real-time mà không cần reload
+
+**Files:**
+- `src/components/views/vault/VaultWorkshopView.tsx`
+
+---
+
 ## [0.2.34] - 2026-04-29
 
 ### 🐛 Fix auto-register: nút "Sign up" click không hiệu quả + fallback navigate
