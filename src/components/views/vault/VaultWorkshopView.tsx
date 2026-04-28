@@ -4,7 +4,8 @@ import {
     Mail, Search, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle, Clock, Zap, List,
-    LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2
+    LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2,
+    Inbox, MailOpen
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
@@ -54,7 +55,7 @@ function ServiceTag({ name, status }: { name: string; status: string }) {
 
 export function VaultWorkshopView() {
     const { addToast, processes, liveShots } = useApp();
-    const [activeTab, setActiveTab] = useState<'pool' | 'queue' | 'results'>('pool');
+    const [activeTab, setActiveTab] = useState<'pool' | 'queue' | 'results' | 'inbox'>('pool');
     
     // Pool State
     const [items, setItems] = useState<any[]>([]);
@@ -72,6 +73,15 @@ export function VaultWorkshopView() {
     const [tasks, setTasks] = useState<any[]>([]);
     const [selectedTaskEmail, setSelectedTaskEmail] = useState<string | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
+
+    // Inbox state
+    const [inboxSelectedEmail, setInboxSelectedEmail] = useState<string | null>(null);
+    const [inboxMessages, setInboxMessages] = useState<any[]>([]);
+    const [inboxLoading, setInboxLoading] = useState(false);
+    const [inboxSelectedMsg, setInboxSelectedMsg] = useState<any | null>(null);
+    const [inboxMsgLoading, setInboxMsgLoading] = useState(false);
+    const [inboxMsgContent, setInboxMsgContent] = useState<any | null>(null);
+    const [inboxSearch, setInboxSearch] = useState('');
 
     // Proxy assignment state (per email → proxy URL)
     const [proxyMap, setProxyMap] = useState<Record<string, string>>({});
@@ -419,6 +429,66 @@ export function VaultWorkshopView() {
         onCopy(raw, 'Full String');
     };
 
+    // ── Inbox helpers ──────────────────────────────────────────────────────
+    const openInbox = async (email: string) => {
+        setActiveTab('inbox');
+        setInboxSelectedEmail(email);
+        setInboxMessages([]);
+        setInboxSelectedMsg(null);
+        setInboxMsgContent(null);
+        setInboxLoading(true);
+        try {
+            const res = await fetch(`/api/vault/inbox/${encodeURIComponent(email)}`);
+            const data = await res.json();
+            if (data.ok) setInboxMessages(data.messages);
+            else addToast(`❌ ${data.error}`, 'error');
+        } catch (e: any) { addToast(`❌ ${e.message}`, 'error'); }
+        setInboxLoading(false);
+    };
+
+    const openMessage = async (msg: any) => {
+        if (inboxSelectedMsg?.id === msg.id) return;
+        setInboxSelectedMsg(msg);
+        setInboxMsgContent(null);
+        setInboxMsgLoading(true);
+        // Optimistically mark as read in list
+        if (!msg.isRead) {
+            setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isRead: true } : m));
+            fetch('/api/vault/inbox/mark-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: inboxSelectedEmail, messageId: msg.id }),
+            }).catch(() => {});
+        }
+        try {
+            const res = await fetch('/api/vault/inbox/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: inboxSelectedEmail, messageId: msg.id }),
+            });
+            const data = await res.json();
+            if (data.ok) setInboxMsgContent(data.message);
+            else addToast(`❌ ${data.error}`, 'error');
+        } catch (e: any) { addToast(`❌ ${e.message}`, 'error'); }
+        setInboxMsgLoading(false);
+    };
+
+    const deleteInboxMessage = async (msgId: string) => {
+        try {
+            const res = await fetch('/api/vault/inbox/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: inboxSelectedEmail, messageId: msgId }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setInboxMessages(prev => prev.filter(m => m.id !== msgId));
+                if (inboxSelectedMsg?.id === msgId) { setInboxSelectedMsg(null); setInboxMsgContent(null); }
+                addToast('🗑️ Đã xóa email', 'success');
+            } else addToast(`❌ ${data.error}`, 'error');
+        } catch (e: any) { addToast(`❌ ${e.message}`, 'error'); }
+    };
+
     return (
         <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
             {/* Header / Tabs */}
@@ -451,6 +521,17 @@ export function VaultWorkshopView() {
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'results' ? 'bg-white text-black shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
                     >
                         <CheckCircle2 size={16} /> Results
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('inbox')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'inbox' ? 'bg-white text-black shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                        <Inbox size={16} /> Inbox
+                        {inboxMessages.filter(m => !m.isRead).length > 0 && (
+                            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                {inboxMessages.filter(m => !m.isRead).length}
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
@@ -613,6 +694,7 @@ export function VaultWorkshopView() {
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
                                                         <Button variant="ghost" size="sm" onClick={() => checkStatus(it)} className="text-cyan-400" title="Verify Mail"><Activity size={13} /></Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => openInbox(it.email)} className="text-indigo-400" title="Xem Inbox"><Inbox size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistration(it)} disabled={it.chatgpt_status === 'done' || it.chatgpt_status === 'processing'} title="Start Register"><Play size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistrationWithConnect(it)} disabled={it.chatgpt_status === 'processing'} title="Register + Connect Codex" className="bg-emerald-600 hover:bg-emerald-500"><Link2 size={13} /></Button>
                                                     </div>
@@ -738,6 +820,181 @@ export function VaultWorkshopView() {
                             <div className="text-sm mt-2">Dữ liệu được lấy từ Vault Accounts với tag 'auto-register'.</div>
                         </div>
                         <Button variant="secondary" className="mt-4" onClick={() => setActiveTab('pool')}>Quay lại Pool</Button>
+                    </div>
+                )}
+
+                {activeTab === 'inbox' && (
+                    <div className="flex-1 min-h-0 grid grid-cols-[260px_320px_1fr] rounded-2xl overflow-hidden border border-white/[0.07] bg-black/20">
+                        {/* ─── Left: Email list ─────────────────────────────────────── */}
+                        <div className="flex flex-col border-r border-white/[0.07]">
+                            <div className="px-4 py-3 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Email Pool ({items.length})</div>
+                                <div className="relative">
+                                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                                    <input
+                                        className="w-full h-7 bg-black/30 border border-white/10 rounded-lg text-[11px] pl-7 pr-2 text-slate-300 outline-none focus:border-indigo-500/50"
+                                        placeholder="Tìm email..."
+                                        value={inboxSearch}
+                                        onChange={e => setInboxSearch(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                {items
+                                    .filter(e => e.email.toLowerCase().includes(inboxSearch.toLowerCase()))
+                                    .map(it => (
+                                        <div
+                                            key={it.email}
+                                            onClick={() => openInbox(it.email)}
+                                            className={`px-3 py-2.5 cursor-pointer border-b border-white/[0.04] transition-colors ${
+                                                inboxSelectedEmail === it.email
+                                                    ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
+                                                    : 'hover:bg-white/[0.025]'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Mail size={13} className={inboxSelectedEmail === it.email ? 'text-indigo-400 shrink-0' : 'text-slate-600 shrink-0'} />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[12px] font-medium text-slate-200 truncate">{it.email.split('@')[0]}</div>
+                                                    <div className="text-[10px] text-slate-500 truncate">@{it.email.split('@')[1]}</div>
+                                                </div>
+                                                <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    it.mail_status === 'active' ? 'bg-emerald-500'
+                                                    : it.mail_status === 'dead' ? 'bg-rose-500'
+                                                    : 'bg-amber-400'
+                                                }`} />
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        </div>
+
+                        {/* ─── Middle: Message list ─────────────────────────────────── */}
+                        <div className="flex flex-col border-r border-white/[0.07] min-h-0">
+                            {inboxSelectedEmail ? (
+                                <>
+                                    <div className="px-4 py-2.5 border-b border-white/[0.07] bg-white/[0.02] flex items-center gap-2 shrink-0">
+                                        <Inbox size={14} className="text-indigo-400 shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[11px] font-semibold text-slate-300 truncate">{inboxSelectedEmail}</div>
+                                            {!inboxLoading && <div className="text-[10px] text-slate-500">{inboxMessages.length} thư · {inboxMessages.filter(m => !m.isRead).length} chưa đọc</div>}
+                                        </div>
+                                        <button
+                                            onClick={() => openInbox(inboxSelectedEmail)}
+                                            className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-indigo-400 transition-colors"
+                                            title="Tải lại hộp thư"
+                                        >
+                                            <RefreshCw size={12} className={inboxLoading ? 'animate-spin text-indigo-400' : ''} />
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                        {inboxLoading ? (
+                                            <div className="flex items-center justify-center h-32 text-slate-500 text-sm gap-2">
+                                                <RefreshCw size={16} className="animate-spin" /> Đang tải...
+                                            </div>
+                                        ) : inboxMessages.length === 0 ? (
+                                            <div className="flex flex-col items-center justify-center h-32 text-slate-600 gap-2 text-sm">
+                                                <Inbox size={28} strokeWidth={1} /> Hộp thư trống
+                                            </div>
+                                        ) : inboxMessages.map(msg => (
+                                            <div
+                                                key={msg.id}
+                                                onClick={() => openMessage(msg)}
+                                                className={`px-4 py-3 cursor-pointer border-b border-white/[0.04] transition-colors ${
+                                                    inboxSelectedMsg?.id === msg.id
+                                                        ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
+                                                        : 'hover:bg-white/[0.025]'
+                                                }`}
+                                            >
+                                                <div className="flex items-start gap-2">
+                                                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                                                        !msg.isRead ? 'bg-indigo-400' : 'bg-transparent'
+                                                    }`} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className={`text-[12px] truncate ${
+                                                            !msg.isRead ? 'font-semibold text-slate-100' : 'font-normal text-slate-300'
+                                                        }`}>
+                                                            {msg.subject || '(no subject)'}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                                            {msg.from?.emailAddress?.address || ''}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-600 line-clamp-1 mt-0.5">{msg.bodyPreview}</div>
+                                                        <div className="text-[10px] text-slate-600 mt-1">{dayjs(msg.receivedDateTime).fromNow()}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3">
+                                    <Inbox size={32} strokeWidth={1} />
+                                    <div className="text-sm">Chọn email để xem hộp thư</div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ─── Right: Message detail ────────────────────────────────── */}
+                        <div className="flex flex-col min-h-0">
+                            {inboxSelectedMsg ? (
+                                <>
+                                    <div className="px-5 py-3 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-[14px] font-semibold text-slate-100 leading-tight">
+                                                    {(inboxMsgContent || inboxSelectedMsg)?.subject || '(no subject)'}
+                                                </div>
+                                                <div className="text-[11px] text-slate-500 mt-1">
+                                                    From: {(inboxMsgContent || inboxSelectedMsg)?.from?.emailAddress?.address || '—'}
+                                                </div>
+                                                <div className="text-[11px] text-slate-600 mt-0.5">
+                                                    {dayjs((inboxMsgContent || inboxSelectedMsg)?.receivedDateTime).format('DD/MM/YYYY HH:mm')}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => deleteInboxMessage((inboxMsgContent || inboxSelectedMsg).id)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors text-[12px] font-medium shrink-0"
+                                                title="Xóa email này"
+                                            >
+                                                <Trash2 size={12} /> Xóa
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                        {inboxMsgLoading ? (
+                                            <div className="flex items-center justify-center h-32 text-slate-500 gap-2">
+                                                <RefreshCw size={16} className="animate-spin" /> Đang tải nội dung...
+                                            </div>
+                                        ) : inboxMsgContent?.body?.content ? (
+                                            inboxMsgContent.body.contentType === 'html' ? (
+                                                <iframe
+                                                    srcDoc={inboxMsgContent.body.content}
+                                                    className="w-full border-0 bg-white rounded-b-2xl"
+                                                    style={{ minHeight: '400px', height: '100%' }}
+                                                    sandbox="allow-same-origin allow-popups"
+                                                    title="Email content"
+                                                />
+                                            ) : (
+                                                <pre className="p-5 text-[12px] text-slate-300 whitespace-pre-wrap leading-relaxed font-mono">
+                                                    {inboxMsgContent.body.content}
+                                                </pre>
+                                            )
+                                        ) : (
+                                            <div className="p-5 text-[12px] text-slate-500 italic">
+                                                {inboxSelectedMsg?.bodyPreview || 'Đang tải...'}
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3">
+                                    <MailOpen size={40} strokeWidth={1} />
+                                    <div className="text-sm">Chọn thư để đọc</div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>

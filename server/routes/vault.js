@@ -890,4 +890,109 @@ router.post('/sync', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  INBOX VIEWER — MS Graph per-email inbox reader                           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+const _GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const _GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
+const _inboxTokenCache = new Map(); // email → { token, expiresAt }
+
+async function _getGraphToken(pool) {
+  const c = _inboxTokenCache.get(pool.email);
+  if (c && c.expiresAt > Date.now() + 60_000) return c.token;
+  const params = new URLSearchParams({
+    client_id: pool.client_id,
+    grant_type: 'refresh_token',
+    refresh_token: pool.refresh_token,
+  });
+  const r = await fetch(_GRAPH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error_description || `Token error ${r.status}`);
+  _inboxTokenCache.set(pool.email, {
+    token: d.access_token,
+    expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000,
+  });
+  return d.access_token;
+}
+
+// GET /api/vault/inbox/:email — list inbox messages
+router.get('/inbox/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!pool) return res.status(404).json({ error: 'Email not in pool' });
+    if (!pool.refresh_token || !pool.client_id)
+      return res.status(400).json({ error: 'Missing MS Graph credentials (refresh_token / client_id)' });
+    const token = await _getGraphToken(pool);
+    const top = Math.min(parseInt(req.query.top) || 50, 100);
+    const url = `${_GRAPH_ME}/messages?$top=${top}&$orderby=receivedDateTime desc` +
+      `&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
+    res.json({ ok: true, messages: d.value || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/vault/inbox/message — get full message body
+router.post('/inbox/message', async (req, res) => {
+  try {
+    const { email, messageId } = req.body;
+    if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
+    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!pool) return res.status(404).json({ error: 'Email not in pool' });
+    const token = await _getGraphToken(pool);
+    const url = `${_GRAPH_ME}/messages/${messageId}` +
+      `?$select=id,subject,body,bodyPreview,from,toRecipients,receivedDateTime,isRead`;
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="html"' },
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
+    res.json({ ok: true, message: d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/vault/inbox/mark-read — mark a message as read
+router.post('/inbox/mark-read', async (req, res) => {
+  try {
+    const { email, messageId } = req.body;
+    if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
+    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!pool) return res.status(404).json({ error: 'Email not in pool' });
+    const token = await _getGraphToken(pool);
+    await fetch(`${_GRAPH_ME}/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isRead: true }),
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/vault/inbox/delete — delete (permanently trash) a message
+router.post('/inbox/delete', async (req, res) => {
+  try {
+    const { email, messageId } = req.body;
+    if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
+    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!pool) return res.status(404).json({ error: 'Email not in pool' });
+    const token = await _getGraphToken(pool);
+    const r = await fetch(`${_GRAPH_ME}/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok && r.status !== 204) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error?.message || `Delete failed: ${r.status}`);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

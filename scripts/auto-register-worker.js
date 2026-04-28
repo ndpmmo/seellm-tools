@@ -447,6 +447,7 @@ export async function runAutoRegister(taskInput) {
     // Click "Sign up" — chỉ cần thiết với UI cũ. UI mới (unified "Log in or sign up")
     // đã có email input ngay → bỏ qua bước này tránh click nhầm.
     console.log(`🖱️  Chuyển sang luồng Đăng ký...`);
+    const urlBeforeSignup = await evalJson(tabId, USER_ID, `location.href`);
     const signupClickResult = await evalJson(tabId, USER_ID, `(() => {
       // Nếu UI mới đã có email input → KHÔNG cần click Sign up
       const hasEmailInput = !!document.querySelector(
@@ -454,17 +455,71 @@ export async function runAutoRegister(taskInput) {
       );
       if (hasEmailInput) return { skipped: true, reason: 'unified-ui-email-input-present' };
 
-      // UI cũ: tìm button/anchor có text "sign up" — TRÁNH text "log in or sign up"
-      const elements = Array.from(document.querySelectorAll('a[href*="signup" i], a[href*="sign-up" i], button'));
+      const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+      const elements = Array.from(document.querySelectorAll('a, button, div[role="button"]')).filter(isVisible);
       const signup = elements.find(l => {
         const t = (l.innerText || l.textContent || '').toLowerCase().trim();
-        // Phải là exact "sign up" hoặc "sign up for free", không phải heading "log in or sign up"
         return t === 'sign up' || t === 'sign up for free' || (t.startsWith('sign up') && !t.includes(' or '));
       });
-      if (signup) { signup.click(); return { clicked: true, text: signup.innerText.trim() }; }
+      if (signup) {
+        // Dispatch event native để qua mặt React pointer-events: none (nếu có)
+        signup.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        signup.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        signup.click();
+        return { clicked: true, text: signup.innerText.trim(), tag: signup.tagName };
+      }
       return { skipped: true, reason: 'no-signup-button-found' };
     })()`);
     console.log(`[Sign-up step] →`, JSON.stringify(signupClickResult || {}));
+
+    // Nếu không tìm thấy nút Sign up (ví dụ bị ẩn hoặc UI mới) và không có form, ép điều hướng
+    if (signupClickResult?.skipped && signupClickResult.reason === 'no-signup-button-found') {
+      console.log(`[Sign-up step] ⚠️ Không tìm thấy nút Đăng ký, thử ép trình duyệt điều hướng...`);
+      try {
+        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
+      } catch (e) {
+        const msg = e?.message || String(e);
+        if (msg.includes('NS_BINDING_ABORTED')) {
+          console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
+        } else {
+          throw e;
+        }
+      }
+    } else if (signupClickResult?.clicked) {
+      const signupUrlChanged = await waitForUrlChange(tabId, USER_ID, urlBeforeSignup, { timeoutMs: 8000, intervalMs: 500 });
+      const emailInputCheck = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
+      if (!emailInputCheck) {
+        if (signupUrlChanged) {
+          console.log(`[Sign-up step] URL đã đổi sang ${signupUrlChanged} nhưng ô Email chưa sẵn sàng, chờ thêm...`);
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          console.log(`[Sign-up step] ⚠️ Click không làm đổi URL, ép trình duyệt điều hướng...`);
+          try {
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
+          } catch (e) {
+            const msg = e?.message || String(e);
+            if (msg.includes('NS_BINDING_ABORTED')) {
+              console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
+            } else {
+              throw e;
+            }
+          }
+          await new Promise(r => setTimeout(r, 4000));
+        }
+      }
+    }
+
+    // Chờ ô email input xuất hiện (tối đa 15s) — tránh race condition khi trang auth load chậm
+    let emailInputReady = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const check = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
+      if (check) { emailInputReady = true; break; }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    if (!emailInputReady) {
+      console.log(`[Sign-up step] ❌ Sau 15s vẫn không thấy ô nhập Email. URL: ${await evalJson(tabId, USER_ID, 'location.href')}`);
+    }
+
     await new Promise(r => setTimeout(r, 5000));
     await saveStep('02_register_page');
     await assertOnExpectedDomain(tabId, USER_ID, 'after-signup-click');
@@ -546,7 +601,7 @@ export async function runAutoRegister(taskInput) {
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
     await saveStep('02_password_load');
 
-    // 3. Form Điền Mật khẩu — luôn loại nút có "with" (Continue with Google...)
+    // 3. Form điền Mật khẩu — luôn loại nút có "with" (Continue with Google...)
     console.log(`[3] Điền Password -> ${chatGptPassword}`);
     const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
     const pwdClickInfo = await evalJson(tabId, USER_ID, `

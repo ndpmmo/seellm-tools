@@ -1,5 +1,52 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.34] - 2026-04-29
+
+### 🐛 Fix auto-register: nút "Sign up" click không hiệu quả + fallback navigate
+
+**Vấn đề:** Commit `3193fd1` (v0.2.31) đã thay đổi selector tìm nút "Sign up" nhưng không dự phòng trường hợp click bị React/Camoufox bỏ qua. ChatGPT gần đây chuyển sang dùng `onPointerDown`/`onPointerUp` thay vì `onClick`, nên `.click()` đơn thuần không còn trigger được handler → script báo `no-email-input` và fail ngay.
+
+**Sửa 3 tầng bảo vệ:**
+
+1. **Mouse event dispatch** — thay vì chỉ `.click()`, dispatch `mousedown` + `mouseup` + `click` để trigger cả pointer events của React
+2. **Fallback navigate** — nếu click không đổi URL sau 8s, ép browser navigate thẳng sang `https://chatgpt.com/auth/login?action=signup`; catch `NS_BINDING_ABORTED` (browser đang tự chuyển trang) như non-fatal
+3. **Retry loop trước Phase 2** — chờ tối đa 15s (10 lần × 1.5s) cho email input xuất hiện, thay vì fail ngay `no-email-input`
+
+**Files:**
+- `scripts/auto-register-worker.js`
+
+---
+
+## [0.2.33] - 2026-04-29
+
+### 📬 Inbox Viewer trong #vault-workshop
+
+Tính năng mới: đọc hộp thư đến của từng email trong pool ngay trên Dashboard, không cần mở Outlook/trình duyệt bên ngoài.
+
+**Kiến trúc:**
+
+- **Server** (`server/routes/vault.js`): 4 route mới dùng MS Graph API:
+  - `GET /api/vault/inbox/:email` — liệt kê 50 thư mới nhất (subject, from, preview, isRead)
+  - `POST /api/vault/inbox/message` — lấy nội dung đầy đủ (body HTML/text) theo `messageId`
+  - `POST /api/vault/inbox/mark-read` — đánh dấu đã đọc (PATCH `isRead: true`)
+  - `POST /api/vault/inbox/delete` — xóa thư (DELETE)
+  - Tối ưu: Access Token được cache trong bộ nhớ theo email, tự làm mới khi còn <60s
+
+- **UI** (`src/components/views/vault/VaultWorkshopView.tsx`):
+  - Tab mới **Inbox** (4th tab) với badge số thư chưa đọc
+  - Layout 3-pane kiểu email client:
+    - **Trái (260px)**: danh sách email pool + search, chấm màu trạng thái
+    - **Giữa (320px)**: danh sách thư của email được chọn (unread bold + dot indigo), số thư/unread, refresh
+    - **Phải (flex)**: nội dung thư đầy đủ — HTML render qua sandboxed `<iframe>`, plaintext dùng `<pre>`; nút Xóa màu đỏ
+  - Khi click thư: **tự động đánh dấu đã đọc** (optimistic update + server call fire-and-forget)
+  - Nút **Inbox** (icon) thêm vào cột Actions của bảng Email Pool → một click sang Inbox tab với email đó đã được chọn
+
+**Files:**
+- `server/routes/vault.js`
+- `src/components/views/vault/VaultWorkshopView.tsx`
+
+---
+
 ## [0.2.32] - 2026-04-28
 
 ### 🎨 UI Scrollbar + 🌐 Force-Locale Toggle + 🔧 DB Reset
