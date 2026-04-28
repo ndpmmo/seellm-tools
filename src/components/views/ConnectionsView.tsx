@@ -34,13 +34,19 @@ export function ConnectionsView() {
             <Link2 size={16} className="text-indigo-400" />
             Active Connections
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{items.length}</span>
+            <span
+              className="ml-2 text-[10px] text-slate-500 font-normal cursor-help"
+              title="Read-only — đồng bộ từ Cloudflare D1 (Gateway). Để xóa connection, vào Gateway dashboard → Providers → Codex."
+            >
+              (read-only · D1)
+            </span>
           </CardTitle>
           <Button variant="secondary" size="sm" onClick={loadData} disabled={loading} className="w-auto px-3 border-white/10 hover:bg-white/10 ml-auto">
             <RefreshCw size={14} className={`${loading ? 'animate-spin' : ''} text-slate-300 mr-1.5`} />
             Refresh
           </Button>
         </CardHeader>
-        <div className="flex-1 overflow-x-auto">
+        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
           {error && <div className="mx-5 mt-4 mb-1 flex items-center gap-2 p-3 bg-rose-500/10 text-rose-400 rounded-lg text-[13px] border border-rose-500/30"><AlertCircle size={14} /> {error}</div>}
           
           <table className="w-full min-w-[1000px] border-collapse text-left">

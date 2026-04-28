@@ -510,7 +510,7 @@ export function VaultAccountsView() {
       )}
 
       {/* ═══ TABLE ═══ */}
-      <Card>
+      <Card className="flex-1 min-h-[320px] flex flex-col">
         <CardHeader>
           <CardTitle>
             <Shield size={14} className="text-indigo-400" /> Tài Khoản Vault
@@ -554,7 +554,7 @@ export function VaultAccountsView() {
           </div>
         </CardHeader>
 
-        <div className="overflow-x-auto custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] border-collapse text-left">
             <thead>
               <tr className="bg-white/5 border-b border-white/5">

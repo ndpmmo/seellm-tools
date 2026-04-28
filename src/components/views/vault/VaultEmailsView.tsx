@@ -264,7 +264,7 @@ export function VaultEmailsView() {
             </div>
 
             {/* ── Main Card ── */}
-            <Card className="flex flex-col min-h-0 shrink-0">
+            <Card className="flex flex-col flex-1 min-h-[320px]">
                 {/* Header */}
                 <CardHeader>
                     <div className="flex items-center gap-4 w-full flex-wrap">
@@ -324,7 +324,7 @@ export function VaultEmailsView() {
                 )}
 
                 {/* Table */}
-                <div className="overflow-x-auto custom-scrollbar">
+                <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
                     <table className="w-full min-w-[1000px] text-left border-collapse">
                         <thead>
                             <tr className="bg-white/[0.03] border-b border-white/5">

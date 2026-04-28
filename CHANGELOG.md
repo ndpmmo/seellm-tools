@@ -1,5 +1,65 @@
 # Changelog - SeeLLM Tools
 
+## [0.2.37] - 2026-04-29
+
+### 🛡️ Fix — Tombstone resurrect bug khi pull từ D1 + #connections data source clarity
+
+**Vấn đề:** Sau khi xóa proxy/account ở Vault, sync loop từ D1 (`pullVault`) có thể "hồi sinh" record do logic auto-restore `deleted_at = NULL` trong `upsertProxy`/`upsertAccount` chạy ngay cả khi pull tự động từ D1.
+
+**Fix — `server/db/vault.js`:**
+- `upsertProxy` (URL-based dedup): chỉ resurrect tombstone khi `skipSync=false` (user-initiated). Khi pull từ D1 (`skipSync=true`), tôn trọng tombstone — không resurrect.
+- `upsertAccount` (email-based dedup): áp dụng cùng guard.
+
+**Cải thiện `#connections` view:**
+- Thêm tooltip làm rõ data source: "Read-only — đồng bộ từ Cloudflare D1 (Gateway). Để xóa connection, vào Gateway dashboard."
+- Không thêm delete button (tránh race condition với Gateway). Connection lifecycle do Gateway quản lý.
+
+**Cải thiện `#vault-proxies` delete UX:**
+- Thêm error handling khi DELETE thất bại (hiện toast "Xóa thất bại" thay vì âm thầm xóa khỏi UI).
+- Re-fetch sau delete để đảm bảo UI sync với DB state, phòng race condition với background sync.
+
+**Files cập nhật:**
+- `server/db/vault.js` — tombstone guard cho upsert
+- `src/components/views/ConnectionsView.tsx` — data source tooltip
+- `src/components/views/vault/VaultProxiesView.tsx` — error handling + reload after delete
+
+**Tích hợp với Gateway v0.0.170:**
+- Gateway worker đã filter tombstone cũ (>7 ngày) trong `/sync/pull` — pull về Tools sẽ không bị "ngập" tombstone tích lũy nhiều tháng.
+- Gateway giờ hard-delete local khi nhận tombstone từ D1 — kết hợp với fix này, luồng xóa giữa Tools ↔ D1 ↔ Gateway hoàn toàn nhất quán.
+
+---
+
+## [0.2.36] - 2026-04-28
+
+### 🧩 Chuẩn hoá scroll/table layout toàn bộ màn dữ liệu để tránh lệch hành vi
+
+**Vấn đề:** `#vault-accounts` và `#vault-proxies` không thể scroll ổn định (dọc/ngang). Nguyên nhân gốc là layout table chưa đồng bộ 100% giữa các màn: cùng UI style nhưng khác “scroll contract”, nên có màn scroll nội bộ đúng, có màn bị container ngoài ăn sự kiện.
+
+**Sửa kiến trúc layout (behavior-preserving):**
+
+Chuẩn hoá các màn bảng dữ liệu về cùng pattern:
+1. `Card` chứa bảng dùng `flex flex-col` + chiều cao khả dụng (`flex-1`, `min-h`)
+2. Vùng bọc table dùng `flex-1 min-h-0 overflow-auto custom-scrollbar`
+3. Giữ nguyên logic nghiệp vụ/API, chỉ sửa cấu trúc hiển thị và hành vi scroll
+
+**Files cập nhật:**
+- `src/components/views/vault/VaultAccountsView.tsx`
+- `src/components/views/vault/VaultProxiesView.tsx`
+- `src/components/views/AccountsView.tsx`
+- `src/components/views/ServicesView.tsx`
+- `src/components/views/ConnectionsView.tsx`
+- `src/components/views/vault/VaultEmailsView.tsx`
+- `src/components/views/vault/VaultWorkshopView.tsx`
+
+**Kết quả kiểm tra kỹ thuật:**
+- `npm run build` ✅ pass (Next.js compile + TypeScript + static generation)
+- `npm run lint` ⚠️ fail do lỗi tồn đọng toàn repo (không phát sinh từ patch scroll):
+  - Tổng: `422 problems` (`157 errors`, `265 warnings`)
+  - Nhóm chính: `@typescript-eslint/no-explicit-any`, `@typescript-eslint/no-unused-vars`, `react/no-unescaped-entities`, `react-hooks/exhaustive-deps`, một phần `@next/next/no-img-element`
+  - Các lỗi xuất hiện tập trung ở các file cũ như `src/components/AppContext.tsx`, `src/components/views/vault/VaultProxiesView.tsx`, `src/components/views/vault/VaultWorkshopView.tsx`, và nhiều script trong `scripts/`
+
+---
+
 ## [0.2.35] - 2026-04-29
 
 ### ⚡ Optimistic UI update cho Email Pool + Socket.IO event-driven

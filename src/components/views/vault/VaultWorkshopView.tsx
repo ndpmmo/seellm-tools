@@ -578,7 +578,7 @@ export function VaultWorkshopView() {
                             <StatBox label="Lỗi / Dead" value={items.filter(e => e.mail_status === 'dead').length} icon={XCircle} colorClass="text-rose-400" bgClass="bg-rose-500/10" active={statusFilter === 'dead'} onClick={() => setStatusFilter('dead')} />
                         </div>
 
-                        <Card className="flex flex-col min-h-0">
+                        <Card className="flex flex-col flex-1 min-h-[320px]">
                             <CardHeader>
                                 <div className="flex items-center gap-4 w-full">
                                     <div className="relative w-72">
@@ -632,7 +632,7 @@ export function VaultWorkshopView() {
                                 </div>
                             )}
 
-                            <div className="overflow-x-auto custom-scrollbar">
+                            <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
                                 <table className="w-full min-w-[1100px] text-left border-collapse">
                                     <thead>
                                         <tr className="bg-white/[0.03] border-b border-white/5">

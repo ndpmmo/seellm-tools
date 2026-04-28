@@ -611,7 +611,7 @@ export function ServicesView() {
 
         {error && <div className="mx-5 mt-4 flex items-center gap-2 p-3 bg-rose-500/10 text-rose-400 rounded-lg text-[13px] border border-rose-500/30"><AlertCircle size={14} /> {error}</div>}
 
-        <div className="overflow-x-auto flex-1">
+        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] border-collapse text-left">
             <thead>
               <tr className="bg-white/5 border-y border-white/5">

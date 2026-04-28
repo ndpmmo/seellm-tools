@@ -231,7 +231,9 @@ export const vault = {
         console.log(`[Vault] Reusing ID for email ${data.email} → ID: ${id}`);
 
         // Nếu bản ghi cũ đang bị xóa ảo, khôi phục lại
-        if (byEmail.deleted_at) {
+        // [TOMBSTONE GUARD] Chỉ resurrect khi user-initiated (skipSync=false).
+        // Khi pull từ D1 (skipSync=true), tôn trọng tombstone — không resurrect.
+        if (byEmail.deleted_at && !skipSync) {
           db.prepare('UPDATE vault_accounts SET deleted_at = NULL WHERE id = ?').run(id);
           existing.deleted_at = null;
         }
@@ -524,7 +526,9 @@ export const vault = {
         id = byUrl.id;
         existing = byUrl;
         // If it was deleted, restore it
-        if (byUrl.deleted_at) {
+        // [TOMBSTONE GUARD] Chỉ resurrect khi user-initiated (skipSync=false).
+        // Khi pull từ D1 (skipSync=true), tôn trọng tombstone — không resurrect.
+        if (byUrl.deleted_at && !skipSync) {
           db.prepare('UPDATE vault_proxies SET deleted_at = NULL WHERE id = ?').run(id);
           existing.deleted_at = null;
         }

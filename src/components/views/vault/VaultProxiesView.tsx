@@ -198,7 +198,11 @@ export function VaultProxiesView() {
 
   const del = async (id: string) => {
     if (!confirm('Xóa proxy này?')) return;
-    await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      addToast('Xóa thất bại', 'error');
+      return;
+    }
     setItems(prev => prev.filter(it => it.id !== id));
     setSelected(prev => {
       const n = new Set(prev);
@@ -206,17 +210,24 @@ export function VaultProxiesView() {
       return n;
     });
     addToast('Đã xóa', 'info');
+    // Re-fetch to ensure UI reflects DB state (guards against any
+    // background sync race that might revive the record).
+    load();
   };
 
   const delSelected = async () => {
     if (!confirm(`Xóa ${selected.size} proxy đã chọn?`)) return;
+    let failed = 0;
     for (const id of Array.from(selected)) {
-      await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' }).catch(() => {});
+      const res = await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) failed++;
     }
     const deletedIds = new Set(selected);
     setItems(prev => prev.filter(it => !deletedIds.has(it.id)));
     setSelected(new Set());
-    addToast(`Đã xóa ${selected.size} proxy`, 'info');
+    if (failed > 0) addToast(`Đã xóa ${selected.size - failed}/${selected.size} (${failed} lỗi)`, 'error');
+    else addToast(`Đã xóa ${selected.size} proxy`, 'info');
+    load();
   };
 
   const testOne = async (id: string) => {
@@ -424,7 +435,7 @@ export function VaultProxiesView() {
       </Card>
 
       {/* Table */}
-      <Card className="flex-1 min-h-[300px]">
+      <Card className="flex-1 min-h-[320px] flex flex-col">
         <CardHeader className="border-b border-white/5 bg-black/10 py-3 px-5">
           <CardTitle>
             <Globe size={14} className="text-indigo-400" /> Proxy Manager
@@ -440,7 +451,7 @@ export function VaultProxiesView() {
           </div>
         </CardHeader>
 
-        <div className="overflow-x-auto custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
           <table className="w-full min-w-[1000px] border-collapse text-left">
             <thead>
               <tr className="bg-white/[0.03] border-b border-white/5">
