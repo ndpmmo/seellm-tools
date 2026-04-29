@@ -413,7 +413,7 @@ export async function tryAcceptCookies(tabId, userId) {
  */
 export async function dismissGooglePopupAndClickLogin(tabId, userId) {
   return evalJson(tabId, userId, `
-    (() => {
+    (async () => {
       const isVisible = el => {
         if (!el) return false;
         const s = window.getComputedStyle(el);
@@ -433,8 +433,6 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       const results = [];
 
       // 1. Đóng popup "Sign in with Google" — multi-language aria-label + iframe removal
-      // aria-label cho nút Close: en="Close", de="Schließen", fr="Fermer", es="Cerrar", it="Chiudi",
-      // pt="Fechar", vi="Đóng", ru="Закрыть", ja="閉じる", zh="关闭"
       const closeAriaLabels = ['close','schließen','fermer','cerrar','chiudi','fechar','đóng','закрыть','閉じる','关闭'];
       const closeButtons = Array.from(document.querySelectorAll(
         '[aria-label], button[id*="close" i], [data-dismiss], .close-button, [class*="close" i][role="button"]'
@@ -503,7 +501,6 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       const hasPasswordInput = !!document.querySelector('input[type="password"]');
       if (hasEmailInput || hasPasswordInput) {
         results.push('form-visible-no-click-needed');
-        // Không cần click button, form đã sẵn sàng
         return { ok: true, actions: results, formVisible: true };
       }
       
