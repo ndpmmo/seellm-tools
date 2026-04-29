@@ -158,7 +158,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
     // ── 4. Phone verification screen → workspace bypass ──
     if (state?.hasPhoneScreen) {
       console.log(`[OAuth] Phone screen detected, trying workspace bypass...`);
-      await saveStep('oauth_phone_bypass');
+      await saveStep('oauth_phone_bypass_attempt');
       const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
       if (bypassResult?.code) {
         authCode = bypassResult.code;
@@ -223,7 +223,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
       console.log(`[OAuth] 🔓 Consent/workspace screen detected, attempting bypass (${consentAttempts + 1}/${MAX_CONSENT_ATTEMPTS})...`);
       consentAttempted = true;
       consentAttempts++;
-      await saveStep('oauth_consent_attempt');
+      await saveStep(`oauth_consent_attempt_${consentAttempts}`);
       const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
       if (bypassResult?.code) {
         authCode = bypassResult.code;

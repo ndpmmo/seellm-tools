@@ -294,6 +294,15 @@ export async function performWorkspaceConsentBypass(evalJson, tabId, userId, { t
     })();
   `, timeoutMs);
 
-  console.log(`[Bypass] Result:`, JSON.stringify(codeResult));
+  // Log hygiene: redact sensitive URLs, only log necessary metadata
+  const safeLog = {
+    ok: codeResult?.ok,
+    hasCode: !!codeResult?.code,
+    workspaceId: codeResult?.workspaceId || '',
+    hasContinueUrl: !!codeResult?.continueUrl,
+    hasFinalUrl: !!codeResult?.finalUrl,
+    error: codeResult?.error || null,
+  };
+  console.log(`[Bypass] Result:`, JSON.stringify(safeLog));
   return codeResult || { ok: false, error: 'Unknown bypass error' };
 }

@@ -563,7 +563,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
 
   await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 3000));
-  await saveStep('07_oauth_redirect');
+  await saveStep('oauth_redirect_ready');
   console.log(`[Timing] capture.oauth_redirect_ready=${elapsedMs()}ms`);
 
   let authCode = '';
@@ -605,7 +605,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
 
     if (oauthState?.hasPhoneScreen) {
       console.log(`[Capture] 📵 Phone screen → workspace API bypass...`);
-      await saveStep('08b_skip_phone_consent');
+      await saveStep('oauth_phone_bypass_attempt');
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); break; }
       return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
@@ -638,18 +638,23 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
       }
       consentAttempts++;
       console.log(`[Capture] Consent bypass attempt (${consentAttempts}/${MAX_CONSENT_ATTEMPTS})...`);
+      await saveStep(`oauth_consent_attempt_${consentAttempts}`);
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; break; }
       const clickResult = await clickBestMatchingAction(tabId, userId, { exactTexts: ['authorize', 'allow', 'continue'], excludeTexts: ['close'], timeoutMs: 4000 });
-      if (clickResult?.ok) console.log(`[Capture] Clicked: ${clickResult.text}`);
+      if (clickResult?.ok) {
+        console.log(`[Capture] Clicked: ${clickResult.text}`);
+        await saveStep(`oauth_consent_clicked_${consentAttempts}`);
+      }
     }
     await new Promise(r => setTimeout(r, 1500));
   }
   if (fallbackToSessionNow) {
-    console.log('[Capture] ⚠️ Consent bypass exhausted, fallback sớm sang session capture để tránh chậm luồng.');
+    console.log('[Capture] ⚠️ Consent bypass exhausted, fallback sang session capture...');
+    await saveStep('oauth_consent_exhausted');
   }
   console.log(`[Timing] capture.oauth_loop_done=${elapsedMs(oauthLoopStartedAt)}ms total=${elapsedMs()}ms`);
-  await saveStep('08_oauth_callback');
+  await saveStep('oauth_loop_exit');
 
   // Exchange code → tokens
   if (authCode) {
@@ -659,7 +664,11 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
       const refreshToken = tokenData.refresh_token || '';
       const idToken = tokenData.id_token || '';
       const expiresIn = tokenData.expires_in || 0;
-      if (!accessToken) return sendResult(task, 'error', 'Token exchange không có access_token');
+      if (!accessToken) {
+        await saveStep('oauth_exchange_failed');
+        return sendResult(task, 'error', 'Token exchange không có access_token');
+      }
+      await saveStep('oauth_exchange_success');
       const meta = extractAccountMeta(accessToken);
       let sessionToken = '', deviceId = '';
       try {
@@ -676,11 +685,13 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
       });
     } catch (exchangeErr) {
       console.error(`[Capture] ❌ Token exchange lỗi: ${exchangeErr.message}`);
+      await saveStep('oauth_exchange_failed');
     }
   }
 
   // Fallback: session
   console.log(`[Capture] 🔄 Fallback: session endpoint...`);
+  await saveStep('session_fallback_started');
   const fallbackStartedAt = Date.now();
   await navigate(tabId, userId, 'https://chatgpt.com', 10000);
   await new Promise(r => setTimeout(r, 2000));
@@ -693,8 +704,12 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
       try { const d = JSON.parse(sessionRes.body); accessToken = d?.accessToken || ''; if (accessToken) break; } catch (_) {}
     }
   }
-  await saveStep('06_session_captured');
-  if (!accessToken) return sendResult(task, 'error', 'Cả PKCE và session fallback đều thất bại');
+  await saveStep('session_fallback_attempt');
+  if (!accessToken) {
+    await saveStep('session_fallback_failed');
+    return sendResult(task, 'error', 'Cả PKCE và session fallback đều thất bại');
+  }
+  await saveStep('session_fallback_success');
   console.log(`[Timing] capture.session_fallback_done=${elapsedMs(fallbackStartedAt)}ms total=${elapsedMs()}ms`);
   const meta = extractAccountMeta(accessToken);
   let sessionToken = '', deviceId = '';
