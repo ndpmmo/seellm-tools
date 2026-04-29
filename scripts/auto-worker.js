@@ -910,7 +910,7 @@ async function fetchAnyTask() {
   const excludeParam = processingIds.size > 0 ? `?exclude=${[...processingIds].join(',')}` : '';
 
   // 1. Connect tasks (ưu tiên cao — nhanh hơn, trực tiếp)
-  if (MODE === 'auto' || MODE === 'direct-login') {
+  if (currentMode === 'auto' || currentMode === 'direct-login') {
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/connect-task${excludeParam}`, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
@@ -921,7 +921,7 @@ async function fetchAnyTask() {
   }
 
   // 2. Login tasks (Tools local)
-  if (MODE === 'auto' || MODE === 'pkce-login') {
+  if (currentMode === 'auto' || currentMode === 'pkce-login') {
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/task${excludeParam}`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
@@ -974,7 +974,7 @@ async function pollTasks() {
 
     // Auto-select flow: connect nếu có password, login nếu chỉ có codeVerifier
     const flow = task._flow || (task.password ? 'connect' : 'login');
-    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (mode: ${MODE}, threads: ${activeThreads}/${MAX_THREADS})`);
+    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (mode: ${currentMode}, threads: ${activeThreads}/${MAX_THREADS})`);
 
     const runner = flow === 'connect' ? runConnectFlow : runLoginFlow;
     runner(task)
@@ -995,6 +995,34 @@ async function pollTasks() {
     console.error('[Worker] Poll error:', err.message);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// DYNAMIC MODE RELOAD
+// ═══════════════════════════════════════════════════════════════
+let currentMode = MODE;
+
+async function checkModeReload() {
+  try {
+    const res = await fetch(`${TOOLS_API}/api/config`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    const cfg = await res.json();
+    const newConfigMode = cfg.workerMode || 'auto';
+
+    // Re-resolve mode (CLI arg still takes priority)
+    const newMode = resolveMode(process.argv.slice(2), newConfigMode);
+
+    if (newMode !== currentMode) {
+      console.log(`[Mode] 🔄 Mode changed from '${currentMode}' to '${newMode}' (config updated)`);
+      currentMode = newMode;
+      // Note: MODE is const, so we use currentMode in fetchAnyTask instead
+    }
+  } catch (err) {
+    // Silent fail - config check is best-effort
+  }
+}
+
+// Check for mode changes every 30 seconds
+setInterval(checkModeReload, 30000);
 
 // ═══════════════════════════════════════════════════════════════
 // KHỞI ĐỘNG

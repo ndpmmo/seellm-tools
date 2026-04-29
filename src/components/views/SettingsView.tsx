@@ -62,7 +62,7 @@ export function SettingsView() {
     await saveConfig(f);
     setSaving(false);
     if (modeChanged) {
-      addToast('⚠️ Mode đã thay đổi. Cần restart worker để áp dụng thay đổi.', 'warning');
+      addToast('✅ Mode đã thay đổi. Worker sẽ tự động áp dụng sau ~30s.', 'success');
       setModeChanged(false);
     } else {
       addToast('✅ Đã lưu cài đặt', 'success');
@@ -125,8 +125,8 @@ export function SettingsView() {
               <option value="pkce-login">PKCE Login (OAuth)</option>
             </select>
             {modeChanged && (
-              <div className="mt-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px]">
-                ⚠️ Mode đã thay đổi. Cần restart worker để áp dụng.
+              <div className="mt-2 px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px]">
+                ✅ Mode sẽ tự động áp dụng sau ~30s (không cần restart)
               </div>
             )}
           </Field>
