@@ -36,6 +36,14 @@
 - fallback: click thất bại + có `href` → `location.assign(href)`
 - fallback cuối: `location.assign('/auth/login')`
 
+#### 4. Strengthen `clickBestMatchingAction()` từ auto-register-worker
+- thêm **mouse event dispatch** (mousedown + mouseup + click) để trigger React pointer events
+- fix lỗi click không hiệu quả trên UI mới dùng `onPointerDown`/`onPointerUp` thay vì `onClick`
+
+#### 5. Thêm domain guard từ auto-register-worker
+- `isGoogleDomainDrift()` - phát hiện khi tab bị redirect sang `accounts.google.com`
+- ngăn chặn drift sang Google account creation flow khi click nhầm "Continue with Google"
+
 #### 2. Restore connect-flow debug trong `auto-worker.js`
 - log rõ kết quả của bước `[1b]`:
   - `dismissGooglePopupAndClickLogin()` return payload

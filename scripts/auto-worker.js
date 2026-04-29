@@ -78,6 +78,10 @@ function isWorkspaceSessionError(url = '', snapshot = '') {
          cleanText.includes('oops, an error occurred');
 }
 
+function isGoogleDomainDrift(url = '') {
+  return url.includes('accounts.google.com') || url.includes('google.com/account');
+}
+
 async function fetchSessionInPage(tabId, userId) {
   return evalJson(tabId, userId, `
     (async () => {
@@ -188,6 +192,11 @@ async function clickBestMatchingAction(tabId, userId, options = {}) {
         const candidates = Array.from(document.querySelectorAll('button, a, input[type="submit"], [role="button"]')).filter(isVisible).map(el => ({ el, text: norm(el.innerText || el.textContent || el.value || ''), testId: el.getAttribute('data-testid') || '' })).filter(x => x.text && !excludes.some(t => x.text.includes(t)));
         let winner = candidates.find(x => x.testId && exact.includes(x.testId)) || candidates.find(x => exact.includes(x.text)) || candidates.find(x => includes.some(t => x.text.includes(t)));
         if (!winner) return { ok: false, reason: 'no-match' };
+        // Strengthen: mousedown + mouseup + click (like auto-register) for React pointer events
+        try {
+          winner.el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          winner.el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        } catch (_) {}
         winner.el.click();
         return { ok: true, text: winner.text, testId: winner.testId || null };
       })()
