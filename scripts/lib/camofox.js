@@ -314,7 +314,7 @@ export async function act(tabId, userId, kind, params, { timeoutMs = 30000 } = {
   if (!validKinds.includes(kind)) {
     throw new Error(`Invalid kind: ${kind}. Valid: ${validKinds.join(', ')}`);
   }
-  return camofoxPost(`/tabs/${tabId}/act`, { kind, userId, ...params }, { timeoutMs });
+  return camofoxPost(`/act`, { kind, targetId: tabId, userId, ...params }, { timeoutMs });
 }
 
 /**
