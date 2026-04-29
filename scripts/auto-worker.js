@@ -537,6 +537,8 @@ async function runConnectFlow(task) {
 // ═══════════════════════════════════════════════════════════════
 async function captureAndReport(tabId, userId, runDir, task, email, saveStep, effectiveProxy) {
   console.log(`[Capture] 🔍 Bắt đầu lấy OAuth tokens (PKCE flow)...`);
+  const captureStartedAt = Date.now();
+  const elapsedMs = (start = captureStartedAt) => Date.now() - start;
   const pkce = generatePKCE();
   const authUrl = buildOAuthURL(pkce);
   console.log(`[Capture] [A] PKCE state=${pkce.state.slice(0, 12)}...`);
@@ -562,6 +564,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
   await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 3000));
   await saveStep('07_oauth_redirect');
+  console.log(`[Timing] capture.oauth_redirect_ready=${elapsedMs()}ms`);
 
   let authCode = '';
   let callbackState = '';
@@ -569,8 +572,10 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
   const totpSecret = task.twoFaSecret || task.two_fa_secret || null;
   let oauthLoginHandled = false;
   let consentAttempts = 0;
-  const MAX_CONSENT_ATTEMPTS = 3;
+  const MAX_CONSENT_ATTEMPTS = 2;
   let consentBypassExhausted = false;
+  let fallbackToSessionNow = false;
+  const oauthLoopStartedAt = Date.now();
 
   for (let i = 0; i < 30; i++) {
     const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
@@ -601,7 +606,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
     if (oauthState?.hasPhoneScreen) {
       console.log(`[Capture] 📵 Phone screen → workspace API bypass...`);
       await saveStep('08b_skip_phone_consent');
-      const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
+      const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); break; }
       return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
     }
@@ -622,25 +627,28 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
       if (consentBypassExhausted) {
-        // Already tried max attempts, just wait and continue
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
+        fallbackToSessionNow = true;
+        break;
       }
       if (consentAttempts >= MAX_CONSENT_ATTEMPTS) {
         console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), exhausting...`);
         consentBypassExhausted = true;
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
+        fallbackToSessionNow = true;
+        break;
       }
       consentAttempts++;
       console.log(`[Capture] Consent bypass attempt (${consentAttempts}/${MAX_CONSENT_ATTEMPTS})...`);
-      const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId);
+      const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; break; }
       const clickResult = await clickBestMatchingAction(tabId, userId, { exactTexts: ['authorize', 'allow', 'continue'], excludeTexts: ['close'], timeoutMs: 4000 });
       if (clickResult?.ok) console.log(`[Capture] Clicked: ${clickResult.text}`);
     }
     await new Promise(r => setTimeout(r, 1500));
   }
+  if (fallbackToSessionNow) {
+    console.log('[Capture] ⚠️ Consent bypass exhausted, fallback sớm sang session capture để tránh chậm luồng.');
+  }
+  console.log(`[Timing] capture.oauth_loop_done=${elapsedMs(oauthLoopStartedAt)}ms total=${elapsedMs()}ms`);
   await saveStep('08_oauth_callback');
 
   // Exchange code → tokens
@@ -660,6 +668,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
         sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
         deviceId = cookies.find(c => c.name === 'oai-device-id')?.value || '';
       } catch (_) {}
+      console.log(`[Timing] capture.pkce_success_total=${elapsedMs()}ms`);
       return sendResult(task, 'success', 'OAuth PKCE login + token exchange thành công', null, {
         ...tokenData, accessToken, refreshToken, idToken, sessionToken, deviceId, expiresIn,
         accountId: meta.accountId, userId: meta.userId, organizationId: meta.organizationId,
@@ -672,6 +681,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
 
   // Fallback: session
   console.log(`[Capture] 🔄 Fallback: session endpoint...`);
+  const fallbackStartedAt = Date.now();
   await navigate(tabId, userId, 'https://chatgpt.com', 10000);
   await new Promise(r => setTimeout(r, 2000));
   let accessToken = '';
@@ -685,6 +695,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
   }
   await saveStep('06_session_captured');
   if (!accessToken) return sendResult(task, 'error', 'Cả PKCE và session fallback đều thất bại');
+  console.log(`[Timing] capture.session_fallback_done=${elapsedMs(fallbackStartedAt)}ms total=${elapsedMs()}ms`);
   const meta = extractAccountMeta(accessToken);
   let sessionToken = '', deviceId = '';
   try {

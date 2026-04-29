@@ -150,9 +150,10 @@ export function extractWorkspaceId(decoded) {
  * @param {string} evalJson - evalJson function from camofox
  * @param {string} tabId - Tab ID
  * @param {string} userId - User ID
+ * @param {object} options - { timeoutMs = 40000 }
  * @returns {Promise<object>} - Result with ok, code, workspaceId, etc.
  */
-export async function performWorkspaceConsentBypass(evalJson, tabId, userId) {
+export async function performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs = 40000 } = {}) {
   console.log(`[Bypass] Loading consent page...`);
   const codeResult = await evalJson(tabId, userId, `
     (async () => {
@@ -291,7 +292,7 @@ export async function performWorkspaceConsentBypass(evalJson, tabId, userId) {
             return { ok: false, error: e.message };
         }
     })();
-  `, 40000);
+  `, timeoutMs);
 
   console.log(`[Bypass] Result:`, JSON.stringify(codeResult));
   return codeResult || { ok: false, error: 'Unknown bypass error' };
