@@ -460,30 +460,14 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       });
       if (googleIframes.length > 0) results.push('removed-google-iframes');
 
-      // 2. Tìm và click nút "Log in" - xử lý cả UI mới (More options dropdown)
-      const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]')).filter(isVisible);
+      // 2. Tìm và click nút "Log in" - UI hiện tại có nút trực tiếp với data-testid
       let loginBtn = null;
       
-      // UI mới: tìm "More options" để mở dropdown
-      const moreOptionsBtn = allClickable.find(el => {
-        const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-        return t.includes('more options') || t.includes('more') || el.getAttribute('aria-expanded') === 'false';
-      });
-      if (moreOptionsBtn) {
-        safeClick(moreOptionsBtn);
-        results.push('clicked-more-options');
-        // Đợi dropdown mở rồi tìm lại
-        await new Promise(r => setTimeout(r, 1500));
-      }
-      
-      // Sau khi click More options (hoặc nếu không có), tìm login button
-      const allClickable2 = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]')).filter(isVisible);
-      
-      // Ưu tiên 1: data-testid chính xác
+      // Ưu tiên 1: data-testid chính xác (UI hiện tại)
       loginBtn = document.querySelector('button[data-testid="login-button"], a[data-testid="login-button"]');
       if (loginBtn && isVisible(loginBtn)) results.push('found-by-data-testid');
       
-      // Ưu tiên 2: Các vùng landing page
+      // Ưu tiên 2: Các vùng landing page (UI cũ/backup)
       if (!loginBtn) {
         const landingSelectors = ['[class*="login" i] button', '[class*="auth" i] button', 'header button', 'nav button', '[role="banner"] button'];
         for (const sel of landingSelectors) {
@@ -496,31 +480,26 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
         }
       }
       
-      // Ưu tiên 3: UI mới - tìm input email/password trực tiếp (form đã visible sau click More options)
-      const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[autocomplete="email"]');
-      const hasPasswordInput = !!document.querySelector('input[type="password"]');
-      if (hasEmailInput || hasPasswordInput) {
-        results.push('form-visible-no-click-needed');
-        return { ok: true, actions: results, formVisible: true };
-      }
-      
-      // Ưu tiên 4: href chứa /auth/login
+      // Ưu tiên 3: href chứa /auth/login
       if (!loginBtn) {
-        loginBtn = allClickable2.find(el => {
+        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+        loginBtn = allClickable.find(el => {
           const href = (el.getAttribute('href') || '').toLowerCase();
           return href.includes('/auth/login') || href.includes('/login');
         });
         if (loginBtn) results.push('found-by-href');
       }
       
-      // Ưu tiên 5: text match rộng hơn (bao gồm email/password text)
+      // Ưu tiên 4: text match
       if (!loginBtn) {
-        loginBtn = allClickable2.find(el => {
+        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+        loginBtn = allClickable.find(el => {
           const t = (el.innerText || el.textContent || '').trim().toLowerCase();
           return t === 'log in' || t === 'login' || t === 'sign in' || t.includes('email') || t.includes('password');
         });
         if (loginBtn) results.push('found-by-text');
       }
+      
       if (loginBtn && isVisible(loginBtn)) {
         const href = loginBtn.getAttribute('href') || loginBtn.dataset?.href || '';
         const clicked = safeClick(loginBtn);
@@ -533,7 +512,8 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
         }
       } else {
         results.push('no-login-button-found');
-        // Log chi tiết hơn để debug
+        // Log chi tiết debug
+        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
         const visibleTexts = allClickable.map(e => {
           const text = (e.innerText || e.textContent || '').trim();
           const tag = (e.tagName || '').toLowerCase();
