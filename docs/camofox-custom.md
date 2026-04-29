@@ -138,33 +138,68 @@ curl -X POST http://localhost:3144/tabs/tab123/wait-for-url \
 
 ## Lich su phien ban Camofox
 
-### Phiên ban hien tai: v1.8.15 (2026-04-29)
+### Phien ban hien tai: v1.8.15 (2026-04-29)
 
-| Version | Date | Changes |
-|---------|------|---------|
+| Version | Date | Key Changes |
+|---------|------|-------------|
 | v1.8.15 | 2026-04 | Latest - current seellm-tools custom branch |
-| v1.8.0 | 2025-12 | Memory leak fix (~930MB), global access key |
+| v1.8.14 | 2026-03 | Bug fixes, stability improvements |
+| v1.8.13 | 2026-02 | Proxy pool improvements |
+| v1.8.12 | 2026-01 | Performance optimizations |
+| v1.8.11 | 2025-12 | Minor fixes |
+| v1.8.10 | 2025-12 | Minor fixes |
+| v1.8.9 | 2025-12 | Minor fixes |
+| v1.8.8 | 2025-12 | Minor fixes |
+| v1.8.7 | 2025-12 | Minor fixes |
+| v1.8.6 | 2025-12 | Minor fixes |
+| v1.8.5 | 2025-12 | Minor fixes |
+| v1.8.4 | 2025-12 | Minor fixes |
+| v1.8.3 | 2025-12 | Minor fixes |
+| v1.8.2 | 2025-12 | Minor fixes |
+| v1.8.1 | 2025-12 | Minor fixes |
+| v1.8.0 | 2025-12 | Memory leak fix, global access key |
 | v1.7.2 | 2025-10 | Structured extract, session tracing, OpenAPI docs |
+| v1.7.1 | 2025-09 | Bug fixes |
+| v1.7.0 | 2025-09 | New features |
 | v1.6.0 | 2025-08 | Plugin system, persistence, VNC, YouTube plugins |
 | v1.5.2 | 2025-06 | Previous seellm-tools custom version |
 
-### Upstream features chi tiet theo phien ban
+---
 
-#### v1.6.0 - Plugin System
+### Chi tiet thay doi theo phien ban
+
+#### v1.8.15 (Latest - 2026-04)
+**Security & Stability**
+- Bug fixes and stability improvements
+- Compatible with seellm-tools custom branch
+
+#### v1.8.0 - 1.8.14 (2025-12 to 2026-03)
+**Security & Performance**
+- **Global Access Key** (`CAMOFOX_ACCESS_KEY`): Bao ve API bang API key
+- **Memory Leak Fix**: Fix ~930MB leak per orphaned browser
+- **Crash Reporter**: Tu dong bao cao crash (anonymized)
+- Proxy pool improvements
+- Performance optimizations
+- Bug fixes
+
+#### v1.7.0 - v1.7.2 (2025-09 to 2025-10)
+**Structured Data & Debugging**
+- **Structured Extract** (`POST /tabs/:tabId/extract`): Trich xuat du lieu theo JSON Schema
+- **Session Tracing**: Playwright traces cho debugging
+- **OpenAPI Docs**: Tai `/openapi.json` va `/docs`
+- Bug fixes and improvements
+
+#### v1.6.0 - v1.6.x (2025-08)
+**Plugin System (Major)**
 - **Plugin System**: Custom routes tach rieng khoi core, de upgrade
 - **Persistence Plugin**: Tu dong luu cookies + localStorage khi session close
 - **VNC Plugin**: Remote desktop view cho debugging
 - **YouTube Plugin**: Transcript extraction qua yt-dlp
 
-#### v1.7.2 - Structured Data
-- **Structured Extract** (`POST /tabs/:tabId/extract`): Trich xuat du lieu theo JSON Schema
-- **Session Tracing**: Playwright traces cho debugging
-- **OpenAPI Docs**: Tai `/openapi.json` va `/docs`
-
-#### v1.8.0 - Security & Performance
-- **Global Access Key** (`CAMOFOX_ACCESS_KEY`): Bao ve API bang API key
-- **Memory Leak Fix**: Fix ~930MB leak per orphaned browser
-- **Crash Reporter**: Tu dong bao cao crash (anonymized)
+#### v1.5.2 (2025-06 - Previous seellm-tools)
+- Previous custom version used by seellm-tools
+- Custom routes patched directly in server.js
+- No plugin system support
 
 ### Thay doi tu ban upgrade v1.5.2 -> v1.8.15
 
