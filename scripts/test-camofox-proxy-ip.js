@@ -129,7 +129,7 @@ async function testSameUserSessionPhase() {
   try {
     await new Promise(r => setTimeout(r, 5000));
 
-    const mainGoto = await post(`/tabs/${mainTabId}/goto`, {
+    const mainGoto = await post(`/tabs/${mainTabId}/navigate`, {
       userId: USER_ID,
       url: IP_CHECK_URL,
     }, 30000);
