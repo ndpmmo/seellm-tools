@@ -10,6 +10,9 @@
 - CLI arg override: `--mode direct-login`
 - Env var support: `WORKER_MODE=direct-login`
 - Dashboard hiển thị mode hiện tại của worker
+- Dynamic mode reload - mode changes apply automatically without restart
+- Mode validation và deprecation warnings
+- Settings UI với mode selection dropdown
 
 **Mode mới:**
 - `auto` (default): Tự động chọn flow dựa trên task data (có password → direct-login, có codeVerifier → pkce-login)
@@ -31,14 +34,26 @@ node scripts/auto-worker.js --mode pkce-login
 WORKER_MODE=direct-login node scripts/auto-worker.js
 ```
 
+**Dynamic Mode Reload:**
+- Worker poll config endpoint mỗi 5 giây
+- Mode changes apply automatically trong ~5s (không cần restart)
+- Settings UI hiển thị message: "Mode sẽ tự động áp dụng sau ~5s"
+
+**Mode Validation:**
+- Invalid mode values trigger warning và fallback to 'auto'
+- Old mode names (both, connect-only, login-only) trigger deprecation warning
+- Mode resolution logs source (CLI/config/default)
+
 **Files cập nhật:**
 - `scripts/config.js` - Thêm `workerMode` config với env var support
-- `scripts/auto-worker.js` - Update mode resolver với tên mới + CLI arg override
+- `scripts/auto-worker.js` - Update mode resolver với tên mới + CLI arg override + validation + dynamic reload
+- `server/db/config.js` - Thêm `workerMode` vào defaults
 - `src/components/AppContext.tsx` - Thêm `workerMode` vào AppConfig interface
 - `src/components/views/DashboardView.tsx` - Hiển thị mode badge trong worker card
+- `src/components/views/SettingsView.tsx` - Thêm mode selection dropdown với warning message
 
 **Backward compatibility:**
-- Tên cũ (`both`, `connect-only`, `login-only`) vẫn hoạt động (deprecated)
+- Tên cũ (`both`, `connect-only`, `login-only`) vẫn hoạt động (deprecated với warning)
 - Script backup giữ nguyên (`auto-connect-worker.js`, `auto-login-worker.js`)
 
 ---
