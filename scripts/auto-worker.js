@@ -1021,8 +1021,8 @@ async function checkModeReload() {
   }
 }
 
-// Check for mode changes every 30 seconds
-setInterval(checkModeReload, 30000);
+// Check for mode changes every 5 seconds
+setInterval(checkModeReload, 5000);
 
 // ═══════════════════════════════════════════════════════════════
 // KHỞI ĐỘNG

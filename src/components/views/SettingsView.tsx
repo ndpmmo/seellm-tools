@@ -62,7 +62,7 @@ export function SettingsView() {
     await saveConfig(f);
     setSaving(false);
     if (modeChanged) {
-      addToast('✅ Mode đã thay đổi. Worker sẽ tự động áp dụng sau ~30s.', 'success');
+      addToast('✅ Mode đã thay đổi. Worker sẽ tự động áp dụng sau ~5s.', 'success');
       setModeChanged(false);
     } else {
       addToast('✅ Đã lưu cài đặt', 'success');
@@ -126,7 +126,7 @@ export function SettingsView() {
             </select>
             {modeChanged && (
               <div className="mt-2 px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px]">
-                ✅ Mode sẽ tự động áp dụng sau ~30s (không cần restart)
+                ✅ Mode sẽ tự động áp dụng sau ~5s (không cần restart)
               </div>
             )}
           </Field>
