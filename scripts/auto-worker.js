@@ -899,6 +899,9 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
     }
     await new Promise(r => setTimeout(r, 2000));
   }
+  if (openedExtraTab && bypassTabId !== tabId) {
+    try { await camofoxDelete(`/tabs/${bypassTabId}?userId=${userId}`); } catch (_) {}
+  }
   return null;
 }
 
@@ -1025,6 +1028,26 @@ async function checkModeReload() {
 
 // Check for mode changes every 5 seconds
 setInterval(checkModeReload, 5000);
+
+// ═══════════════════════════════════════════════════════════════
+// CLEANUP ON SHUTDOWN
+// ═══════════════════════════════════════════════════════════════
+process.on('SIGTERM', async () => {
+  console.log('[Worker] SIGTERM received, cleaning up...');
+  // Cleanup all Camofox tabs for this worker session
+  try {
+    const tabs = await camofoxGet('/tabs');
+    if (tabs && tabs.length > 0) {
+      for (const tab of tabs) {
+        if (tab.userId && tab.userId.startsWith('seellm_worker_')) {
+          try { await camofoxDelete(`/tabs/${tab.tabId}?userId=${tab.userId}`); } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
+  console.log('[Worker] Cleanup complete, exiting...');
+  process.exit(0);
+});
 
 // ═══════════════════════════════════════════════════════════════
 // KHỞI ĐỘNG

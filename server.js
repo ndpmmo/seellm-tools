@@ -1475,10 +1475,33 @@ app.prepare().then(() => {
 });
 
 let shuttingDown = false;
-function handleTerminationSignal(signal) {
+async function handleTerminationSignal(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  logServerEvent(`${signal} received`);
+  logServerEvent(`${signal} received, stopping all processes...`);
+
+  // Stop all running processes
+  const stopPromises = Object.entries(processes)
+    .filter(([_, e]) => e.status === 'running')
+    .map(([id, e]) => {
+      try {
+        e.proc.kill('SIGTERM');
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (processes[id]?.status === 'running') {
+              e.proc.kill('SIGKILL');
+            }
+            resolve();
+          }, 3000);
+        });
+      } catch (err) {
+        console.error(`Failed to stop process ${id}:`, err.message);
+        return Promise.resolve();
+      }
+    });
+
+  await Promise.all(stopPromises);
+  logServerEvent('All processes stopped, exiting...');
   process.exit(0);
 }
 
