@@ -4,18 +4,19 @@
  * Gộp auto-login-worker + auto-connect-worker thành 1 script duy nhất:
  *  - 1 polling loop gộp (login task + connect task)
  *  - 1 thread pool chung (MAX_THREADS)
- *  - Auto-select flow: connect (nhanh hơn) nếu có password, login PKCE nếu chỉ có codeVerifier
+ *  - Mode selection: auto (tự động), direct-login (ChatGPT login), pkce-login (OAuth PKCE)
  *  - Gộp result reporting: gửi đúng endpoint theo source
  *
  * Usage:
- *  node scripts/auto-worker.js              # both flows (default)
- *  node scripts/auto-worker.js login-only   # chỉ login PKCE flow
- *  node scripts/auto-worker.js connect-only # chỉ connect flow
+ *  node scripts/auto-worker.js                    # auto mode (default)
+ *  node scripts/auto-worker.js --mode direct-login # direct-login mode
+ *  node scripts/auto-worker.js --mode pkce-login   # pkce-login mode
+ *  WORKER_MODE=direct-login node scripts/auto-worker.js  # env var
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS } from './config.js';
+import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS, WORKER_MODE } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, camofoxGoto, evalJson, navigate, pressKey, tripleClick } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
@@ -33,12 +34,24 @@ const TOOLS_API = process.env.TOOLS_API_URL || 'http://localhost:4000';
 // ═══════════════════════════════════════════════════════════════
 // MODE RESOLVER
 // ═══════════════════════════════════════════════════════════════
-function resolveMode(argv = process.argv.slice(2)) {
-  const raw = String(argv[0] || 'both').toLowerCase().trim();
-  if (['both', 'all', 'unified'].includes(raw)) return 'both';
-  if (['login', 'login-only', 'worker'].includes(raw)) return 'login-only';
-  if (['connect', 'connect-only'].includes(raw)) return 'connect-only';
-  return 'both';
+function resolveMode(argv = process.argv.slice(2), configMode = WORKER_MODE) {
+  // Check for --mode CLI arg
+  const modeIndex = argv.indexOf('--mode');
+  if (modeIndex !== -1 && argv[modeIndex + 1]) {
+    const cliMode = String(argv[modeIndex + 1]).toLowerCase().trim();
+    // New mode names
+    if (['auto', 'both', 'all', 'unified'].includes(cliMode)) return 'auto';
+    if (['direct-login', 'connect', 'connect-only'].includes(cliMode)) return 'direct-login';
+    if (['pkce-login', 'login', 'login-only', 'worker'].includes(cliMode)) return 'pkce-login';
+  }
+
+  // Fallback to config/env
+  const configModeLower = String(configMode || 'auto').toLowerCase().trim();
+  if (['auto', 'both', 'all', 'unified'].includes(configModeLower)) return 'auto';
+  if (['direct-login', 'connect', 'connect-only'].includes(configModeLower)) return 'direct-login';
+  if (['pkce-login', 'login', 'login-only', 'worker'].includes(configModeLower)) return 'pkce-login';
+
+  return 'auto'; // default
 }
 const MODE = resolveMode();
 
@@ -876,7 +889,7 @@ async function fetchAnyTask() {
   const excludeParam = processingIds.size > 0 ? `?exclude=${[...processingIds].join(',')}` : '';
 
   // 1. Connect tasks (ưu tiên cao — nhanh hơn, trực tiếp)
-  if (MODE === 'both' || MODE === 'connect-only') {
+  if (MODE === 'auto' || MODE === 'direct-login') {
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/connect-task${excludeParam}`, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
@@ -887,7 +900,7 @@ async function fetchAnyTask() {
   }
 
   // 2. Login tasks (Tools local)
-  if (MODE === 'both' || MODE === 'login-only') {
+  if (MODE === 'auto' || MODE === 'pkce-login') {
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/task${excludeParam}`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {

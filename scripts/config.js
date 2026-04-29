@@ -19,6 +19,7 @@ const defaults = {
   pollIntervalMs: 15000,
   maxThreads: 3,
   forceEnLocale: true,
+  workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
 };
 
 export function loadConfig() {
@@ -45,5 +46,6 @@ export const WORKER_AUTH_TOKEN = process.env.WORKER_AUTH_TOKEN || config.workerA
 export const POLL_INTERVAL_MS = config.pollIntervalMs;
 export const MAX_THREADS = config.maxThreads;
 export const FORCE_EN_LOCALE = config.forceEnLocale !== false; // default true
+export const WORKER_MODE = process.env.WORKER_MODE || config.workerMode || 'auto'; // 'auto' | 'direct-login' | 'pkce-login'
 /** Locale string truyền cho camofox khi bật forceEnLocale */
 export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;

@@ -7,11 +7,11 @@
 | | |
 |---|---|
 | 🦊 **Camofox Server** | Khởi động/dừng headless browser server trực tiếp từ UI |
-| 🤖 **Unified Auto Worker** | 1 process duy nhất — tự chọn flow connect (nhanh) hoặc login PKCE theo task |
+| 🤖 **Unified Auto Worker** | 1 process duy nhất — tự chọn flow connect (nhanh) hoặc login PKCE theo task, hoặc force chạy theo mode cụ thể |
 | 📋 **Live Terminal** | Xem log realtime từ tất cả processes qua WebSocket |
 | 📜 **Scripts tích hợp** | Chạy scripts ngay trong dự án — không trỏ ra ngoài |
 | 📡 **Health Monitor** | Ping Camofox & Gateway, hiển thị trạng thái kết nối |
-| ⚙️ **Cài đặt** | Cấu hình paths, tokens, threads — lưu vào `tools.config.json` |
+| ⚙️ **Cài đặt** | Cấu hình paths, tokens, threads, worker mode — lưu vào `tools.config.json` |
 
 ## 🚀 Khởi động
 
@@ -60,6 +60,41 @@ Vào tab **⚙️ Cài đặt** thiết lập:
 | **Gateway URL** | URL SeeLLM Gateway |
 | **Worker Auth Token** | Token xác thực với Gateway |
 | **Max Threads** | Số tài khoản xử lý song song |
+| **Worker Mode** | Chế độ chạy worker: `auto`, `direct-login`, `pkce-login` |
+
+## 🤖 Worker Modes
+
+Unified Auto Worker hỗ trợ 3 chế độ chạy:
+
+| Mode | Mô tả | Khi nào dùng |
+|------|-------|-------------|
+| **auto** (default) | Tự động chọn flow dựa trên task data | Hầu hết trường hợp |
+| **direct-login** | Chỉ chạy connect flow (login ChatGPT → capture → exchange) | Có password, muốn tốc độ nhanh |
+| **pkce-login** | Chỉ chạy login PKCE flow (OAuth URL với codeChallenge) | Chỉ có codeVerifier |
+
+**Cách dùng (CLI):**
+```bash
+# Auto mode (default)
+node scripts/auto-worker.js
+
+# Direct-login mode
+node scripts/auto-worker.js --mode direct-login
+
+# PKCE-login mode
+node scripts/auto-worker.js --mode pkce-login
+```
+
+**Cách dùng (Env var):**
+```bash
+WORKER_MODE=direct-login node scripts/auto-worker.js
+```
+
+**Cách dùng (Config file):**
+```json
+{
+  "workerMode": "direct-login"
+}
+```
 
 ## 🔄 Quy trình sử dụng
 

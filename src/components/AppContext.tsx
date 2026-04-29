@@ -22,6 +22,8 @@ export interface AppConfig {
   pollIntervalMs: number; maxThreads: number;
   /** Ép Camofox dùng locale 'en-US' bất kể proxy GeoIP, để UI luôn render English */
   forceEnLocale?: boolean;
+  /** Worker mode: 'auto' | 'direct-login' | 'pkce-login' */
+  workerMode?: string;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

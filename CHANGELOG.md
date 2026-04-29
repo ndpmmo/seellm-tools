@@ -1,5 +1,48 @@
 # Changelog - SeeLLM Tools
 
+## [0.3.4] - 2026-04-29
+
+### ✨ Feature — Worker Mode Selection
+
+**Mô tả:**
+- Thêm tùy chọn chọn chế độ chạy worker: `auto`, `direct-login`, `pkce-login`
+- Cho phép user force chạy theo flow cụ thể thay vì auto-select
+- CLI arg override: `--mode direct-login`
+- Env var support: `WORKER_MODE=direct-login`
+- Dashboard hiển thị mode hiện tại của worker
+
+**Mode mới:**
+- `auto` (default): Tự động chọn flow dựa trên task data (có password → direct-login, có codeVerifier → pkce-login)
+- `direct-login`: Chỉ chạy connect flow (login ChatGPT → capture → exchange) - nhanh hơn
+- `pkce-login`: Chỉ chạy login PKCE flow (OAuth URL với codeChallenge)
+
+**Cách dùng:**
+```bash
+# Auto mode (default)
+node scripts/auto-worker.js
+
+# Direct-login mode
+node scripts/auto-worker.js --mode direct-login
+
+# PKCE-login mode
+node scripts/auto-worker.js --mode pkce-login
+
+# Env var
+WORKER_MODE=direct-login node scripts/auto-worker.js
+```
+
+**Files cập nhật:**
+- `scripts/config.js` - Thêm `workerMode` config với env var support
+- `scripts/auto-worker.js` - Update mode resolver với tên mới + CLI arg override
+- `src/components/AppContext.tsx` - Thêm `workerMode` vào AppConfig interface
+- `src/components/views/DashboardView.tsx` - Hiển thị mode badge trong worker card
+
+**Backward compatibility:**
+- Tên cũ (`both`, `connect-only`, `login-only`) vẫn hoạt động (deprecated)
+- Script backup giữ nguyên (`auto-connect-worker.js`, `auto-login-worker.js`)
+
+---
+
 ## [0.3.3] - 2026-04-29
 
 ### 🔧 Fix — UI ChatGPT đã rollback về dạng cũ (nút Log in trực tiếp)

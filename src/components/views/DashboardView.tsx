@@ -5,6 +5,20 @@ import { Spinner, relTime } from '../Views';
 import { Button, Card, CardHeader, CardTitle, CardContent, StatBox } from '../ui';
 import { Settings, Play, Camera, Layers, Zap, HeartPulse, RefreshCw } from 'lucide-react';
 
+function ModeBadge({ mode }: { mode: string }) {
+  const modeLabels: Record<string, string> = {
+    'auto': 'Auto',
+    'direct-login': 'Direct Login',
+    'pkce-login': 'PKCE Login',
+  };
+  const label = modeLabels[mode] || mode;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+      {label}
+    </span>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   const isRunning = status === 'running';
   return (
@@ -18,10 +32,13 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function ProcCard({ p }: { p: ProcessInfo }) {
-  const { stopProcess, setView, setSelectedLog } = useApp();
+  const { stopProcess, setView, setSelectedLog, config } = useApp();
   const [stopping, setStopping] = useState(false);
   const stop = async () => { setStopping(true); await stopProcess(p.id); setStopping(false); };
   const logs = () => { setSelectedLog(p.id); setView('terminal'); };
+
+  const isWorker = p.id === 'worker';
+  const workerMode = config?.workerMode || 'auto';
 
   return (
     <Card className="flex flex-col h-full bg-[#1e1e23]/50 backdrop-blur-sm border-white/5">
@@ -31,7 +48,10 @@ function ProcCard({ p }: { p: ProcessInfo }) {
             <div className="font-semibold text-[13px] text-slate-100 truncate">{p.name}</div>
             <div className="text-[11px] text-slate-400 font-mono mt-0.5">{p.pid ? `PID ${p.pid}` : 'Khởi động...'}</div>
           </div>
-          <StatusBadge status={p.status} />
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={p.status} />
+            {isWorker && <ModeBadge mode={workerMode} />}
+          </div>
         </div>
 
         <div className="bg-black/20 rounded-lg p-3 text-[11px] flex flex-col gap-1.5 border border-white/5">
