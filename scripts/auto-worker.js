@@ -37,21 +37,42 @@ const TOOLS_API = process.env.TOOLS_API_URL || 'http://localhost:4000';
 function resolveMode(argv = process.argv.slice(2), configMode = WORKER_MODE) {
   // Check for --mode CLI arg
   const modeIndex = argv.indexOf('--mode');
+  let source = 'default';
+  let resolvedMode = 'auto';
+
   if (modeIndex !== -1 && argv[modeIndex + 1]) {
     const cliMode = String(argv[modeIndex + 1]).toLowerCase().trim();
+    source = 'CLI';
     // New mode names
-    if (['auto', 'both', 'all', 'unified'].includes(cliMode)) return 'auto';
-    if (['direct-login', 'connect', 'connect-only'].includes(cliMode)) return 'direct-login';
-    if (['pkce-login', 'login', 'login-only', 'worker'].includes(cliMode)) return 'pkce-login';
+    if (['auto', 'both', 'all', 'unified'].includes(cliMode)) resolvedMode = 'auto';
+    else if (['direct-login', 'connect', 'connect-only'].includes(cliMode)) resolvedMode = 'direct-login';
+    else if (['pkce-login', 'login', 'login-only', 'worker'].includes(cliMode)) resolvedMode = 'pkce-login';
+    else {
+      console.warn(`[Mode] ⚠️ Invalid CLI mode: "${cliMode}". Falling back to 'auto'.`);
+      resolvedMode = 'auto';
+    }
+  } else {
+    // Fallback to config/env
+    const configModeLower = String(configMode || 'auto').toLowerCase().trim();
+    source = configMode ? 'config' : 'default';
+    if (['auto', 'both', 'all', 'unified'].includes(configModeLower)) resolvedMode = 'auto';
+    else if (['direct-login', 'connect', 'connect-only'].includes(configModeLower)) resolvedMode = 'direct-login';
+    else if (['pkce-login', 'login', 'login-only', 'worker'].includes(configModeLower)) resolvedMode = 'pkce-login';
+    else {
+      console.warn(`[Mode] ⚠️ Invalid config mode: "${configMode}". Falling back to 'auto'.`);
+      resolvedMode = 'auto';
+    }
   }
 
-  // Fallback to config/env
-  const configModeLower = String(configMode || 'auto').toLowerCase().trim();
-  if (['auto', 'both', 'all', 'unified'].includes(configModeLower)) return 'auto';
-  if (['direct-login', 'connect', 'connect-only'].includes(configModeLower)) return 'direct-login';
-  if (['pkce-login', 'login', 'login-only', 'worker'].includes(configModeLower)) return 'pkce-login';
+  // Deprecation warnings for old names
+  const oldNames = ['both', 'connect-only', 'login-only', 'connect', 'login', 'worker'];
+  const input = modeIndex !== -1 && argv[modeIndex + 1] ? String(argv[modeIndex + 1]).toLowerCase().trim() : String(configMode || 'auto').toLowerCase().trim();
+  if (oldNames.includes(input)) {
+    console.warn(`[Mode] ⚠️ Deprecated mode name: "${input}". Please use new names: auto, direct-login, pkce-login.`);
+  }
 
-  return 'auto'; // default
+  console.log(`[Mode] Mode resolved: ${resolvedMode} (source: ${source})`);
+  return resolvedMode;
 }
 const MODE = resolveMode();
 
@@ -953,7 +974,7 @@ async function pollTasks() {
 
     // Auto-select flow: connect nếu có password, login nếu chỉ có codeVerifier
     const flow = task._flow || (task.password ? 'connect' : 'login');
-    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (${activeThreads}/${MAX_THREADS})`);
+    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (mode: ${MODE}, threads: ${activeThreads}/${MAX_THREADS})`);
 
     const runner = flow === 'connect' ? runConnectFlow : runLoginFlow;
     runner(task)

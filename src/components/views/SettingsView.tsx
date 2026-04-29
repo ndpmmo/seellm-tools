@@ -47,11 +47,27 @@ export function SettingsView() {
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [modeChanged, setModeChanged] = useState(false);
 
   useEffect(() => { if (config) setF(config); }, [config]);
 
-  const set = (k: keyof AppConfig, v: any) => setF(p => ({ ...p, [k]: v }));
-  const save = async () => { setSaving(true); await saveConfig(f); setSaving(false); };
+  const set = (k: keyof AppConfig, v: any) => {
+    setF(p => ({ ...p, [k]: v }));
+    if (k === 'workerMode' && config?.workerMode !== v) {
+      setModeChanged(true);
+    }
+  };
+  const save = async () => {
+    setSaving(true);
+    await saveConfig(f);
+    setSaving(false);
+    if (modeChanged) {
+      addToast('⚠️ Mode đã thay đổi. Cần restart worker để áp dụng thay đổi.', 'warning');
+      setModeChanged(false);
+    } else {
+      addToast('✅ Đã lưu cài đặt', 'success');
+    }
+  };
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-6 custom-scrollbar">
@@ -108,6 +124,11 @@ export function SettingsView() {
               <option value="direct-login">Direct Login (nhanh hơn)</option>
               <option value="pkce-login">PKCE Login (OAuth)</option>
             </select>
+            {modeChanged && (
+              <div className="mt-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px]">
+                ⚠️ Mode đã thay đổi. Cần restart worker để áp dụng.
+              </div>
+            )}
           </Field>
           <Field
             label="Ép Locale English (en-US)"
