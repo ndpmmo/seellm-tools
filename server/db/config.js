@@ -18,6 +18,7 @@ export function loadConfig() {
     pollIntervalMs: 15000,
     maxThreads:    3,
     forceEnLocale: true,
+    workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
   };
   try {
     if (existsSync(CONFIG_PATH)) {

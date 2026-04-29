@@ -43,6 +43,7 @@ export function SettingsView() {
     gatewayUrl: 'http://localhost:20128',
     workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
     forceEnLocale: true,
+    workerMode: 'auto',
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -96,6 +97,17 @@ export function SettingsView() {
           </Field>
           <Field label="Max Threads" hint="Tối đa bao nhiêu tài khoản xử lý song song">
             <Input type="number" min={1} max={10} value={f.maxThreads} onChange={e => set('maxThreads', Number(e.target.value))} />
+          </Field>
+          <Field label="Worker Mode" hint="Chế độ chạy worker: auto (tự động), direct-login (nhanh), pkce-login (OAuth)">
+            <select
+              className="w-full px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-slate-200 text-xs font-mono focus:outline-none focus:border-indigo-500/50"
+              value={f.workerMode || 'auto'}
+              onChange={e => set('workerMode', e.target.value)}
+            >
+              <option value="auto">Auto (tự động chọn)</option>
+              <option value="direct-login">Direct Login (nhanh hơn)</option>
+              <option value="pkce-login">PKCE Login (OAuth)</option>
+            </select>
           </Field>
           <Field
             label="Ép Locale English (en-US)"
