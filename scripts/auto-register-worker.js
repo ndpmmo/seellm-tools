@@ -108,6 +108,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
   let passwordFilled = false;
   let mfaFilled = false;
   let consentAttempted = false;
+  let consentAttempts = 0;
+  const MAX_CONSENT_ATTEMPTS = 3;
   let consecutiveEvalFailures = 0;
   const MAX_EVAL_FAILURES = 8;
 
@@ -213,8 +215,14 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
                           currentUrl.includes('/consent') || currentUrl.includes('/workspace') || currentUrl.includes('/organization');
 
     if (onAuthDomain && noFormVisible && (isConsentLike || (i >= 4 && !consentAttempted))) {
-      console.log(`[OAuth] 🔓 Consent/workspace screen detected, attempting bypass...`);
+      if (consentAttempts >= MAX_CONSENT_ATTEMPTS) {
+        console.log(`[OAuth] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), skipping...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      console.log(`[OAuth] 🔓 Consent/workspace screen detected, attempting bypass (${consentAttempts + 1}/${MAX_CONSENT_ATTEMPTS})...`);
       consentAttempted = true;
+      consentAttempts++;
       await saveStep('oauth_consent_attempt');
       const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
       if (bypassResult?.code) {
