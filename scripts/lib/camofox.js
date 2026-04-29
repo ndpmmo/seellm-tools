@@ -219,3 +219,160 @@ export async function typeByRef(tabId, userId, ref, text, { pressEnter = false, 
 export async function tripleClick(tabId, userId, selector, { timeoutMs = 5000 } = {}) {
   return camofoxPost(`/tabs/${tabId}/click`, { userId, selector, clickCount: 3 }, { timeoutMs });
 }
+
+// ============================================================================
+// NEW FEATURES FROM CAMOFOX v1.8.15
+// ============================================================================
+
+/**
+ * Extract structured data from page using JSON Schema
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} schema - JSON Schema for extraction
+ * @param {object} options - { timeoutMs = 30000 }
+ * @returns {Promise<object>} Extracted data matching schema
+ */
+export async function extractData(tabId, userId, schema, { timeoutMs = 30000 } = {}) {
+  try {
+    return await camofoxPost(`/tabs/${tabId}/extract`, { userId, schema }, { timeoutMs });
+  } catch (e) {
+    console.log(`[camofox] extractData failed: ${e.message.slice(0, 80)}`);
+    return null;
+  }
+}
+
+/**
+ * List trace files for a user session
+ * @param {string} userId - User ID
+ * @param {object} options - { timeoutMs = 10000 }
+ * @returns {Promise<object>} List of trace files
+ */
+export async function getTraces(userId, { timeoutMs = 10000 } = {}) {
+  try {
+    return await camofoxGet(`/sessions/${userId}/traces`, { timeoutMs });
+  } catch (e) {
+    console.log(`[camofox] getTraces failed: ${e.message.slice(0, 80)}`);
+    return null;
+  }
+}
+
+/**
+ * Download a trace file
+ * @param {string} userId - User ID
+ * @param {string} filename - Trace filename
+ * @param {object} options - { timeoutMs = 60000 }
+ * @returns {Promise<Blob>} Trace file as blob
+ */
+export async function getTrace(userId, filename, { timeoutMs = 60000 } = {}) {
+  const res = await fetch(`${CAMOUFOX_API}/sessions/${userId}/traces/${filename}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`Camofox getTrace -> ${res.status}`);
+  return res.blob();
+}
+
+/**
+ * Delete a trace file
+ * @param {string} userId - User ID
+ * @param {string} filename - Trace filename
+ * @param {object} options - { timeoutMs = 10000 }
+ * @returns {Promise<object>} Delete result
+ */
+export async function deleteTrace(userId, filename, { timeoutMs = 10000 } = {}) {
+  try {
+    return await camofoxDelete(`/sessions/${userId}/traces/${filename}`, { timeoutMs });
+  } catch (e) {
+    console.log(`[camofox] deleteTrace failed: ${e.message.slice(0, 80)}`);
+    return null;
+  }
+}
+
+/**
+ * Get Prometheus metrics from Camofox
+ * Requires PROMETHEUS_ENABLED=1 on Camofox server
+ * @param {object} options - { timeoutMs = 10000 }
+ * @returns {Promise<string>} Prometheus metrics text
+ */
+export async function getMetrics({ timeoutMs = 10000 } = {}) {
+  const res = await fetch(`${CAMOUFOX_API}/metrics`, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`Camofox getMetrics -> ${res.status}`);
+  return res.text();
+}
+
+/**
+ * Unified action endpoint - click, type, press, scroll, wait
+ * Replaces multiple individual function calls
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} kind - Action kind: click, type, press, scroll, wait
+ * @param {object} params - Action parameters
+ * @param {object} options - { timeoutMs = 30000 }
+ * @returns {Promise<object>} Action result
+ */
+export async function act(tabId, userId, kind, params, { timeoutMs = 30000 } = {}) {
+  const validKinds = ['click', 'type', 'press', 'scroll', 'wait'];
+  if (!validKinds.includes(kind)) {
+    throw new Error(`Invalid kind: ${kind}. Valid: ${validKinds.join(', ')}`);
+  }
+  return camofoxPost(`/tabs/${tabId}/act`, { kind, userId, ...params }, { timeoutMs });
+}
+
+/**
+ * Act: Click element by ref or selector
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} params - { ref?, selector?, doubleClick? }
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<object>}
+ */
+export async function actClick(tabId, userId, params, { timeoutMs = 5000 } = {}) {
+  return act(tabId, userId, 'click', params, { timeoutMs });
+}
+
+/**
+ * Act: Type text into element
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} params - { ref?, selector?, text, mode?, delay?, submit? }
+ * @param {object} options - { timeoutMs = 8000 }
+ * @returns {Promise<object>}
+ */
+export async function actType(tabId, userId, params, { timeoutMs = 8000 } = {}) {
+  return act(tabId, userId, 'type', params, { timeoutMs });
+}
+
+/**
+ * Act: Press keyboard key
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} params - { key }
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<object>}
+ */
+export async function actPress(tabId, userId, params, { timeoutMs = 5000 } = {}) {
+  return act(tabId, userId, 'press', params, { timeoutMs });
+}
+
+/**
+ * Act: Scroll page
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} params - { direction, amount? }
+ * @param {object} options - { timeoutMs = 5000 }
+ * @returns {Promise<object>}
+ */
+export async function actScroll(tabId, userId, params, { timeoutMs = 5000 } = {}) {
+  return act(tabId, userId, 'scroll', params, { timeoutMs });
+}
+
+/**
+ * Act: Wait (timeout, text, or loadState)
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {object} params - { timeMs?, text?, loadState? }
+ * @param {object} options - { timeoutMs = 30000 }
+ * @returns {Promise<object>}
+ */
+export async function actWait(tabId, userId, params, { timeoutMs = 30000 } = {}) {
+  return act(tabId, userId, 'wait', params, { timeoutMs });
+}

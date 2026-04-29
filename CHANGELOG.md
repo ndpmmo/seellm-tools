@@ -2,6 +2,76 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.6] - 2026-04-30
+
+###  New Features - Camofox v1.8.15 Integration
+
+**Mô tả:**
+- Tích hợp 4 features mới từ Camofox v1.8.15 vào seellm-tools
+- Nâng cao khả năng debug và monitoring cho workers
+
+**Structured Extract:**
+- Thêm hàm `extractData(tabId, userId, schema)` trong `lib/camofox.js`
+- Trích xuất dữ liệu theo JSON Schema từ page
+- Thay thế regex/parsing thủ công
+- Ví dụ:
+```js
+import { extractData } from './lib/camofox.js';
+const data = await extractData(tabId, userId, {
+  type: 'object',
+  properties: {
+    email: { type: 'string', selector: '#email' },
+    error: { type: 'string', selector: '.error-message' }
+  }
+});
+```
+
+**Session Tracing:**
+- Thêm hàm `getTraces(userId)`, `getTrace(userId, filename)`, `deleteTrace(userId, filename)`
+- Bắt trace khi tạo tab: `trace: true`
+- Debug workers với Playwright traces
+- Xem bằng: `npx playwright show-trace session.zip`
+- Ví dụ:
+```js
+// Tạo tab với trace
+const tab = await camofoxPost('/tabs', { userId, sessionKey, url, trace: true });
+
+// List traces sau khi worker chạy xong
+const traces = await getTraces(userId);
+
+// Download và xem
+const traceBlob = await getTrace(userId, traces.traces[0].filename);
+```
+
+**Prometheus Metrics:**
+- Thêm hàm `getMetrics()` lấy Prometheus metrics
+- Cần `PROMETHEUS_ENABLED=1` trên Camofox server
+- Monitoring health không cần external tools
+- Ví dụ:
+```js
+import { getMetrics } from './lib/camofox.js';
+const metrics = await getMetrics();
+console.log(metrics); // Prometheus format
+```
+
+**Unified /act Endpoint:**
+- Thêm hàm `act(tabId, userId, kind, params)` và các helper: `actClick`, `actType`, `actPress`, `actScroll`, `actWait`
+- Thay thế nhiều endpoints riêng biệt bằng một endpoint duy nhất
+- Hỗ trợ: click, type, press, scroll, wait
+- Ví dụ:
+```js
+// Thay vì nhiều function
+await clickRef(tabId, userId, 'e1');
+await typeByRef(tabId, userId, 'e2', 'hello');
+
+// Dùng unified act
+await act(tabId, userId, 'click', { ref: 'e1' });
+await act(tabId, userId, 'type', { ref: 'e2', text: 'hello' });
+```
+
+**Files thay đổi:**
+- `scripts/lib/camofox.js`: Thêm 11 functions mới
+
 ## [0.3.5] - 2026-04-29 21:50:00
 
 ### 🔄 Upgrade — Camofox Browser v1.5.2 → v1.8.15

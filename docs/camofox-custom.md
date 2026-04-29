@@ -574,3 +574,65 @@ Từ v1.8.15 trở đi, custom routes được triển khai qua plugin, không c
 - `POST /tabs/:tabId/wait-for-selector` hoạt động (plugin),
 - `POST /tabs/:tabId/wait-for-url` hoạt động (plugin),
 - đóng tab thành công.
+
+## Tích hợp features mới vào seellm-tools (v0.3.6)
+
+Từ Camofox v1.8.15, seellm-tools tích hợp thêm các functions trong `scripts/lib/camofox.js`:
+
+### 1. Structured Extract (`extractData`)
+
+Trích xuất dữ liệu theo JSON Schema:
+
+```js
+import { extractData } from './lib/camofox.js';
+
+const data = await extractData(tabId, userId, {
+  type: 'object',
+  properties: {
+    email: { type: 'string', selector: '#email' },
+    error: { type: 'string', selector: '.error-message' }
+  }
+});
+// { ok: true, data: { email: 'test@example.com' } }
+```
+
+### 2. Session Tracing (`getTraces`, `getTrace`)
+
+Debug workers với Playwright traces:
+
+```js
+import { getTraces, getTrace, camofoxPost } from './lib/camofox.js';
+
+// Tạo tab với trace
+const tab = await camofoxPost('/tabs', { userId, sessionKey, url, trace: true });
+
+// List traces
+const traces = await getTraces(userId);
+// Download trace
+const traceBlob = await getTrace(userId, traces.traces[0].filename);
+// Xem: npx playwright show-trace session.zip
+```
+
+### 3. Prometheus Metrics (`getMetrics`)
+
+Monitor Camofox health:
+
+```js
+import { getMetrics } from './lib/camofox.js';
+const metrics = await getMetrics();
+// Prometheus format metrics
+```
+
+Cần bật `PROMETHEUS_ENABLED=1` trên Camofox server.
+
+### 4. Unified /act Endpoint (`act`, `actClick`, `actType`, etc.)
+
+Thay thế nhiều endpoints riêng lẻ bằng một:
+
+```js
+import { act, actClick, actType, actPress, actScroll, actWait } from './lib/camofox.js';
+
+await act(tabId, userId, 'click', { ref: 'e1' });
+await act(tabId, userId, 'type', { ref: 'e2', text: 'hello' });
+await act(tabId, userId, 'press', { key: 'Enter' });
+await act(tabId, userId, 'scroll', { direction: 'down', amount: 500 });
