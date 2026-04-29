@@ -34,7 +34,7 @@ const TOOLS_API = process.env.TOOLS_API_URL || 'http://localhost:4000';
 // ═══════════════════════════════════════════════════════════════
 // MODE RESOLVER
 // ═══════════════════════════════════════════════════════════════
-function resolveMode(argv = process.argv.slice(2), configMode = WORKER_MODE) {
+function resolveMode(argv = process.argv.slice(2), configMode = WORKER_MODE, silent = false) {
   // Check for --mode CLI arg
   const modeIndex = argv.indexOf('--mode');
   let source = 'default';
@@ -71,7 +71,9 @@ function resolveMode(argv = process.argv.slice(2), configMode = WORKER_MODE) {
     console.warn(`[Mode] ⚠️ Deprecated mode name: "${input}". Please use new names: auto, direct-login, pkce-login.`);
   }
 
-  console.log(`[Mode] Mode resolved: ${resolvedMode} (source: ${source})`);
+  if (!silent) {
+    console.log(`[Mode] Mode resolved: ${resolvedMode} (source: ${source})`);
+  }
   return resolvedMode;
 }
 const MODE = resolveMode();
@@ -1008,8 +1010,8 @@ async function checkModeReload() {
     const cfg = await res.json();
     const newConfigMode = cfg.workerMode || 'auto';
 
-    // Re-resolve mode (CLI arg still takes priority)
-    const newMode = resolveMode(process.argv.slice(2), newConfigMode);
+    // Re-resolve mode (CLI arg still takes priority), silent to avoid spam logs
+    const newMode = resolveMode(process.argv.slice(2), newConfigMode, true);
 
     if (newMode !== currentMode) {
       console.log(`[Mode] 🔄 Mode changed from '${currentMode}' to '${newMode}' (config updated)`);
