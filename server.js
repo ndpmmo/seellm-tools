@@ -1440,7 +1440,13 @@ app.prepare().then(() => {
   // ── HTTP + Socket.io ─────────────────────────────────────────────────────
   const httpServer = createServer(ex);
 
-  io = new SocketIO(httpServer, { cors: { origin: '*' }, path: '/socket.io' });
+  io = new SocketIO(httpServer, {
+    cors: { origin: '*' },
+    path: '/socket.io',
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling'],
+  });
   setSocketIO(io); // Pass to vault router for real-time email pool events
   io.on('connection', socket => {
     const transport = socket.conn?.transport?.name || 'unknown';

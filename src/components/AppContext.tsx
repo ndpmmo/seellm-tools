@@ -123,13 +123,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Socket.io
   useEffect(() => {
-    const socketInstance: Socket = io('/', { path: '/socket.io', transports: ['websocket'] });
+    const socketInstance: Socket = io('/', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
+    });
     setSocket(socketInstance);
     socketInstance.on('connect', () => {
       setConnected(true);
       refreshProcesses();
     });
     socketInstance.on('disconnect', () => setConnected(false));
+    socketInstance.on('reconnect', (attemptNumber) => {
+      console.log('[Socket] Reconnected after', attemptNumber, 'attempts');
+      setConnected(true);
+      refreshProcesses();
+    });
+    socketInstance.on('reconnect_attempt', (attemptNumber) => {
+      console.log('[Socket] Reconnection attempt', attemptNumber);
+    });
+    socketInstance.on('reconnect_failed', () => {
+      console.log('[Socket] Reconnection failed');
+      setConnected(false);
+    });
 
     socketInstance.on('processes:sync', (list: ProcessInfo[]) => {
       const m: Record<string, ProcessInfo> = {};
