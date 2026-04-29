@@ -1,5 +1,7 @@
 # Changelog - SeeLLM Tools
 
+**Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
+
 ## [0.3.4] - 2026-04-29 07:39:00
 
 ### ✨ Feature — Worker Mode Selection
