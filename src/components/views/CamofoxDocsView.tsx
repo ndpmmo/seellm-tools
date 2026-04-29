@@ -59,6 +59,33 @@ app.get('/sessions/:userId/cookies', async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json(await session.context.cookies());
 });`],
+            ['GET /tabs/:tabId/cookies (plugin)', `// plugins/seellm-tools/index.js
+app.get('/tabs/:tabId/cookies', async (req, res) => {
+  const { userId } = req.query;
+  const found = session && findTab(session, tabId);
+  const cookies = await withTabLock(tabId, async () => {
+    return await tabState.page.context().cookies();
+  });
+  res.json({ ok: true, cookies });
+});`],
+            ['POST /tabs/:tabId/wait-for-selector (plugin)', `// plugins/seellm-tools/index.js
+app.post('/tabs/:tabId/wait-for-selector', async (req, res) => {
+  const { userId, selector, timeout = 10000, state = 'visible' } = req.body;
+  const found = session && findTab(session, tabId);
+  await withTabLock(tabId, async () => {
+    await tabState.page.waitForSelector(selector, { timeout, state });
+  });
+  res.json({ ok: true });
+});`],
+            ['POST /tabs/:tabId/wait-for-url (plugin)', `// plugins/seellm-tools/index.js
+app.post('/tabs/:tabId/wait-for-url', async (req, res) => {
+  const { userId, url, timeout = 10000 } = req.body;
+  const found = session && findTab(session, tabId);
+  await withTabLock(tabId, async () => {
+    await tabState.page.waitForURL(url, { timeout });
+  });
+  res.json({ ok: true });
+});`],
             ['POST /tabs/:tabId/navigate (upstream)', `// Upstream v1.8.15 route (replaces custom /goto)
 app.post('/tabs/:tabId/navigate', async (req, res) => {
   const { userId, url, macro } = req.body;
@@ -85,8 +112,12 @@ app.post('/tabs/:tabId/evaluate', async (req, res) => {
             <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/health</code> trả <code className="text-emerald-400 bg-emerald-500/10 px-1 rounded">browserConnected: true</code></li>
             <li>Tools start Camofox bằng <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code>, không phải <code className="text-slate-400 bg-white/5 px-1 rounded">node</code> chung chung</li>
             <li>Tạo tab thành công / <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">snapshot</code> thành công</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /tabs/:tabId/cookies</code> trả JSON hợp lệ</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/navigate</code> điều hướng thành công</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /sessions/:userId/cookies</code> trả JSON (plugin)</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /tabs/:tabId/cookies</code> trả JSON hợp lệ (plugin)</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/wait-for-selector</code> hoạt động (plugin)</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/wait-for-url</code> hoạt động (plugin)</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/navigate</code> điều hướng thành công (upstream)</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/evaluate</code> trả về kết quả (upstream)</li>
           </ul>
         </div>
       </div>

@@ -39,11 +39,81 @@ Upstream v1.8.15 đã cung cấp các route sau, thay thế cho custom routes c�
 4 route sau được triển khai qua plugin `plugins/seellm-tools/index.js`:
 
 - `GET /sessions/:userId/cookies` — Export cookies ở cấp session
-- `GET /tabs/:tabId/cookies` — Export cookies ở cấp tab
-- `POST /tabs/:tabId/wait-for-selector` — Wait cho CSS selector (visible/hidden/attached/detached)
-- `POST /tabs/:tabId/wait-for-url` — Wait cho URL match (string/glob/regex)
+- `GET /tabs/:tabId/cookies` --- Export cookies at cap tab
+- `POST /tabs/:tabId/wait-for-selector` --- Wait cho CSS selector (visible/hidden/attached/detached)
+- `POST /tabs/:tabId/wait-for-url` --- Wait cho URL match (string/glob/regex)
 
-### Custom patches trong server.js (không thể chuyển sang plugin)
+### API Reference - Custom Routes
+
+#### GET /sessions/:userId/cookies
+Export tat ca cookies cua mot user session.
+
+**Request:**
+```bash
+curl http://localhost:3144/sessions/test-user/cookies
+```
+
+**Response:**
+```json
+[
+  { "name": "auth_token", "value": "xxx", "domain": ".openai.com", "path": "/", "secure": true },
+  ...
+]
+```
+
+#### GET /tabs/:tabId/cookies?userId=xxx
+Export cookies cua mot tab cu the.
+
+**Request:**
+```bash
+curl "http://localhost:3144/tabs/tab123/cookies?userId=test-user"
+```
+
+**Response:**
+```json
+{ "ok": true, "cookies": [...] }
+```
+
+#### POST /tabs/:tabId/wait-for-selector
+Cho doi mot phan tu HTML xuat hien voi selector cho truoc.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3144/tabs/tab123/wait-for-selector \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"test-user","selector":"button.submit","timeout":10000,"state":"visible"}'
+```
+
+**Parameters:**
+- `selector` (required): CSS selector
+- `timeout` (optional, default: 10000): Timeout in ms
+- `state` (optional, default: "visible"): "visible", "hidden", "attached", "detached"
+
+**Response:**
+```json
+{ "ok": true }
+```
+
+#### POST /tabs/:tabId/wait-for-url
+Cho doi URL cua tab khop voi pattern.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3144/tabs/tab123/wait-for-url \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"test-user","url":"*example.com*","timeout":10000}'
+```
+
+**Parameters:**
+- `url` (required): URL pattern (string, glob, hoac regex)
+- `timeout` (optional, default: 10000): Timeout in ms
+
+**Response:**
+```json
+{ "ok": true }
+```
+
+### Custom patches trong server.js (khong the chuyen sang plugin)
 
 2 patch sau được áp dụng trực tiếp vào `server.js` vì cần truy cập internal state:
 
@@ -66,16 +136,44 @@ Upstream v1.8.15 đã cung cấp các route sau, thay thế cho custom routes c�
 }
 ```
 
-## Cập nhật trạng thái (2026-04-29)
+## Lich su phien ban Camofox
 
-### Thay đổi từ bản upgrade v1.5.2 → v1.8.15
+### Phiên ban hien tai: v1.8.15 (2026-04-29)
 
-**Lợi ích chính từ upstream:**
-- Plugin System (v1.6.0): custom routes tách riêng khỏi core server.js
-- Persistence Plugin: tự lưu cookies + localStorage khi session close/shutdown
-- Structured Extract (`POST /tabs/:tabId/extract`): trích xuất dữ liệu theo JSON Schema
+| Version | Date | Changes |
+|---------|------|---------|
+| v1.8.15 | 2026-04 | Latest - current seellm-tools custom branch |
+| v1.8.0 | 2025-12 | Memory leak fix (~930MB), global access key |
+| v1.7.2 | 2025-10 | Structured extract, session tracing, OpenAPI docs |
+| v1.6.0 | 2025-08 | Plugin system, persistence, VNC, YouTube plugins |
+| v1.5.2 | 2025-06 | Previous seellm-tools custom version |
+
+### Upstream features chi tiet theo phien ban
+
+#### v1.6.0 - Plugin System
+- **Plugin System**: Custom routes tach rieng khoi core, de upgrade
+- **Persistence Plugin**: Tu dong luu cookies + localStorage khi session close
+- **VNC Plugin**: Remote desktop view cho debugging
+- **YouTube Plugin**: Transcript extraction qua yt-dlp
+
+#### v1.7.2 - Structured Data
+- **Structured Extract** (`POST /tabs/:tabId/extract`): Trich xuat du lieu theo JSON Schema
+- **Session Tracing**: Playwright traces cho debugging
+- **OpenAPI Docs**: Tai `/openapi.json` va `/docs`
+
+#### v1.8.0 - Security & Performance
+- **Global Access Key** (`CAMOFOX_ACCESS_KEY`): Bao ve API bang API key
+- **Memory Leak Fix**: Fix ~930MB leak per orphaned browser
+- **Crash Reporter**: Tu dong bao cao crash (anonymized)
+
+### Thay doi tu ban upgrade v1.5.2 -> v1.8.15
+
+**Loi ich chinh tu upstream:**
+- Plugin System (v1.6.0): custom routes tach rieng khoi core server.js
+- Persistence Plugin: tu luu cookies + localStorage khi session close/shutdown
+- Structured Extract (`POST /tabs/:tabId/extract`): trich xuat du lieu theo JSON Schema
 - Session Tracing: Playwright traces cho debugging
-- Global Access Key (`CAMOFOX_ACCESS_KEY`): bảo vệ API bằng API key
+- Global Access Key (`CAMOFOX_ACCESS_KEY`): bao ve API bang API key
 - Memory Leak Fix (v1.8.0): fix ~930MB leak per orphaned browser
 - VNC Plugin: remote desktop view
 
