@@ -1,13 +1,40 @@
-import React from 'react';
-import { FileText, Info, AlertTriangle, CheckCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import fs from 'fs';
-import path from 'path';
 
-async function CamofoxDocsView() {
-  const filePath = path.join(process.cwd(), 'docs/camofox-custom.md');
-  const content = fs.readFileSync(filePath, 'utf-8');
+export function CamofoxDocsView() {
+  const [content, setContent] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/camofox-docs')
+      .then(res => res.text())
+      .then(text => {
+        setContent(text);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to load camofox docs:', err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 custom-scrollbar">
+        <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-white/5">
+            <h3 className="text-[13.5px] font-semibold text-slate-100 flex items-center gap-2">
+              <FileText size={15} className="text-indigo-400" />
+              Tài liệu Custom Camofox Browser
+            </h3>
+          </div>
+          <div className="p-6 text-slate-400 text-[13.5px]">Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 custom-scrollbar">
