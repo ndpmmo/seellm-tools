@@ -1,6 +1,6 @@
 # Changelog - SeeLLM Tools
 
-## [0.3.4] - 2026-04-29
+## [0.3.4] - 2026-04-29 07:39:00
 
 ### ✨ Feature — Worker Mode Selection
 
