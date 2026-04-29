@@ -43,6 +43,24 @@ const LOGS_DIR = path.join(DATA_DIR, 'logs');
 const processes = {};
 let io = null;
 
+// ─── SSE (Server-Sent Events) ───────────────────────────────────────────────
+const sseClients = new Set();
+
+function broadcastRealtimeEvent(type, payload) {
+  // Broadcast via Socket.io (existing)
+  io?.emit(type, payload);
+  // Broadcast via SSE (new, parallel)
+  const data = JSON.stringify(payload);
+  sseClients.forEach(res => {
+    try {
+      res.write(`event: ${type}\ndata: ${data}\n\n`);
+    } catch (e) {
+      console.warn('[SSE] Write failed, removing client:', e.message);
+      sseClients.delete(res);
+    }
+  });
+}
+
 function logServerEvent(label, extra = '') {
   const suffix = extra ? ` ${extra}` : '';
   console.log(`[Server] ${label}${suffix}`);
@@ -94,7 +112,7 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
       if (entry.logs.length > 5000) entry.logs.shift();
       // Write to log file
       appendToProcessLog(logFile, `[${log.ts}] [${type}] ${line}\n`);
-      io?.emit('process:log', { id, log });
+      broadcastRealtimeEvent('process:log', { id, log });
     });
   }
 
@@ -107,16 +125,16 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
     entry.stoppedAt = new Date().toISOString();
     pushLog('system', `Thoát với code ${code} (signal: ${signal})`);
     appendToProcessLog(logFile, `\n# Stopped: ${entry.stoppedAt} | Exit: ${code}\n`);
-    io?.emit('process:status', { id, status: entry.status, exitCode: code });
+    broadcastRealtimeEvent('process:status', { id, status: entry.status, exitCode: code });
   });
   proc.on('error', err => {
     entry.status = 'error';
     pushLog('system', `Lỗi: ${err.message}`);
-    io?.emit('process:status', { id, status: 'error' });
+    broadcastRealtimeEvent('process:status', { id, status: 'error' });
   });
 
   processes[id] = entry;
-  io?.emit('process:status', { id, status: 'running', name, pid: proc.pid });
+  broadcastRealtimeEvent('process:status', { id, status: 'running', name, pid: proc.pid });
   return { pid: proc.pid };
 }
 
@@ -192,7 +210,7 @@ function watchScreenshots() {
           }
         } catch (e) { }
 
-        io?.emit('screenshot:new', {
+        broadcastRealtimeEvent('screenshot:new', {
           sessionId,
           email,
           filename: imgFile,
@@ -243,6 +261,50 @@ app.prepare().then(() => {
   // ── Processes ────────────────────────────────────────────────────────────
   ex.get('/api/processes', (_, res) =>
     res.json(Object.keys(processes).map(id => safeProc(id))));
+
+  ex.get('/api/processes/:id/logs', (req, res) => {
+    const e = processes[req.params.id];
+    if (!e) return res.status(404).json({ error: 'Process not found' });
+    res.json({ id: req.params.id, logs: e.logs });
+  });
+
+  // ── SSE (Server-Sent Events) ───────────────────────────────────────────────
+  ex.get('/api/events/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    sseClients.add(res);
+    console.log('[SSE] Client connected, total clients:', sseClients.size);
+
+    // Send initial processes sync
+    const initialProcesses = Object.keys(processes).map(id => safeProc(id));
+    res.write(`event: processes:sync\ndata: ${JSON.stringify(initialProcesses)}\n\n`);
+    res.write(`event: ready\ndata: {"status":"connected"}\n\n`);
+
+    // Keep-alive heartbeat every 15s to prevent proxy/dev server from closing connection
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
+      } catch (e) {
+        clearInterval(heartbeatInterval);
+        sseClients.delete(res);
+      }
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      sseClients.delete(res);
+      console.log('[SSE] Client disconnected, total clients:', sseClients.size);
+    });
+
+    req.on('error', (err) => {
+      clearInterval(heartbeatInterval);
+      sseClients.delete(res);
+      console.warn('[SSE] Client error:', err.message);
+    });
+  });
 
   ex.post('/api/processes/camofox/start', (req, res) => {
     const cfg = loadConfig();

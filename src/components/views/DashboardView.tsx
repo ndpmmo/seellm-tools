@@ -85,7 +85,7 @@ function ProcCard({ p }: { p: ProcessInfo }) {
 }
 
 export function DashboardView() {
-  const { processes, startCamofox, startWorker, connected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
+  const { processes, startCamofox, startWorker, connected, sseConnected, realtimeConnected, pingCamofox, pingGateway, liveShots, setView, sessions } = useApp();
   const procs = Object.values(processes)
     .filter(p => p.status === 'running')
     .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
@@ -179,11 +179,29 @@ export function DashboardView() {
               </div>
 
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
-                <span className="text-[12.5px] font-semibold text-slate-300">⚡ Web UI Socket</span>
+                <span className="text-[12.5px] font-semibold text-slate-300">⚡ Socket.io</span>
                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${connected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                   'bg-rose-500/10 text-rose-400 border-rose-500/20'
                   }`}>
                   {connected ? '✓ Connected' : '✗ Disconnected'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <span className="text-[12.5px] font-semibold text-slate-300">📡 SSE Stream</span>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${sseConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                  }`}>
+                  {sseConnected ? '✓ Connected' : '✗ Disconnected'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <span className="text-[12.5px] font-semibold text-slate-300">🔄 Realtime Source</span>
+                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${realtimeConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                  }`}>
+                  {sseConnected ? 'SSE (Priority)' : connected ? 'Socket.io' : 'Polling'}
                 </span>
               </div>
             </div>
