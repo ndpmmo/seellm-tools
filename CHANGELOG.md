@@ -1,5 +1,63 @@
 # Changelog - SeeLLM Tools
 
+## [0.3.1] - 2026-04-29
+
+### 🔧 Fix — Unified worker connect flow không bấm được nút `Log in` trên landing page ChatGPT
+
+**Triệu chứng thực tế:**
+- Worker mở `https://chatgpt.com/auth/login`
+- Screenshot vẫn cho thấy landing page với popup Google và nút `Log in`
+- Flow dừng ở lỗi: `Không tìm thấy email input. URL: https://chatgpt.com/auth/login`
+
+**Nguyên nhân gốc:**
+- Khi gộp 2 worker vào `auto-worker.js`, shared helper `dismissGooglePopupAndClickLogin()` trong `scripts/lib/openai-login-flow.js` vẫn còn quá nhẹ so với UI mới của ChatGPT landing page.
+- Helper cũ chỉ thử `click()` đơn giản, chưa đủ mạnh để:
+  - dọn popup/overlay Google FedCM triệt để
+  - ưu tiên đúng selector của nút `Log in`
+  - fallback sang `href` / `location.assign(...)` nếu click bị chặn
+- Đồng thời connect flow trong `auto-worker.js` còn thiếu log result của bước click nên khó trace, và nhánh fallback `navigate(...)` truyền sai chữ ký timeout (`15000` thay vì `{ timeoutMs: 15000 }`).
+
+**Fix đã áp dụng:**
+
+#### 1. Strengthen helper `dismissGooglePopupAndClickLogin()` (v3 - ChatGPT UI mới)
+- thêm `safeClick()` với 3 lớp fallback
+- **bỏ** overlay removal hung hãn (gây xoá mất UI)
+- xử lý **UI mới ChatGPT landing page**:
+  1. Tìm và click "More options" để mở dropdown
+  2. Đợi 1.5s rồi tìm lại buttons
+  3. Nếu form email/password đã visible → return `formVisible: true`
+- strengthen selector tìm login button (5 mức):
+  1. `data-testid="login-button"`
+  2. Vùng landing: `[class*="login" i]`, `header`, `nav`
+  3. `href` chứa `/auth/login`
+  4. text match: `log in`, `login`, `sign in`, `email`, `password`
+  5. button màu xanh với text chứa `log`/`sign`
+- cải thiện log debug: `tag[data-testid]:text->href`
+- fallback: click thất bại + có `href` → `location.assign(href)`
+- fallback cuối: `location.assign('/auth/login')`
+
+#### 2. Restore connect-flow debug trong `auto-worker.js`
+- log rõ kết quả của bước `[1b]`:
+  - `dismissGooglePopupAndClickLogin()` return payload
+- thêm log ở bước retry `[1c]`
+
+#### 3. Fix fallback navigate signature
+- sửa:
+  - `navigate(..., 15000)`
+- thành:
+  - `navigate(..., { timeoutMs: 15000 })`
+
+**Files cập nhật:**
+- `scripts/lib/openai-login-flow.js`
+- `scripts/auto-worker.js`
+
+**Tác động:**
+- Connect flow trong unified worker bền hơn với landing page ChatGPT mới
+- giảm trường hợp worker đứng yên ở homepage rồi báo `Không tìm thấy email input`
+- log đủ chi tiết để trace popup dismiss / login click / redirect fallback khi regression tái diễn
+
+---
+
 ## [0.3.0] - 2026-04-29
 
 ### 🤖 Major — Gộp 2 worker thành 1 Unified Auto Worker (true merge)

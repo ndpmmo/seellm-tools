@@ -329,7 +329,22 @@ async function runConnectFlow(task) {
     if (effectiveProxy) {
       console.log(`[Connect] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
       try {
-        preFlightResult = await assertProxyApplied(effectiveProxy);
+        let lastErr = null;
+        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+          try {
+            preFlightResult = await assertProxyApplied(effectiveProxy);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || '');
+            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP');
+            if (!isTransient || preflightAttempt === 2) break;
+            console.log(`[Connect] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
+            await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+          }
+        }
+        if (!preFlightResult && lastErr) throw lastErr;
         console.log(`[Connect] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
       } catch (err) { console.log(`[Connect] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
     }
@@ -367,12 +382,16 @@ async function runConnectFlow(task) {
     await new Promise(r => setTimeout(r, 1500));
 
     console.log(`[Connect] [1b] Dismiss Google popup + bấm Log in...`);
-    await dismissGooglePopupAndClickLogin(tabId, USER_ID);
-    await new Promise(r => setTimeout(r, 4000));
+    const loginClick = await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+    console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
+    // Nếu form đã visible (UI mới sau click More options), giảm wait time
+    const waitTime = loginClick?.formVisible ? 2000 : 4000;
+    await new Promise(r => setTimeout(r, waitTime));
     await saveStep('01b_after_login_click');
     state = await getState(tabId, USER_ID);
 
     if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
+      console.log(`[Connect] [1c] Chưa redirect, thử bấm Log in lần 2...`);
       await dismissGooglePopupAndClickLogin(tabId, USER_ID);
       await new Promise(r => setTimeout(r, 5000));
       await saveStep('01c_retry');
@@ -383,7 +402,7 @@ async function runConnectFlow(task) {
       console.log(`[Connect] [1d] Fallback: authorize URL trực tiếp...`);
       await navigate(tabId, USER_ID,
         'https://auth.openai.com/authorize?client_id=DRivsnm2Mu42T3KOpqdtwB3NYviHYzwD&audience=https%3A%2F%2Fapi.openai.com%2Fv1&redirect_uri=https%3A%2F%2Fchatgpt.com%2Fapi%2Fauth%2Fcallback%2Flogin-web&scope=openid+email+profile+offline_access+model.request+model.read+organization.read+organization.write&response_type=code&response_mode=query&state=login&prompt=login',
-        15000);
+        { timeoutMs: 15000 });
       await new Promise(r => setTimeout(r, 5000));
       await saveStep('01d_fallback');
       state = await getState(tabId, USER_ID);

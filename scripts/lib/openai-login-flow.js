@@ -420,6 +420,16 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
         const r = el.getBoundingClientRect();
         return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
       };
+      const safeClick = el => {
+        if (!el) return false;
+        try { el.focus?.(); } catch (_) {}
+        try { el.click(); return true; } catch (_) {}
+        try {
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          return true;
+        } catch (_) {}
+        return false;
+      };
       const results = [];
 
       // 1. Đóng popup "Sign in with Google" — multi-language aria-label + iframe removal
@@ -441,7 +451,7 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
         });
       const googleClose = closeButtons[0] || xButtons[0];
       if (googleClose) {
-        googleClose.click();
+        safeClick(googleClose);
         results.push('dismissed-google-popup');
       }
 
@@ -452,23 +462,97 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       });
       if (googleIframes.length > 0) results.push('removed-google-iframes');
 
-      // 2. Bấm nút "Log in" — ưu tiên data-testid="login-button" (UI mới)
-      const allClickable = Array.from(document.querySelectorAll('button, a[role="button"], div[role="button"]')).filter(isVisible);
-      const loginBtn =
-        document.querySelector('button[data-testid="login-button"]') ||
-        allClickable.find(el => {
-          const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-          return t === 'log in' || t === 'login' || t === 'sign in';
+      // 2. Tìm và click nút "Log in" - xử lý cả UI mới (More options dropdown)
+      const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]')).filter(isVisible);
+      let loginBtn = null;
+      
+      // UI mới: tìm "More options" để mở dropdown
+      const moreOptionsBtn = allClickable.find(el => {
+        const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+        return t.includes('more options') || t.includes('more') || el.getAttribute('aria-expanded') === 'false';
+      });
+      if (moreOptionsBtn) {
+        safeClick(moreOptionsBtn);
+        results.push('clicked-more-options');
+        // Đợi dropdown mở rồi tìm lại
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      
+      // Sau khi click More options (hoặc nếu không có), tìm login button
+      const allClickable2 = Array.from(document.querySelectorAll('button, a, [role="button"], div[role="button"]')).filter(isVisible);
+      
+      // Ưu tiên 1: data-testid chính xác
+      loginBtn = document.querySelector('button[data-testid="login-button"], a[data-testid="login-button"]');
+      if (loginBtn && isVisible(loginBtn)) results.push('found-by-data-testid');
+      
+      // Ưu tiên 2: Các vùng landing page
+      if (!loginBtn) {
+        const landingSelectors = ['[class*="login" i] button', '[class*="auth" i] button', 'header button', 'nav button', '[role="banner"] button'];
+        for (const sel of landingSelectors) {
+          const candidates = Array.from(document.querySelectorAll(sel)).filter(isVisible);
+          loginBtn = candidates.find(el => {
+            const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+            return t === 'log in' || t === 'login' || t === 'sign in' || t.includes('email') || t.includes('password');
+          });
+          if (loginBtn) { results.push('found-in-landing-area'); break; }
+        }
+      }
+      
+      // Ưu tiên 3: UI mới - tìm input email/password trực tiếp (form đã visible sau click More options)
+      const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[autocomplete="email"]');
+      const hasPasswordInput = !!document.querySelector('input[type="password"]');
+      if (hasEmailInput || hasPasswordInput) {
+        results.push('form-visible-no-click-needed');
+        // Không cần click button, form đã sẵn sàng
+        return { ok: true, actions: results, formVisible: true };
+      }
+      
+      // Ưu tiên 4: href chứa /auth/login
+      if (!loginBtn) {
+        loginBtn = allClickable2.find(el => {
+          const href = (el.getAttribute('href') || '').toLowerCase();
+          return href.includes('/auth/login') || href.includes('/login');
         });
+        if (loginBtn) results.push('found-by-href');
+      }
+      
+      // Ưu tiên 5: text match rộng hơn (bao gồm email/password text)
+      if (!loginBtn) {
+        loginBtn = allClickable2.find(el => {
+          const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+          return t === 'log in' || t === 'login' || t === 'sign in' || t.includes('email') || t.includes('password');
+        });
+        if (loginBtn) results.push('found-by-text');
+      }
       if (loginBtn && isVisible(loginBtn)) {
-        loginBtn.click();
-        results.push('clicked-login-button');
+        const href = loginBtn.getAttribute('href') || loginBtn.dataset?.href || '';
+        const clicked = safeClick(loginBtn);
+        results.push(clicked ? 'clicked-login-button' : 'failed-click-login-button');
+        if (!clicked && href) {
+          try {
+            location.assign(href.startsWith('http') ? href : new URL(href, location.origin).toString());
+            results.push('navigated-via-href');
+          } catch (_) {}
+        }
       } else {
         results.push('no-login-button-found');
-        results.push('visible-buttons: ' + allClickable.map(e => (e.innerText || '').trim()).filter(Boolean).slice(0, 10).join(' | '));
+        // Log chi tiết hơn để debug
+        const visibleTexts = allClickable.map(e => {
+          const text = (e.innerText || e.textContent || '').trim();
+          const tag = (e.tagName || '').toLowerCase();
+          const testId = e.getAttribute('data-testid') || '';
+          const href = e.getAttribute('href') || '';
+          return tag + (testId ? '[' + testId + ']' : '') + ':' + text.slice(0, 30) + (href ? '->' + href.slice(0, 20) : '');
+        }).filter(Boolean).slice(0, 15);
+        results.push('visible: ' + visibleTexts.join(' | '));
+        // Fallback cuối
+        try {
+          location.assign('/auth/login');
+          results.push('forced-location-auth-login');
+        } catch (_) {}
       }
 
-      return { ok: results.some(r => r.startsWith('clicked')), actions: results };
+      return { ok: results.some(r => r.startsWith('clicked') || r === 'navigated-via-href' || r === 'forced-location-auth-login'), actions: results };
     })()
   `, 5000);
 }
