@@ -74,6 +74,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const sessionsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -123,21 +124,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Socket.io
   useEffect(() => {
+    const markDisconnectedSoon = (delayMs = 1500) => {
+      if (disconnectDebounceTimer.current) {
+        clearTimeout(disconnectDebounceTimer.current);
+      }
+      disconnectDebounceTimer.current = setTimeout(() => {
+        setConnected(false);
+        disconnectDebounceTimer.current = null;
+      }, delayMs);
+    };
+
+    const clearDisconnectDebounce = () => {
+      if (disconnectDebounceTimer.current) {
+        clearTimeout(disconnectDebounceTimer.current);
+        disconnectDebounceTimer.current = null;
+      }
+    };
+
     const socketInstance: Socket = io('/', {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 10000,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 8000,
+      timeout: 20000,
     });
     setSocket(socketInstance);
     socketInstance.on('connect', () => {
+      clearDisconnectDebounce();
       setConnected(true);
       refreshProcesses();
+      queueRefreshSessions();
     });
-    socketInstance.on('disconnect', () => setConnected(false));
+    socketInstance.on('disconnect', () => {
+      markDisconnectedSoon(1500);
+      refreshProcesses();
+      queueRefreshSessions();
+    });
     socketInstance.on('reconnect', (attemptNumber) => {
       console.log('[Socket] Reconnected after', attemptNumber, 'attempts');
       setConnected(true);
@@ -148,7 +172,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     socketInstance.on('reconnect_failed', () => {
       console.log('[Socket] Reconnection failed');
-      setConnected(false);
+      markDisconnectedSoon(0);
+    });
+    socketInstance.on('connect_error', (err) => {
+      console.log('[Socket] Connect error:', err?.message || String(err));
+      markDisconnectedSoon(1000);
     });
 
     socketInstance.on('processes:sync', (list: ProcessInfo[]) => {
@@ -222,6 +250,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(sessionsRefreshTimer.current);
         sessionsRefreshTimer.current = null;
       }
+      if (disconnectDebounceTimer.current) {
+        clearTimeout(disconnectDebounceTimer.current);
+        disconnectDebounceTimer.current = null;
+      }
       socketInstance.disconnect();
     };
   }, [queueRefreshSessions, refreshProcesses]);
@@ -241,13 +273,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Fallback sync when socket disconnects or misses updates.
   useEffect(() => {
-    const interval = connected ? 30000 : 7000;
+    const interval = connected ? 10000 : 3000;
     const t = setInterval(() => {
       refreshProcesses();
       if (!connected) queueRefreshSessions();
     }, interval);
     return () => clearInterval(t);
   }, [connected, queueRefreshSessions, refreshProcesses]);
+
+  // Socket watchdog: if disconnected for too long, trigger reconnect.
+  useEffect(() => {
+    if (connected || !socket) return;
+    const t = setInterval(() => {
+      if (!socket.connected) {
+        try { socket.connect(); } catch { }
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [connected, socket]);
 
   async function post(url: string, body?: unknown) {
     const r = await fetch(url, {
