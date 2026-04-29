@@ -43,6 +43,44 @@ export function CamofoxDocsView() {
             <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.8.15</code></li>
           </ul>
 
+          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
+            <CheckCircle size={16} className="text-emerald-400" /> Lịch Sử Phiên Bản
+          </h3>
+          <div className="p-4 bg-white/[0.03] border border-white/10 rounded-lg mb-4 text-[12.5px]">
+            <div className="font-semibold text-slate-200 mb-3">Phiên bản hiện tại: v1.8.15 (2026-04-29)</div>
+            <div className="space-y-2">
+              <div className="flex gap-4 text-slate-400">
+                <span className="text-cyan-400 font-mono w-20">v1.8.15</span>
+                <span>2026-04 - Latest - current seellm-tools custom branch</span>
+              </div>
+              <div className="flex gap-4 text-slate-400">
+                <span className="text-cyan-400 font-mono w-20">v1.8.0</span>
+                <span>2025-12 - Memory leak fix, global access key</span>
+              </div>
+              <div className="flex gap-4 text-slate-400">
+                <span className="text-cyan-400 font-mono w-20">v1.7.2</span>
+                <span>2025-10 - Structured extract, session tracing, OpenAPI docs</span>
+              </div>
+              <div className="flex gap-4 text-slate-400">
+                <span className="text-cyan-400 font-mono w-20">v1.6.0</span>
+                <span>2025-08 - Plugin system, persistence, VNC, YouTube plugins</span>
+              </div>
+              <div className="flex gap-4 text-slate-400">
+                <span className="text-cyan-400 font-mono w-20">v1.5.2</span>
+                <span>2025-06 - Previous seellm-tools custom version</span>
+              </div>
+            </div>
+          </div>
+          <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-lg mb-6 text-[12.5px]">
+            <div className="font-semibold text-indigo-300 mb-2">Chi tiết thay đổi chính:</div>
+            <ul className="pl-5 text-slate-400 flex flex-col gap-1 list-disc">
+              <li><span className="text-cyan-400">v1.8.x</span>: Security & Performance (CAMOFOX_ACCESS_KEY, memory leak fix, crash reporter)</li>
+              <li><span className="text-cyan-400">v1.7.x</span>: Structured Data & Debugging (extract, tracing, OpenAPI docs)</li>
+              <li><span className="text-cyan-400">v1.6.0</span>: Plugin System (major - plugin-based approach)</li>
+              <li><span className="text-cyan-400">v1.5.2</span>: Previous custom version (server.js patches only)</li>
+            </ul>
+          </div>
+
           <h3 className="text-[13px] font-semibold text-amber-300 mb-2 flex items-center gap-1.5">
             <AlertTriangle size={16} className="text-amber-400" /> Vì sao cần vá
           </h3>
