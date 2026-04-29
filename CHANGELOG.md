@@ -1,6 +1,51 @@
 # Changelog - SeeLLM Tools
 
-## [0.3.1] - 2026-04-29
+## [0.3.3] - 2026-04-29
+
+### 🔧 Fix — UI ChatGPT đã rollback về dạng cũ (nút Log in trực tiếp)
+
+**Triệu chứng thực tế:**
+- Test Camofox với IP local cho thấy UI hiện tại có nút "Log in" trực tiếp với `data-testid="login-button"`
+- Không còn "More options" dropdown như log trước đó (A/B testing rollback)
+- Google iframe FedCM popup vẫn xuất hiện
+
+**DOM structure thực tế (test Camofox):**
+```
+Buttons visible:
+  [0] button | text: "Log in" | testId: login-button
+  [1] button | text: "Sign up for free" | testId: signup-button
+  [2] button | text: "Try it first"
+
+After click Log in:
+  URL: https://auth.openai.com/log-in-or-create-account
+  Input email: type="email" | name="email" | id="_r_2_-email" | placeholder="Email address"
+```
+
+**Fix đã áp dụng:**
+
+#### 1. Đơn giản helper `dismissGooglePopupAndClickLogin()`
+- Bỏ logic "More options" dropdown (không cần trong UI hiện tại)
+- Giữ selector chính: `button[data-testid="login-button"]`
+- Giữ tất cả fallback selectors cho backward compatibility
+- Giữ Google iframe removal cho FedCM popup
+
+#### 2. Fix async/await error trong eval
+- Wrap eval code trong async IIFE để hỗ trợ await
+
+**Selector chính xác:**
+- Login button: `button[data-testid="login-button"]`
+- Email input: `input[name="email"]` hoặc `input[id="_r_2_-email"]`
+
+**Files cập nhật:**
+- `scripts/lib/openai-login-flow.js`
+- `scripts/test-camofox-ui.js` (test script mới)
+
+**Tác động:**
+- Helper giờ đơn giản và đúng với UI hiện tại
+- Selector đã được verify bằng test Camofox thực tế
+- Worker có thể hoạt động bình thường với UI hiện tại
+
+---
 
 ### 🔧 Fix — Unified worker connect flow không bấm được nút `Log in` trên landing page ChatGPT
 

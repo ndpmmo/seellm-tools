@@ -7,21 +7,20 @@ import { camofoxPost, camofoxGet, evalJson } from './lib/camofox.js';
 const CAMOUFOX_API = 'http://localhost:3144';
 const TEST_USER_ID = 'test_ui_discovery';
 const TEST_SESSION_KEY = 'test_session';
-// Test với proxy từ user log
-const TEST_PROXY = 'http://user49594:lI7Ku0HtTr@45.32.111.6:49594';
+// Test KHÔNG dùng proxy - lấy DOM thực tế
+const TEST_PROXY = null;
 
 async function testCamofoxUI() {
   console.log('🔬 Bắt đầu test Camofox UI discovery...\n');
 
   try {
-    // 1. Mở tab tới ChatGPT login với proxy
-    console.log('[1] Mở tab tới https://chatgpt.com/auth/login với proxy');
-    console.log(`Proxy: ${TEST_PROXY}`);
+    // 1. Mở tab tới ChatGPT login KHÔNG dùng proxy
+    console.log('[1] Mở tab tới https://chatgpt.com/auth/login (không proxy)');
     const { tabId } = await camofoxPost('/tabs', {
       userId: TEST_USER_ID,
       sessionKey: TEST_SESSION_KEY,
       url: 'https://chatgpt.com/auth/login',
-      proxy: TEST_PROXY,
+      proxy: TEST_PROXY || undefined,
       persistent: false,
       os: 'macos',
       screen: { width: 1440, height: 900 },
