@@ -63,7 +63,7 @@ async function takeScreenshot(tabId, name) {
 
 async function evalCode(tabId, code) {
     try {
-        const res = await api(`/tabs/${tabId}/eval`, { expression: code, userId: USER_ID });
+        const res = await api(`/tabs/${tabId}/evaluate`, { expression: code, userId: USER_ID });
         return res.result;
     } catch (e) {
         console.error("Lỗi eval:", e.message);

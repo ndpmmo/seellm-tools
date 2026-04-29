@@ -56,7 +56,7 @@ async function runMfaTest() {
     await new Promise(r => setTimeout(r, 10000));
 
     console.log(`[2] Cài đặt Sniffer để bắt Endpoint MFA...`);
-    await api(`/tabs/${tabId}/eval`, {
+    await api(`/tabs/${tabId}/evaluate`, {
         userId: USER_ID,
         expression: `
             (() => {
@@ -84,7 +84,7 @@ async function runMfaTest() {
     // Tăng thời gian chờ để subagent hoặc user thao tác
     for(let i=0; i<12; i++) {
         await new Promise(r => setTimeout(r, 5000));
-        const check = await api(`/tabs/${tabId}/eval`, {
+        const check = await api(`/tabs/${tabId}/evaluate`, {
             userId: USER_ID,
             expression: `window._mfaLog`
         });

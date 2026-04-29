@@ -25,7 +25,7 @@ async function del(path) {
 }
 
 async function evalJson(tabId, expression) {
-  const out = await post(`/tabs/${tabId}/eval`, { userId, expression });
+  const out = await post(`/tabs/${tabId}/evaluate`, { userId, expression });
   return out.result ?? out;
 }
 
@@ -82,7 +82,7 @@ async function main() {
     await dumpState(tabId, 'OPENAI_LOGIN_INITIAL');
 
     if (PROBE_EMAIL) {
-      await post(`/tabs/${tabId}/eval`, {
+      await post(`/tabs/${tabId}/evaluate`, {
         userId,
         expression: `(() => {
           const setValue = (el, value) => {

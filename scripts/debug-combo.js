@@ -34,13 +34,13 @@ async function combo_ReactSetter() {
         return true;
       };
     `;
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN, expression: injectReactTyper })
     });
 
     console.log("🖱️ Bấm nút Sign up...");
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -50,7 +50,7 @@ async function combo_ReactSetter() {
     await new Promise(r => setTimeout(r, 10000));
 
     console.log("📝 Điền Email...");
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -70,7 +70,7 @@ async function combo_ReactSetter() {
     await fs.writeFile(path.join(process.cwd(), 'data', 'screenshots', 'combo_v4_step1_password_page.png'), Buffer.from(await shot1.arrayBuffer()));
 
     console.log("📝 Điền Password...");
-    const submitRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const submitRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -96,7 +96,7 @@ async function combo_ReactSetter() {
     const shot2 = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/screenshot?userId=${DEBUG_USER}&sessionKey=${WORKER_AUTH_TOKEN}`);
     await fs.writeFile(path.join(process.cwd(), 'data', 'screenshots', 'combo_v4_step2_final.png'), Buffer.from(await shot2.arrayBuffer()));
 
-    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,

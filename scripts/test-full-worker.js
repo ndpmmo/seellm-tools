@@ -31,13 +31,13 @@ async function testFull() {
         return true;
       };
     `;
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN, expression: injectReactTyper })
     });
 
     console.log("🖱️ Bấm Sign up...");
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -48,7 +48,7 @@ async function testFull() {
 
     // Điền Email
     console.log(`📝 Điền Email: ${email}`);
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -80,7 +80,7 @@ async function testFull() {
 
     // Điền Password
     console.log(`[3] Điền Password: ${password}`);
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -110,7 +110,7 @@ async function testFull() {
     await fs.writeFile(path.join(runDir, '03_after_password.png'), Buffer.from(await shot2.arrayBuffer()));
 
     // Lấy DOM cuối cùng
-    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,

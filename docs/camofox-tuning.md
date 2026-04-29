@@ -81,6 +81,36 @@ LOG_LEVEL=info
 SCREENSHOT_ON_ERROR=true
 ```
 
+### Security & Access Control (v1.8.0+)
+
+```bash
+# Global API access key - protects all endpoints
+CAMOFOX_ACCESS_KEY=your-secret-key
+
+# Crash reporter (enabled by default)
+CAMOFOX_CRASH_REPORT_ENABLED=true
+```
+
+### Plugin System (v1.6.0+)
+
+```json
+// camofox.config.json
+{
+  "plugins": {
+    "persistence": { "enabled": true, "profileDir": "/data/profiles" },
+    "youtube": { "enabled": true },
+    "vnc": { "resolution": "1920x1080" },
+    "seellm-tools": { "enabled": true }
+  }
+}
+```
+
+Key plugins:
+- **persistence**: Auto-save cookies + localStorage across session restarts
+- **youtube**: YouTube transcript extraction via yt-dlp
+- **vnc**: Remote desktop view for debugging
+- **seellm-tools**: Custom routes for OpenAI/Codex login flows
+
 ## Docker Deployment
 
 For Docker deployments, add these to your `docker-compose.yml`:
@@ -101,6 +131,11 @@ services:
       - HEADLESS=false
       - PERSISTENT=false
       - LOG_LEVEL=info
+      - CAMOFOX_ACCESS_KEY=${CAMOFOX_ACCESS_KEY}
+      - CAMOFOX_CRASH_REPORT_ENABLED=true
+    volumes:
+      - ./camofox.config.json:/app/camofox.config.json
+      - ./plugins/seellm-tools:/app/plugins/seellm-tools
     ports:
       - "9377:9377"
 ```

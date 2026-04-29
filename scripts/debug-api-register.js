@@ -25,7 +25,7 @@ async function test_ApiDrivenRegister() {
     await new Promise(r => setTimeout(r, 15000));
 
     // 2. Ép nhảy sang auth.openai.com để cùng Domain (CORS Bypass)
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -37,7 +37,7 @@ async function test_ApiDrivenRegister() {
 
     // 3. Thực hiện FETCH trần (Naked POST) lên API Register
     console.log("📡 Đang gửi POST Request tới /api/accounts/user/register...");
-    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,

@@ -40,7 +40,7 @@ export function CamofoxDocsView() {
             <li>Thư mục đã vá: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/Users/ndpmmo/Documents/Tools/camofox-browser</code></li>
             <li>Port đang dùng với Tools: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">http://localhost:3144</code></li>
             <li>Node Tools phải dùng để start Camofox: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code></li>
-            <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.5.2</code></li>
+            <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.8.15</code></li>
           </ul>
 
           <h3 className="text-[13px] font-semibold text-amber-300 mb-2 flex items-center gap-1.5">
@@ -53,9 +53,24 @@ export function CamofoxDocsView() {
           </ul>
 
           {[
-            ['GET /sessions/:userId/cookies', `app.get('/sessions/:userId/cookies', async (req, res) => {\n  const session = sessions.get(normalizeUserId(req.params.userId));\n  if (!session) return res.status(404).json({ error: 'Session not found' });\n  res.json(await session.context.cookies());\n});`],
-            ['POST /tabs/:tabId/goto', `app.post('/tabs/:tabId/goto', async (req, res) => {\n  const { userId, url, waitUntil = 'domcontentloaded', timeout = 15000 } = req.body;\n  const found = sessions.get(normalizeUserId(userId)) && findTab(session, req.params.tabId);\n  if (!found) return res.status(404).json({ error: 'Tab not found' });\n  const response = await withTabLock(tabId, () => found.tabState.page.goto(url, { waitUntil, timeout }));\n  res.json({ ok: true, finalUrl: found.tabState.page.url() });\n});`],
-            ['POST /tabs/:tabId/eval', `app.post('/tabs/:tabId/eval', async (req, res) => {\n  const { userId, expression, arg } = req.body;\n  // Evaluate expression in browser context\n  const result = await withTabLock(tabId, () => tabState.page.evaluate(\n    ({ expression, arg }) => new Function('arg', expression)(arg), { expression, arg }\n  ));\n  res.json({ ok: true, result });\n});`],
+            ['GET /sessions/:userId/cookies (plugin)', `// plugins/seellm-tools/index.js
+app.get('/sessions/:userId/cookies', async (req, res) => {
+  const session = sessions.get(normalizeUserId(req.params.userId));
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  res.json(await session.context.cookies());
+});`],
+            ['POST /tabs/:tabId/navigate (upstream)', `// Upstream v1.8.15 route (replaces custom /goto)
+app.post('/tabs/:tabId/navigate', async (req, res) => {
+  const { userId, url, macro } = req.body;
+  // Navigate + macro search + Google handling
+  res.json({ ok: true, finalUrl: page.url() });
+});`],
+            ['POST /tabs/:tabId/evaluate (upstream)', `// Upstream v1.8.15 route (replaces custom /eval)
+app.post('/tabs/:tabId/evaluate', async (req, res) => {
+  const { userId, expression } = req.body;
+  const result = await page.evaluate(expression);
+  res.json({ ok: true, result });
+});`],
           ].map(([title, code]) => (
             <div key={title} className="mb-5">
               <h4 className="text-[12.5px] font-mono font-bold text-indigo-300 mb-2">{title}</h4>
@@ -71,7 +86,7 @@ export function CamofoxDocsView() {
             <li>Tools start Camofox bằng <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code>, không phải <code className="text-slate-400 bg-white/5 px-1 rounded">node</code> chung chung</li>
             <li>Tạo tab thành công / <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">snapshot</code> thành công</li>
             <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /tabs/:tabId/cookies</code> trả JSON hợp lệ</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/goto</code> điều hướng thành công</li>
+            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/navigate</code> điều hướng thành công</li>
           </ul>
         </div>
       </div>

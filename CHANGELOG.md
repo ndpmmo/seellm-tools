@@ -2,6 +2,44 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.5] - 2026-04-29 21:50:00
+
+### 🔄 Upgrade — Camofox Browser v1.5.2 → v1.8.15
+
+**Mô tả:**
+- Nâng cấp camofox-browser từ v1.5.2 lên v1.8.15 (latest upstream)
+- Chuyển custom routes sang plugin-based approach (`plugins/seellm-tools/`)
+- Cập nhật tất cả worker/debug scripts cho route mới
+
+**Thay đổi camofox-browser:**
+- Branch mới: `custom/v1.8.15-seellm` (từ tag v1.8.15)
+- Tạo plugin `plugins/seellm-tools/index.js` chứa 4 custom routes:
+  - `GET /sessions/:userId/cookies` — export cookies cấp session
+  - `GET /tabs/:tabId/cookies` — export cookies cấp tab
+  - `POST /tabs/:tabId/wait-for-selector` — wait cho CSS selector
+  - `POST /tabs/:tabId/wait-for-url` — wait cho URL match
+- Re-apply 2 server.js patches: per-request proxy + forceLocale
+- Cập nhật `camofox.config.json`: thêm plugin seellm-tools, version 1.8.15
+
+**Thay đổi seellm-tools:**
+- `scripts/lib/camofox.js`: `/eval` → `/evaluate`, `/wait` → `/wait-for-selector`, thêm `waitForUrl()`
+- Tất cả scripts dùng `/eval` trực tiếp → đổi sang `/evaluate`
+- `camofoxGoto()` giờ gọi upstream `/navigate` thay vì custom `/goto`
+
+**Upstream features mới có:**
+- Plugin System (v1.6.0): tách custom code khỏi core
+- Persistence Plugin: tự lưu cookies + localStorage
+- Structured Extract (`/tabs/:tabId/extract`)
+- Session Tracing (Playwright traces)
+- Global Access Key (`CAMOFOX_ACCESS_KEY`)
+- Memory Leak Fix (~930MB leak per orphaned browser)
+- VNC Plugin: remote desktop view
+
+**Docs cập nhật:**
+- `docs/camofox-custom.md`: phiên bản mới, plugin-based flow
+- `docs/camofox-tuning.md`: thêm env vars mới, plugin config
+- `src/components/views/CamofoxDocsView.tsx`: cập nhật version + routes
+
 ## [0.3.4] - 2026-04-29 07:39:00
 
 ### ✨ Feature — Worker Mode Selection

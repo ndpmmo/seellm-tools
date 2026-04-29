@@ -23,7 +23,7 @@ async function step1_HotmailTest() {
     await new Promise(r => setTimeout(r, 15000));
 
     // 2. Bấm Sign up
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -40,7 +40,7 @@ async function step1_HotmailTest() {
 
     // 3. Nhập email Hotmail và bấm Continue
     console.log(`📝 Điền Email: ${email}`);
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -67,7 +67,7 @@ async function step1_HotmailTest() {
     console.log(`📸 Screenshot: ${shotPath}`);
 
     // 5. Kết quả DOM
-    const result = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const result = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

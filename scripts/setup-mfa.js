@@ -67,7 +67,7 @@ async function shot(tid, name) {
 }
 
 async function run(tid, code) {
-    const r = await api(`/tabs/${tid}/eval`, { userId: USER_ID, expression: code });
+    const r = await api(`/tabs/${tid}/evaluate`, { userId: USER_ID, expression: code });
     return r?.result;
 }
 

@@ -79,7 +79,7 @@ export async function camofoxGoto(tabId, userId, url, { timeoutMs = 15000 } = {}
  * @returns {Promise<any>} Result of expression execution
  */
 export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, { timeoutMs });
+  return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
 }
 
 /**
@@ -92,7 +92,7 @@ export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 
  */
 export async function evalJson(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
   try {
-    const res = await camofoxPost(`/tabs/${tabId}/eval`, { userId, expression }, { timeoutMs });
+    const res = await camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
     return res?.result ?? null;
   } catch (e) {
     console.log(`[camofox] eval failed: ${e.message.slice(0, 80)}`);
@@ -126,10 +126,28 @@ export async function navigate(tabId, userId, url, { timeoutMs = 15000 } = {}) {
  */
 export async function waitForSelector(tabId, userId, selector, { timeoutMs = 15000, state = 'visible' } = {}) {
   try {
-    await camofoxPost(`/tabs/${tabId}/wait`, { userId, selector, state }, { timeoutMs });
+    await camofoxPost(`/tabs/${tabId}/wait-for-selector`, { userId, selector, state }, { timeoutMs });
     return true;
   } catch (e) {
     console.log(`[camofox] waitForSelector(${selector}) timeout: ${e.message.slice(0, 60)}`);
+    return false;
+  }
+}
+
+/**
+ * Wait for page URL to match a pattern (string, glob, or regex)
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} url - URL pattern (string, glob, or regex)
+ * @param {object} options - { timeoutMs = 15000 }
+ * @returns {Promise<boolean>} true if URL matched, false on timeout
+ */
+export async function waitForUrl(tabId, userId, url, { timeoutMs = 15000 } = {}) {
+  try {
+    await camofoxPost(`/tabs/${tabId}/wait-for-url`, { userId, url }, { timeoutMs });
+    return true;
+  } catch (e) {
+    console.log(`[camofox] waitForUrl(${url}) timeout: ${e.message.slice(0, 60)}`);
     return false;
   }
 }

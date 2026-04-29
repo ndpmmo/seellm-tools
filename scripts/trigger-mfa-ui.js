@@ -70,7 +70,7 @@ async function triggerUI() {
         run();
     `;
 
-    await api(`/tabs/${tabId}/eval`, { userId: USER_ID, expression: script });
+    await api(`/tabs/${tabId}/evaluate`, { userId: USER_ID, expression: script });
     console.log("Đã gửi lệnh thao tác UI. Hãy kiểm tra cửa sổ Sniffer.");
 }
 

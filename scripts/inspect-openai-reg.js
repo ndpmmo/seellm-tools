@@ -33,7 +33,7 @@ async function inspectNaturalFlow() {
 
     // 3. Tìm và Click nút "Sign up" tự động để sang trang Register
     console.log("🖱️ Searching for 'Sign up' link...");
-    const clickRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const clickRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -55,7 +55,7 @@ async function inspectNaturalFlow() {
     await new Promise(r => setTimeout(r, 10000));
 
     // 4. Kiểm tra trang mới sau khi Click
-    const evalFinal = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const evalFinal = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -105,7 +105,7 @@ async function openTabWithProxy(url) {
 }
 
 async function evalInTab(tabId, expression, timeoutMs = 25000) {
-  const r = await post(`/tabs/${tabId}/eval`, { userId: USER_ID, expression }, timeoutMs);
+  const r = await post(`/tabs/${tabId}/evaluate`, { userId: USER_ID, expression }, timeoutMs);
   return r?.result;
 }
 

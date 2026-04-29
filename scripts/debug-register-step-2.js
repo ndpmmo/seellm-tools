@@ -20,7 +20,7 @@ async function step2_SubmitPassword() {
 
     console.log(`🚀 [BƯỚC 2] Đang thử nhập Password vào Tab: ${tabId}`);
 
-    const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

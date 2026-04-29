@@ -37,7 +37,7 @@ async function takeScreenshot(tabId, name) {
 
 async function dumpDom(tabId, name) {
     try {
-        const res = await api(`/tabs/${tabId}/eval`, { userId: USER_ID, expression: 'document.body.innerHTML' });
+        const res = await api(`/tabs/${tabId}/evaluate`, { userId: USER_ID, expression: 'document.body.innerHTML' });
         writeFileSync(resolve(DATA_DIR, `${name}_dom.html`), res.result || '');
         console.log(`📝 Dumped DOM: ${name}_dom.html`);
     } catch (e) {
@@ -46,7 +46,7 @@ async function dumpDom(tabId, name) {
 }
 
 async function evalCode(tabId, code) {
-    const res = await api(`/tabs/${tabId}/eval`, { userId: USER_ID, expression: code });
+    const res = await api(`/tabs/${tabId}/evaluate`, { userId: USER_ID, expression: code });
     return res.result;
 }
 

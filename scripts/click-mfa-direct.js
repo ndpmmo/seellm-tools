@@ -22,7 +22,7 @@ async function runDir() {
 
     // Sniffer
     console.log("Installing sniffer...");
-    await api(`/tabs/${tab.id}/eval`, {
+    await api(`/tabs/${tab.id}/evaluate`, {
         userId: USER_ID,
         expression: `
             window._mfaLog = window._mfaLog || [];
@@ -41,7 +41,7 @@ async function runDir() {
     });
 
     console.log("Clicking trigger...");
-    await api(`/tabs/${tab.id}/eval`, {
+    await api(`/tabs/${tab.id}/evaluate`, {
         userId: USER_ID,
         expression: `
             async function doMfa() {
@@ -69,7 +69,7 @@ async function runDir() {
 
     for (let i = 0; i < 5; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const check = await api(`/tabs/${tab.id}/eval`, { userId: USER_ID, expression: 'window._mfaLog' });
+        const check = await api(`/tabs/${tab.id}/evaluate`, { userId: USER_ID, expression: 'window._mfaLog' });
         console.log("Logs:", check.result);
     }
 }

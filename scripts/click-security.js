@@ -24,7 +24,7 @@ async function run() {
     await new Promise(r => setTimeout(r, 10000));
 
     console.log("Clicking profile menu...");
-    await api(`/tabs/${tid}/eval`, {
+    await api(`/tabs/${tid}/evaluate`, {
         userId: USER_ID,
         expression: `
         const btn = document.querySelector('button[aria-label="Profile"]');
@@ -39,7 +39,7 @@ async function run() {
     await new Promise(r => setTimeout(r, 2000));
 
     console.log("Clicking Settings...");
-    await api(`/tabs/${tid}/eval`, {
+    await api(`/tabs/${tid}/evaluate`, {
         userId: USER_ID,
         expression: `
         const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
@@ -50,7 +50,7 @@ async function run() {
     await new Promise(r => setTimeout(r, 3000));
 
     console.log("Dumping Settings DOM...");
-    const dom = await api(`/tabs/${tid}/eval`, {
+    const dom = await api(`/tabs/${tid}/evaluate`, {
         userId: USER_ID,
         expression: "document.querySelector('div[role=\"dialog\"]')?.innerHTML"
     });
@@ -60,7 +60,7 @@ async function run() {
     }
 
     console.log("Clicking Security tab directly using id...");
-    await api(`/tabs/${tid}/eval`, {
+    await api(`/tabs/${tid}/evaluate`, {
         userId: USER_ID,
         expression: `
         const sec = document.querySelector('[data-testid="security-tab"]');
@@ -74,7 +74,7 @@ async function run() {
     await new Promise(r => setTimeout(r, 2000));
 
     console.log("Dumping Security DOM...");
-    const secDom = await api(`/tabs/${tid}/eval`, {
+    const secDom = await api(`/tabs/${tid}/evaluate`, {
         userId: USER_ID,
         expression: "document.querySelector('div[role=\"dialog\"]')?.innerHTML"
     });

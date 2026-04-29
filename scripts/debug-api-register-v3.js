@@ -27,7 +27,7 @@ async function test_ApiDrivenRegister_V3() {
 
     // 2. Click nút Sign up tự nhiên để lấy State thật
     console.log("🖱️ Bấm nút Sign up...");
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -39,7 +39,7 @@ async function test_ApiDrivenRegister_V3() {
     await new Promise(r => setTimeout(r, 12000));
 
     // 3. Lấy URL hiện tại để chắc chắn
-    const location = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const location = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -56,7 +56,7 @@ async function test_ApiDrivenRegister_V3() {
 
     // 4. Gọi API
     console.log(`📡 Đang POST /api/accounts/user/register với email: ${email}...`);
-    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,

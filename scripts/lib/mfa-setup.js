@@ -51,7 +51,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     const wait = ms => new Promise(r => setTimeout(r, ms));
 
     const run = async (code) => {
-        const res = await apiHelper(`/tabs/${tabId}/eval`, { userId, expression: code });
+        const res = await apiHelper(`/tabs/${tabId}/evaluate`, { userId, expression: code });
         return res?.result;
     };
 

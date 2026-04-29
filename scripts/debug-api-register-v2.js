@@ -28,7 +28,7 @@ async function test_ApiDrivenRegister_V2() {
     await new Promise(r => setTimeout(r, 15000));
 
     // 2. Kiểm tra xem đã hạ cánh ở auth.openai.com chưa
-    const location = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const location = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,
@@ -45,7 +45,7 @@ async function test_ApiDrivenRegister_V2() {
 
     // 3. Thực hiện Fetch đâm thẳng vào API đăng ký
     console.log(`📡 Đang POST /api/accounts/user/register với email: ${email}...`);
-    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: DEBUG_USER, sessionKey: WORKER_AUTH_TOKEN,

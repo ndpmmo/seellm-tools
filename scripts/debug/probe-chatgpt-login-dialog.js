@@ -35,7 +35,7 @@ async function main() {
   const tabId = created.tabId;
   try {
     await sleep(3000);
-    await post(`/tabs/${tabId}/eval`, {
+    await post(`/tabs/${tabId}/evaluate`, {
       userId,
       expression: `(() => {
         const btn = document.querySelector('[data-testid="login-button"]');
@@ -45,7 +45,7 @@ async function main() {
       })()`,
     });
     await sleep(3000);
-    const result = await post(`/tabs/${tabId}/eval`, {
+    const result = await post(`/tabs/${tabId}/evaluate`, {
       userId,
       expression: `(() => {
         const norm = (v) => (v || '').trim();

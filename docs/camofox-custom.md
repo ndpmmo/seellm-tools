@@ -1,8 +1,8 @@
 # Tài liệu Custom Camofox Browser
 
-Tài liệu này ghi lại toàn bộ phần vá thêm cho Camofox để `seellm-tools` hoạt động ổn định hơn với luồng OpenAI/Codex login.
+Tài liệu này ghi lại toàn bộ phần custom cho Camofox để `seellm-tools` hoạt động ổn định hơn với luồng OpenAI/Codex login.
 
-Mục tiêu của bản vá:
+Mục tiêu của bản custom:
 - giảm polling HTML/screenshot không cần thiết,
 - tránh treo lâu khi `click` không match selector,
 - hỗ trợ phase 2 cho case `add_phone -> consent/workspace`,
@@ -12,59 +12,77 @@ Mục tiêu của bản vá:
 
 - Camofox repo local: `/Users/ndpmmo/Documents/Tools/camofox-browser`
 - File server chính: `/Users/ndpmmo/Documents/Tools/camofox-browser/server.js`
+- Plugin seellm-tools: `/Users/ndpmmo/Documents/Tools/camofox-browser/plugins/seellm-tools/index.js`
 - Node path Tools dùng để start Camofox: `/usr/local/bin/node`
 - Base URL API (local): `http://localhost:3144`
 
-## Cập nhật trạng thái (2026-04-19)
-
-Những điều đã xác nhận từ log thực tế:
-- Worker có thể đăng nhập ChatGPT web hoàn chỉnh (email/password + TOTP) và `GET https://chatgpt.com/api/auth/session` trả `user/account` hợp lệ.
-- Sau khi gặp `add_phone`, worker có thể bootstrap lại và mở lại URL OAuth authorize gốc.
-- Khi mở lại authorize, flow thường về `https://auth.openai.com/log-in` (Welcome back), nghĩa là bắt buộc cần điền lại email/password trên auth page trước khi tiếp tục.
-
-Giới hạn hiện tại:
-- Với tài khoản bị yêu cầu `add_phone`, chưa có API/bypass hợp lệ để lấy được OAuth callback code cho Codex nếu người dùng chưa hoàn tất phone verification.
-- Các lỗi `workspace/select` như `invalid_auth_step` hoặc `invalid_state` là hệ quả của ngữ cảnh authorize không hợp lệ ở thời điểm gọi API, không phải lỗi selector thuần.
-
-Kết luận vận hành:
-- Login ChatGPT web thành công không đồng nghĩa authorize Codex sẽ thành công.
-- Nếu tài khoản bị chặn ở `add_phone`, worker phải kết thúc với trạng thái `NEED_PHONE`.
-
 ## Trạng thái bản Camofox đã kiểm tra
 
-Thư mục Camofox đang dùng:
-- `/Users/ndpmmo/Documents/Tools/camofox-browser`
+Phiên bản hiện tại:
+- `@askjo/camofox-browser@1.8.15` (upgraded từ v1.5.2)
 
-Port Tools đang trỏ tới:
-- `http://localhost:3144`
+### Upstream routes đã có sẵn (không cần custom)
 
-Node mà Tools phải dùng để start Camofox:
-- `/usr/local/bin/node`
+Upstream v1.8.15 đã cung cấp các route sau, thay thế cho custom routes cũ:
 
-Phiên bản đã kiểm tra:
-- `@askjo/camofox-browser@1.5.2`
+| Route cũ (custom v1.5.2) | Route upstream v1.8.15 | Ghi chú |
+|---|---|---|
+| `POST /tabs/:tabId/goto` | `POST /tabs/:tabId/navigate` | Upstream có thêm macro + Google handling + auto-create tab |
+| `POST /tabs/:tabId/eval` | `POST /tabs/:tabId/evaluate` | Tên route khác, response format giống |
+| `POST /tabs/:tabId/wait-for-selector` | `POST /tabs/:tabId/wait` | Upstream /wait là page-ready, KHÔNG phải selector-specific — vẫn cần custom |
+| `POST /tabs/:tabId/wait-for-url` | — | Upstream không có — vẫn cần custom |
+| `GET /sessions/:userId/cookies` | `POST /sessions/:userId/cookies` (import only) | Upstream chỉ có POST import, không có GET export — vẫn cần custom |
+| `GET /tabs/:tabId/cookies` | — | Upstream không có — vẫn cần custom |
 
-Những route đã có sẵn trước khi vá:
-- `POST /tabs/:tabId/wait-for-selector`
-- `POST /tabs/:tabId/wait-for-url`
-- `POST /tabs/:tabId/evaluate`
+### Custom routes vẫn cần (plugin `seellm-tools`)
 
-Những route mình đã thêm mới trực tiếp vào `server.js`:
-- `GET /sessions/:userId/cookies`
-- `GET /tabs/:tabId/cookies`
-- `POST /tabs/:tabId/goto`
-- `POST /tabs/:tabId/eval` (alias cho `evaluate`)
+4 route sau được triển khai qua plugin `plugins/seellm-tools/index.js`:
 
-Lý do phải thêm:
-- Tools có `scripts/get-session-token.js` cần export cookies từ session.
-- Worker phase 2 cần đọc cookies theo tab.
-- Worker phase 2 cần `goto` để ép tab hiện tại quay lại `codex/consent`.
-- Tools dùng tên `eval` ngắn gọn, nhất quán với tài liệu phase 2.
+- `GET /sessions/:userId/cookies` — Export cookies ở cấp session
+- `GET /tabs/:tabId/cookies` — Export cookies ở cấp tab
+- `POST /tabs/:tabId/wait-for-selector` — Wait cho CSS selector (visible/hidden/attached/detached)
+- `POST /tabs/:tabId/wait-for-url` — Wait cho URL match (string/glob/regex)
 
-Ngoài phần vá trong Camofox, Tools cũng đã được sửa để:
-- thêm cấu hình `camofoxNodePath`,
-- mặc định set `camofoxNodePath=/usr/local/bin/node`,
-- khi bấm Start Camofox từ UI, Tools sẽ dùng đúng Node path này thay vì phụ thuộc `PATH`.
+### Custom patches trong server.js (không thể chuyển sang plugin)
+
+2 patch sau được áp dụng trực tiếp vào `server.js` vì cần truy cập internal state:
+
+1. **Per-request proxy** — Cho phép truyền `proxy`/`proxyUrl` trong `POST /tabs` body, persist proxy per user session, tự recreate context khi proxy thay đổi.
+2. **forceLocale** — Cho phép truyền `locale`/`forceLocale` trong `POST /tabs` body, ép locale + Accept-Language bất kể proxy GeoIP.
+
+### Plugin config (`camofox.config.json`)
+
+```json
+{
+  "id": "camofox-browser",
+  "name": "Camofox Browser",
+  "version": "1.8.15",
+  "plugins": {
+    "youtube": { "enabled": true },
+    "persistence": { "enabled": true },
+    "vnc": { "resolution": "1920x1080" },
+    "seellm-tools": { "enabled": true }
+  }
+}
+```
+
+## Cập nhật trạng thái (2026-04-29)
+
+### Thay đổi từ bản upgrade v1.5.2 → v1.8.15
+
+**Lợi ích chính từ upstream:**
+- Plugin System (v1.6.0): custom routes tách riêng khỏi core server.js
+- Persistence Plugin: tự lưu cookies + localStorage khi session close/shutdown
+- Structured Extract (`POST /tabs/:tabId/extract`): trích xuất dữ liệu theo JSON Schema
+- Session Tracing: Playwright traces cho debugging
+- Global Access Key (`CAMOFOX_ACCESS_KEY`): bảo vệ API bằng API key
+- Memory Leak Fix (v1.8.0): fix ~930MB leak per orphaned browser
+- VNC Plugin: remote desktop view
+
+**Thay đổi trong seellm-tools:**
+- `scripts/lib/camofox.js`: `/eval` → `/evaluate`, `/wait` → `/wait-for-selector`, thêm `waitForUrl()`
+- Tất cả worker/debug scripts: `/eval` → `/evaluate`
+- `camofoxGoto()` giờ gọi upstream `/navigate` thay vì custom `/goto`
 
 ## Vấn đề thực tế đã gặp
 
@@ -100,34 +118,26 @@ Mục đích:
 
 ### 3. Điều hướng tab đang mở
 
-Đã thêm `POST /tabs/:tabId/goto`.
+**Đã thay bằng upstream `POST /tabs/:tabId/navigate`.**
 
-Mục đích:
-- cho worker điều hướng thẳng tab hiện tại từ `add_phone` về `https://auth.openai.com/sign-in-with-chatgpt/codex/consent`,
-- tránh phụ thuộc hoàn toàn vào cách cũ là mở tab mới rồi click thủ công.
+Trước v1.8.15: custom `POST /tabs/:tabId/goto`.
+Sau v1.8.15: upstream `/navigate` cung cấp cùng chức năng + thêm macro search, Google handling, auto-create tab.
 
-Triển khai hiện tại:
-- validate URL,
-- `page.goto(...)` trong đúng browser context đang dùng,
-- refresh refs sau điều hướng,
-- trả `finalUrl`, `status`, `refsAvailable`.
+`scripts/lib/camofox.js` đã cập nhật: `camofoxGoto()` giờ gọi `/navigate`.
 
-### 4. Alias `eval`
+### 4. Evaluate JS trong tab
 
-Đã thêm `POST /tabs/:tabId/eval`.
+**Đã thay bằng upstream `POST /tabs/:tabId/evaluate`.**
 
-Mục đích:
-- Tools/worker chỉ cần gọi một tên route ổn định,
-- không phải phụ thuộc chỗ dùng `/evaluate`, chỗ dùng `/eval`.
-
-Hiện tại alias này gọi cùng kiểu `page.evaluate(...)` như route gốc.
+Trước v1.8.15: custom alias `POST /tabs/:tabId/eval`.
+Sau v1.8.15: upstream `/evaluate` cung cấp cùng chức năng. Tất cả scripts đã đổi từ `/eval` sang `/evaluate`.
 
 ### 5. Đồng bộ worker phase 2
 
-Sau khi Camofox có route mới, `scripts/auto-login-worker.js` đã được cập nhật:
-- ưu tiên `goto` trên tab hiện tại,
-- chỉ mở tab mới nếu `goto` fail,
-- dùng `eval` để:
+Sau khi upgrade Camofox v1.8.15, `scripts/auto-worker.js` đã được cập nhật:
+- ưu tiên `navigate` trên tab hiện tại (qua `camofoxGoto`),
+- chỉ mở tab mới nếu `navigate` fail,
+- dùng `evaluate` để:
   - tìm button `Authorize/Allow/Continue`,
   - fallback click trong DOM,
   - fallback submit form nếu button selector không ăn.
@@ -330,76 +340,17 @@ app.get('/tabs/:tabId/cookies', async (req, res) => {
 });
 ```
 
-### 4. `POST /tabs/:tabId/goto`
+### 4. `POST /tabs/:tabId/goto` → upstream `POST /tabs/:tabId/navigate`
 
-Đây là endpoint quan trọng cho phase 2. Worker phải điều hướng ngay trong cùng session sang `codex/consent` hoặc URL callback khác mà không cần mở tab mới bằng workaround.
+**Không còn custom.** Upstream v1.8.15 `/navigate` thay thế hoàn toàn, có thêm macro search + Google handling.
 
-```js
-app.post('/tabs/:tabId/goto', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, url, waitUntil = 'domcontentloaded', timeout = 15000 } = req.body;
-    if (!userId || !url) return res.status(400).json({ error: 'userId and url required' });
+`scripts/lib/camofox.js` đã cập nhật: `camofoxGoto()` gọi `/navigate`.
 
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
+### 5. `POST /tabs/:tabId/eval` → upstream `POST /tabs/:tabId/evaluate`
 
-    const { tabState } = found;
-    const response = await withTabLock(tabId, async () => {
-      return await tabState.page.goto(url, { waitUntil, timeout });
-    });
+**Không còn custom.** Upstream v1.8.15 `/evaluate` thay thế hoàn toàn.
 
-    res.json({
-      ok: true,
-      finalUrl: tabState.page.url(),
-      status: response?.status?.() ?? null,
-    });
-  } catch (err) {
-    log('error', 'goto failed', { reqId: req.reqId, tabId, error: err.message });
-    handleRouteError(err, req, res);
-  }
-});
-```
-
-### 5. `POST /tabs/:tabId/eval`
-
-Đây là bước mở đường cho logic giống `any-auto-register`: parse HTML, đọc biến JS, lấy href/button/workspace id trực tiếp trong browser context.
-
-Lưu ý: chỉ cho phép các script ngắn, có kiểm soát. Không nên mở endpoint này ra public internet.
-
-```js
-app.post('/tabs/:tabId/eval', async (req, res) => {
-  const tabId = req.params.tabId;
-  try {
-    const { userId, expression, arg } = req.body;
-    if (!userId || !expression) return res.status(400).json({ error: 'userId and expression required' });
-
-    const session = sessions.get(normalizeUserId(userId));
-    const found = session && findTab(session, tabId);
-    if (!found) return res.status(404).json({ error: 'Tab not found' });
-
-    const { tabState } = found;
-    const result = await withTabLock(tabId, async () => {
-      return await tabState.page.evaluate(
-        ({ expression, arg }) => {
-          const fn = new Function('arg', expression);
-          return fn(arg);
-        },
-        { expression, arg }
-      );
-    });
-
-    res.json({ ok: true, result });
-  } catch (err) {
-    log('error', 'eval failed', { reqId: req.reqId, tabId, error: err.message });
-    handleRouteError(err, req, res);
-  }
-});
-```
-
-Lưu ý:
-- Nếu Camofox đã có `POST /tabs/:tabId/evaluate`, vẫn nên thêm alias `/eval` để Tools và tài liệu dùng một tên thống nhất.
+Tất cả scripts đã đổi từ `/eval` sang `/evaluate`.
 
 ## Thứ tự ưu tiên khi vá
 
@@ -416,12 +367,12 @@ Nếu muốn xử lý `add_phone -> consent/workspace` đúng nghĩa phase 2:
 
 ## Worker trong Tools đang dùng phần nào
 
-Hiện tại `scripts/auto-login-worker.js` đã:
+Hiện tại `scripts/auto-worker.js` đã:
 - fallback lấy cookies qua `/sessions/:userId/cookies` nếu `/tabs/:tabId/cookies` chưa tồn tại,
 - dùng timeout ngắn cho `click` trong nhánh bypass để tránh treo 30 giây,
-- thử `goto` lại `codex/consent` trong cùng tab/session trước,
-- chỉ mở tab mới nếu `goto` fail,
-- dùng `eval` để click/submit consent trước khi fail `NEED_PHONE`.
+- thử `navigate` lại `codex/consent` trong cùng tab/session trước (qua `camofoxGoto`),
+- chỉ mở tab mới nếu `navigate` fail,
+- dùng `evaluate` để click/submit consent trước khi fail `NEED_PHONE`.
 
 Điều này là phase 2 thực tế đang chạy, không còn chỉ là phase 1.
 
@@ -429,8 +380,8 @@ Hiện tại `scripts/auto-login-worker.js` đã:
 
 Luồng đề xuất:
 1. đang ở `add_phone`,
-2. gọi `POST /tabs/:tabId/goto` tới `https://auth.openai.com/sign-in-with-chatgpt/codex/consent`,
-3. gọi `POST /tabs/:tabId/eval` để:
+2. gọi `POST /tabs/:tabId/navigate` tới `https://auth.openai.com/sign-in-with-chatgpt/codex/consent`,
+3. gọi `POST /tabs/:tabId/evaluate` để:
    - đọc HTML,
    - tìm `workspace id`,
    - hoặc tìm submit action/nút authorize thực tế,
@@ -438,11 +389,17 @@ Luồng đề xuất:
 5. nếu có redirect `code=` thì kết thúc,
 6. nếu không thì mới trả `NEED_PHONE`.
 
-## Quy trình vá khi cập nhật Camofox bản mới
+## Quy trình cập nhật Camofox bản mới (plugin-based)
 
-1. Đi vào thư mục cài Camofox.
-2. Pull hoặc update bản mới.
-3. Kiểm tra `seellm-tools/tools.config.json` vẫn có:
+Từ v1.8.15 trở đi, custom routes được triển khai qua plugin, không cần vá trực tiếp `server.js`.
+
+1. Đi vào thư mục cài Camofox: `cd /Users/ndpmmo/Documents/Tools/camofox-browser`
+2. Tạo branch mới từ tag upstream: `git checkout -b custom/vX.Y.Z-seellm vX.Y.Z`
+3. Re-apply 2 server.js patches (per-request proxy + forceLocale) nếu upstream chưa có.
+4. Kiểm tra plugin `seellm-tools` vẫn tương thích với `pluginCtx` API của bản mới.
+5. Cập nhật `camofox.config.json` version field.
+6. `npm install && npm rebuild better-sqlite3`
+7. Kiểm tra `seellm-tools/tools.config.json` vẫn có:
 
 ```json
 {
@@ -450,36 +407,37 @@ Luồng đề xuất:
 }
 ```
 
-4. Mở `server.js`.
-5. Tìm các route tabs hiện có như `/tabs/:tabId/wait`.
-6. Kiểm tra bản mới còn sẵn route nào và vá lại đúng các route còn thiếu.
-7. Khởi động lại Camofox.
-8. Test tối thiểu:
-   - mở tab,
-   - `snapshot`,
-   - `GET /sessions/:userId/cookies`,
-   - `wait-for-selector`,
-   - `goto`,
-   - `GET /tabs/:tabId/cookies`,
-   - `POST /tabs/:tabId/eval`.
+8. Khởi động lại Camofox: `CAMOFOX_PORT=3144 /usr/local/bin/node server.js`
+9. Test tối thiểu:
+   - `/health` → `browserConnected: true`
+   - tạo tab + snapshot
+   - `GET /sessions/:userId/cookies`
+   - `GET /tabs/:tabId/cookies`
+   - `POST /tabs/:tabId/wait-for-selector`
+   - `POST /tabs/:tabId/wait-for-url`
+   - `POST /tabs/:tabId/navigate` (upstream)
+   - `POST /tabs/:tabId/evaluate` (upstream)
 
-## Checklist sau khi vá xong
+## Checklist sau khi cập nhật xong
 
 - `/health` trả `browserConnected: true`
+- Plugin `seellm-tools` load thành công (kiểm tra log startup)
 - Tools start Camofox bằng `/usr/local/bin/node`, không phải `node` chung chung
 - `scripts/test-camofox.js` chạy pass
 - mở tab test thật được
-- `scripts/auto-login-worker.js` không còn log `cookies 404`
+- `scripts/auto-worker.js` không còn log `cookies 404`
 - khi gặp `add_phone`, bypass không còn treo 30 giây ở `click`
 - `#camofox-docs` vẫn khớp với code thực tế đang dùng
 
-## Test HTTP đã xác nhận sau bản vá
+## Test HTTP đã xác nhận sau bản upgrade v1.8.15
 
 Đã test thực tế trên `http://localhost:3144`:
 - tạo tab thành công,
 - `GET /tabs/:tabId/snapshot` thành công,
-- `GET /tabs/:tabId/cookies` trả JSON hợp lệ,
-- `POST /tabs/:tabId/goto` điều hướng từ `example.com` sang `example.org`,
-- `POST /tabs/:tabId/eval` trả về `location.href`,
-- `GET /sessions/:userId/cookies` trả danh sách cookie,
+- `GET /tabs/:tabId/cookies` trả JSON hợp lệ (plugin),
+- `POST /tabs/:tabId/navigate` điều hướng thành công (upstream),
+- `POST /tabs/:tabId/evaluate` trả về `location.href` (upstream),
+- `GET /sessions/:userId/cookies` trả danh sách cookie (plugin),
+- `POST /tabs/:tabId/wait-for-selector` hoạt động (plugin),
+- `POST /tabs/:tabId/wait-for-url` hoạt động (plugin),
 - đóng tab thành công.

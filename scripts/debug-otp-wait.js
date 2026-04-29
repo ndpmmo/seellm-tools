@@ -33,13 +33,13 @@ async function runToOtp() {
         return true;
       };
     `;
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN, expression: injectReactTyper })
     });
 
     console.log("🖱️ Bấm Sign up...");
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -49,7 +49,7 @@ async function runToOtp() {
     await new Promise(r => setTimeout(r, 10000));
 
     console.log(`📝 Điền Email...`);
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -75,7 +75,7 @@ async function runToOtp() {
     await new Promise(r => setTimeout(r, 10000));
 
     console.log(`[3] Điền Password...`);
-    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,
@@ -101,7 +101,7 @@ async function runToOtp() {
     console.log("⏳ Chờ nhảy qua trang Verify...");
     await new Promise(r => setTimeout(r, 15000));
 
-    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+    const dom = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: USER_ID, sessionKey: WORKER_AUTH_TOKEN,

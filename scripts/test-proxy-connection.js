@@ -44,7 +44,7 @@ async function test() {
         console.log(`[Diagnostic] [2] Waiting for IP check result...`);
         await new Promise(r => setTimeout(r, 10000));
 
-        const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/eval`, {
+        const evalRes = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
