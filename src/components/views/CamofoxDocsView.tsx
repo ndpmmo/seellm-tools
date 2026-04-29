@@ -1,7 +1,14 @@
 import React from 'react';
-import { FileText, Info, Code, AlertTriangle, CheckCircle } from 'lucide-react';
+import { FileText, Info, AlertTriangle, CheckCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import fs from 'fs';
+import path from 'path';
 
-export function CamofoxDocsView() {
+async function CamofoxDocsView() {
+  const filePath = path.join(process.cwd(), 'docs/camofox-custom.md');
+  const content = fs.readFileSync(filePath, 'utf-8');
+
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 custom-scrollbar">
       <div className="bg-[#0d111c]/70 border border-white/5 rounded-xl shadow-lg overflow-hidden">
@@ -12,151 +19,35 @@ export function CamofoxDocsView() {
           </h3>
         </div>
 
-        <div className="p-6 text-[13.5px] leading-relaxed text-slate-300">
-          <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-6 flex gap-3">
-            <Info size={18} className="text-blue-400 mt-0.5 shrink-0" />
-            <div>
-              Camofox gốc đủ cho thao tác tab cơ bản, nhưng chưa đủ tốt cho luồng OpenAI/Codex có <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded text-[12px]">add_phone</code>, <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded text-[12px]">consent</code>, redirect OAuth và session reuse.
-              <br />
-              Tài liệu này ghi lại toàn bộ phần vá cần thiết để sau này cập nhật Camofox vẫn có thể patch lại nhanh và đúng.
-            </div>
-          </div>
-
-          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-4">
-            <CheckCircle size={16} className="text-emerald-400" /> Bản Đã Vá
-          </h3>
-          <div className="p-4 bg-white/[0.03] border border-white/10 rounded-lg mb-4 text-[12.5px] space-y-1.5">
-            <div className="font-semibold text-slate-200 mb-2">Đường dẫn Camofox trên máy</div>
-            {[
-              ['Repo local', '/Users/ndpmmo/Documents/Tools/camofox-browser'],
-              ['Server file', '/Users/ndpmmo/Documents/Tools/camofox-browser/server.js'],
-              ['Node path', '/usr/local/bin/node'],
-              ['API base', 'http://localhost:3144'],
-            ].map(([label, val]) => (
-              <div key={label} className="text-slate-400">{label}: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">{val}</code></div>
-            ))}
-          </div>
-          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc mb-6 text-[12.5px]">
-            <li>Thư mục đã vá: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/Users/ndpmmo/Documents/Tools/camofox-browser</code></li>
-            <li>Port đang dùng với Tools: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">http://localhost:3144</code></li>
-            <li>Node Tools phải dùng để start Camofox: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code></li>
-            <li>Phiên bản đã kiểm tra: <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">@askjo/camofox-browser@1.8.15</code></li>
-          </ul>
-
-          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
-            <CheckCircle size={16} className="text-emerald-400" /> Lịch Sử Phiên Bản
-          </h3>
-          <div className="p-4 bg-white/[0.03] border border-white/10 rounded-lg mb-4 text-[12.5px]">
-            <div className="font-semibold text-slate-200 mb-3">Phiên bản hiện tại: v1.8.15 (2026-04-29)</div>
-            <div className="space-y-2">
-              <div className="flex gap-4 text-slate-400">
-                <span className="text-cyan-400 font-mono w-20">v1.8.15</span>
-                <span>2026-04 - Latest - current seellm-tools custom branch</span>
-              </div>
-              <div className="flex gap-4 text-slate-400">
-                <span className="text-cyan-400 font-mono w-20">v1.8.0</span>
-                <span>2025-12 - Memory leak fix, global access key</span>
-              </div>
-              <div className="flex gap-4 text-slate-400">
-                <span className="text-cyan-400 font-mono w-20">v1.7.2</span>
-                <span>2025-10 - Structured extract, session tracing, OpenAPI docs</span>
-              </div>
-              <div className="flex gap-4 text-slate-400">
-                <span className="text-cyan-400 font-mono w-20">v1.6.0</span>
-                <span>2025-08 - Plugin system, persistence, VNC, YouTube plugins</span>
-              </div>
-              <div className="flex gap-4 text-slate-400">
-                <span className="text-cyan-400 font-mono w-20">v1.5.2</span>
-                <span>2025-06 - Previous seellm-tools custom version</span>
-              </div>
-            </div>
-          </div>
-          <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-lg mb-6 text-[12.5px]">
-            <div className="font-semibold text-indigo-300 mb-2">Chi tiết thay đổi chính:</div>
-            <ul className="pl-5 text-slate-400 flex flex-col gap-1 list-disc">
-              <li><span className="text-cyan-400">v1.8.x</span>: Security & Performance (CAMOFOX_ACCESS_KEY, memory leak fix, crash reporter)</li>
-              <li><span className="text-cyan-400">v1.7.x</span>: Structured Data & Debugging (extract, tracing, OpenAPI docs)</li>
-              <li><span className="text-cyan-400">v1.6.0</span>: Plugin System (major - plugin-based approach)</li>
-              <li><span className="text-cyan-400">v1.5.2</span>: Previous custom version (server.js patches only)</li>
-            </ul>
-          </div>
-
-          <h3 className="text-[13px] font-semibold text-amber-300 mb-2 flex items-center gap-1.5">
-            <AlertTriangle size={16} className="text-amber-400" /> Vì sao cần vá
-          </h3>
-          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc mb-6 text-[12.5px]">
-            <li>`auto-worker.js` (unified worker) cần native wait để bỏ polling snapshot nặng. Login flow cũ nằm trong `scripts/backup/auto-login-worker.js`.</li>
-            <li>Case `add_phone` cần đọc cookies và giữ nguyên session khi chuyển sang `codex/consent`.</li>
-            <li>Click selector có thể treo lâu nếu DOM khác dự kiến, nên cần thêm API mạnh hơn như `goto` và `eval`.</li>
-          </ul>
-
-          {[
-            ['GET /sessions/:userId/cookies (plugin)', `// plugins/seellm-tools/index.js
-app.get('/sessions/:userId/cookies', async (req, res) => {
-  const session = sessions.get(normalizeUserId(req.params.userId));
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-  res.json(await session.context.cookies());
-});`],
-            ['GET /tabs/:tabId/cookies (plugin)', `// plugins/seellm-tools/index.js
-app.get('/tabs/:tabId/cookies', async (req, res) => {
-  const { userId } = req.query;
-  const found = session && findTab(session, tabId);
-  const cookies = await withTabLock(tabId, async () => {
-    return await tabState.page.context().cookies();
-  });
-  res.json({ ok: true, cookies });
-});`],
-            ['POST /tabs/:tabId/wait-for-selector (plugin)', `// plugins/seellm-tools/index.js
-app.post('/tabs/:tabId/wait-for-selector', async (req, res) => {
-  const { userId, selector, timeout = 10000, state = 'visible' } = req.body;
-  const found = session && findTab(session, tabId);
-  await withTabLock(tabId, async () => {
-    await tabState.page.waitForSelector(selector, { timeout, state });
-  });
-  res.json({ ok: true });
-});`],
-            ['POST /tabs/:tabId/wait-for-url (plugin)', `// plugins/seellm-tools/index.js
-app.post('/tabs/:tabId/wait-for-url', async (req, res) => {
-  const { userId, url, timeout = 10000 } = req.body;
-  const found = session && findTab(session, tabId);
-  await withTabLock(tabId, async () => {
-    await tabState.page.waitForURL(url, { timeout });
-  });
-  res.json({ ok: true });
-});`],
-            ['POST /tabs/:tabId/navigate (upstream)', `// Upstream v1.8.15 route (replaces custom /goto)
-app.post('/tabs/:tabId/navigate', async (req, res) => {
-  const { userId, url, macro } = req.body;
-  // Navigate + macro search + Google handling
-  res.json({ ok: true, finalUrl: page.url() });
-});`],
-            ['POST /tabs/:tabId/evaluate (upstream)', `// Upstream v1.8.15 route (replaces custom /eval)
-app.post('/tabs/:tabId/evaluate', async (req, res) => {
-  const { userId, expression } = req.body;
-  const result = await page.evaluate(expression);
-  res.json({ ok: true, result });
-});`],
-          ].map(([title, code]) => (
-            <div key={title} className="mb-5">
-              <h4 className="text-[12.5px] font-mono font-bold text-indigo-300 mb-2">{title}</h4>
-              <pre className="bg-[#050810] border border-white/10 rounded-lg p-4 text-[11.5px] font-mono text-slate-300 overflow-x-auto">{code}</pre>
-            </div>
-          ))}
-
-          <h3 className="flex items-center gap-2 text-[13.5px] font-bold text-slate-100 border-b border-white/10 pb-2 mb-4 mt-6">
-            <CheckCircle size={16} className="text-emerald-400" /> Test Đã Xác Nhận
-          </h3>
-          <ul className="pl-5 text-slate-400 flex flex-col gap-2 list-disc text-[12.5px]">
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/health</code> trả <code className="text-emerald-400 bg-emerald-500/10 px-1 rounded">browserConnected: true</code></li>
-            <li>Tools start Camofox bằng <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">/usr/local/bin/node</code>, không phải <code className="text-slate-400 bg-white/5 px-1 rounded">node</code> chung chung</li>
-            <li>Tạo tab thành công / <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">snapshot</code> thành công</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /sessions/:userId/cookies</code> trả JSON (plugin)</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">GET /tabs/:tabId/cookies</code> trả JSON hợp lệ (plugin)</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/wait-for-selector</code> hoạt động (plugin)</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/wait-for-url</code> hoạt động (plugin)</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/navigate</code> điều hướng thành công (upstream)</li>
-            <li><code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">POST /tabs/:tabId/evaluate</code> trả về kết quả (upstream)</li>
-          </ul>
+        <div className="p-6 text-[13.5px] leading-relaxed text-slate-300 prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              h1: ({ node, ...props }) => <h1 className="text-xl font-bold text-slate-100 mb-4 mt-6" {...props} />,
+              h2: ({ node, ...props }) => <h2 className="text-lg font-semibold text-slate-100 mb-3 mt-5" {...props} />,
+              h3: ({ node, ...props }) => <h3 className="text-md font-semibold text-slate-200 mb-2 mt-4" {...props} />,
+              h4: ({ node, ...props }) => <h4 className="text-sm font-semibold text-slate-300 mb-2 mt-3" {...props} />,
+              p: ({ node, ...props }) => <p className="mb-3" {...props} />,
+              ul: ({ node, ...props }) => <ul className="pl-5 mb-4 list-disc space-y-1" {...props} />,
+              ol: ({ node, ...props }) => <ol className="pl-5 mb-4 list-decimal space-y-1" {...props} />,
+              li: ({ node, ...props }) => <li className="text-slate-300" {...props} />,
+              code: ({ node, className, children, ...props }: any) => {
+                const isInline = !className || !className.includes('language-');
+                return isInline 
+                  ? <code className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded text-xs" {...props}>{children}</code>
+                  : <code className="block bg-[#050810] border border-white/10 rounded-lg p-4 text-xs font-mono text-slate-300 overflow-x-auto mb-4" {...props}>{children}</code>;
+              },
+              pre: ({ node, ...props }) => <pre className="bg-[#050810] border border-white/10 rounded-lg p-4 text-xs font-mono text-slate-300 overflow-x-auto mb-4" {...props} />,
+              a: ({ node, ...props }) => <a className="text-indigo-400 hover:text-indigo-300 underline" {...props} />,
+              blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-indigo-500 pl-4 italic text-slate-400 my-4" {...props} />,
+              table: ({ node, ...props }) => <table className="w-full border-collapse mb-4 text-xs" {...props} />,
+              th: ({ node, ...props }) => <th className="border border-white/10 px-3 py-2 bg-white/5 text-left font-semibold text-slate-200" {...props} />,
+              td: ({ node, ...props }) => <td className="border border-white/10 px-3 py-2 text-slate-300" {...props} />,
+              strong: ({ node, ...props }) => <strong className="font-semibold text-slate-100" {...props} />,
+            }}
+          >
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     </div>
