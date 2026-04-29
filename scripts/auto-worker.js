@@ -570,6 +570,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
   let oauthLoginHandled = false;
   let consentAttempts = 0;
   const MAX_CONSENT_ATTEMPTS = 3;
+  let consentBypassExhausted = false;
 
   for (let i = 0; i < 30; i++) {
     const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
@@ -620,8 +621,14 @@ async function captureAndReport(tabId, userId, runDir, task, email, saveStep, ef
     }
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
+      if (consentBypassExhausted) {
+        // Already tried max attempts, just wait and continue
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
       if (consentAttempts >= MAX_CONSENT_ATTEMPTS) {
-        console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), skipping...`);
+        console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), exhausting...`);
+        consentBypassExhausted = true;
         await new Promise(r => setTimeout(r, 3000));
         continue;
       }
