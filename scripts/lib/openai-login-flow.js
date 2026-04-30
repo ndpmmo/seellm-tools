@@ -548,6 +548,9 @@ export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 3
     const state = await getState(tabId, userId);
     const allMatch = Object.entries(expectedFlags).every(([key, expected]) => state[key] === expected);
     if (allMatch) return state;
+    // Handle intermediate states: if MFA or phone screen appears, return state early
+    // This prevents timeout when page redirects to MFA/phone after password fill
+    if (state?.hasMfaInput || state?.hasPhoneScreen) return state;
     await new Promise(r => setTimeout(r, intervalMs));
   }
   return null;

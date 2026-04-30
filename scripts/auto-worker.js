@@ -484,11 +484,18 @@ async function runConnectFlow(task) {
         await new Promise(r2 => setTimeout(r2, 3500));
         await saveStep(`03_password_${attempt + 1}`);
         state = await getState(tabId, USER_ID);
-        if (r?.ok) passDone = true;
+        // Don't set passDone immediately — let loop continue to check actual state after redirect
+        // Only exit when state confirms looksLoggedIn or hasMfaInput
       } else {
         await new Promise(r => setTimeout(r, 2500));
         state = await getState(tabId, USER_ID);
       }
+    }
+
+    // Safety re-check after password loop: catch slow redirects to MFA/phone
+    if (!state?.looksLoggedIn && !state?.hasMfaInput && !state?.hasPhoneScreen) {
+      await new Promise(r => setTimeout(r, 3000));
+      state = await getState(tabId, USER_ID);
     }
 
     // MFA
@@ -515,6 +522,22 @@ async function runConnectFlow(task) {
     if (!finalState) {
       const currentState = await getState(tabId, USER_ID);
       if (currentState?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+      if (currentState?.hasMfaInput) {
+        // MFA appeared during wait - handle it now
+        if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
+        console.log(`[Connect] [5b] MFA xuất hiện trong wait → xử lý...`);
+        const { otp } = await getFreshTOTP(totpSecret, 8);
+        await fillMfa(tabId, USER_ID, otp);
+        await new Promise(r2 => setTimeout(r2, 4000));
+        await saveStep('05b_mfa_late');
+        const afterMfaState = await getState(tabId, USER_ID);
+        if (afterMfaState?.looksLoggedIn) {
+          console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
+          await saveStep('05_post_login');
+          await captureAndReport(tabId, USER_ID, runDir, task, email, saveStep, effectiveProxy);
+          return;
+        }
+      }
       return sendResult(task, 'error', `Timeout 60s. URL: ${currentState?.href}`);
     }
     console.log(`[Connect] ✅ Đã đăng nhập!`);
@@ -805,7 +828,7 @@ async function runLoginFlow(task) {
         await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
         return;
       }
-      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('/verify') || snapText.includes('one-time code') || snapText.includes('authenticator') || snapText.includes('enter the code');
+      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('mfa-challenge') || snap2Url.includes('/verify') || snapText.includes('one-time code') || snapText.includes('authenticator') || snapText.includes('enter the code');
       if (isAtMFA) break;
       if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break;
       await new Promise(r => setTimeout(r, 2000));
