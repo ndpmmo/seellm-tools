@@ -5,13 +5,11 @@
  * Consolidated from auto-login, auto-connect, and auto-register.
  */
 
-import { CAMOUFOX_API, FORCE_LOCALE_STR } from '../config.js';
+import { CAMOUFOX_API, FORCE_LOCALE_STR, WORKER_AUTH_TOKEN } from '../config.js';
 
 /**
  * POST request to Camoufox API.
- * Auto-injects `locale: <FORCE_LOCALE_STR>` (default 'en-US') khi tạo tab mới
- * (POST /tabs) nếu setting `forceEnLocale` bật. Caller có thể override bằng
- * cách truyền `locale` trong body — body có ưu tiên cao hơn.
+ * Auto-injects `sessionKey` (v1.8.15+) and `locale` (v1.8.15+) when needed.
  *
  * @param {string} endpoint - API path (e.g., '/tabs', '/tabs/:id/click')
  * @param {object} body - JSON body
@@ -19,13 +17,19 @@ import { CAMOUFOX_API, FORCE_LOCALE_STR } from '../config.js';
  * @returns {Promise<object>} JSON response
  */
 export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
+  // Inject sessionKey cho v1.8.15+ (yêu cầu trong tất cả requests)
+  let finalBody = body || {};
+  if (WORKER_AUTH_TOKEN && finalBody.sessionKey === undefined) {
+    finalBody = { ...finalBody, sessionKey: WORKER_AUTH_TOKEN };
+  }
+
   // Inject locale chỉ khi tạo tab mới (POST /tabs hoặc /tabs/open)
-  let finalBody = body;
   if (FORCE_LOCALE_STR && (endpoint === '/tabs' || endpoint === '/tabs/open')) {
-    if (body && body.locale === undefined && body.forceLocale === undefined) {
-      finalBody = { ...body, locale: FORCE_LOCALE_STR };
+    if (finalBody.locale === undefined && finalBody.forceLocale === undefined) {
+      finalBody = { ...finalBody, locale: FORCE_LOCALE_STR };
     }
   }
+
   const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -79,7 +83,14 @@ export async function camofoxGoto(tabId, userId, url, { timeoutMs = 15000 } = {}
  * @returns {Promise<any>} Result of expression execution
  */
 export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
+  const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, sessionKey: WORKER_AUTH_TOKEN, expression }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`Camofox evaluate → ${res.status}: ${await res.text()}`);
+  return res.json();
 }
 
 /**
@@ -92,8 +103,15 @@ export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 
  */
 export async function evalJson(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
   try {
-    const res = await camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
-    return res?.result ?? null;
+    const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, sessionKey: WORKER_AUTH_TOKEN, expression }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`Camofox evaluate → ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data?.result ?? data;
   } catch (e) {
     console.log(`[camofox] eval failed: ${e.message.slice(0, 80)}`);
     return null;

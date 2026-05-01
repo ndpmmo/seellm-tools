@@ -2,6 +2,44 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.8] - 2026-05-02 05:20:00
+
+### 🔧 Fix — Camofox v1.8.15 compatibility + OpenAI registration flow fixes
+
+**Vấn đề:** Sau khi nâng cấp camofox lên v1.8.15, auto-register-worker.js không hoạt động do:
+- Camofox v1.8.15 yêu cầu `sessionKey` trong mọi request
+- Endpoint `/tabs/:id/eval` đổi thành `/tabs/:id/evaluate` với param `expression` thay vì `code`
+- OpenAI đổi cookie structure: `__Secure-next-auth.session-token` tách thành `.0` và `.1`
+- MFA setup không tìm thấy security-tab do dùng `window.location.href` thay vì navigate API
+
+**Cải thiện đã áp dụng:**
+
+1. **`scripts/lib/camofox.js` — Camofox v1.8.15 API compatibility**
+   - `camofoxPost()`: tự inject `sessionKey` (WORKER_AUTH_TOKEN) vào mọi POST request
+   - `camofoxEval()`: đổi sang direct fetch với param `expression` + `sessionKey` (thay vì gọi qua `camofoxPost`)
+   - `evalJson()`: tương tự `camofoxEval`, direct fetch + unwrap `data?.result ?? data`
+
+2. **`scripts/lib/mfa-setup.js` — Fix MFA security-tab click**
+   - Dùng `apiHelper('/tabs/:id/navigate')` thay vì `window.location.href` (không trigger page load trong camofox)
+   - Click security-tab bằng IIFE wrapper với retry logic
+   - Tăng wait time sau khi click tab
+
+3. **`scripts/auto-register-worker.js` — Registration flow fixes**
+   - `getCookies()`: handle chunked session token — combine `session-token.0` + `.1` thành legacy `__Secure-next-auth.session-token`
+   - Flow detection: sửa eval expression dùng IIFE wrapper (camofox v1.8 không cho `return` ngoài function)
+   - Thêm refresh trang (navigate lại chatgpt.com) trước khi lấy cookies để đảm bảo session token được set
+   - Thêm debug log chi tiết cho cookie extraction
+
+4. **`tools.config.json` — Config fix**
+   - Set `camofoxPort: 9377` và `camofoxApi: "http://localhost:9377"` (đúng port camofox v1.8.15)
+   - Set `workerAuthToken: "default-session-key"` cho sessionKey injection
+
+5. **`scripts/debug/probe-logged-in-mfa-cookie.js` — Probe script**
+   - Hardcode `CAMOUFOX_API = 'http://localhost:9377'`
+   - Tự viết `camofoxPost` + `evalJson` local với đúng param cho v1.8.15
+   - Unwrap `res.result` cho tất cả evalJson calls
+   - Thêm click security-tab trước khi probe MFA
+
 ## [0.3.7] - 2026-05-02 03:15:00
 
 ### 🔧 Fix — Ổn định SSE realtime và giảm log nhiễu `[object Event]` / `aborted`

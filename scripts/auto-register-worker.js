@@ -302,7 +302,22 @@ async function getCookies(tabId, userId) {
   const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/cookies?userId=${userId}`);
   if (!res.ok) return [];
   const data = await res.json();
-  return Array.isArray(data.cookies) ? data.cookies : (Array.isArray(data) ? data : []);
+  const cookies = Array.isArray(data.cookies) ? data.cookies : (Array.isArray(data) ? data : []);
+
+  // Handle chunked session token: combine .0 and .1 or use .0 alone
+  const sessionToken0 = cookies.find(c => c.name === '__Secure-next-auth.session-token.0');
+  const sessionToken1 = cookies.find(c => c.name === '__Secure-next-auth.session-token.1');
+  const sessionTokenLegacy = cookies.find(c => c.name === '__Secure-next-auth.session-token');
+
+  if (sessionToken0) {
+    // Remove .0 and .1, add combined or .0 as legacy session token
+    const filtered = cookies.filter(c => !c.name.startsWith('__Secure-next-auth.session-token'));
+    const combinedValue = sessionToken1 ? (sessionToken0.value + sessionToken1.value) : sessionToken0.value;
+    filtered.push({ name: '__Secure-next-auth.session-token', value: combinedValue, domain: sessionToken0.domain });
+    return filtered;
+  }
+
+  return cookies;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -480,18 +495,36 @@ export async function runAutoRegister(taskInput) {
     })()`);
     console.log(`[Sign-up step] →`, JSON.stringify(signupClickResult || {}));
 
-    // Nếu không tìm thấy nút Sign up (ví dụ bị ẩn hoặc UI mới) và không có form, ép điều hướng
+    // Nếu không tìm thấy nút Sign up (ví dụ bị ẩn hoặc UI mới), thử click nút "Sign up for free" bằng data-testid
     if (signupClickResult?.skipped && signupClickResult.reason === 'no-signup-button-found') {
-      console.log(`[Sign-up step] ⚠️ Không tìm thấy nút Đăng ký, thử ép trình duyệt điều hướng...`);
-      try {
-        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
-      } catch (e) {
-        const msg = e?.message || String(e);
-        if (msg.includes('NS_BINDING_ABORTED')) {
-          console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
-        } else {
-          throw e;
+      console.log(`[Sign-up step] ⚠️ Không tìm thấy nút Đăng ký text-based, thử click bằng data-testid...`);
+      const dataTestidClick = await evalJson(tabId, USER_ID, `
+        (() => {
+          const btn = document.querySelector('button[data-testid="signup-button"]');
+          if (btn) {
+            btn.click();
+            return { clicked: true, method: 'data-testid' };
+          }
+          return { clicked: false, error: 'no-signup-button-by-testid' };
+        })()
+      `, 5000);
+      console.log(`[Sign-up step] data-testid click →`, JSON.stringify(dataTestidClick));
+
+      if (!dataTestidClick?.clicked) {
+        console.log(`[Sign-up step] ⚠️ Không tìm thấy nút signup, thử navigate với action=signup...`);
+        try {
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
+          await new Promise(r => setTimeout(r, 5000));
+        } catch (e) {
+          const msg = e?.message || String(e);
+          if (msg.includes('NS_BINDING_ABORTED')) {
+            console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
+          } else {
+            throw e;
+          }
         }
+      } else {
+        await new Promise(r => setTimeout(r, 4000));
       }
     } else if (signupClickResult?.clicked) {
       const signupUrlChanged = await waitForUrlChange(tabId, USER_ID, urlBeforeSignup, { timeoutMs: 8000, intervalMs: 500 });
@@ -501,18 +534,20 @@ export async function runAutoRegister(taskInput) {
           console.log(`[Sign-up step] URL đã đổi sang ${signupUrlChanged} nhưng ô Email chưa sẵn sàng, chờ thêm...`);
           await new Promise(r => setTimeout(r, 3000));
         } else {
-          console.log(`[Sign-up step] ⚠️ Click không làm đổi URL, ép trình duyệt điều hướng...`);
-          try {
-            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
-          } catch (e) {
-            const msg = e?.message || String(e);
-            if (msg.includes('NS_BINDING_ABORTED')) {
-              console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
-            } else {
-              throw e;
-            }
+          console.log(`[Sign-up step] ⚠️ Click không làm đổi URL, thử click bằng data-testid...`);
+          const dataTestidClick = await evalJson(tabId, USER_ID, `
+            (() => {
+              const btn = document.querySelector('button[data-testid="signup-button"]');
+              if (btn) {
+                btn.click();
+                return { clicked: true, method: 'data-testid' };
+              }
+              return { clicked: false, error: 'no-signup-button-by-testid' };
+            })()
+          `, 5000);
+          if (dataTestidClick?.clicked) {
+            await new Promise(r => setTimeout(r, 4000));
           }
-          await new Promise(r => setTimeout(r, 4000));
         }
       }
     }
@@ -599,113 +634,201 @@ export async function runAutoRegister(taskInput) {
       throw new Error(`Email submit failed: ${emailClickInfo.error} (${JSON.stringify(emailClickInfo)})`);
     }
 
-    // Đợi nhảy sang trang Password — với watchdog URL phát hiện click không có hiệu ứng
-    console.log("⏳ Chờ OpenAI xử lý Email và chuyển qua trang Password...");
+    // Đợi nhảy sang trang sau khi submit email — detect flow
+    console.log("⏳ Chờ OpenAI xử lý Email và chuyển trang...");
     const newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
     if (!newUrl) {
       console.log(`[Email-submit] ⚠️ URL không đổi sau click — có thể click không hiệu lực`);
     }
-    // Domain guard SAU click email — bắt drift sang accounts.google.com
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
-    await saveStep('02_password_load');
+    await saveStep('02_after_email_submit');
 
-    // 3. Form điền Mật khẩu — luôn loại nút có "with" (Continue with Google...)
-    console.log(`[3] Điền Password -> ${chatGptPassword}`);
-    const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
-    const pwdClickInfo = await evalJson(tabId, USER_ID, `
+    // Detect flow sau khi submit email
+    await new Promise(r => setTimeout(r, 3000));
+    const flowDetection = await evalJson(tabId, USER_ID, `
+      (() => {
+        const url = location.href;
+        const body = document.body?.innerText?.toLowerCase() || '';
+        const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+        const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+        const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+        const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+        const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+        return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+      })()
+    `, 5000);
+
+    console.log(`[Flow Detection]:`, JSON.stringify(flowDetection));
+
+    // 3. Flow CŨ: Điền mật khẩu ngay nếu có password input
+    if (flowDetection.flow === 'old') {
+      console.log(`[3] Flow cũ: Điền Password -> ${chatGptPassword}`);
+      const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
+      const pwdClickInfo = await evalJson(tabId, USER_ID, `
+            (() => {
+              const typeReact = (input, text) => {
+                if (!input) return false;
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(input, text);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              };
+              const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+
+              const pwdInput = document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]');
+              if (!pwdInput) return { error: 'no-password-input' };
+              typeReact(pwdInput, "${chatGptPassword}");
+
+              const form = pwdInput.closest('form');
+              let btn = null;
+              let strategy = '';
+              if (form) {
+                btn = form.querySelector('button[type="submit"]');
+                if (btn) strategy = 'form-submit';
+                if (!btn) {
+                  btn = Array.from(form.querySelectorAll('button')).find(b => {
+                    const t = (b.innerText || b.textContent || '').toLowerCase().trim();
+                    return isVisible(b) && !t.includes('with') &&
+                      (t.includes('continue') || t.includes('tiếp tục') || t.includes('create account') || t.includes('next'));
+                  });
+                  if (btn) strategy = 'form-text-no-with';
+                }
+              }
+              if (!btn) {
+                btn = Array.from(document.querySelectorAll('button')).find(b => {
+                  const t = (b.innerText || b.textContent || '').toLowerCase().trim();
+                  return isVisible(b) && !t.includes('with') &&
+                    (t === 'continue' || t === 'tiếp tục' || t === 'create account' || t === 'next');
+                });
+                if (btn) strategy = 'global-exact-no-with';
+              }
+
+              if (!btn) {
+                const all = Array.from(document.querySelectorAll('button')).filter(isVisible).map(b => (b.innerText || b.textContent || '').trim()).slice(0, 12);
+                return { error: 'no-continue-button', available: all };
+              }
+              const finalText = (btn.innerText || btn.textContent || '').trim();
+              if (finalText.toLowerCase().includes('with')) {
+                return { error: 'rejected-oauth-button', text: finalText };
+              }
+              btn.click();
+              return { ok: true, strategy, text: finalText };
+            })()
+          `);
+      console.log(`[Password-submit] →`, JSON.stringify(pwdClickInfo || {}));
+      if (pwdClickInfo?.error) {
+        throw new Error(`Password submit failed: ${pwdClickInfo.error}`);
+      }
+      await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
+      await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
+      await saveStep('03_after_password_submit');
+    } else {
+      console.log(`[3] Flow mới: Bỏ qua bước điền password, sẽ xử lý ở bước 4`);
+      await saveStep('03_skipped_password_new_flow');
+    }
+
+    // 4. Flow MỚI: Xử lý màn hình Email Verification (chỉ chạy nếu flowDetection.flow === 'new')
+    if (flowDetection.flow === 'new') {
+      console.log(`[4] Flow mới: Xử lý Email Verification screen...`);
+      const pwdLinkResult = await evalJson(tabId, USER_ID, `
+        (() => {
+          // Method 1: By href (ổn định nhất)
+          let link = document.querySelector('a[href*="create-account/password"]');
+          if (link) {
+            link.click();
+            return { clicked: true, method: 'href', text: link.textContent.trim() };
+          }
+
+          // Method 2: By text match
+          link = Array.from(document.querySelectorAll('a')).find(a => {
+            const t = (a.textContent || '').trim().toLowerCase();
+            return t === 'continue with password';
+          });
+          if (link) {
+            link.click();
+            return { clicked: true, method: 'text', text: link.textContent.trim() };
+          }
+
+          return { clicked: false, error: 'no-continue-with-password-link' };
+        })()
+      `, 5000);
+
+      console.log(`[4.1] Click "Continue with password" →`, JSON.stringify(pwdLinkResult));
+
+      if (!pwdLinkResult?.clicked) {
+        console.log(`[4.1] ⚠️ Không tìm thấy link "Continue with password", thử fallback nhập OTP...`);
+        const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 90 });
+        if (!otpCode) throw new Error("Thất bại: Không tìm thấy link password và cũng không lấy được OTP sau 90s.");
+
+        await evalJson(tabId, USER_ID, `
           (() => {
-            const typeReact = (input, text) => {
-              if (!input) return false;
+            const typeReact = (inputSelector, text) => {
+              const input = document.querySelector(inputSelector);
+              if(!input) return false;
               const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
               nativeSetter.call(input, text);
               input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
               return true;
             };
-            const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-
-            const pwdInput = document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]');
-            if (!pwdInput) return { error: 'no-password-input' };
-            typeReact(pwdInput, "${chatGptPassword}");
-
-            // Form-scoped trước
-            const form = pwdInput.closest('form');
-            let btn = null;
-            let strategy = '';
-            if (form) {
-              btn = form.querySelector('button[type="submit"]');
-              if (btn) strategy = 'form-submit';
-              if (!btn) {
-                btn = Array.from(form.querySelectorAll('button')).find(b => {
-                  const t = (b.innerText || b.textContent || '').toLowerCase().trim();
-                  return isVisible(b) && !t.includes('with') &&
-                    (t.includes('continue') || t.includes('tiếp tục') || t.includes('create account') || t.includes('next'));
-                });
-                if (btn) strategy = 'form-text-no-with';
-              }
-            }
-            if (!btn) {
-              btn = Array.from(document.querySelectorAll('button')).find(b => {
-                const t = (b.innerText || b.textContent || '').toLowerCase().trim();
-                return isVisible(b) && !t.includes('with') &&
-                  (t === 'continue' || t === 'tiếp tục' || t === 'create account' || t === 'next');
-              });
-              if (btn) strategy = 'global-exact-no-with';
-            }
-
-            if (!btn) {
-              const all = Array.from(document.querySelectorAll('button')).filter(isVisible).map(b => (b.innerText || b.textContent || '').trim()).slice(0, 12);
-              return { error: 'no-continue-button', available: all };
-            }
-            const finalText = (btn.innerText || btn.textContent || '').trim();
-            if (finalText.toLowerCase().includes('with')) {
-              return { error: 'rejected-oauth-button', text: finalText };
-            }
-            btn.click();
-            return { ok: true, strategy, text: finalText };
+            typeReact('input[name="code"], input[autocomplete="one-time-code"]', "${otpCode}");
+            const isVisible = el => el && el.getBoundingClientRect().width > 0;
+            const btn = Array.from(document.querySelectorAll('button')).find(b =>
+              (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next')) &&
+              !b.textContent.includes('with') && isVisible(b)
+            );
+            if (btn) btn.click();
           })()
         `);
-    console.log(`[Password-submit] →`, JSON.stringify(pwdClickInfo || {}));
-    if (pwdClickInfo?.error) {
-      throw new Error(`Password submit failed: ${pwdClickInfo.error}`);
-    }
-    await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
-    await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
-    await saveStep('03_after_password_submit');
+        await new Promise(r => setTimeout(r, 6000));
+        await saveStep('04_pin_verified');
+      } else {
+        await new Promise(r => setTimeout(r, 5000));
+        await saveStep('04_continue_with_password_clicked');
 
-    // 4. Giải OTP
-    console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
-    const isVerifyEmailUrl = await evalJson(tabId, USER_ID, `location.href.includes('email-verification')`);
+        console.log(`[4.2] Điền mật khẩu trên màn hình create-account/password...`);
+        const pwdFillResult = await evalJson(tabId, USER_ID, `
+          (() => {
+            const typeReact = (el, text) => {
+              if (!el) return false;
+              const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+              nativeSetter.call(el, text);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            };
+            const isVisible = el => {
+              if (!el) return false;
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            };
 
-    if (isVerifyEmailUrl || await evalJson(tabId, USER_ID, `document.body.innerText.toLowerCase().includes('verify')`)) {
-      console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
-      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 90 });
-      if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
+            const pwdInput = document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+            if (!pwdInput) return { error: 'no-password-input' };
 
-      console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
-      await evalJson(tabId, USER_ID, `
-              (() => {
-                 const typeReact = (inputSelector, text) => {
-                   const input = document.querySelector(inputSelector);
-                   if(!input) return false;
-                   const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                   nativeSetter.call(input, text);
-                   input.dispatchEvent(new Event('input', { bubbles: true }));
-                   return true;
-                 };
+            typeReact(pwdInput, "${chatGptPassword}");
 
-                 typeReact('input[name="code"], input[autocomplete="one-time-code"]', "${otpCode}");
-                 
-                 const isVisible = el => el && el.getBoundingClientRect().width > 0;
-                 const btn = Array.from(document.querySelectorAll('button')).find(b => 
-                    (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next')) && 
-                    !b.textContent.includes('with') && isVisible(b)
-                 );
-                 if (btn) btn.click();
-              })()
-            `);
-      await new Promise(r => setTimeout(r, 6000));
-      await saveStep('04_pin_verified');
+            const btn = Array.from(document.querySelectorAll('button, [role="button"]'))
+              .filter(isVisible)
+              .find(b => {
+                const t = (b.innerText || b.textContent || '').toLowerCase();
+                return !t.includes('with') && (t === 'continue' || t === 'tiếp tục' || t === 'create account' || t === 'next');
+              });
+
+            if (btn) {
+              btn.click();
+              return { ok: true, clicked: true };
+            } else {
+              pwdInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+              return { ok: true, clicked: false, method: 'enter-key' };
+            }
+          })()
+        `, 5000);
+
+        console.log(`[4.2] Password fill result →`, JSON.stringify(pwdFillResult));
+        await new Promise(r => setTimeout(r, 5000));
+        await saveStep('04_password_filled_new_flow');
+      }
     }
 
     // 5. Cấp User Info (tên, ngày sinh)
@@ -885,6 +1008,11 @@ export async function runAutoRegister(taskInput) {
 
     await saveStep('06_home_reached');
 
+    // Refresh để đảm bảo session token cookie được set
+    console.log(`[6.2] Refresh trang để đảm bảo session token...`);
+    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+    await new Promise(r => setTimeout(r, 5000));
+
     // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
     console.log(`[7] BẬT BẢO MẬT 2FA / MFA CHO ACCOUNT NÀY...`);
@@ -934,10 +1062,15 @@ export async function runAutoRegister(taskInput) {
 
     // 8. TỔNG KẾT
     const tokens = await getCookies(tabId, USER_ID);
+    console.log(`[8] Tổng cookies: ${tokens.length}`);
+    const sessionTokenCookies = tokens.filter(t => t.name.includes('session-token'));
+    console.log(`[8] Session token cookies:`, sessionTokenCookies.map(c => ({ name: c.name, hasValue: !!c.value, valueLen: c.value?.length || 0 })));
+
     const sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
 
     if (!sessionToken) {
       console.log(`[8] 🔴 Báo lỗi: Không tìm thấy session token.`);
+      console.log(`[8] Tất cả cookies:`, tokens.map(c => ({ name: c.name, value: c.value ? c.value.slice(0, 30) + '...' : 'EMPTY' })));
       throw new Error('Registration failed (No Auth session). Check screenshots.');
     }
 
