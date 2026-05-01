@@ -83,14 +83,7 @@ export async function camofoxGoto(tabId, userId, url, { timeoutMs = 15000 } = {}
  * @returns {Promise<any>} Result of expression execution
  */
 export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
-  const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, sessionKey: WORKER_AUTH_TOKEN, expression }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Camofox evaluate → ${res.status}: ${await res.text()}`);
-  return res.json();
+  return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
 }
 
 /**
@@ -103,15 +96,8 @@ export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 
  */
 export async function evalJson(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
   try {
-    const res = await fetch(`${CAMOUFOX_API}/tabs/${tabId}/evaluate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, sessionKey: WORKER_AUTH_TOKEN, expression }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) throw new Error(`Camofox evaluate → ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    return data?.result ?? data;
+    const res = await camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
+    return res?.result ?? null;
   } catch (e) {
     console.log(`[camofox] eval failed: ${e.message.slice(0, 80)}`);
     return null;

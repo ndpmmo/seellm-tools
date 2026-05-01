@@ -1008,11 +1008,6 @@ export async function runAutoRegister(taskInput) {
 
     await saveStep('06_home_reached');
 
-    // Refresh để đảm bảo session token cookie được set
-    console.log(`[6.2] Refresh trang để đảm bảo session token...`);
-    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-    await new Promise(r => setTimeout(r, 5000));
-
     // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
     console.log(`[7] BẬT BẢO MẬT 2FA / MFA CHO ACCOUNT NÀY...`);
@@ -1062,15 +1057,11 @@ export async function runAutoRegister(taskInput) {
 
     // 8. TỔNG KẾT
     const tokens = await getCookies(tabId, USER_ID);
-    console.log(`[8] Tổng cookies: ${tokens.length}`);
-    const sessionTokenCookies = tokens.filter(t => t.name.includes('session-token'));
-    console.log(`[8] Session token cookies:`, sessionTokenCookies.map(c => ({ name: c.name, hasValue: !!c.value, valueLen: c.value?.length || 0 })));
-
     const sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
 
     if (!sessionToken) {
       console.log(`[8] 🔴 Báo lỗi: Không tìm thấy session token.`);
-      console.log(`[8] Tất cả cookies:`, tokens.map(c => ({ name: c.name, value: c.value ? c.value.slice(0, 30) + '...' : 'EMPTY' })));
+      console.log(`[8] Cookies: ${tokens.length} total, names: ${tokens.map(c => c.name).join(', ')}`);
       throw new Error('Registration failed (No Auth session). Check screenshots.');
     }
 

@@ -58,32 +58,20 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     try {
         // ── 1. Điều hướng đến Security settings ──────────────────
         log('Điều hướng đến #settings/Security ...');
-        await apiHelper(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/#settings/Security' });
+        await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`);
         await wait(5000);
 
         // Đảm bảo Security tab active (dùng data-testid ổn định)
-        await wait(2000);
-        const clickResult = await run(`
-            (() => {
-                const sec = document.querySelector('[data-testid="security-tab"]');
-                if (sec) {
-                    sec.click();
-                    return { clicked: true };
-                }
-                return { clicked: false, error: 'security-tab-not-found' };
-            })()
-        `);
-
-        if (!clickResult || !clickResult.clicked) {
-            log('⚠️  Security tab click failed, thử lại sau 3s...');
+        const hasSecTab = await run(`!!document.querySelector('[data-testid="security-tab"]')`);
+        if (!hasSecTab) {
+            log('⚠️  Security tab không tìm thấy, thử lại...');
             await wait(3000);
-            await run(`
-                const sec = document.querySelector('[data-testid="security-tab"]');
-                if (sec) sec.click();
-            `);
         }
-
-        await wait(3000);
+        await run(`
+            const sec = document.querySelector('[data-testid="security-tab"]');
+            if (sec) sec.click();
+        `);
+        await wait(2000);
 
         // ── 2. Cài network sniffer (để debug nếu cần) ─────────────
         await run(`
