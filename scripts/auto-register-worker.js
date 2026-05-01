@@ -33,6 +33,31 @@ const OAUTH_URL = 'https://auth.openai.com';
 const OPENAI_AUTH = 'https://auth.openai.com';
 
 // ============================================
+// CONFIGURATION
+// ============================================
+const CONFIG = {
+  // User info generation
+  ageRange: { min: 18, max: 40 },
+  passwordLength: 16,
+  
+  // Timeouts (seconds)
+  emailInputTimeout: 15,
+  emailInputTimeoutWithProxy: 25,
+  otpWaitTimeout: 90,
+  otpRetryTimeout: 30,
+  
+  // Retry counts
+  otpMaxRetries: 2,
+  mfaMaxRetries: 2,
+  phoneBypassMaxRetries: 2,
+  reloadMaxRetries: 2,
+  welcomeModalMaxRetries: 3,
+  
+  // Proxy settings
+  proxyStrictMode: process.env.PROXY_STRICT_MODE === 'true',
+};
+
+// ============================================
 // OAUTH HELPERS
 // ============================================
 
@@ -265,9 +290,40 @@ async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 30000) {
   return camofoxPost(endpoint, payload, { timeoutMs });
 }
 
+/**
+ * Retry với reload tab nếu UI không được nhận diện
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {Function} checkFn - Function trả về true nếu UI OK
+ * @param {string} stepName - Tên step để logging
+ * @param {number} maxRetries - Số lần retry tối đa
+ * @returns {Promise<boolean>} - true nếu thành công, false nếu fail hết retry
+ */
+async function retryWithReload(tabId, userId, checkFn, stepName, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await checkFn();
+    if (result) return true;
+
+    console.log(`[${stepName}] ⚠️ UI không được nhận diện (lần ${attempt + 1}/${maxRetries + 1})`);
+
+    if (attempt < maxRetries) {
+      try {
+        console.log(`[${stepName}] 🔄 Reload tab và thử lại...`);
+        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/auth/login' });
+        await new Promise(r => setTimeout(r, 5000));
+      } catch (e) {
+        console.log(`[${stepName}] ❌ Reload failed: ${e.message}`);
+      }
+    }
+  }
+
+  console.log(`[${stepName}] ❌ Hết retry (${maxRetries + 1} lần), UI vẫn không được nhận diện`);
+  return false;
+}
+
 function generateRandomUserInfo() {
-  // Độ tuổi ngẫu nhiên từ 18 đến 40
-  const age = Math.floor(Math.random() * (40 - 18 + 1)) + 18;
+  // Độ tuổi ngẫu nhiên từ CONFIG.ageRange
+  const age = Math.floor(Math.random() * (CONFIG.ageRange.max - CONFIG.ageRange.min + 1)) + CONFIG.ageRange.min;
   const currentYear = new Date().getFullYear();
   const year = currentYear - age;
 
@@ -397,9 +453,9 @@ export async function runAutoRegister(taskInput) {
   // Update pool status to processing
   await updatePoolStatus(email, { chatgpt_status: 'processing' });
 
-  // Tạo mật khẩu ngẫu nhiên đủ mạnh (16 ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
+  // Tạo mật khẩu ngẫu nhiên đủ mạnh (CONFIG.passwordLength ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
   const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-  const chatGptPassword = Array.from({ length: 16 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
+  const chatGptPassword = Array.from({ length: CONFIG.passwordLength }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -425,7 +481,11 @@ export async function runAutoRegister(taskInput) {
         console.log(`✅ [PreFlight] OK — Exit IP: ${preFlightResult.exitIp} (${preFlightResult.networkType})${preFlightResult.isLocalRelay ? ' 🔒 LOCAL RELAY' : ''}`);
       } catch (err) {
         console.log(`🛑 [PreFlight] FAILED: ${err.message}`);
-        throw err;  // hard abort, don't even try main tab
+        if (CONFIG.proxyStrictMode) {
+          throw err;  // hard abort in strict mode
+        } else {
+          console.log(`⚠️ [PreFlight] Continuing despite proxy failure (strict mode disabled)`);
+        }
       }
     }
 
@@ -552,15 +612,31 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    // Chờ ô email input xuất hiện (tối đa 15s) — tránh race condition khi trang auth load chậm
+    // Chờ ô email input xuất hiện (tối đa CONFIG.emailInputTimeout) — tránh race condition khi trang auth load chậm
+    // Dynamic timeout: CONFIG.emailInputTimeout default, CONFIG.emailInputTimeoutWithProxy nếu dùng proxy
+    const emailInputTimeout = proxyUrl ? CONFIG.emailInputTimeoutWithProxy : CONFIG.emailInputTimeout;
+    const emailInputMaxAttempts = Math.floor(emailInputTimeout / 1.5); // 1.5s per attempt
+    console.log(`[Sign-up step] Email input timeout: ${emailInputTimeout}s (${emailInputMaxAttempts} attempts)`);
+    
     let emailInputReady = false;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < emailInputMaxAttempts; attempt++) {
       const check = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
       if (check) { emailInputReady = true; break; }
       await new Promise(r => setTimeout(r, 1500));
     }
+
+    // Nếu email input không xuất hiện, retry với reload
     if (!emailInputReady) {
-      console.log(`[Sign-up step] ❌ Sau 15s vẫn không thấy ô nhập Email. URL: ${await evalJson(tabId, USER_ID, 'location.href')}`);
+      console.log(`[Sign-up step] ❌ Sau ${emailInputTimeout}s vẫn không thấy ô nhập Email. URL: ${await evalJson(tabId, USER_ID, 'location.href')}`);
+      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
+        return await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
+      }, 'EmailInputRetry', CONFIG.reloadMaxRetries);
+      if (retrySuccess) {
+        emailInputReady = true;
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        throw new Error('Email input không xuất hiện sau retry với reload');
+      }
     }
 
     await new Promise(r => setTimeout(r, 5000));
@@ -660,6 +736,44 @@ export async function runAutoRegister(taskInput) {
 
     console.log(`[Flow Detection]:`, JSON.stringify(flowDetection));
 
+    // If flow detection returns unknown, retry with reload
+    if (flowDetection?.flow === 'unknown') {
+      console.log(`[Flow Detection] ⚠️ Flow unknown, retry with reload...`);
+      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
+        const detection = await evalJson(tabId, USER_ID, `
+          (() => {
+            const url = location.href;
+            const body = document.body?.innerText?.toLowerCase() || '';
+            const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+            const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+            const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+            const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+            const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+            return { flow };
+          })()
+        `);
+        return detection?.flow !== 'unknown';
+      }, 'FlowDetectionRetry', CONFIG.reloadMaxRetries);
+      
+      if (retrySuccess) {
+        // Re-run flow detection after successful retry
+        await new Promise(r => setTimeout(r, 3000));
+        flowDetection = await evalJson(tabId, USER_ID, `
+          (() => {
+            const url = location.href;
+            const body = document.body?.innerText?.toLowerCase() || '';
+            const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+            const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+            const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+            const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+            const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+            return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+          })()
+        `, 5000);
+        console.log(`[Flow Detection] After retry:`, JSON.stringify(flowDetection));
+      }
+    }
+
     // 3. Điền mật khẩu (flow cũ có password input sẵn, flow mới cần click link trước)
     if (flowDetection?.flow === 'new') {
       // Flow mới: click "Continue with password" link trước
@@ -755,35 +869,210 @@ export async function runAutoRegister(taskInput) {
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
-    const isVerifyEmailUrl = await evalJson(tabId, USER_ID, `location.href.includes('email-verification')`);
-    if (isVerifyEmailUrl || await evalJson(tabId, USER_ID, `document.body.innerText.toLowerCase().includes('verify')`)) {
+    const otpScreenCheck = await evalJson(tabId, USER_ID, `
+      (() => {
+        const url = location.href.toLowerCase();
+        const body = (document.body?.innerText || '').toLowerCase();
+        const hasOtpInput = !!(
+          document.querySelector('input[autocomplete="one-time-code"]') ||
+          document.querySelector('input[inputmode="numeric"]') ||
+          document.querySelector('input[name="code"]') ||
+          document.querySelector('input[maxlength="6"]')
+        );
+        return {
+          url,
+          body: body.slice(0, 200),
+          hasOtpInput,
+          hasVerifyUrl: url.includes('email-verification') || url.includes('verify'),
+          hasVerifyText: body.includes('verify') || body.includes('code') || body.includes('enter code')
+        };
+      })()
+    `);
+    console.log(`[4] OTP screen check:`, JSON.stringify(otpScreenCheck));
+
+    // If OTP screen not detected but expected, retry with reload
+    if (!otpScreenCheck.hasOtpInput && !otpScreenCheck.hasVerifyUrl && !otpScreenCheck.hasVerifyText) {
+      console.log(`[4] ⚠️ OTP screen not detected, retry with reload...`);
+      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
+        const check = await evalJson(tabId, USER_ID, `
+          (() => {
+            const url = location.href.toLowerCase();
+            const body = (document.body?.innerText || '').toLowerCase();
+            const hasOtpInput = !!(
+              document.querySelector('input[autocomplete="one-time-code"]') ||
+              document.querySelector('input[inputmode="numeric"]') ||
+              document.querySelector('input[name="code"]') ||
+              document.querySelector('input[maxlength="6"]')
+            );
+            return {
+              hasOtpInput,
+              hasVerifyUrl: url.includes('email-verification') || url.includes('verify'),
+              hasVerifyText: body.includes('verify') || body.includes('code') || body.includes('enter code')
+            };
+          })()
+        `);
+        return check.hasOtpInput || check.hasVerifyUrl || check.hasVerifyText;
+      }, 'OTPScreenRetry', CONFIG.reloadMaxRetries);
+      
+      if (retrySuccess) {
+        // Re-run OTP screen check after successful retry
+        await new Promise(r => setTimeout(r, 3000));
+        otpScreenCheck = await evalJson(tabId, USER_ID, `
+          (() => {
+            const url = location.href.toLowerCase();
+            const body = (document.body?.innerText || '').toLowerCase();
+            const hasOtpInput = !!(
+              document.querySelector('input[autocomplete="one-time-code"]') ||
+              document.querySelector('input[inputmode="numeric"]') ||
+              document.querySelector('input[name="code"]') ||
+              document.querySelector('input[maxlength="6"]')
+            );
+            return {
+              url,
+              body: body.slice(0, 200),
+              hasOtpInput,
+              hasVerifyUrl: url.includes('email-verification') || url.includes('verify'),
+              hasVerifyText: body.includes('verify') || body.includes('code') || body.includes('enter code')
+            };
+          })()
+        `);
+        console.log(`[4] OTP screen check after retry:`, JSON.stringify(otpScreenCheck));
+      }
+    }
+
+    if (otpScreenCheck.hasOtpInput || otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
-      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 90 });
+      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout });
       if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await evalJson(tabId, USER_ID, `
               (() => {
-                 const typeReact = (inputSelector, text) => {
-                   const input = document.querySelector(inputSelector);
-                   if(!input) return false;
+                 const isVisible = el => el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+                 const setValue = (el, text) => {
                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                   nativeSetter.call(input, text);
-                   input.dispatchEvent(new Event('input', { bubbles: true }));
-                   return true;
+                   nativeSetter.call(el, text);
+                   el.dispatchEvent(new Event('input', { bubbles: true }));
+                   el.dispatchEvent(new Event('change', { bubbles: true }));
+                   el.blur();
+                   el.focus();
                  };
 
-                 typeReact('input[name="code"], input[autocomplete="one-time-code"]', "${otpCode}");
-                 
-                 const isVisible = el => el && el.getBoundingClientRect().width > 0;
-                 const btn = Array.from(document.querySelectorAll('button')).find(b => 
-                    (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next')) &&
+                 // Robust input finder - same logic as fillMfa in openai-login-flow.js
+                 const input = Array.from(document.querySelectorAll('input')).find(el =>
+                   isVisible(el) && (
+                     el.autocomplete === 'one-time-code' ||
+                     el.getAttribute('autocomplete') === 'one-time-code' ||
+                     el.inputMode === 'numeric' ||
+                     el.getAttribute('inputmode') === 'numeric' ||
+                     (el.name || '').toLowerCase().includes('code') ||
+                     (el.name || '').toLowerCase().includes('otp') ||
+                     (el.placeholder || '').toLowerCase().includes('code') ||
+                     el.maxLength === 6
+                   )
+                 );
+                 if (!input) return { error: 'no-otp-input', inputCount: document.querySelectorAll('input').length };
+                 console.log('[OTP] Found input:', input.name, input.type, input.placeholder, input.maxLength);
+                 setValue(input, "${otpCode}");
+
+                 const btn = Array.from(document.querySelectorAll('button')).find(b =>
+                    (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next') || b.textContent.includes('Verify')) &&
                     !b.textContent.includes('with') && isVisible(b)
                  );
-                 if (btn) btn.click();
+                 if (btn) {
+                   console.log('[OTP] Clicking continue button');
+                   btn.click();
+                 } else {
+                   console.log('[OTP] No continue button found, pressing Enter');
+                   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                 }
+                 return { ok: true, inputFound: !!input, buttonFound: !!btn };
               })()
             `);
       await new Promise(r => setTimeout(r, 6000));
+      
+      // Verify OTP entry success - check if still on OTP screen
+      const otpVerifyCheck = await evalJson(tabId, USER_ID, `
+        (() => {
+          const hasOtpInput = !!(
+            document.querySelector('input[autocomplete="one-time-code"]') ||
+            document.querySelector('input[inputmode="numeric"]') ||
+            document.querySelector('input[name="code"]') ||
+            document.querySelector('input[maxlength="6"]')
+          );
+          const url = location.href.toLowerCase();
+          const hasVerifyUrl = url.includes('email-verification') || url.includes('verify');
+          const body = (document.body?.innerText || '').toLowerCase();
+          const hasVerifyText = body.includes('verify') || body.includes('code') || body.includes('enter code');
+          return { hasOtpInput, hasVerifyUrl, hasVerifyText, url: url.slice(0, 80) };
+        })()
+      `);
+      console.log(`[OTP] Verify check:`, JSON.stringify(otpVerifyCheck));
+
+      // Retry OTP entry if still on OTP screen (max CONFIG.otpMaxRetries retries)
+      if (otpVerifyCheck.hasOtpInput || otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText) {
+        console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
+        for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
+          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout });
+          if (!otpRetryCode) {
+            console.log(`[OTP] Retry ${retry}: Không lấy được OTP mới, skip retry`);
+            continue;
+          }
+          console.log(`[OTP] Retry ${retry}: Nhập mã PIN ${otpRetryCode}...`);
+          await evalJson(tabId, USER_ID, `
+            (() => {
+              const isVisible = el => el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+              const setValue = (el, text) => {
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(el, text);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.blur();
+                el.focus();
+              };
+              const input = Array.from(document.querySelectorAll('input')).find(el =>
+                isVisible(el) && (
+                  el.autocomplete === 'one-time-code' ||
+                  el.getAttribute('autocomplete') === 'one-time-code' ||
+                  el.inputMode === 'numeric' ||
+                  el.getAttribute('inputmode') === 'numeric' ||
+                  (el.name || '').toLowerCase().includes('code') ||
+                  (el.name || '').toLowerCase().includes('otp') ||
+                  (el.placeholder || '').toLowerCase().includes('code') ||
+                  el.maxLength === 6
+                )
+              );
+              if (input) {
+                setValue(input, "${otpRetryCode}");
+                const btn = Array.from(document.querySelectorAll('button')).find(b =>
+                  (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next') || b.textContent.includes('Verify')) &&
+                  !b.textContent.includes('with') && isVisible(b)
+                );
+                if (btn) btn.click();
+                else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                return { ok: true };
+              }
+              return { ok: false, error: 'no-otp-input' };
+            })()
+          `);
+          await new Promise(r => setTimeout(r, 5000));
+          
+          // Check if retry succeeded
+          const retryCheck = await evalJson(tabId, USER_ID, `
+            (() => {
+              const hasOtpInput = !!document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]');
+              return { hasOtpInput };
+            })()
+          `);
+          if (!retryCheck.hasOtpInput) {
+            console.log(`[OTP] ✅ Retry ${retry} thành công!`);
+            break;
+          } else {
+            console.log(`[OTP] Retry ${retry}: vẫn ở màn hình OTP`);
+          }
+        }
+      }
+
       await saveStep('04_pin_verified');
     }
 
@@ -833,26 +1122,33 @@ export async function runAutoRegister(taskInput) {
              }
 
              // Điền ngày sinh / tuổi
-             const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
-                           document.querySelector('input[type="number"]');
-             const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                           document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="YYYY"]');
-             
-             if (ageEl && ageEl.type !== 'date') {
-                 typeReact(ageEl, '${userInfo.age.toString()}');
-                 filled.bday = 'age';
-             } else if (dobEl) {
-                 // format DD/MM/YYYY hoặc MM/DD/YYYY
-                 const placeholder = dobEl.placeholder || '';
-                 let dobStr;
-                 if (placeholder.startsWith('MM')) {
-                     dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
-                 } else {
-                     dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
-                 }
-                 typeReact(dobEl, dobStr);
-                 filled.bday = 'dob';
-             }
+            const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
+                          document.querySelector('input[type="number"]');
+            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                          document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
+                          document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+
+            if (ageEl && ageEl.type !== 'date') {
+                typeReact(ageEl, '${userInfo.age.toString()}');
+                filled.bday = 'age';
+            } else if (dobEl) {
+                // Nếu input type="date", dùng format YYYY-MM-DD
+                if (dobEl.type === 'date') {
+                    typeReact(dobEl, '${userInfo.birthdate}');
+                    filled.bday = 'dob-date';
+                } else {
+                    // format DD/MM/YYYY hoặc MM/DD/YYYY dựa trên placeholder
+                    const placeholder = dobEl.placeholder || '';
+                    let dobStr;
+                    if (placeholder.startsWith('MM')) {
+                        dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+                    } else {
+                        dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+                    }
+                    typeReact(dobEl, dobStr);
+                    filled.bday = 'dob-text';
+                }
+            }
 
              // Click nút Agree / Continue / Finish creating account
              const btn = Array.from(document.querySelectorAll('button')).find(b => {
@@ -869,6 +1165,60 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
     console.log(`[5.1] Kết quả điền About: ${JSON.stringify(aboutFillInfo || {})}`);
+
+    // Validate birthday input - check if value was actually filled
+    if (aboutFillInfo?.bday) {
+      const birthdayValidation = await evalJson(tabId, USER_ID, `
+        (() => {
+          const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                        document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+          if (!dobEl) return { found: false, value: null };
+          return { found: true, value: dobEl.value, type: dobEl.type };
+        })()
+      `);
+      console.log(`[5.1] Birthday validation:`, JSON.stringify(birthdayValidation));
+
+      // Retry birthday fill if empty
+      if (birthdayValidation?.found && !birthdayValidation?.value) {
+        console.log(`[5.1] ⚠️ Birthday input trống sau khi điền, retry...`);
+        await evalJson(tabId, USER_ID, `
+          (() => {
+            const typeReact = (el, text) => {
+              if (!el) return false;
+              const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+              nativeSetter.call(el, text);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            };
+            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                          document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+            if (dobEl && dobEl.type === 'date') {
+              typeReact(dobEl, '${userInfo.birthdate}');
+            } else if (dobEl) {
+              const placeholder = dobEl.placeholder || '';
+              let dobStr;
+              if (placeholder.startsWith('MM')) {
+                dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+              } else {
+                dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+              }
+              typeReact(dobEl, dobStr);
+            }
+            return { ok: !!dobEl };
+          })()
+        `);
+        await new Promise(r => setTimeout(r, 2000));
+        const retryValidation = await evalJson(tabId, USER_ID, `
+          (() => {
+            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                          document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+            return { found: !!dobEl, value: dobEl?.value || null };
+          })()
+        `);
+        console.log(`[5.1] Birthday retry validation:`, JSON.stringify(retryValidation));
+      }
+    }
 
     // Nếu btn bị NOT_FOUND, thử thêm 1 lần nữa
     if (typeof aboutFillInfo?.btn === 'string' && aboutFillInfo.btn.startsWith('NOT_FOUND')) {
@@ -900,9 +1250,35 @@ export async function runAutoRegister(taskInput) {
         // Store code for later use if OAuth is enabled
         await saveStep('06b_phone_bypass_success');
       } else {
-        console.log(`[6.1] ❌ Conditional bypass thất bại: ${bypassResult.error}. Redirecting to home...`);
-        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-        await new Promise(r => setTimeout(r, 8000));
+        console.log(`[6.1] ❌ Conditional bypass thất bại: ${bypassResult.error}. Retry với navigation...`);
+        
+        // Retry phone bypass (max CONFIG.phoneBypassMaxRetries times)
+        for (let retry = 1; retry <= CONFIG.phoneBypassMaxRetries; retry++) {
+          console.log(`[6.1] Phone bypass retry ${retry}: Navigate về trang trước...`);
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // Navigate back to add-phone
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: pageUrl });
+          await new Promise(r => setTimeout(r, 3000));
+          
+          const retryResult = await performWorkspaceConsentBypass(evalJson, tabId, USER_ID);
+          if (retryResult.ok && retryResult.code) {
+            console.log(`[6.1] ✅ Phone bypass retry ${retry} thành công! Code: ${retryResult.code.slice(0, 20)}...`);
+            phoneBypassSuccess = true;
+            await saveStep('06b_phone_bypass_success');
+            break;
+          } else {
+            console.log(`[6.1] Phone bypass retry ${retry} failed: ${retryResult.error}`);
+          }
+        }
+        
+        // If all retries failed, redirect to home
+        if (!phoneBypassSuccess) {
+          console.log(`[6.1] ❌ Hết retry, redirecting to home...`);
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 8000));
+        }
       }
     }
 
@@ -913,7 +1289,7 @@ export async function runAutoRegister(taskInput) {
         const skipElements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
         const skipBtn = skipElements.find(b => {
             const txt = b.textContent.toLowerCase().trim();
-            return txt === 'skip' || txt === 'bỏ qua';
+            return txt === 'skip' || txt === 'bỏ qua' || txt === 'skip for now' || txt === 'maybe later' || txt === 'not now';
         });
         
         if (skipBtn) {
@@ -942,7 +1318,12 @@ export async function runAutoRegister(taskInput) {
     console.log(`[6.1] Đóng Welcome Modal...`);
     await evalJson(tabId, USER_ID, `
       (() => {
+        let retryCount = 0;
+        const maxRetries = CONFIG.welcomeModalMaxRetries;
         const findAndClickOk = () => {
+            if (retryCount >= maxRetries) return false;
+            retryCount++;
+            
             const buttons = Array.from(document.querySelectorAll('button'));
             const okBtn = buttons.find(b => {
                 const t = b.textContent.toLowerCase();
@@ -954,9 +1335,11 @@ export async function runAutoRegister(taskInput) {
             }
             return false;
         };
+        
         if (!findAndClickOk()) {
             setTimeout(findAndClickOk, 2000);
         }
+        return { attempts: retryCount, found: retryCount <= maxRetries };
       })()
     `);
     await new Promise(r => setTimeout(r, 5000));
@@ -974,6 +1357,25 @@ export async function runAutoRegister(taskInput) {
     try {
       await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
       mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+
+      // Retry MFA setup if toggle not found (max CONFIG.mfaMaxRetries retries)
+      if (!mfaResult.success && mfaResult.error?.includes('not found')) {
+        console.log(`[7] ⚠️ Toggle not found, retry MFA setup...`);
+        for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
+          console.log(`[7] MFA retry ${retry}: Navigate về Security page...`);
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/#settings/Security' });
+          await new Promise(r => setTimeout(r, 3000));
+          
+          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+          if (retryResult.success) {
+            console.log(`[7] ✅ MFA retry ${retry} thành công!`);
+            mfaResult = retryResult;
+            break;
+          } else {
+            console.log(`[7] MFA retry ${retry} failed: ${retryResult.error}`);
+          }
+        }
+      }
     } catch (driftErr) {
       // Drift đã xảy ra → log rõ ràng và bỏ qua MFA, không hang
       console.log(`[7] ⚠️ ${driftErr.message} → BỎ QUA setup 2FA, tiếp tục lưu account.`);
@@ -1015,10 +1417,21 @@ export async function runAutoRegister(taskInput) {
     const tokens = await getCookies(tabId, USER_ID);
     const sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
 
+    // Session token validation
     if (!sessionToken) {
       console.log(`[8] 🔴 Báo lỗi: Không tìm thấy session token.`);
       console.log(`[8] Cookies: ${tokens.length} total, names: ${tokens.map(c => c.name).join(', ')}`);
-      throw new Error('Registration failed (No Auth session). Check screenshots.');
+      
+      // Try fallback tokens
+      const fallbackToken = tokens.find(t => t.name === 'oai-client-auth-session')?.value ||
+                           tokens.find(t => t.name === 'oai-client-auth-info')?.value || null;
+      if (fallbackToken) {
+        console.log(`[8] ⚠️ Using fallback token: ${fallbackToken.slice(0, 20)}...`);
+      } else {
+        throw new Error('Registration failed (No Auth session). Check screenshots.');
+      }
+    } else if (sessionToken.length < 20) {
+      console.log(`[8] ⚠️ Session token quá ngắn (${sessionToken.length} chars), có thể invalid.`);
     }
 
     console.log(`==========================================`);
@@ -1065,6 +1478,36 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
     console.log(`🔴 THẤT BẠI: ${email}`);
     console.log(`❌ Lỗi: ${err.message}`);
+    
+    // Enhanced error logging
+    try {
+      if (tabId) {
+        const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => 'unknown');
+        console.log(`[Error] Current URL: ${currentUrl}`);
+        
+        const pageState = await evalJson(tabId, USER_ID, `
+          (() => {
+            const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"]');
+            const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"]');
+            const hasOtpInput = !!document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"]');
+            const bodyText = (document.body?.innerText || '').slice(0, 200);
+            return { hasEmailInput, hasPasswordInput, hasOtpInput, bodyText };
+          })()
+        `).catch(() => ({ error: 'page-state-failed' }));
+        console.log(`[Error] Page state:`, JSON.stringify(pageState));
+        
+        // Log latest screenshot filename
+        const screenshots = await fs.readdir(runDir).catch(() => []);
+        if (screenshots.length > 0) {
+          const latestScreenshot = screenshots.sort().pop();
+          console.log(`[Error] Latest screenshot: ${latestScreenshot}`);
+        }
+      }
+    } catch (logErr) {
+      console.log(`[Error] Failed to log enhanced error info: ${logErr.message}`);
+    }
+    
+    console.log(`[Error] Stack trace:`, err.stack);
     console.log(`==========================================`);
 
     // Update pool status to failed

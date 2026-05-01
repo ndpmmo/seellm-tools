@@ -2,6 +2,38 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.9] - 2026-05-02 06:15:00
+
+### ⚡ Optimizations — Auto-Register Worker Reliability & Robustness
+
+**Mô tả:** Tối ưu hóa auto-register-worker.js để tăng success rate, giảm fail do UI change, và improve debug capability.
+
+**Phase 1 - Ưu tiên cao (5 items):**
+
+1. **OTP Entry Retry Logic** - Retry 2 lần nếu OTP entry fail, verify page state trước khi tiếp tục
+2. **About Form Validation** - Validate birthday input sau khi điền, retry nếu trống
+3. **Birthday Selector Fallback** - Thêm selectors "Birthday", "Date of birth" cho UI mới
+4. **MFA Setup Retry** - Retry 2 lần với navigation về Security page nếu toggle not found
+5. **Error Logging Enhancement** - Log URL, page state, screenshot filename, stack trace khi error
+
+**Phase 2 - Ưu tiên trung bình (5 items):**
+
+6. **Session Token Validation** - Check token length >= 20, fallback tokens (oai-client-auth-session, oai-client-auth-info)
+7. **Phone Bypass Retry** - Retry 2 lần với navigation giữa các lần thử
+8. **Dynamic Timeout for Email Input** - 15s default, 25s nếu dùng proxy
+9. **Survey Skip Robust Selector** - Thêm "Skip for now", "Maybe later", "Not now"
+10. **Welcome Modal Timeout** - Max retry 3 lần thay vì infinite
+
+**Phase 3 - Ưu tiên thấp (4 items):**
+
+11. **Configurable Values** - CONFIG object với age range, password length, timeouts, retry counts
+12. **Proxy Graceful Fallback** - CONFIG.proxyStrictMode để continue với warning thay vì hard abort
+13. **retryWithReload Helper** - Retry với reload tab khi UI không được nhận diện
+14. **retryWithReload Applied** - Flow detection và OTP screen detection
+
+**Files cập nhật:**
+- `scripts/auto-register-worker.js` - 14 optimizations implemented
+
 ## [0.3.8] - 2026-05-02 05:20:00
 
 ### 🔧 Fix — Camofox v1.8.15 compatibility + OpenAI registration flow fixes

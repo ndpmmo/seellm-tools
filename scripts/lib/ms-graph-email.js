@@ -79,9 +79,24 @@ function extractOTP(mail) {
     ];
 
     for (const text of sources) {
-        // Tìm mã 6 chữ số đứng riêng biệt (không phải 1 phần của mã dài hơn)
-        const match = text.match(/\b(\d{6})\b/);
-        if (match) return match[1];
+        // Pattern 1: Tìm OTP gần từ khóa verification (ưu tiên cao nhất)
+        let match = text.match(/(?:code|verification|verify|your code is)[:\s]*(\d{6})/i);
+        if (match && match[1]) return match[1];
+
+        // Pattern 2: Tìm OTP có từ khóa phía sau
+        match = text.match(/(\d{6})\s*(?:is your|verification|code)/i);
+        if (match && match[1]) return match[1];
+
+        // Pattern 3: Tìm bất kỳ số 6 chữ số đứng riêng (word boundary)
+        match = text.match(/\b(\d{6})\b/);
+        if (match && match[1]) {
+            // Double-check: không phải phần của số dài hơn
+            const before = text[match.index - 1] || ' ';
+            const after = text[match.index + match[0].length] || ' ';
+            if (!/\d/.test(before) && !/\d/.test(after)) {
+                return match[1];
+            }
+        }
     }
     return null;
 }
