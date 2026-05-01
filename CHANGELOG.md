@@ -2,6 +2,52 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.7] - 2026-05-02 03:15:00
+
+### 🔧 Fix — Ổn định SSE realtime và giảm log nhiễu `[object Event]` / `aborted`
+
+**Vấn đề:** Dashboard realtime đôi lúc log dày đặc:
+- Browser: `[SSE] Error: [object Event]`
+- Server: `[SSE] Client error: aborted`
+
+Trong thực tế đây thường là ngắt kết nối tạm thời (refresh tab/unmount/reconnect), nhưng log cũ gây hiểu nhầm là lỗi nghiêm trọng.
+
+**Cải thiện đã áp dụng:**
+
+1. **Ổn định lifecycle SSE ở client** (`src/components/AppContext.tsx`)
+- Tách vòng đời SSE khỏi state `connected` để tránh đóng/mở `EventSource` không cần thiết khi socket đổi trạng thái.
+- Dùng `useRef` (`connectedRef`, `sseConnectedRef`) trong handlers để tránh stale closure.
+
+2. **Giảm trùng event giữa SSE và Socket** (`src/components/AppContext.tsx`)
+- Socket handlers giờ đọc `sseConnectedRef.current` thay vì giá trị stale từ closure.
+- Khi SSE đang active, socket realtime events được bỏ qua ổn định hơn.
+
+3. **Chuẩn hóa log SSE error ở browser** (`src/components/AppContext.tsx`)
+- Không log object Event thô.
+- Log theo ngữ cảnh `readyState` + `navigator.onLine`:
+  - `Connection closed; browser will auto-reconnect`
+  - `Transient stream interruption`
+
+4. **Giảm false alarm ở server SSE** (`server.js`)
+- Phân loại `req.on('error')`:
+  - `aborted`, `ECONNRESET`, `socket hang up` → `info` (disconnect expected)
+  - lỗi khác → `warn`
+
+**Files cập nhật:**
+- `src/components/AppContext.tsx`
+- `server.js`
+
+**Kết quả:**
+- Realtime fallback SSE/Socket ổn định hơn.
+- Log sạch hơn, dễ phân biệt lỗi thật với reconnect bình thường.
+
+**Phase 2 (lint hardening cho AppContext):**
+- Khởi tạo `view` từ hash ngay trong initializer để tránh `setState` đồng bộ trong effect.
+- Khởi tạo `socket` bằng state initializer (SSR-safe) thay cho `setSocket(...)` trong effect.
+- Thêm type `ProcessStatusEvent`, loại bỏ `any` ở luồng `process:status`.
+- Chuẩn hoá `accounts` sang `unknown[]` để bỏ `no-explicit-any`.
+- Xác nhận: `npm run lint -- src/components/AppContext.tsx` ✅ pass.
+
 ## [0.3.6] - 2026-04-30
 
 ###  New Features - Camofox v1.8.15 Integration

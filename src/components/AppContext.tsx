@@ -4,6 +4,14 @@ import { io, Socket } from 'socket.io-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface LogEntry { type: 'stdout' | 'stderr' | 'system'; text: string; ts: string; }
+
+interface ProcessStatusEvent {
+  id: string;
+  status?: ProcessInfo['status'];
+  exitCode?: number | null;
+  pid?: number;
+  name?: string;
+}
 export interface Screenshot { filename: string; url: string; email?: string; ts?: string; }
 export interface Session { id: string; dir: string; imageCount: number; images: Screenshot[]; createdAt?: string; mtime: string; }
 export interface LogFile { filename: string; size: number; createdAt?: string; mtime: string; }
@@ -55,7 +63,7 @@ interface IApp {
   refreshLogFiles: () => Promise<void>;
   refreshProcesses: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
-  accounts: any[];
+  accounts: unknown[];
   addToast: (msg: string, type?: Toast['type']) => void;
 }
 
@@ -72,14 +80,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [logFiles, setLogFiles] = useState<LogFile[]>([]);
   const [liveShots, setLiveShots] = useState<Record<string, Screenshot>>({});
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
-  const [accounts, setAccounts] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<unknown[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket] = useState<Socket | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return io('/', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 8000,
+      timeout: 20000,
+    });
+  });
   const [sseConnected, setSseConnected] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const connectedRef = useRef(false);
+  const sseConnectedRef = useRef(false);
   const sessionsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disconnectDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processedEventsCache = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
+
+  useEffect(() => {
+    sseConnectedRef.current = sseConnected;
+  }, [sseConnected]);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).slice(2);
@@ -105,12 +134,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
-  // Hash Routing
+  // Hash Routing - read hash only after hydration (client-only)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '');
-      if (hash) setView(hash);
-
       const handleHash = () => {
         const h = window.location.hash.replace('#', '');
         if (h) setView(h);
@@ -164,21 +190,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    const socketInstance: Socket = io('/', {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 800,
-      reconnectionDelayMax: 8000,
-      timeout: 20000,
-    });
-    setSocket(socketInstance);
+    if (!socket) return;
+    const socketInstance = socket;
+
     socketInstance.on('connect', () => {
       clearDisconnectDebounce();
       setConnected(true);
       // Only set realtimeConnected if SSE is not already connected (SSE priority)
-      if (!sseConnected) {
+      if (!sseConnectedRef.current) {
         setRealtimeConnected(true);
       }
       refreshProcesses();
@@ -189,7 +208,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refreshProcesses();
       queueRefreshSessions();
       // If SSE is still connected, realtime is still available
-      if (sseConnected) {
+      if (sseConnectedRef.current) {
         setRealtimeConnected(true);
       } else {
         setRealtimeConnected(false);
@@ -214,7 +233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     socketInstance.on('processes:sync', (list: ProcessInfo[]) => {
       // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnected) return;
+      if (sseConnectedRef.current) return;
       const m: Record<string, ProcessInfo> = {};
       list.forEach(p => {
         if (!p) return;
@@ -226,7 +245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     socketInstance.on('process:log', ({ id, log }: { id: string; log: LogEntry }) => {
       // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnected) return;
+      if (sseConnectedRef.current) return;
       setProcesses(p => {
         const e = p[id] || {
           id, name: `Script ${id}`, command: '', cwd: '',
@@ -246,9 +265,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    socketInstance.on('process:status', ({ id, status, exitCode, pid, name }: any) => {
+    socketInstance.on('process:status', ({ id, status, exitCode, pid, name }: ProcessStatusEvent) => {
       // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnected) return;
+      if (sseConnectedRef.current) return;
       setProcesses(p => {
         const e = p[id] || {
           id, name: name || `Script ${id}`, command: '', cwd: '',
@@ -261,7 +280,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Live screenshot pushed from server when new file appears
     socketInstance.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string; email?: string }) => {
       // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnected) return;
+      if (sseConnectedRef.current) return;
       setLiveShots(prev => ({
         ...prev,
         [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
@@ -297,11 +316,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       socketInstance.disconnect();
     };
-  }, [queueRefreshSessions, refreshProcesses]);
+  }, [queueRefreshSessions, refreshProcesses, socket]);
 
   // SSE (Server-Sent Events) - runs in parallel with Socket.io
   useEffect(() => {
     let eventSource: EventSource | null = null;
+    let closedByCleanup = false;
+
+    const updateRealtimeFromFallback = () => {
+      setRealtimeConnected(connectedRef.current);
+    };
 
     try {
       eventSource = new EventSource('/api/events/stream');
@@ -360,7 +384,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       eventSource.addEventListener('process:status', (e: MessageEvent) => {
         try {
-          const { id, status, exitCode, pid, name }: any = JSON.parse(e.data);
+          const { id, status, exitCode, pid, name }: ProcessStatusEvent = JSON.parse(e.data);
           // Dedup to prevent duplicate processing (use current timestamp for key)
           if (isEventProcessed('process:status', id, new Date().toISOString())) return;
           setProcesses(p => {
@@ -410,36 +434,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Heartbeat, no action needed
       });
 
-      eventSource.addEventListener('error', (err) => {
-        console.warn('[SSE] Error:', err);
-        setSseConnected(false);
-        // If socket is still connected, realtime is still available
-        if (connected) {
-          setRealtimeConnected(true);
+      eventSource.addEventListener('error', () => {
+        if (closedByCleanup) return;
+        const readyState = eventSource?.readyState;
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : undefined;
+        if (readyState === EventSource.CLOSED) {
+          console.warn('[SSE] Connection closed; browser will auto-reconnect', { readyState, online });
         } else {
-          setRealtimeConnected(false);
+          console.info('[SSE] Transient stream interruption', { readyState, online });
         }
+        setSseConnected(false);
+        updateRealtimeFromFallback();
       });
 
     } catch (err) {
       console.error('[SSE] Failed to connect:', err);
-      setSseConnected(false);
     }
 
     return () => {
       if (eventSource) {
+        closedByCleanup = true;
         eventSource.close();
         console.log('[SSE] Disconnected');
         setSseConnected(false);
-        // If socket is still connected, realtime is still available
-        if (connected) {
-          setRealtimeConnected(true);
-        } else {
-          setRealtimeConnected(false);
-        }
+        updateRealtimeFromFallback();
       }
     };
-  }, [queueRefreshSessions, connected]);
+  }, [isEventProcessed, queueRefreshSessions]);
 
   // Initial load
   useEffect(() => {
@@ -502,7 +523,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addToast('🦊 Camofox đã khởi động!', 'success');
     optimisticAdd('camofox', '🦊 Camofox Browser Server', 'node server.js', res.pid);
     refreshProcesses();
-  }, [addToast, config, refreshProcesses]);
+  }, [addToast, refreshProcesses]);
 
   const startWorker = useCallback(async () => {
     const res = await post('/api/processes/worker/start');

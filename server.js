@@ -302,7 +302,14 @@ app.prepare().then(() => {
     req.on('error', (err) => {
       clearInterval(heartbeatInterval);
       sseClients.delete(res);
-      console.warn('[SSE] Client error:', err.message);
+      const msg = String(err?.message || err || '').toLowerCase();
+      const code = String(err?.code || '').toUpperCase();
+      const expectedDisconnect = code === 'ECONNRESET' || msg.includes('aborted') || msg.includes('socket hang up');
+      if (expectedDisconnect) {
+        console.info('[SSE] Client disconnected abruptly (expected):', err?.message || String(err));
+      } else {
+        console.warn('[SSE] Client error:', err?.message || String(err));
+      }
     });
   });
 
