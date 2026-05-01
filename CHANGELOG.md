@@ -27,6 +27,7 @@
 3. **`tools.config.json` — Config fix**
    - Set `camofoxPort: 9377` và `camofoxApi: "http://localhost:9377"` (đúng port camofox v1.8.15)
    - Set `workerAuthToken: "default-session-key"` cho sessionKey injection
+   - Khôi phục `d1WorkerUrl` và `d1SyncSecret` bị mất khi ghi đè file config (fix lỗi 400 "Missing D1 config")
 
 4. **`scripts/debug/` — Probe scripts (5 file mới)**
    - `probe-logged-in-mfa-cookie.js`, `probe-mfa-and-cookie.js`, `probe-after-login.js`, `probe-new-openai-flow.js`, `probe-signup-page.js`
