@@ -660,9 +660,37 @@ export async function runAutoRegister(taskInput) {
 
     console.log(`[Flow Detection]:`, JSON.stringify(flowDetection));
 
-    // 3. Flow CŨ: Điền mật khẩu ngay nếu có password input
-    if (flowDetection.flow === 'old') {
-      console.log(`[3] Flow cũ: Điền Password -> ${chatGptPassword}`);
+    // 3. Điền mật khẩu (flow cũ có password input sẵn, flow mới cần click link trước)
+    if (flowDetection?.flow === 'new') {
+      // Flow mới: click "Continue with password" link trước
+      console.log(`[3] Flow mới: Click "Continue with password"...`);
+      const pwdLinkResult = await evalJson(tabId, USER_ID, `
+        (() => {
+          let link = document.querySelector('a[href*="create-account/password"]');
+          if (link) {
+            link.click();
+            return { clicked: true, method: 'href', text: link.textContent.trim() };
+          }
+          link = Array.from(document.querySelectorAll('a')).find(a => {
+            const t = (a.textContent || '').trim().toLowerCase();
+            return t === 'continue with password';
+          });
+          if (link) {
+            link.click();
+            return { clicked: true, method: 'text', text: link.textContent.trim() };
+          }
+          return { clicked: false, error: 'no-continue-with-password-link' };
+        })()
+      `, 5000);
+      console.log(`[3.1] Click "Continue with password" →`, JSON.stringify(pwdLinkResult));
+      await new Promise(r => setTimeout(r, 5000));
+      await saveStep('03_continue_with_password_clicked');
+    }
+
+    // Điền password (cả 2 flow đều cần)
+    const hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
+    if (hasPwdInput) {
+      console.log(`[3] Điền Password -> ${chatGptPassword}`);
       const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
       const pwdClickInfo = await evalJson(tabId, USER_ID, `
             (() => {
@@ -723,112 +751,40 @@ export async function runAutoRegister(taskInput) {
       await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
       await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
       await saveStep('03_after_password_submit');
-    } else {
-      console.log(`[3] Flow mới: Bỏ qua bước điền password, sẽ xử lý ở bước 4`);
-      await saveStep('03_skipped_password_new_flow');
     }
 
-    // 4. Flow MỚI: Xử lý màn hình Email Verification (chỉ chạy nếu flowDetection.flow === 'new')
-    if (flowDetection.flow === 'new') {
-      console.log(`[4] Flow mới: Xử lý Email Verification screen...`);
-      const pwdLinkResult = await evalJson(tabId, USER_ID, `
-        (() => {
-          // Method 1: By href (ổn định nhất)
-          let link = document.querySelector('a[href*="create-account/password"]');
-          if (link) {
-            link.click();
-            return { clicked: true, method: 'href', text: link.textContent.trim() };
-          }
+    // 4. Giải OTP (giống bản gốc - luôn check)
+    console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
+    const isVerifyEmailUrl = await evalJson(tabId, USER_ID, `location.href.includes('email-verification')`);
+    if (isVerifyEmailUrl || await evalJson(tabId, USER_ID, `document.body.innerText.toLowerCase().includes('verify')`)) {
+      console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
+      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 90 });
+      if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
 
-          // Method 2: By text match
-          link = Array.from(document.querySelectorAll('a')).find(a => {
-            const t = (a.textContent || '').trim().toLowerCase();
-            return t === 'continue with password';
-          });
-          if (link) {
-            link.click();
-            return { clicked: true, method: 'text', text: link.textContent.trim() };
-          }
+      console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
+      await evalJson(tabId, USER_ID, `
+              (() => {
+                 const typeReact = (inputSelector, text) => {
+                   const input = document.querySelector(inputSelector);
+                   if(!input) return false;
+                   const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                   nativeSetter.call(input, text);
+                   input.dispatchEvent(new Event('input', { bubbles: true }));
+                   return true;
+                 };
 
-          return { clicked: false, error: 'no-continue-with-password-link' };
-        })()
-      `, 5000);
-
-      console.log(`[4.1] Click "Continue with password" →`, JSON.stringify(pwdLinkResult));
-
-      if (!pwdLinkResult?.clicked) {
-        console.log(`[4.1] ⚠️ Không tìm thấy link "Continue with password", thử fallback nhập OTP...`);
-        const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 90 });
-        if (!otpCode) throw new Error("Thất bại: Không tìm thấy link password và cũng không lấy được OTP sau 90s.");
-
-        await evalJson(tabId, USER_ID, `
-          (() => {
-            const typeReact = (inputSelector, text) => {
-              const input = document.querySelector(inputSelector);
-              if(!input) return false;
-              const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-              nativeSetter.call(input, text);
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              return true;
-            };
-            typeReact('input[name="code"], input[autocomplete="one-time-code"]', "${otpCode}");
-            const isVisible = el => el && el.getBoundingClientRect().width > 0;
-            const btn = Array.from(document.querySelectorAll('button')).find(b =>
-              (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next')) &&
-              !b.textContent.includes('with') && isVisible(b)
-            );
-            if (btn) btn.click();
-          })()
-        `);
-        await new Promise(r => setTimeout(r, 6000));
-        await saveStep('04_pin_verified');
-      } else {
-        await new Promise(r => setTimeout(r, 5000));
-        await saveStep('04_continue_with_password_clicked');
-
-        console.log(`[4.2] Điền mật khẩu trên màn hình create-account/password...`);
-        const pwdFillResult = await evalJson(tabId, USER_ID, `
-          (() => {
-            const typeReact = (el, text) => {
-              if (!el) return false;
-              const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-              nativeSetter.call(el, text);
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return true;
-            };
-            const isVisible = el => {
-              if (!el) return false;
-              const r = el.getBoundingClientRect();
-              return r.width > 0 && r.height > 0;
-            };
-
-            const pwdInput = document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
-            if (!pwdInput) return { error: 'no-password-input' };
-
-            typeReact(pwdInput, "${chatGptPassword}");
-
-            const btn = Array.from(document.querySelectorAll('button, [role="button"]'))
-              .filter(isVisible)
-              .find(b => {
-                const t = (b.innerText || b.textContent || '').toLowerCase();
-                return !t.includes('with') && (t === 'continue' || t === 'tiếp tục' || t === 'create account' || t === 'next');
-              });
-
-            if (btn) {
-              btn.click();
-              return { ok: true, clicked: true };
-            } else {
-              pwdInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-              return { ok: true, clicked: false, method: 'enter-key' };
-            }
-          })()
-        `, 5000);
-
-        console.log(`[4.2] Password fill result →`, JSON.stringify(pwdFillResult));
-        await new Promise(r => setTimeout(r, 5000));
-        await saveStep('04_password_filled_new_flow');
-      }
+                 typeReact('input[name="code"], input[autocomplete="one-time-code"]', "${otpCode}");
+                 
+                 const isVisible = el => el && el.getBoundingClientRect().width > 0;
+                 const btn = Array.from(document.querySelectorAll('button')).find(b => 
+                    (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next')) &&
+                    !b.textContent.includes('with') && isVisible(b)
+                 );
+                 if (btn) btn.click();
+              })()
+            `);
+      await new Promise(r => setTimeout(r, 6000));
+      await saveStep('04_pin_verified');
     }
 
     // 5. Cấp User Info (tên, ngày sinh)
