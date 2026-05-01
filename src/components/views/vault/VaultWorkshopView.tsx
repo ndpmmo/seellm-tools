@@ -358,8 +358,12 @@ export function VaultWorkshopView() {
 
         if (count > 0) {
             addToast(`✅ Đã import và bắt đầu kiểm tra ${count} email`, 'success');
-            // Optimistic update: add new emails to the top of the list
-            setItems(prev => [...newEmails, ...prev]);
+            // Optimistic update: add new emails to the top of the list (dedupe to prevent duplicates from socket fetch)
+            setItems(prev => {
+                const existingEmails = new Set(prev.map(e => e.email));
+                const uniqueNew = newEmails.filter(e => !existingEmails.has(e.email));
+                return [...uniqueNew, ...prev];
+            });
         }
 
         setInputText('');

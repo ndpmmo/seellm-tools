@@ -48,6 +48,22 @@ Trong thực tế đây thường là ngắt kết nối tạm thời (refresh t
 - Chuẩn hoá `accounts` sang `unknown[]` để bỏ `no-explicit-any`.
 - Xác nhận: `npm run lint -- src/components/AppContext.tsx` ✅ pass.
 
+### 🔧 Fix — Duplicate keys trong email pool list
+
+**Vấn đề:** Sau khi import email mới, danh sách hiện 2 lần cùng email → lỗi React "Encountered two children with the same key".
+
+**Nguyên nhân:**
+1. Optimistic update: thêm email vào list ngay lập tức
+2. Server emit socket event `email-pool-updated`
+3. UI gọi API fetch lại full list → email mới đã có sẵn → trùng lặp
+
+**Giải pháp:** Deduplicate trước khi setItems — lọc bỏ email đã tồn tại trong state trước khi thêm mới.
+
+**Files cập nhật:**
+- `src/components/views/vault/VaultWorkshopView.tsx`
+
+**Kết quả:** Không còn lỗi duplicate keys khi import email.
+
 ## [0.3.6] - 2026-04-30
 
 ###  New Features - Camofox v1.8.15 Integration
