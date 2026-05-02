@@ -17,7 +17,7 @@ import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './c
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
-import { createSaveStep } from './lib/screenshot.js';
+import { createStepRecorder } from './lib/screenshot.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
@@ -112,7 +112,7 @@ async function tryConsentOrWorkspaceFlow(tabId, userId) {
   return bypassResult; // { code, error, ... }
 }
 
-async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) {
+async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}) {
   console.log(`[OAuth] Starting Codex OAuth PKCE flow...`);
   const pkce = generatePKCE();
   const authUrl = buildOAuthURL(pkce);
@@ -126,7 +126,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
 
   // Re-install interceptor after navigation (page reloads clear it)
   await setupCallbackInterceptor(tabId, userId);
-  await saveStep('oauth_start');
+  // OAuth Phase 1, Step 1: OAuth start
+  await recorder.checkpoint(1, 1, 'oauth_start');
 
   // ── State tracking ──
   let emailFilled = false;
@@ -183,7 +184,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
     // ── 4. Phone verification screen → workspace bypass ──
     if (state?.hasPhoneScreen) {
       console.log(`[OAuth] Phone screen detected, trying workspace bypass...`);
-      await saveStep('oauth_phone_bypass_attempt');
+      // OAuth Phase 1, Step 2: Phone bypass attempt
+      await recorder.before(1, 2, 'phone_bypass');
       const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
       if (bypassResult?.code) {
         authCode = bypassResult.code;
@@ -201,7 +203,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
       console.log(`[OAuth] fillEmail →`, JSON.stringify(r));
       emailFilled = true;
       await new Promise(r2 => setTimeout(r2, 4000));
-      await saveStep('oauth_email_filled');
+      // OAuth Phase 1, Step 3: Email filled
+      await recorder.after(1, 3, 'email_filled');
       continue;
     }
 
@@ -211,7 +214,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
       console.log(`[OAuth] fillPassword →`, JSON.stringify(r));
       passwordFilled = true;
       await new Promise(r2 => setTimeout(r2, 4000));
-      await saveStep('oauth_password_filled');
+      // OAuth Phase 1, Step 4: Password filled
+      await recorder.after(1, 4, 'password_filled');
       continue;
     }
 
@@ -225,7 +229,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
         console.log(`[OAuth] fillMfa →`, JSON.stringify(r));
         mfaFilled = true;
         await new Promise(r2 => setTimeout(r2, 5000));
-        await saveStep('oauth_mfa_filled');
+        // OAuth Phase 1, Step 5: MFA filled
+        await recorder.after(1, 5, 'mfa_filled');
         continue;
       } catch (e) {
         console.log(`[OAuth] MFA fill error: ${e.message}`);
@@ -248,7 +253,8 @@ async function performCodexOAuth(tabId, userId, proxyUrl, saveStep, creds = {}) 
       console.log(`[OAuth] 🔓 Consent/workspace screen detected, attempting bypass (${consentAttempts + 1}/${MAX_CONSENT_ATTEMPTS})...`);
       consentAttempted = true;
       consentAttempts++;
-      await saveStep(`oauth_consent_attempt_${consentAttempts}`);
+      // OAuth Phase 1, Step 6: Consent bypass attempt
+      await recorder.before(1, 6, `consent_attempt_${consentAttempts}`);
       const bypassResult = await tryConsentOrWorkspaceFlow(tabId, userId);
       if (bypassResult?.code) {
         authCode = bypassResult.code;
@@ -424,6 +430,180 @@ async function waitForUrlChange(tabId, userId, oldUrl, { timeoutMs = 8000, inter
   return null;
 }
 
+function normalizeUiText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+async function collectSignupUiState(tabId, userId) {
+  return evalJson(tabId, userId, `(() => {
+    const isVisible = el => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const normalize = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const controls = Array.from(document.querySelectorAll('button, a, div[role="button"], [role="menuitem"]'))
+      .filter(isVisible)
+      .map(el => ({
+        tag: el.tagName.toLowerCase(),
+        text: normalize(el.innerText || el.textContent || ''),
+        rawText: (el.innerText || el.textContent || '').trim().slice(0, 120),
+        id: el.id || null,
+        role: el.getAttribute('role') || null,
+        type: el.getAttribute('type') || null,
+        dataTestId: el.getAttribute('data-testid') || null,
+        href: el.getAttribute('href') || null,
+      }));
+    const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]');
+    const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"]');
+    const bodyText = normalize(document.body?.innerText || document.body?.textContent || '');
+    return {
+      url: location.href,
+      title: document.title || '',
+      bodyText: bodyText.slice(0, 1000),
+      hasEmailInput,
+      hasPasswordInput,
+      controls,
+    };
+  })()`, 6000);
+}
+
+function classifySignupUiState(state) {
+  const controls = Array.isArray(state?.controls) ? state.controls : [];
+  const texts = controls.map(c => normalizeUiText(c.text));
+  const rawTexts = controls.map(c => normalizeUiText(c.rawText));
+  const dataTestIds = controls.map(c => normalizeUiText(c.dataTestId));
+  const has = (...needles) => needles.some(needle =>
+    texts.some(t => t === needle || t.includes(needle)) ||
+    rawTexts.some(t => t === needle || t.includes(needle)) ||
+    dataTestIds.some(t => t === needle || t.includes(needle)) ||
+    normalizeUiText(state?.url || '').includes(needle)
+  );
+
+  const actions = {
+    signup: has('sign up for free', 'sign up') || dataTestIds.some(t => t.includes('signup-button')),
+    moreOptions: has('more options'),
+    emailOption: has('continue with email', 'use email', 'email address'),
+    socialOnly: has('continue with google', 'continue with apple', 'continue with microsoft', 'continue with phone'),
+    login: has('log in'),
+  };
+
+  let variant = 'unknown';
+  if (state?.hasEmailInput) variant = 'email_ready';
+  else if (actions.signup) variant = 'signup_button';
+  else if (actions.moreOptions && actions.socialOnly) variant = 'more_options_social';
+  else if (actions.moreOptions) variant = 'more_options';
+  else if (actions.emailOption) variant = 'email_option';
+  else if (actions.socialOnly) variant = 'social_only';
+  else if (actions.login) variant = 'login_only';
+
+  return {
+    variant,
+    actions,
+    summary: {
+      url: state?.url || '',
+      title: state?.title || '',
+      hasEmailInput: !!state?.hasEmailInput,
+      hasPasswordInput: !!state?.hasPasswordInput,
+      controls: controls.slice(0, 10).map(c => ({ text: c.rawText, dataTestId: c.dataTestId, role: c.role, tag: c.tag })),
+    },
+  };
+}
+
+async function clickSignupUiAction(tabId, userId, labels, actionName) {
+  return evalJson(tabId, userId, `(() => {
+    const normalize = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const isVisible = el => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const wanted = ${JSON.stringify(labels.map(normalizeUiText))};
+    const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], [role="menuitem"]')).filter(isVisible);
+    const match = candidates.find(el => {
+      const text = normalize(el.innerText || el.textContent || '');
+      const aria = normalize(el.getAttribute('aria-label') || '');
+      const dataTestId = normalize(el.getAttribute('data-testid') || '');
+      const role = normalize(el.getAttribute('role') || '');
+      const href = normalize(el.getAttribute('href') || '');
+      return wanted.some(label => {
+        if (!label) return false;
+        return text === label || text.includes(label) || aria === label || aria.includes(label) || dataTestId === label || dataTestId.includes(label) || role === label || href.includes(label.replace(/\s+/g, '-'));
+      });
+    });
+    if (!match) {
+      return {
+        clicked: false,
+        reason: 'no-match',
+        action: ${JSON.stringify(actionName)},
+        wanted,
+        available: candidates.slice(0, 12).map(el => ({
+          tag: el.tagName.toLowerCase(),
+          text: normalize(el.innerText || el.textContent || ''),
+          dataTestId: normalize(el.getAttribute('data-testid') || ''),
+          role: normalize(el.getAttribute('role') || ''),
+        })),
+      };
+    }
+    match.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+    match.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+    match.click();
+    return {
+      clicked: true,
+      action: ${JSON.stringify(actionName)},
+      text: (match.innerText || match.textContent || '').trim(),
+      tag: match.tagName.toLowerCase(),
+      dataTestId: match.getAttribute('data-testid') || null,
+    };
+  })()`, 5000);
+}
+
+async function waitForSignupProgress(tabId, userId, baselineState, { timeoutMs = 12000, intervalMs = 600 } = {}) {
+  const baselineSignature = JSON.stringify({
+    url: baselineState?.url || '',
+    title: baselineState?.title || '',
+    bodyText: baselineState?.bodyText || '',
+    controls: (baselineState?.controls || []).map(c => `${c.tag}|${c.text}|${c.dataTestId}|${c.role}`).slice(0, 12),
+  });
+  const start = Date.now();
+  let lastState = baselineState || null;
+  let navigationSeenAt = null;
+
+  while (Date.now() - start < timeoutMs) {
+    const state = await collectSignupUiState(tabId, userId);
+    if (state) {
+      lastState = state;
+      if (state.hasEmailInput) {
+        return { status: 'email_input', state };
+      }
+
+      const signature = JSON.stringify({
+        url: state.url || '',
+        title: state.title || '',
+        bodyText: state.bodyText || '',
+        controls: (state.controls || []).map(c => `${c.tag}|${c.text}|${c.dataTestId}|${c.role}`).slice(0, 12),
+      });
+      const uiChanged = signature !== baselineSignature;
+      const classification = classifySignupUiState(state);
+      const isAuthPage = normalizeUiText(state.url || '').includes('auth.openai.com');
+
+      if (isAuthPage) {
+        if (!navigationSeenAt) navigationSeenAt = Date.now();
+        if (Date.now() - navigationSeenAt >= 2500) {
+          return { status: 'navigated', state, variant: classification.variant };
+        }
+      }
+
+      if (uiChanged && (classification.actions.moreOptions || classification.actions.emailOption || classification.actions.signup)) {
+        return { status: 'ui_changed', state, variant: classification.variant };
+      }
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+
+  return { status: 'timeout', state: lastState };
+}
+
 
 // ============================================
 // MAIN REGISTER FLOW
@@ -467,7 +647,7 @@ export async function runAutoRegister(taskInput) {
   await fs.mkdir(runDir, { recursive: true }).catch(() => { });
 
   let tabId = null;
-  let saveStep = null;
+  let recorder = null;
   let preFlightResult = null;
   let phoneBypassAttempted = false;
   let phoneBypassSuccess = false;
@@ -502,7 +682,7 @@ export async function runAutoRegister(taskInput) {
     tabId = tabRes.tabId;
     console.log(`Tab ID: ${tabId}`);
 
-    saveStep = createSaveStep(runDir, { tabId, userId: USER_ID });
+    recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
 
     await new Promise(r => setTimeout(r, 5000));
 
@@ -522,130 +702,102 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    await saveStep('01_login_page');
+    // Phase 1, Step 1: Login page loaded
+    await recorder.checkpoint(1, 1, 'login_page');
 
     // Domain guard — đảm bảo đang ở chatgpt.com/auth.openai.com
     await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
 
-    // Click "Sign up" — chỉ cần thiết với UI cũ. UI mới (unified "Log in or sign up")
-    // đã có email input ngay → bỏ qua bước này tránh click nhầm.
+    // Detect the current signup UI variant before choosing an action.
     console.log(`🖱️  Chuyển sang luồng Đăng ký...`);
     const urlBeforeSignup = await evalJson(tabId, USER_ID, `location.href`);
-    const signupClickResult = await evalJson(tabId, USER_ID, `(() => {
-      // Nếu UI mới đã có email input → KHÔNG cần click Sign up
-      const hasEmailInput = !!document.querySelector(
-        'input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]'
-      );
-      if (hasEmailInput) return { skipped: true, reason: 'unified-ui-email-input-present' };
+    console.log(`[Sign-up step] Starting URL: ${urlBeforeSignup}`);
+    let signupUiState = await collectSignupUiState(tabId, USER_ID);
+    let signupVariant = classifySignupUiState(signupUiState);
+    console.log(`[Sign-up step] UI variant → ${JSON.stringify(signupVariant.summary)}`);
+    await recorder.checkpoint(1, 1, `login_page_${signupVariant.variant}`);
 
-      const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-      const elements = Array.from(document.querySelectorAll('a, button, div[role="button"]')).filter(isVisible);
-      const signup = elements.find(l => {
-        const t = (l.innerText || l.textContent || '').toLowerCase().trim();
-        return t === 'sign up' || t === 'sign up for free' || (t.startsWith('sign up') && !t.includes(' or '));
-      });
-      if (signup) {
-        // Dispatch event native để qua mặt React pointer-events: none (nếu có)
-        signup.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        signup.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-        signup.click();
-        return { clicked: true, text: signup.innerText.trim(), tag: signup.tagName };
-      }
-      return { skipped: true, reason: 'no-signup-button-found' };
-    })()`);
-    console.log(`[Sign-up step] →`, JSON.stringify(signupClickResult || {}));
+    const signupStrategies = [];
+    if (signupVariant.actions.signup) {
+      signupStrategies.push({ name: 'sign_up_for_free', labels: ['Sign up for free', 'Sign up'] });
+    }
+    if (signupVariant.actions.moreOptions) {
+      signupStrategies.push({ name: 'more_options', labels: ['More options'] });
+    }
+    if (signupVariant.actions.emailOption) {
+      signupStrategies.push({ name: 'continue_with_email', labels: ['Continue with email', 'Use email', 'Email address', 'Email'] });
+    }
+    if (!signupStrategies.length) {
+      signupStrategies.push({ name: 'direct_log_in_or_create_account', directNavigate: 'https://auth.openai.com/log-in-or-create-account' });
+    }
 
-    // Nếu không tìm thấy nút Sign up (ví dụ bị ẩn hoặc UI mới), thử click nút "Sign up for free" bằng data-testid
-    if (signupClickResult?.skipped && signupClickResult.reason === 'no-signup-button-found') {
-      console.log(`[Sign-up step] ⚠️ Không tìm thấy nút Đăng ký text-based, thử click bằng data-testid...`);
-      const dataTestidClick = await evalJson(tabId, USER_ID, `
-        (() => {
-          const btn = document.querySelector('button[data-testid="signup-button"]');
-          if (btn) {
-            btn.click();
-            return { clicked: true, method: 'data-testid' };
-          }
-          return { clicked: false, error: 'no-signup-button-by-testid' };
-        })()
-      `, 5000);
-      console.log(`[Sign-up step] data-testid click →`, JSON.stringify(dataTestidClick));
-
-      if (!dataTestidClick?.clicked) {
-        console.log(`[Sign-up step] ⚠️ Không tìm thấy nút signup, thử navigate với action=signup...`);
+    let signupResolved = false;
+    for (const strategy of signupStrategies) {
+      if (strategy.directNavigate) {
+        console.log(`[Sign-up step] Strategy ${strategy.name}: direct navigate → ${strategy.directNavigate}`);
         try {
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login?action=signup' });
-          await new Promise(r => setTimeout(r, 5000));
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: strategy.directNavigate });
         } catch (e) {
           const msg = e?.message || String(e);
-          if (msg.includes('NS_BINDING_ABORTED')) {
-            console.log(`[Sign-up step] navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
-          } else {
-            throw e;
-          }
+          if (!msg.includes('NS_BINDING_ABORTED')) throw e;
+          console.log(`[Sign-up step] direct navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
         }
       } else {
-        await new Promise(r => setTimeout(r, 4000));
+        const clickResult = await clickSignupUiAction(tabId, USER_ID, strategy.labels, strategy.name);
+        console.log(`[Sign-up step] ${strategy.name} →`, JSON.stringify(clickResult || {}));
+        if (!clickResult?.clicked) continue;
       }
-    } else if (signupClickResult?.clicked) {
-      const signupUrlChanged = await waitForUrlChange(tabId, USER_ID, urlBeforeSignup, { timeoutMs: 8000, intervalMs: 500 });
-      const emailInputCheck = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
-      if (!emailInputCheck) {
-        if (signupUrlChanged) {
-          console.log(`[Sign-up step] URL đã đổi sang ${signupUrlChanged} nhưng ô Email chưa sẵn sàng, chờ thêm...`);
-          await new Promise(r => setTimeout(r, 3000));
-        } else {
-          console.log(`[Sign-up step] ⚠️ Click không làm đổi URL, thử click bằng data-testid...`);
-          const dataTestidClick = await evalJson(tabId, USER_ID, `
-            (() => {
-              const btn = document.querySelector('button[data-testid="signup-button"]');
-              if (btn) {
-                btn.click();
-                return { clicked: true, method: 'data-testid' };
-              }
-              return { clicked: false, error: 'no-signup-button-by-testid' };
-            })()
-          `, 5000);
-          if (dataTestidClick?.clicked) {
-            await new Promise(r => setTimeout(r, 4000));
-          }
+
+      const progress = await waitForSignupProgress(tabId, USER_ID, signupUiState, {
+        timeoutMs: (proxyUrl ? CONFIG.emailInputTimeoutWithProxy : CONFIG.emailInputTimeout) * 1000,
+        intervalMs: 600,
+      });
+      console.log(`[Sign-up step] progress after ${strategy.name} →`, JSON.stringify(progress || {}));
+      signupUiState = progress?.state || await collectSignupUiState(tabId, USER_ID);
+      signupVariant = classifySignupUiState(signupUiState);
+
+      if (signupUiState?.hasEmailInput) {
+        signupResolved = true;
+        break;
+      }
+
+      if (progress?.status === 'navigated') {
+        await new Promise(r => setTimeout(r, 2000));
+        signupUiState = await collectSignupUiState(tabId, USER_ID);
+        if (signupUiState?.hasEmailInput) {
+          signupResolved = true;
+          break;
         }
       }
     }
 
-    // Chờ ô email input xuất hiện (tối đa CONFIG.emailInputTimeout) — tránh race condition khi trang auth load chậm
-    // Dynamic timeout: CONFIG.emailInputTimeout default, CONFIG.emailInputTimeoutWithProxy nếu dùng proxy
-    const emailInputTimeout = proxyUrl ? CONFIG.emailInputTimeoutWithProxy : CONFIG.emailInputTimeout;
-    const emailInputMaxAttempts = Math.floor(emailInputTimeout / 1.5); // 1.5s per attempt
-    console.log(`[Sign-up step] Email input timeout: ${emailInputTimeout}s (${emailInputMaxAttempts} attempts)`);
-    
-    let emailInputReady = false;
-    for (let attempt = 0; attempt < emailInputMaxAttempts; attempt++) {
-      const check = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
-      if (check) { emailInputReady = true; break; }
-      await new Promise(r => setTimeout(r, 1500));
-    }
-
-    // Nếu email input không xuất hiện, retry với reload
-    if (!emailInputReady) {
-      console.log(`[Sign-up step] ❌ Sau ${emailInputTimeout}s vẫn không thấy ô nhập Email. URL: ${await evalJson(tabId, USER_ID, 'location.href')}`);
-      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
-        return await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]')`);
-      }, 'EmailInputRetry', CONFIG.reloadMaxRetries);
-      if (retrySuccess) {
-        emailInputReady = true;
-        await new Promise(r => setTimeout(r, 3000));
-      } else {
-        throw new Error('Email input không xuất hiện sau retry với reload');
+    if (!signupResolved) {
+      for (let i = 0; i < 4 && !signupResolved; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        signupUiState = await collectSignupUiState(tabId, USER_ID);
+        if (signupUiState?.hasEmailInput) {
+          signupResolved = true;
+          break;
+        }
       }
     }
 
-    await new Promise(r => setTimeout(r, 5000));
-    await saveStep('02_register_page');
+    if (!signupResolved) {
+      const availableControls = (signupUiState?.controls || []).map(c => c.rawText || c.text).filter(Boolean).slice(0, 12);
+      throw new Error(`Email input không xuất hiện sau khi thử các chiến lược đăng ký (${signupVariant.variant}). URL=${await evalJson(tabId, USER_ID, 'location.href')}. Controls=${JSON.stringify(availableControls)}`);
+    }
+
+    await new Promise(r => setTimeout(r, 3000));
+
+    // Phase 1, Step 2: Register page loaded
+    await recorder.checkpoint(1, 2, 'register_page');
     await assertOnExpectedDomain(tabId, USER_ID, 'after-signup-click');
 
     // 2. Điền Email & Submit — selector ưu tiên submit-button-trong-form,
     //    LOẠI BỎ tuyệt đối các nút "Continue with Google/Apple/Microsoft/phone".
     console.log(`📝 [Phase 2] Đang điền Email: ${email}...`);
+    // Phase 2, Step 1: Before email submit
+    await recorder.before(2, 1, 'email_submit');
     const urlBeforeEmail = await evalJson(tabId, USER_ID, `location.href`);
     const emailClickInfo = await evalJson(tabId, USER_ID, `
       (() => {
@@ -717,7 +869,8 @@ export async function runAutoRegister(taskInput) {
       console.log(`[Email-submit] ⚠️ URL không đổi sau click — có thể click không hiệu lực`);
     }
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
-    await saveStep('02_after_email_submit');
+    // Phase 2, Step 1: After email submit
+    await recorder.after(2, 1, 'email_submit');
 
     // Detect flow sau khi submit email
     await new Promise(r => setTimeout(r, 3000));
@@ -798,7 +951,8 @@ export async function runAutoRegister(taskInput) {
       `, 5000);
       console.log(`[3.1] Click "Continue with password" →`, JSON.stringify(pwdLinkResult));
       await new Promise(r => setTimeout(r, 5000));
-      await saveStep('03_continue_with_password_clicked');
+      // Phase 2, Step 2: Continue with password clicked
+      await recorder.after(2, 2, 'continue_with_password');
     }
 
     // Điền password (cả 2 flow đều cần)
@@ -864,7 +1018,8 @@ export async function runAutoRegister(taskInput) {
       }
       await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
       await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
-      await saveStep('03_after_password_submit');
+      // Phase 2, Step 3: After password submit
+      await recorder.after(2, 3, 'password_submit');
     }
 
     // 4. Giải OTP (giống bản gốc - luôn check)
@@ -1073,14 +1228,16 @@ export async function runAutoRegister(taskInput) {
         }
       }
 
-      await saveStep('04_pin_verified');
+      // Phase 3, Step 1: Pin verified
+      await recorder.after(3, 1, 'pin_verified');
     }
 
     // 5. Cấp User Info (tên, ngày sinh)
     console.log(`[5] Bypass thông tin Form About...`);
     const userInfo = generateRandomUserInfo();
     await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
-    await saveStep('04b_before_about');
+    // Phase 3, Step 1: Before about form
+    await recorder.before(3, 1, 'about_form');
 
     const aboutFillInfo = await evalJson(tabId, USER_ID, `
           (() => {
@@ -1235,7 +1392,8 @@ export async function runAutoRegister(taskInput) {
     }
 
     await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
-    await saveStep('05_about_completed');
+    // Phase 3, Step 2: About form completed
+    await recorder.after(3, 2, 'about_completed');
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);
@@ -1248,7 +1406,8 @@ export async function runAutoRegister(taskInput) {
         console.log(`[6.1] ✅ Conditional bypass thành công! Code: ${bypassResult.code.slice(0, 20)}...`);
         phoneBypassSuccess = true;
         // Store code for later use if OAuth is enabled
-        await saveStep('06b_phone_bypass_success');
+        // Phase 4, Step 1: Phone bypass success
+        await recorder.after(4, 1, 'phone_bypass_success');
       } else {
         console.log(`[6.1] ❌ Conditional bypass thất bại: ${bypassResult.error}. Retry với navigation...`);
         
@@ -1266,7 +1425,8 @@ export async function runAutoRegister(taskInput) {
           if (retryResult.ok && retryResult.code) {
             console.log(`[6.1] ✅ Phone bypass retry ${retry} thành công! Code: ${retryResult.code.slice(0, 20)}...`);
             phoneBypassSuccess = true;
-            await saveStep('06b_phone_bypass_success');
+            // Phase 4, Step 1: Phone bypass success (retry)
+            await recorder.after(4, 1, 'phone_bypass_success_retry');
             break;
           } else {
             console.log(`[6.1] Phone bypass retry ${retry} failed: ${retryResult.error}`);
@@ -1312,14 +1472,15 @@ export async function runAutoRegister(taskInput) {
       })()
     `);
     await new Promise(r => setTimeout(r, 6000));
-    await saveStep('06_skip_survey');
+    // Phase 4, Step 2: Survey skipped
+    await recorder.after(4, 2, 'survey_skipped');
 
     // Thao tác đóng Welcome Modal (OK, let's go)
     console.log(`[6.1] Đóng Welcome Modal...`);
     await evalJson(tabId, USER_ID, `
       (() => {
         let retryCount = 0;
-        const maxRetries = CONFIG.welcomeModalMaxRetries;
+        const maxRetries = ${CONFIG.welcomeModalMaxRetries};
         const findAndClickOk = () => {
             if (retryCount >= maxRetries) return false;
             retryCount++;
@@ -1343,9 +1504,11 @@ export async function runAutoRegister(taskInput) {
       })()
     `);
     await new Promise(r => setTimeout(r, 5000));
-    await saveStep('07_inside_chat');
+    // Phase 5, Step 1: Inside chat
+    await recorder.after(5, 1, 'inside_chat');
 
-    await saveStep('06_home_reached');
+    // Phase 5, Step 2: Home reached
+    await recorder.checkpoint(5, 2, 'home_reached');
 
     // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
@@ -1397,7 +1560,7 @@ export async function runAutoRegister(taskInput) {
       console.log(`[7.5] CODEX OAUTH FLOW...`);
       console.log(`==========================================`);
       
-      const oauthResult = await performCodexOAuth(tabId, USER_ID, proxyUrl, saveStep, {
+      const oauthResult = await performCodexOAuth(tabId, USER_ID, proxyUrl, recorder, {
         email,
         password: chatGptPassword,
         mfaSecret: twoFaSecret,
@@ -1405,10 +1568,12 @@ export async function runAutoRegister(taskInput) {
       if (oauthResult.success && oauthResult.tokens) {
         codexRefreshToken = oauthResult.tokens.refresh_token || null;
         console.log(`[7.5] 🟢 Codex OAuth thành công! Refresh token: ${codexRefreshToken ? 'YES' : 'NO'}`);
-        await saveStep('oauth_success');
+        // OAuth Phase 2, Step 1: OAuth success
+        await recorder.after(2, 1, 'oauth_success');
       } else {
         console.log(`[7.5] 🔴 Codex OAuth thất bại: ${oauthResult.error}. Account vẫn được lưu với session token.`);
-        await saveStep('oauth_failed');
+        // OAuth Phase 2, Step 1: OAuth failed
+        await recorder.error(2, 1, 'oauth_failed');
         // Graceful fallback - continue with session token
       }
     }
