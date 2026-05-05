@@ -8,6 +8,7 @@
 
 import https from 'node:https';
 import crypto from 'node:crypto';
+import { checkSentinelWithVm } from './sentinel-vm.js';
 
 // ============================================
 // CONSTANTS
@@ -197,37 +198,30 @@ class ProtocolSession {
 }
 
 // ============================================
-// SENTINEL (MINIMAL — fallback to browser on PoW)
+// SENTINEL (with VM-powered Turnstile solver)
 // ============================================
 async function checkSentinel(session, deviceId, flow = 'authorize_continue') {
-  const body = JSON.stringify({ p: '', id: deviceId, flow });
-  const res = await session.fetch(ENDPOINTS.sentinel, {
-    method: 'POST',
-    headers: {
-      'Origin': 'https://sentinel.openai.com',
-      'Referer': 'https://sentinel.openai.com/backend-api/sentinel/frame.html',
-      'Content-Type': 'text/plain;charset=UTF-8',
-    },
-    body,
-    timeoutMs: 10000,
-  });
+  // Use SentinelVM to handle PoW and Turnstile challenges
+  const vmResult = await checkSentinelWithVm(session, deviceId, flow, (...args) => console.log('[Protocol]', ...args));
 
-  if (res.status !== 200) {
-    console.log(`[Protocol] Sentinel check failed: ${res.status}`);
-    return null;
+  if (!vmResult) {
+    console.log('[Protocol] Sentinel check failed, falling back to browser');
+    return { token: '', demandsProofOfWork: true };
   }
 
-  const data = res.json || {};
-  const token = data.token || '';
-  const pow = data.proofofwork || {};
-  const turnstile = data.turnstile || {};
-
-  if (pow.required || turnstile.dx) {
-    console.log('[Protocol] Sentinel demands PoW/turnstile — aborting protocol, fallback to browser');
-    return { token, demandsProofOfWork: true };
+  if (vmResult.demandsTurnstile && !vmResult.t) {
+    console.log('[Protocol] Turnstile VM failed to solve, falling back to browser');
+    return { token: vmResult.token, demandsProofOfWork: true };
   }
 
-  return { token, demandsProofOfWork: false };
+  console.log('[Protocol] Sentinel check passed', vmResult.demandsProofOfWork ? '(PoW solved)' : '', vmResult.demandsTurnstile ? '(Turnstile solved)' : '');
+
+  return {
+    token: vmResult.token,
+    p: vmResult.p,
+    t: vmResult.t,
+    demandsProofOfWork: false,
+  };
 }
 
 // ============================================
@@ -297,10 +291,11 @@ async function submitSignupForm(session, email, sentinelPayload) {
     'Content-Type': 'application/json',
   };
 
+  // Include solved p and t values from SentinelVM
   if (sentinelPayload && sentinelPayload.token) {
     const sentinel = JSON.stringify({
-      p: '',
-      t: '',
+      p: sentinelPayload.p || '',
+      t: sentinelPayload.t || '',
       c: sentinelPayload.token,
       id: sentinelPayload.deviceId,
       flow: 'authorize_continue',
@@ -553,7 +548,7 @@ export async function runProtocolRegistration({ email, password, proxyUrl = null
   log('Submitting signup form...');
   let signupResult;
   try {
-    signupResult = await submitSignupForm(session, email, { token: sentinel?.token || '', deviceId });
+    signupResult = await submitSignupForm(session, email, { token: sentinel?.token || '', p: sentinel?.p || '', t: sentinel?.t || '', deviceId });
   } catch (e) {
     return { success: false, error: `Signup form failed: ${e.message}`, needsBrowserFallback: true };
   }

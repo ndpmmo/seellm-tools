@@ -29,6 +29,13 @@
 - Export `PROTOCOL_FIRST` từ `scripts/config.js`: ưu tiên `process.env.PROTOCOL_FIRST`, fallback về config.
 - Settings UI (`src/components/views/SettingsView.tsx`) có toggle "Protocol-Mode Registration" để bật/tắt trực tiếp.
 
+**SentinelVM (Turnstile Solver):**
+- `scripts/lib/sentinel-vm.js` — Pure JavaScript implementation của Sentinel SDK VM, port từ lxf746/any-auto-register (Python).
+- Bao gồm `_FakeWindow` mock tất cả browser APIs (canvas, WebGL, AudioContext, localStorage, performance...).
+- Bao gồm `SentinelVM` execute obfuscated bytecode từ Turnstile challenge để tính 't' value.
+- Bao gồm `SentinelTokenGenerator` giải PoW challenge (FNV1a32 hash matching).
+- Protocol registration giờ tự động solve Turnstile thay vì fallback về browser.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
