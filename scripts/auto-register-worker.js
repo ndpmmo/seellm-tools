@@ -741,6 +741,11 @@ export async function runAutoRegister(taskInput) {
         skipRegistrationSteps = false;
       } else {
         console.log(`[Protocol] Failed: ${protocolResult?.error || 'unknown'} — falling back to browser`);
+        // Reset flags để browser flow detect lại từ đầu
+        isExistingAccount = false;
+        // Delay để OpenAI "quên" session từ protocol trước khi browser mở tab
+        console.log(`[Protocol] Waiting 10s before browser fallback to avoid session contamination...`);
+        await new Promise(r => setTimeout(r, 10000));
       }
     }
 

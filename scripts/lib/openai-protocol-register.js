@@ -11,6 +11,7 @@ import https from 'node:https';
 import tls from 'node:tls';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+import { spawn } from 'node:child_process';
 import { checkSentinelWithVm } from './sentinel-vm.js';
 
 // ============================================
@@ -142,6 +143,142 @@ function decompressBody(buffer, encoding = '') {
   return buffer.toString('utf8');
 }
 
+// ============================================
+// DATADOG TRACE HEADERS (mirrors upstream Python)
+// ============================================
+function generateDatadogTraceHeaders() {
+  const traceHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
+  const parentHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
+  const traceId = String(BigInt('0x' + traceHex));
+  const parentId = String(BigInt('0x' + parentHex));
+  return {
+    'traceparent': `00-0000000000000000${traceHex}-${parentHex}-01`,
+    'tracestate': 'dd=s:1;o:rum',
+    'x-datadog-origin': 'rum',
+    'x-datadog-parent-id': parentId,
+    'x-datadog-sampling-priority': '1',
+    'x-datadog-trace-id': traceId,
+  };
+}
+
+// ============================================
+// CURL TRANSPORT (Chrome impersonation via system curl)
+// ============================================
+function requestViaCurl({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000 }) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--silent', '--show-error',
+      '--compressed',
+      '--location',
+      '--max-redirs', '10',
+      '-X', method,
+    ];
+
+    // macOS built-in curl may not support --http2 / --tlsv1.3
+    // Let curl auto-negotiate HTTP version and TLS
+
+    // Proxy
+    if (proxyUrl) {
+      args.push('--proxy', proxyUrl);
+    }
+
+    // Timeout
+    args.push('--max-time', String(Math.ceil(timeoutMs / 1000)));
+    args.push('--connect-timeout', String(Math.ceil(timeoutMs / 2000)));
+
+    // Headers
+    for (const [k, v] of Object.entries(headers)) {
+      if (k.toLowerCase() === 'cookie') continue; // handled via -b
+      args.push('-H', `${k}: ${v}`);
+    }
+
+    // Cookie jar (memory only for this request)
+    if (headers['Cookie']) {
+      args.push('-b', headers['Cookie']);
+    }
+
+    // Body
+    if (body) {
+      args.push('-d', body);
+      if (!headers['Content-Type']) {
+        args.push('-H', 'Content-Type: application/x-www-form-urlencoded');
+      }
+    }
+
+    // Output capture: headers + body
+    args.push('-D', '-'); // dump headers to stdout before body
+    args.push('-o', '-'); // body to stdout
+    args.push(url);
+
+    const proc = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+
+    proc.stdout.on('data', chunk => stdoutChunks.push(chunk));
+    proc.stderr.on('data', chunk => stderrChunks.push(chunk));
+    proc.on('close', code => {
+      if (code !== 0) {
+        const err = Buffer.concat(stderrChunks).toString('utf8').slice(0, 500);
+        return reject(new Error(`curl failed (${code}): ${err}`));
+      }
+      const output = Buffer.concat(stdoutChunks).toString('utf8');
+      // Parse curl -D - output: headers then body
+      const headerEnd = output.indexOf('\r\n\r\n');
+      const headerEndAlt = output.indexOf('\n\n');
+      const splitIdx = headerEnd >= 0 ? headerEnd : headerEndAlt;
+      let rawHeaders = '';
+      let bodyText = '';
+      if (splitIdx >= 0) {
+        rawHeaders = output.slice(0, splitIdx);
+        bodyText = output.slice(splitIdx + (headerEnd >= 0 ? 4 : 2));
+      } else {
+        bodyText = output;
+      }
+
+      // Parse status and headers from last response (after redirects)
+      const lines = rawHeaders.split(/\r?\n/);
+      let status = 200;
+      const resHeaders = {};
+      for (const line of lines) {
+        const m = line.match(/^HTTP\/\d\.\d\s+(\d+)/i);
+        if (m) status = parseInt(m[1], 10);
+        else {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            const k = line.slice(0, idx).trim();
+            const v = line.slice(idx + 1).trim();
+            if (k.toLowerCase() === 'set-cookie') {
+              if (!resHeaders['set-cookie']) resHeaders['set-cookie'] = [];
+              resHeaders['set-cookie'].push(v);
+            } else {
+              resHeaders[k.toLowerCase()] = v;
+            }
+          }
+        }
+      }
+
+      resolve({ status, headers: resHeaders, body: bodyText });
+    });
+    proc.on('error', err => reject(new Error(`curl spawn error: ${err.message}`)));
+  });
+}
+
+let curlAvailable = null;
+async function isCurlAvailable() {
+  if (curlAvailable !== null) return curlAvailable;
+  try {
+    await new Promise((resolve, reject) => {
+      const p = spawn('curl', ['--version'], { stdio: 'ignore' });
+      p.on('close', c => c === 0 ? resolve() : reject());
+      p.on('error', reject);
+    });
+    curlAvailable = true;
+  } catch (_) {
+    curlAvailable = false;
+  }
+  return curlAvailable;
+}
+
 function buildProxyAuthHeader(proxy) {
   if (!proxy.username && !proxy.password) return null;
   return `Basic ${Buffer.from(`${decodeURIComponent(proxy.username || '')}:${decodeURIComponent(proxy.password || '')}`).toString('base64')}`;
@@ -260,31 +397,43 @@ class ProtocolSession {
     this.cookies = {};
     this.cookieDetails = [];
     this.defaultHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
+      'Accept-Encoding': 'gzip, deflate, br, zstd',
       'Connection': 'keep-alive',
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'same-site',
+      'Sec-Ch-Ua': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"macOS"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+      'Priority': 'u=0, i',
+      ...generateDatadogTraceHeaders(),
     };
+    this._useCurl = false;
+    this._curlChecked = false;
+  }
+
+  async _chooseTransport() {
+    if (this._curlChecked) return;
+    this._useCurl = await isCurlAvailable();
+    this._curlChecked = true;
+    console.log(`[Protocol] Transport: ${this._useCurl ? 'curl (Chrome impersonation)' : 'node:https (fallback)'}`);
   }
 
   async fetch(url, { method = 'GET', headers = {}, body = null, timeoutMs = 15000 } = {}) {
+    await this._chooseTransport();
     const mergedHeaders = { ...this.defaultHeaders, ...headers };
     if (Object.keys(this.cookies).length) {
       mergedHeaders['Cookie'] = cookieJarToHeader(this.cookies);
     }
 
-    const res = await request({
-      method,
-      url,
-      headers: mergedHeaders,
-      body,
-      proxyUrl: this.proxyUrl,
-      timeoutMs,
-    });
+    const res = this._useCurl
+      ? await requestViaCurl({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs })
+      : await request({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs });
 
     // Update cookie jar from Set-Cookie headers
     const setCookie = res.headers['set-cookie'];
@@ -374,6 +523,8 @@ async function startOAuth(session) {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Origin': CHATGPT_APP,
       'Referer': `${CHATGPT_APP}/`,
+      'Accept': 'application/json',
+      ...generateDatadogTraceHeaders(),
     },
     body: formData,
     timeoutMs: 10000,
@@ -408,6 +559,11 @@ async function submitSignupForm(session, email, sentinelPayload) {
     'Referer': 'https://auth.openai.com/create-account',
     'Accept': 'application/json',
     'Content-Type': 'application/json',
+    'Origin': OPENAI_AUTH,
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    ...generateDatadogTraceHeaders(),
   };
 
   // Include solved p and t values from SentinelVM
@@ -459,11 +615,13 @@ async function registerPassword(session, email, deviceId) {
       'Referer': `${OPENAI_AUTH}/create-account/password`,
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      'Sec-Ch-Ua': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
       'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Ch-Ua-Platform': '"macOS"',
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
+      ...generateDatadogTraceHeaders(),
     };
     if (deviceId) headers['oai-device-id'] = deviceId;
 
@@ -553,6 +711,9 @@ async function createUserAccount(session, userInfo, deviceId) {
     'Content-Type': 'application/json',
     'Origin': OPENAI_AUTH,
     'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    ...generateDatadogTraceHeaders(),
   };
   if (deviceId) headers['oai-device-id'] = deviceId;
 

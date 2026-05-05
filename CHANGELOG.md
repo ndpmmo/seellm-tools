@@ -2,7 +2,7 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [Unreleased] - 2026-05-06 01:15:00
+## [Unreleased] - 2026-05-06 04:07:00
 
 ### 🚀 Protocol-Mode Registration & Auto-Login Enhancements
 
@@ -44,6 +44,18 @@
 - Nâng cấp cookie jar để giữ đầy đủ metadata (`domain`, `path`, `expires`, `httpOnly`, `secure`, `sameSite`) phục vụ browser import.
 - `scripts/auto-register-worker.js` — bỏ cách seed bằng `document.cookie`, thay bằng import cookies qua `POST /sessions/:userId/cookies` của Camofox rồi verify session token đã có trong browser.
 - Fix logic existing-account fallback: chỉ protocol-success mới skip registration UI; email đã tồn tại sẽ quay về browser flow đúng cách.
+
+**Curl Transport + Chrome Impersonation (2026-05-06):**
+- `scripts/lib/openai-protocol-register.js` — Thêm `requestViaCurl()` sử dụng system `curl` để gửi request với TLS/HTTP headers giống Chrome thật (thay vì Node.js `https` native bị detect).
+- `requestViaCurl()` tự động chọn giữa `curl` và `node:https` fallback. Bỏ `--http2` / `--tlsv1.3` vì macOS built-in curl không hỗ trợ.
+- Thêm `generateDatadogTraceHeaders()` — mirrors upstream Python `_generate_datadog_trace_headers()` để gửi traceparent, x-datadog-* headers.
+- Cải thiện default headers: `Sec-Ch-Ua`, `Sec-Ch-Ua-Platform`, `Priority`, `Upgrade-Insecure-Requests`, `Sec-Fetch-User`, `Accept` đầy đủ.
+- Thêm Datadog headers vào tất cả các bước: OAuth signin/openai, signup form, password register, create account, sentinel request.
+- `scripts/lib/sentinel-vm.js` — sentinel POST cũng gửi `Sec-Fetch-*` headers + Datadog headers.
+
+**Browser Fallback Resilience:**
+- `scripts/config.js` — `protocolFirst: false` mặc định để protocol không làm bẩn IP trước khi browser mở tab.
+- `scripts/auto-register-worker.js` — Reset `isExistingAccount = false` + delay 10s sau protocol fail để OpenAI "quên" session từ Node.js request trước khi browser fallback.
 
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.

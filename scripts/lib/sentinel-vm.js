@@ -17,6 +17,22 @@ const SENTINEL_SDK_URL = 'https://cdn.jsdelivr.net/npm/@cloudflare/turnstile@0.4
 const SENTINEL_FRAME_URL = 'https://sentinel.openai.com/backend-api/sentinel/frame.html';
 const SENTINEL_REQ_URL = 'https://sentinel.openai.com/backend-api/sentinel/req';
 
+// Datadog trace headers (mirrors upstream Python)
+function generateDatadogTraceHeaders() {
+  const traceHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
+  const parentHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
+  const traceId = String(BigInt('0x' + traceHex));
+  const parentId = String(BigInt('0x' + parentHex));
+  return {
+    'traceparent': `00-0000000000000000${traceHex}-${parentHex}-01`,
+    'tracestate': 'dd=s:1;o:rum',
+    'x-datadog-origin': 'rum',
+    'x-datadog-parent-id': parentId,
+    'x-datadog-sampling-priority': '1',
+    'x-datadog-trace-id': traceId,
+  };
+}
+
 // Register keys (from Python constants)
 const R_XOR = 1;
 const R_SET = 2;
@@ -704,6 +720,11 @@ export async function checkSentinelWithVm(session, deviceId, flow = 'authorize_c
       'Origin': 'https://sentinel.openai.com',
       'Referer': SENTINEL_FRAME_URL,
       'Content-Type': 'text/plain;charset=UTF-8',
+      'Accept': '*/*',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-site',
+      ...generateDatadogTraceHeaders(),
     },
     body: reqBody,
     timeoutMs: 10000,

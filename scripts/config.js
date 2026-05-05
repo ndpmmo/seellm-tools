@@ -20,7 +20,7 @@ const defaults = {
   maxThreads: 3,
   forceEnLocale: true,
   workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
-  protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
+  protocolFirst: true, // default true — đã có curl transport + Datadog headers để impersonate Chrome
 };
 
 export function loadConfig() {
