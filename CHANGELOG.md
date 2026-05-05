@@ -116,8 +116,10 @@
 - `scripts/lib/openai-protocol-register.js` — Thêm `classifyConsentPayload()` và log `authorize/continue summary` để phân loại chính xác account rơi vào loại nào: `no_workspace_but_redirectable`, `needs_org_or_workspace_selection`, `blocked_by_phone_or_policy`, `session_not_reusable_or_empty_consent`.
 
 **Browser-Based Codex OAuth Fallback (fallback #4):**
-- `scripts/auto-worker.js` — Khi workspace bypass + session-seed + protocol Codex login đều fail (thường do Cloudflare challenge trên HTTP requests), re-navigate browser tab đã authenticated đến Codex OAuth URL và để browser tự xử lý consent/workspace. Mirrors upstream `_do_codex_oauth(page, ...)`.
-- Fallback order hoàn chỉnh: workspace bypass → session-seed → protocol Codex login → browser OAuth.
+- `scripts/auto-worker.js` — Khi workspace bypass + session-seed + protocol Codex login đều fail (thường do Cloudflare challenge trên HTTP requests), re-navigate browser tab đã authenticated đến Codex OAuth URL.
+- Thêm `_completeBrowserOAuth()` mirrors upstream `_complete_oauth_in_browser`: tìm và click "Continue" trên consent page qua JS (`form.requestSubmit` → `dispatchEvent` click), wait redirect đến `localhost:1455/auth/callback`, extract code từ URL (kể cả khi page lỗi vì không có local server). Retry 4 rounds với reload.
+- Phiên bản trước chỉ navigate + wait 20s không tương tác với form → consent page đứng yên, không bao giờ redirect ra callback.
+- Fallback order hoàn chỉnh: workspace bypass → session-seed → protocol Codex login → browser OAuth (with consent click).
 - Chỉ return `NEED_PHONE` khi cả 4 fallbacks đều fail.
 
 **Debug:**
