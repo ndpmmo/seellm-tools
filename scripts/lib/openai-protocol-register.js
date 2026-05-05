@@ -176,6 +176,11 @@ function requestViaCurl({ method, url, headers = {}, body = null, proxyUrl = nul
     args.push('--max-time', String(Math.ceil(timeoutMs / 1000)));
     args.push('--connect-timeout', String(Math.ceil(timeoutMs / 2000)));
 
+    // Dump all response headers (including intermediate redirects) to stderr
+    args.push('-D', '/dev/stderr');
+    // Body to stdout
+    args.push('-o', '-');
+
     // Headers
     for (const [k, v] of Object.entries(headers)) {
       const lowerKey = k.toLowerCase();
@@ -197,9 +202,6 @@ function requestViaCurl({ method, url, headers = {}, body = null, proxyUrl = nul
       }
     }
 
-    // Output capture: headers + body
-    args.push('-D', '-'); // dump headers to stdout before body
-    args.push('-o', '-'); // body to stdout
     args.push(url);
 
     const proc = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -213,28 +215,18 @@ function requestViaCurl({ method, url, headers = {}, body = null, proxyUrl = nul
         const err = Buffer.concat(stderrChunks).toString('utf8').slice(0, 500);
         return reject(new Error(`curl failed (${code}): ${err}`));
       }
-      const output = Buffer.concat(stdoutChunks).toString('utf8');
-      // Parse curl -D - output: headers then body
-      const headerEnd = output.indexOf('\r\n\r\n');
-      const headerEndAlt = output.indexOf('\n\n');
-      const splitIdx = headerEnd >= 0 ? headerEnd : headerEndAlt;
-      let rawHeaders = '';
-      let bodyText = '';
-      if (splitIdx >= 0) {
-        rawHeaders = output.slice(0, splitIdx);
-        bodyText = output.slice(splitIdx + (headerEnd >= 0 ? 4 : 2));
-      } else {
-        bodyText = output;
-      }
+      const bodyText = Buffer.concat(stdoutChunks).toString('utf8');
 
-      // Parse status and headers from last response (after redirects)
-      const lines = rawHeaders.split(/\r?\n/);
+      // Parse ALL header blocks from stderr (curl -D /dev/stderr dumps every response including redirects)
+      const headerText = Buffer.concat(stderrChunks).toString('utf8');
+      const lines = headerText.split(/\r?\n/);
       let status = 200;
       const resHeaders = {};
       for (const line of lines) {
         const m = line.match(/^HTTP\/\d\.\d\s+(\d+)/i);
-        if (m) status = parseInt(m[1], 10);
-        else {
+        if (m) {
+          status = parseInt(m[1], 10);
+        } else {
           const idx = line.indexOf(':');
           if (idx > 0) {
             const k = line.slice(0, idx).trim();
@@ -242,6 +234,9 @@ function requestViaCurl({ method, url, headers = {}, body = null, proxyUrl = nul
             if (k.toLowerCase() === 'set-cookie') {
               if (!resHeaders['set-cookie']) resHeaders['set-cookie'] = [];
               resHeaders['set-cookie'].push(v);
+            } else if (k.toLowerCase() !== 'location' || status >= 300) {
+              // Keep Location from the final redirect response only
+              resHeaders[k.toLowerCase()] = v;
             } else {
               resHeaders[k.toLowerCase()] = v;
             }
@@ -392,7 +387,6 @@ class ProtocolSession {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
       'Connection': 'keep-alive',
       'Sec-Ch-Ua': '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
       'Sec-Ch-Ua-Mobile': '?0',
@@ -1084,8 +1078,11 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
   const authRes = await session.fetch(authUrl, { timeoutMs: 15000 });
   log(`Authorize GET status=${authRes.status}`);
   const did = session.getCookie('oai-did');
+  const cookieNames = Object.keys(session.cookies);
+  log(`Cookies after authorize: [${cookieNames.join(', ')}] (total: ${cookieNames.length})`);
   log('Device ID:', did?.slice(0, 20) || 'none');
   if (!did) {
+    log('⚠️ oai-did cookie missing — authorize URL may not have set it through redirect chain');
     return { success: false, error: 'Codex login: failed to get device_id' };
   }
 
