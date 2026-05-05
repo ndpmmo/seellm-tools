@@ -6,8 +6,11 @@
  * No browser required. Falls back to browser if Sentinel PoW/turnstile is demanded.
  */
 
+import http from 'node:http';
 import https from 'node:https';
+import tls from 'node:tls';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { checkSentinelWithVm } from './sentinel-vm.js';
 
 // ============================================
@@ -72,73 +75,179 @@ export function generateRandomUserInfo() {
 // ============================================
 // LOW-LEVEL HTTPS REQUEST (with cookie jar)
 // ============================================
-function parseCookies(setCookieHeader) {
+function parseCookies(setCookieHeader, requestUrl = '') {
   const cookies = {};
-  if (!setCookieHeader) return cookies;
+  const cookieDetails = [];
+  if (!setCookieHeader) return { cookies, cookieDetails };
   const raw = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+  const requestHost = requestUrl ? new URL(requestUrl).hostname : '';
   for (const line of raw) {
-    const part = line.split(';')[0];
-    const idx = part.indexOf('=');
-    if (idx > 0) {
-      const k = part.slice(0, idx).trim();
-      const v = part.slice(idx + 1).trim();
-      cookies[k] = v;
+    const parts = String(line).split(';').map(part => part.trim()).filter(Boolean);
+    const [nameValue, ...attrs] = parts;
+    const idx = nameValue.indexOf('=');
+    if (idx <= 0) continue;
+    const name = nameValue.slice(0, idx).trim();
+    const value = nameValue.slice(idx + 1).trim();
+    cookies[name] = value;
+
+    const detail = {
+      name,
+      value,
+      domain: requestHost,
+      path: '/',
+      httpOnly: false,
+      secure: false,
+      sameSite: 'Lax',
+    };
+
+    for (const attr of attrs) {
+      const [rawKey, ...rest] = attr.split('=');
+      const key = String(rawKey || '').trim().toLowerCase();
+      const attrValue = rest.join('=').trim();
+      if (key === 'domain' && attrValue) detail.domain = attrValue;
+      else if (key === 'path' && attrValue) detail.path = attrValue;
+      else if (key === 'expires' && attrValue) {
+        const ts = Date.parse(attrValue);
+        if (!Number.isNaN(ts)) detail.expires = Math.floor(ts / 1000);
+      } else if (key === 'max-age' && attrValue) {
+        const maxAge = Number(attrValue);
+        if (!Number.isNaN(maxAge)) detail.expires = Math.floor(Date.now() / 1000) + maxAge;
+      } else if (key === 'httponly') detail.httpOnly = true;
+      else if (key === 'secure') detail.secure = true;
+      else if (key === 'samesite' && attrValue) {
+        const normalized = attrValue.toLowerCase();
+        detail.sameSite = normalized === 'none' ? 'None' : normalized === 'strict' ? 'Strict' : 'Lax';
+      }
     }
+
+    cookieDetails.push(detail);
   }
-  return cookies;
+  return { cookies, cookieDetails };
 }
 
 function cookieJarToHeader(jar) {
   return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-function request({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000 }) {
+function decompressBody(buffer, encoding = '') {
+  const normalized = String(encoding || '').toLowerCase();
+  if (!buffer || !buffer.length) return '';
+  try {
+    if (normalized.includes('br')) return zlib.brotliDecompressSync(buffer).toString('utf8');
+    if (normalized.includes('gzip')) return zlib.gunzipSync(buffer).toString('utf8');
+    if (normalized.includes('deflate')) return zlib.inflateSync(buffer).toString('utf8');
+  } catch (_) {
+    return buffer.toString('utf8');
+  }
+  return buffer.toString('utf8');
+}
+
+function buildProxyAuthHeader(proxy) {
+  if (!proxy.username && !proxy.password) return null;
+  return `Basic ${Buffer.from(`${decodeURIComponent(proxy.username || '')}:${decodeURIComponent(proxy.password || '')}`).toString('base64')}`;
+}
+
+function openProxyTunnel(proxy, target, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    let options;
-
-    if (proxyUrl) {
-      const proxy = new URL(proxyUrl);
-      if (proxy.protocol !== 'http:' && proxy.protocol !== 'https:') {
-        return reject(new Error(`Protocol mode only supports HTTP/HTTPS proxies, got ${proxy.protocol}`));
+    const proxyClient = proxy.protocol === 'https:' ? https : http;
+    const headers = { Host: `${target.hostname}:${target.port || 443}` };
+    const proxyAuth = buildProxyAuthHeader(proxy);
+    if (proxyAuth) headers['Proxy-Authorization'] = proxyAuth;
+    const connectReq = proxyClient.request({
+      host: proxy.hostname,
+      port: proxy.port || (proxy.protocol === 'https:' ? 443 : 80),
+      method: 'CONNECT',
+      path: `${target.hostname}:${target.port || 443}`,
+      headers,
+      timeout: timeoutMs,
+    });
+    connectReq.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(new Error(`proxy CONNECT failed: ${res.statusCode}`));
+        return;
       }
-      options = {
-        host: proxy.hostname,
-        port: proxy.port || (proxy.protocol === 'https:' ? 443 : 80),
-        path: target.href,
-        method,
-        headers: {
-          Host: target.hostname,
-          ...headers,
-        },
-        timeout: timeoutMs,
-      };
-    } else {
-      options = {
-        hostname: target.hostname,
-        port: target.port || 443,
-        path: target.pathname + target.search,
-        method,
-        headers,
-        timeout: timeoutMs,
-      };
-    }
+      resolve(socket);
+    });
+    connectReq.on('timeout', () => connectReq.destroy(new Error('proxy connect timeout')));
+    connectReq.on('error', reject);
+    connectReq.end();
+  });
+}
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        resolve({
-          status: res.statusCode,
-          headers: res.headers,
-          body: data,
+function request({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000 }) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const target = new URL(url);
+      const isHttpsTarget = target.protocol === 'https:';
+      let req;
+
+      if (proxyUrl) {
+        const proxy = new URL(proxyUrl);
+        if (proxy.protocol !== 'http:' && proxy.protocol !== 'https:') {
+          return reject(new Error(`Protocol mode only supports HTTP/HTTPS proxies, got ${proxy.protocol}`));
+        }
+
+        if (isHttpsTarget) {
+          const tunnelSocket = await openProxyTunnel(proxy, target, timeoutMs);
+          req = https.request({
+            host: target.hostname,
+            port: target.port || 443,
+            path: target.pathname + target.search,
+            method,
+            headers,
+            timeout: timeoutMs,
+            createConnection: () => tls.connect({
+              socket: tunnelSocket,
+              servername: target.hostname,
+            }),
+            agent: false,
+          });
+        } else {
+          const proxyClient = proxy.protocol === 'https:' ? https : http;
+          const proxyHeaders = { Host: target.hostname, ...headers };
+          const proxyAuth = buildProxyAuthHeader(proxy);
+          if (proxyAuth) proxyHeaders['Proxy-Authorization'] = proxyAuth;
+          req = proxyClient.request({
+            host: proxy.hostname,
+            port: proxy.port || (proxy.protocol === 'https:' ? 443 : 80),
+            path: target.href,
+            method,
+            headers: proxyHeaders,
+            timeout: timeoutMs,
+          });
+        }
+      } else {
+        const client = isHttpsTarget ? https : http;
+        req = client.request({
+          hostname: target.hostname,
+          port: target.port || (isHttpsTarget ? 443 : 80),
+          path: target.pathname + target.search,
+          method,
+          headers,
+          timeout: timeoutMs,
+        });
+      }
+
+      req.on('response', (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => {
+          const bodyBuffer = Buffer.concat(chunks);
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: decompressBody(bodyBuffer, res.headers['content-encoding']),
+          });
         });
       });
-    });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.on('error', reject);
+      if (body) req.write(body);
+      req.end();
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 
@@ -149,6 +258,7 @@ class ProtocolSession {
   constructor(proxyUrl = null) {
     this.proxyUrl = proxyUrl;
     this.cookies = {};
+    this.cookieDetails = [];
     this.defaultHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
       'Accept': 'application/json',
@@ -179,8 +289,13 @@ class ProtocolSession {
     // Update cookie jar from Set-Cookie headers
     const setCookie = res.headers['set-cookie'];
     if (setCookie) {
-      const parsed = parseCookies(setCookie);
-      Object.assign(this.cookies, parsed);
+      const parsed = parseCookies(setCookie, url);
+      Object.assign(this.cookies, parsed.cookies);
+      for (const detail of parsed.cookieDetails) {
+        const idx = this.cookieDetails.findIndex(c => c.name === detail.name && c.domain === detail.domain && c.path === detail.path);
+        if (idx >= 0) this.cookieDetails[idx] = { ...this.cookieDetails[idx], ...detail };
+        else this.cookieDetails.push(detail);
+      }
     }
 
     // Try parse JSON, fallback to raw body
@@ -194,6 +309,10 @@ class ProtocolSession {
 
   getCookie(name) {
     return this.cookies[name] || '';
+  }
+
+  exportCookies() {
+    return this.cookieDetails.map(cookie => ({ ...cookie }));
   }
 }
 
@@ -644,6 +763,6 @@ export async function runProtocolRegistration({ email, password, proxyUrl = null
     accessToken,
     deviceId,
     source: 'register',
-    cookies: session.cookies,
+    cookies: session.exportCookies(),
   };
 }

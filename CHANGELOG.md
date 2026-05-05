@@ -35,6 +35,15 @@
 - Bao gồm `SentinelVM` execute obfuscated bytecode từ Turnstile challenge để tính 't' value.
 - Bao gồm `SentinelTokenGenerator` giải PoW challenge (FNV1a32 hash matching).
 - Protocol registration giờ tự động solve Turnstile thay vì fallback về browser.
+- Follow-up fix: dùng lại **standard base64** cho Sentinel token generation (không còn base64url lệch format upstream).
+- Follow-up fix: thêm guard `maxIterations` để tránh VM treo vô hạn và sửa runtime bug trong opcode `catch`.
+
+**Protocol Transport & Session Import Fixes:**
+- `scripts/lib/openai-protocol-register.js` — sửa transport để hỗ trợ đúng HTTPS target qua HTTP/HTTPS proxy bằng `CONNECT` tunnel.
+- Thêm decompress `gzip` / `deflate` / `br` cho response body nên log/error không còn bị dữ liệu nén rác.
+- Nâng cấp cookie jar để giữ đầy đủ metadata (`domain`, `path`, `expires`, `httpOnly`, `secure`, `sameSite`) phục vụ browser import.
+- `scripts/auto-register-worker.js` — bỏ cách seed bằng `document.cookie`, thay bằng import cookies qua `POST /sessions/:userId/cookies` của Camofox rồi verify session token đã có trong browser.
+- Fix logic existing-account fallback: chỉ protocol-success mới skip registration UI; email đã tồn tại sẽ quay về browser flow đúng cách.
 
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.

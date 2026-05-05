@@ -384,6 +384,35 @@ async function getCookies(tabId, userId) {
   return cookies;
 }
 
+async function importSessionCookies(userId, cookies) {
+  const normalizedCookies = (Array.isArray(cookies) ? cookies : [])
+    .filter(cookie => cookie?.name && typeof cookie.value === 'string' && cookie?.domain)
+    .map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path || '/',
+      expires: cookie.expires,
+      httpOnly: cookie.httpOnly === true,
+      secure: cookie.secure !== false,
+      sameSite: cookie.sameSite || 'Lax',
+    }));
+
+  if (!normalizedCookies.length) {
+    throw new Error('No protocol cookies available to import');
+  }
+
+  const res = await fetch(`${CAMOUFOX_API}/sessions/${userId}/cookies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cookies: normalizedCookies }),
+  });
+  if (!res.ok) {
+    throw new Error(`Cookie import failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // SAFETY GUARDS — domain check + URL-change watchdog
 // ─────────────────────────────────────────────────────────────────────────
@@ -709,7 +738,7 @@ export async function runAutoRegister(taskInput) {
       } else if (protocolResult?.isExistingAccount) {
         console.log(`[Protocol] Email already registered — will switch to login flow`);
         isExistingAccount = true;
-        skipRegistrationSteps = true;
+        skipRegistrationSteps = false;
       } else {
         console.log(`[Protocol] Failed: ${protocolResult?.error || 'unknown'} — falling back to browser`);
       }
@@ -736,18 +765,19 @@ export async function runAutoRegister(taskInput) {
     if (skipRegistrationSteps && protocolResult?.success) {
       console.log(`[Protocol] Seeding browser session from protocol result...`);
       try {
-        // Navigate to chatgpt.com so the domain matches the cookie domain
+        await importSessionCookies(USER_ID, protocolResult.cookies || []);
         await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
         await new Promise(r => setTimeout(r, 3000));
-        // Inject session token via evaluate if available
-        if (protocolResult.sessionToken) {
-          await evalJson(tabId, USER_ID, `document.cookie = "__Secure-next-auth.session-token=${protocolResult.sessionToken}; Path=/; Secure; SameSite=Lax"`);
-          await new Promise(r => setTimeout(r, 1000));
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-          await new Promise(r => setTimeout(r, 3000));
+
+        const seededCookies = await getCookies(tabId, USER_ID).catch(() => []);
+        const hasSessionCookie = seededCookies.some(cookie => cookie.name?.includes('session-token'));
+        if (!hasSessionCookie) {
+          throw new Error('Imported cookies did not produce a browser session token');
         }
+        console.log(`[Protocol] Session import successful (${seededCookies.length} cookies)`);
       } catch (seedErr) {
         console.log(`[Protocol] Session seed warning: ${seedErr.message}`);
+        skipRegistrationSteps = false;
       }
     }
 

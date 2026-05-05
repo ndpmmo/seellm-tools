@@ -76,14 +76,11 @@ function xorStr(a, b) {
 }
 
 function b64(data) {
-  const json = JSON.stringify(data, null, 0).replace(/,/g, ',').replace(/:/g, ':');
-  return Buffer.from(json).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return Buffer.from(JSON.stringify(data, null, 0)).toString('base64');
 }
 
 function b64Decode(str) {
-  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (base64.length % 4) base64 += '=';
-  return Buffer.from(base64, 'base64');
+  return Buffer.from(String(str || ''), 'base64');
 }
 
 // ============================================
@@ -459,7 +456,7 @@ class SentinelVM {
         }
       } catch (e) {
         const ename = e.constructor.name;
-        vm._s(dst, str(e) ? `${ename}: ${e}` : ename);
+        vm._s(dst, String(e) ? `${ename}: ${e}` : ename);
       }
     };
 
@@ -633,6 +630,7 @@ class SentinelVM {
   }
 
   solve(dxB64, xorKey) {
+    if (!dxB64) throw new Error('dx challenge is empty');
     const raw = b64Decode(dxB64).toString('latin-1');
     const decrypted = xorStr(raw, xorKey);
     const instructions = JSON.parse(decrypted);
@@ -640,6 +638,7 @@ class SentinelVM {
     this._done = false;
     this._result = null;
     this._iter = 0;
+    this._maxIterations = 25000;
     this._s(R_KEY, xorKey);
     this._s(R_QUEUE, instructions);
 
@@ -653,6 +652,9 @@ class SentinelVM {
 
   _runQueue() {
     while (!this._done) {
+      if (this._iter >= this._maxIterations) {
+        throw new Error(`SentinelVM exceeded max iterations (${this._maxIterations})`);
+      }
       const queue = this._g(R_QUEUE);
       if (!queue || !Array.isArray(queue) || queue.length === 0) break;
 
@@ -682,6 +684,9 @@ export function solveTurnstileDx(dxB64, pToken, userAgent = '', sdkUrl = '') {
 export function generateSentinelToken(deviceId, userAgent) {
   return new SentinelTokenGenerator(deviceId, userAgent);
 }
+
+// Export classes for direct use
+export { SentinelVM, SentinelTokenGenerator, FakeWindow };
 
 // ============================================
 // CHECK SENTINEL (with full flow)
