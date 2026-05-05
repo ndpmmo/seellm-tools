@@ -57,6 +57,12 @@
 - `scripts/config.js` — `protocolFirst: false` mặc định để protocol không làm bẩn IP trước khi browser mở tab.
 - `scripts/auto-register-worker.js` — Reset `isExistingAccount = false` + delay 10s sau protocol fail để OpenAI "quên" session từ Node.js request trước khi browser fallback.
 
+**Codex OAuth Protocol Fallback (bypass phone screen):**
+- `scripts/lib/openai-protocol-register.js` — Thêm `acquireCodexCallbackViaProtocol()` mirrors upstream Python `_acquire_codex_callback()`.
+- Tạo NEW isolated `ProtocolSession`, generate Codex PKCE OAuth URL, visit authorize URL, sentinel check, POST `/authorize/continue` với `screen_hint=login`, xử lý OTP/password nếu cần, re-visit OAuth URL để follow redirect chain lấy `code=`.
+- Pure HTTP API flow — không render browser UI nên **không bao giờ gặp phone screen**.
+- `scripts/auto-worker.js` — Trong `captureAndReport()`, khi browser gặp phone screen và `performWorkspaceConsentBypass` fail, gọi `acquireCodexCallbackViaProtocol()` làm fallback trước khi return NEED_PHONE.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 

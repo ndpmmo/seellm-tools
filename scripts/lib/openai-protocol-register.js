@@ -927,3 +927,335 @@ export async function runProtocolRegistration({ email, password, proxyUrl = null
     cookies: session.exportCookies(),
   };
 }
+
+// ============================================
+// CODEX CLI OAUTH CALLBACK (mirrors upstream _acquire_codex_callback)
+// Pure HTTP API flow to get callback URL without browser phone screen
+// ============================================
+const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
+const CODEX_SCOPE = 'openid email profile offline_access';
+
+function generateCodexPKCE() {
+  const codeVerifier = crypto.randomBytes(48).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+  const state = crypto.randomBytes(16).toString('base64url');
+  return { codeVerifier, codeChallenge, state };
+}
+
+function buildCodexOAuthURL(pkce) {
+  const params = new URLSearchParams({
+    client_id: CODEX_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: CODEX_REDIRECT_URI,
+    scope: CODEX_SCOPE,
+    state: pkce.state,
+    code_challenge: pkce.codeChallenge,
+    code_challenge_method: 'S256',
+    prompt: 'login',
+    id_token_add_organizations: 'true',
+    codex_cli_simplified_flow: 'true',
+  });
+  return `${OPENAI_AUTH}/oauth/authorize?${params.toString()}`;
+}
+
+function parseCallbackUrl(callbackUrl) {
+  let candidate = (callbackUrl || '').trim();
+  if (!candidate) return { code: '', state: '', error: '' };
+  if (candidate.startsWith('?')) candidate = `http://localhost${candidate}`;
+  else if (!candidate.includes('://')) candidate = `http://${candidate}`;
+  const u = new URL(candidate);
+  return {
+    code: u.searchParams.get('code') || '',
+    state: u.searchParams.get('state') || '',
+    error: u.searchParams.get('error') || '',
+  };
+}
+
+export async function acquireCodexCallbackViaProtocol({ email, password, proxyUrl = null, emailService = null, logFn = console.log }) {
+  const log = (...args) => logFn('[CodexProtocol]', ...args);
+
+  // 1. Create new isolated session (mirror upstream new HTTP client)
+  const session = new ProtocolSession(proxyUrl);
+
+  // 2. Generate Codex OAuth URL (PKCE)
+  const pkce = generateCodexPKCE();
+  const authUrl = buildCodexOAuthURL(pkce);
+  log('Auth URL:', authUrl.slice(0, 80) + '...');
+
+  // 3. Visit authorize URL to get device_id + session cookies
+  const authRes = await session.fetch(authUrl, { timeoutMs: 15000 });
+  const did = session.getCookie('oai-did');
+  log('Device ID:', did?.slice(0, 20) || 'none');
+  if (!did) {
+    return { success: false, error: 'Codex login: failed to get device_id' };
+  }
+
+  // 4. Sentinel check
+  const ua = session.defaultHeaders['User-Agent'] || '';
+  const generator = new SentinelTokenGenerator(did, ua);
+  let sentP = generator.generateRequirementsToken();
+  const senReqBody = JSON.stringify({ p: sentP, id: did, flow: 'authorize_continue' });
+  const senRes = await session.fetch(SENTINEL_REQ_URL, {
+    method: 'POST',
+    headers: {
+      'Origin': 'https://sentinel.openai.com',
+      'Referer': 'https://sentinel.openai.com/backend-api/sentinel/frame.html',
+      'Content-Type': 'text/plain;charset=UTF-8',
+      'Accept': '*/*',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-site',
+      ...generateDatadogTraceHeaders(),
+    },
+    body: senReqBody,
+    timeoutMs: 10000,
+  });
+
+  let senPayload = null;
+  if (senRes.status === 200) {
+    const d = senRes.json || {};
+    const pm = d.proofofwork || {};
+    if (pm.required && pm.seed) {
+      sentP = generator.generateToken(String(pm.seed), String(pm.difficulty || '0'));
+    }
+    const tr = (d.turnstile || {}).dx || '';
+    let tv = '';
+    if (tr) {
+      try { tv = solveTurnstileDx(tr, sentP, ua, SENTINEL_SDK_URL); } catch (_) {}
+    }
+    senPayload = { p: sentP, t: tv, c: String(d.token || ''), flow: 'authorize_continue' };
+    log('Sentinel acquired');
+  } else {
+    log('Sentinel check failed:', senRes.status);
+  }
+
+  // 5. authorize/continue submit email (login existing account)
+  const signupBody = JSON.stringify({
+    username: { value: email, kind: 'email' },
+    screen_hint: 'login',
+  });
+  const signupHeaders = {
+    'Referer': `${OPENAI_AUTH}/log-in`,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'Origin': OPENAI_AUTH,
+    ...generateDatadogTraceHeaders(),
+  };
+  if (senPayload) {
+    signupHeaders['openai-sentinel-token'] = JSON.stringify({
+      p: senPayload.p, t: senPayload.t, c: senPayload.c,
+      id: did, flow: senPayload.flow,
+    });
+  }
+
+  const contRes = await session.fetch(`${OPENAI_AUTH}/api/accounts/authorize/continue`, {
+    method: 'POST',
+    headers: signupHeaders,
+    body: signupBody,
+    timeoutMs: 15000,
+  });
+
+  if (contRes.status !== 200) {
+    return { success: false, error: `authorize/continue failed: ${contRes.status}` };
+  }
+  const contData = contRes.json || {};
+  let pageType = contData.page?.type || '';
+  log('authorize/continue page_type:', pageType);
+
+  // 6. Handle OTP
+  if (pageType === 'email_otp_verification') {
+    if (!emailService?.getVerificationCode) {
+      return { success: false, error: 'Codex login: OTP required but no email service' };
+    }
+    const otpCode = await emailService.getVerificationCode({ email, timeout: 120 });
+    if (!otpCode) {
+      return { success: false, error: 'Codex login: OTP timeout' };
+    }
+    const otpRes = await session.fetch(`${OPENAI_AUTH}/api/accounts/email-otp/validate`, {
+      method: 'POST',
+      headers: {
+        'Referer': `${OPENAI_AUTH}/email-verification`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...generateDatadogTraceHeaders(),
+      },
+      body: JSON.stringify({ code: otpCode }),
+      timeoutMs: 15000,
+    });
+    if (otpRes.status !== 200) {
+      return { success: false, error: `Codex login OTP validate failed: ${otpRes.status}` };
+    }
+    const otpData = otpRes.json || {};
+    pageType = otpData.page?.type || '';
+    log('OTP validate page_type:', pageType);
+    if (pageType === 'add_phone') {
+      return { success: false, error: 'Codex login: still requires add_phone after OTP' };
+    }
+  }
+
+  // 7. Handle password
+  if (pageType === 'login_password' || pageType === 'create_account_password') {
+    if (!password) {
+      return { success: false, error: 'Codex login: password required but not provided' };
+    }
+    // Load password page to get fresh sentinel
+    await session.fetch(`${OPENAI_AUTH}/log-in/password`, { timeoutMs: 15000 });
+    let pwdSent = null;
+    try {
+      const gen2 = new SentinelTokenGenerator(did, ua);
+      const sp2 = gen2.generateRequirementsToken();
+      const sr2 = JSON.stringify({ p: sp2, id: did, flow: 'login_password' });
+      const sr2Res = await session.fetch(SENTINEL_REQ_URL, {
+        method: 'POST',
+        headers: {
+          'Origin': 'https://sentinel.openai.com',
+          'Referer': 'https://sentinel.openai.com/backend-api/sentinel/frame.html',
+          'Content-Type': 'text/plain;charset=UTF-8',
+          ...generateDatadogTraceHeaders(),
+        },
+        body: sr2,
+        timeoutMs: 10000,
+      });
+      if (sr2Res.status === 200) {
+        const d2 = sr2Res.json || {};
+        const pm2 = d2.proofofwork || {};
+        let sp2solved = sp2;
+        if (pm2.required && pm2.seed) {
+          sp2solved = gen2.generateToken(String(pm2.seed), String(pm2.difficulty || '0'));
+        }
+        const tr2 = (d2.turnstile || {}).dx || '';
+        let tv2 = '';
+        if (tr2) { try { tv2 = solveTurnstileDx(tr2, sp2solved, ua, SENTINEL_SDK_URL); } catch (_) {} }
+        pwdSent = { p: sp2solved, t: tv2, c: String(d2.token || ''), flow: 'login_password' };
+      }
+    } catch (e) { log('Password sentinel failed:', e.message); }
+
+    const pwdHeaders = {
+      'Origin': OPENAI_AUTH,
+      'Referer': `${OPENAI_AUTH}/log-in/password`,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      ...generateDatadogTraceHeaders(),
+    };
+    if (did) pwdHeaders['oai-device-id'] = did;
+    if (pwdSent) {
+      pwdHeaders['openai-sentinel-token'] = JSON.stringify({
+        p: pwdSent.p, t: pwdSent.t, c: pwdSent.c,
+        id: did, flow: pwdSent.flow,
+      });
+    }
+
+    const pwdRes = await session.fetch(`${OPENAI_AUTH}/api/accounts/user/register`, {
+      method: 'POST',
+      headers: pwdHeaders,
+      body: JSON.stringify({ password, username: email }),
+      timeoutMs: 15000,
+    });
+    if (pwdRes.status !== 200) {
+      return { success: false, error: `Codex login password failed: ${pwdRes.status}` };
+    }
+    const pwdData = pwdRes.json || {};
+    const pwdPage = pwdData.page?.type || '';
+    log('Password page_type:', pwdPage);
+
+    if (pwdPage === 'email_otp_verification' || pwdPage === 'email_otp_send') {
+      if (pwdPage === 'email_otp_send') {
+        await session.fetch(`${OPENAI_AUTH}/api/accounts/email-otp/send`, {
+          method: 'GET',
+          headers: { 'Referer': `${OPENAI_AUTH}/email-verification` },
+          timeoutMs: 15000,
+        });
+      }
+      if (!emailService?.getVerificationCode) {
+        return { success: false, error: 'Codex login: OTP required after password but no email service' };
+      }
+      const code2 = await emailService.getVerificationCode({ email, timeout: 120 });
+      if (!code2) return { success: false, error: 'Codex login: OTP timeout after password' };
+      const otp2Res = await session.fetch(`${OPENAI_AUTH}/api/accounts/email-otp/validate`, {
+        method: 'POST',
+        headers: {
+          'Referer': `${OPENAI_AUTH}/email-verification`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...generateDatadogTraceHeaders(),
+        },
+        body: JSON.stringify({ code: code2 }),
+        timeoutMs: 15000,
+      });
+      if (otp2Res.status !== 200) {
+        return { success: false, error: `Codex login OTP after password failed: ${otp2Res.status}` };
+      }
+      const otp2Data = otp2Res.json || {};
+      if (otp2Data.page?.type === 'add_phone') {
+        return { success: false, error: 'Codex login: still requires add_phone after password+OTP' };
+      }
+    }
+  }
+
+  if (pageType === 'add_phone') {
+    return { success: false, error: 'Codex login: phone verification required (add_phone)' };
+  }
+
+  // 8. Re-visit OAuth URL to capture callback via redirect chain
+  log('Re-visiting OAuth URL for callback...');
+  const finalRes = await session.fetch(authUrl, {
+    method: 'GET',
+    headers: { 'Accept': 'text/html,*/*' },
+    timeoutMs: 15000,
+  });
+
+  let currentUrl = authUrl;
+  let code = '';
+  let state = '';
+  const maxRedirects = 10;
+
+  // Check if code is already in the final URL (curl may have followed redirects)
+  if (finalRes.body) {
+    const m = finalRes.body.match(/[?&]code=([^&#"\s]+)/);
+    if (m) code = decodeURIComponent(m[1]);
+    const ms = finalRes.body.match(/[?&]state=([^&#"\s]+)/);
+    if (ms) state = decodeURIComponent(ms[1]);
+  }
+
+  // Also check current URL from cookies/location hints
+  if (!code) {
+    const loc = finalRes.headers.location;
+    if (loc) {
+      const parsed = parseCallbackUrl(loc);
+      code = parsed.code;
+      state = parsed.state;
+    }
+  }
+
+  // Manual redirect following (for node:https fallback where curl may not follow all)
+  if (!code) {
+    for (let i = 0; i < maxRedirects; i++) {
+      const nextRes = await session.fetch(currentUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'text/html,*/*' },
+        timeoutMs: 15000,
+      });
+      const loc2 = nextRes.headers.location;
+      if (loc2) {
+        const parsed = parseCallbackUrl(loc2);
+        if (parsed.code) { code = parsed.code; state = parsed.state; break; }
+        currentUrl = loc2.startsWith('http') ? loc2 : `${OPENAI_AUTH}${loc2}`;
+        continue;
+      }
+      // Try extract from body
+      if (nextRes.body) {
+        const bm = nextRes.body.match(/[?&]code=([^&#"\s]+)/);
+        if (bm) { code = decodeURIComponent(bm[1]); break; }
+      }
+      break;
+    }
+  }
+
+  if (!code) {
+    return { success: false, error: 'Codex login: no authorization code in redirect chain' };
+  }
+
+  log('Callback code acquired:', code.slice(0, 20) + '...');
+  return { success: true, code, state, pkce, source: 'codex_protocol' };
+}
