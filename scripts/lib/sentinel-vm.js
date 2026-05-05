@@ -18,7 +18,7 @@ const SENTINEL_FRAME_URL = 'https://sentinel.openai.com/backend-api/sentinel/fra
 const SENTINEL_REQ_URL = 'https://sentinel.openai.com/backend-api/sentinel/req';
 
 // Datadog trace headers (mirrors upstream Python)
-function generateDatadogTraceHeaders() {
+export function generateDatadogTraceHeaders() {
   const traceHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
   const parentHex = crypto.randomBytes(8).toString('hex').padStart(16, '0');
   const traceId = String(BigInt('0x' + traceHex));

@@ -63,6 +63,18 @@
 - Pure HTTP API flow — không render browser UI nên **không bao giờ gặp phone screen**.
 - `scripts/auto-worker.js` — Trong `captureAndReport()`, khi browser gặp phone screen và `performWorkspaceConsentBypass` fail, gọi `acquireCodexCallbackViaProtocol()` làm fallback trước khi return NEED_PHONE.
 
+**Codex Protocol Fallback Fixes & Refactor:**
+- Fix SyntaxError duplicate `generateDatadogTraceHeaders` declaration in `openai-protocol-register.js` — remove local duplicate, use export from `sentinel-vm.js`.
+- Export `generateDatadogTraceHeaders` from `sentinel-vm.js` for reuse.
+- Fix curl content-encoding error (56) by skipping manual `Accept-Encoding` headers in `requestViaCurl()` — let `--compressed` auto-negotiate only supported encodings.
+- Refactor `acquireCodexCallbackViaProtocol()` to mirror upstream more closely:
+  - Add reusable `fetchSentinelPayload()` helper for both `authorize_continue` and `login_password` flows.
+  - Add robust `parseCallbackUrl()` with query + fragment support.
+  - Add `normalizeUrl()` and `extractFlowState()` helpers for callback extraction.
+  - Change to callback-url-first flow: follow redirect chain, extract callback URL, then parse `code/state/error`.
+  - Add detailed step-by-step logging: authorize GET status, sentinel status, page_type, password/OTP steps, redirect follow, callback URL acquisition.
+- Wrap protocol fallback in `try/catch` in `auto-worker.js` to log exceptions explicitly.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
