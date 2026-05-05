@@ -672,6 +672,26 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
       if (consentBypassExhausted) {
+        // Protocol Codex login as last resort before session fallback
+        console.log(`[Capture] Consent exhausted, trying protocol Codex login...`);
+        try {
+          const protocolResult = await acquireCodexCallbackViaProtocol({
+            email,
+            password,
+            proxyUrl: effectiveProxy,
+            logFn: (...args) => console.log(...args),
+          });
+          if (protocolResult?.success && protocolResult.code) {
+            authCode = protocolResult.code;
+            pkce.codeVerifier = protocolResult.pkce.codeVerifier;
+            pkce.state = protocolResult.pkce.state;
+            console.log(`[Capture] ✅ Code via protocol Codex login (consent fallback): ${authCode.slice(0, 20)}...`);
+            break;
+          }
+          console.log(`[Capture] ❌ Protocol Codex login failed: ${protocolResult?.error}`);
+        } catch (protocolErr) {
+          console.log(`[Capture] ❌ Protocol Codex login exception: ${protocolErr?.message || protocolErr}`);
+        }
         fallbackToSessionNow = true;
         break;
       }
