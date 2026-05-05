@@ -108,6 +108,10 @@
 - `scripts/auto-worker.js` — `sendResult`: dùng `task._flow` để route — mọi connect flow result (cả success lẫn error) đều đi qua `/connect-result`.
 - `server/routes/vault.js` — Throttle connect-task debug log (1 phút/lần thay vì mỗi 10s poll).
 
+**Protocol Fallback Fixes (post-session-seed):**
+- `scripts/lib/openai-protocol-register.js` — `acquireCodexCallbackViaProtocol`: không fail khi `oai-did` cookie missing. Thay vì return lỗi, generate fallback `device_id` từ email hash để Sentinel vẫn hoạt động. Mirrors upstream behavior.
+- `scripts/lib/openai-protocol-register.js` — `acquireCodexCallbackViaSessionSeeding`: khi không tìm thấy workspaces trong cookie hoặc consent HTML, thử follow redirect chain từ consent URL trực tiếp để lấy callback code mà không cần workspace/org selection. Một số account không cần bước này.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
