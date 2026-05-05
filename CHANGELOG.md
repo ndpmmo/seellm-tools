@@ -112,6 +112,14 @@
 - `scripts/lib/openai-protocol-register.js` — `acquireCodexCallbackViaProtocol`: không fail khi `oai-did` cookie missing. Thay vì return lỗi, generate fallback `device_id` từ email hash để Sentinel vẫn hoạt động. Mirrors upstream behavior.
 - `scripts/lib/openai-protocol-register.js` — `acquireCodexCallbackViaSessionSeeding`: khi không tìm thấy workspaces trong cookie hoặc consent HTML, thử follow redirect chain từ consent URL trực tiếp để lấy callback code mà không cần workspace/org selection. Một số account không cần bước này.
 
+**Consent Classifier Logging:**
+- `scripts/lib/openai-protocol-register.js` — Thêm `classifyConsentPayload()` và log `authorize/continue summary` để phân loại chính xác account rơi vào loại nào: `no_workspace_but_redirectable`, `needs_org_or_workspace_selection`, `blocked_by_phone_or_policy`, `session_not_reusable_or_empty_consent`.
+
+**Browser-Based Codex OAuth Fallback (fallback #4):**
+- `scripts/auto-worker.js` — Khi workspace bypass + session-seed + protocol Codex login đều fail (thường do Cloudflare challenge trên HTTP requests), re-navigate browser tab đã authenticated đến Codex OAuth URL và để browser tự xử lý consent/workspace. Mirrors upstream `_do_codex_oauth(page, ...)`.
+- Fallback order hoàn chỉnh: workspace bypass → session-seed → protocol Codex login → browser OAuth.
+- Chỉ return `NEED_PHONE` khi cả 4 fallbacks đều fail.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
