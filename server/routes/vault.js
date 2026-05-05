@@ -15,6 +15,9 @@ import {
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
 
+// Throttle cho connect-task debug log (tránh spam mỗi 10s)
+let connectTaskLogThrottle = false;
+
 // SSE emitter - set from server.js (replaces Socket.IO for realtime events)
 let emitSSE = null;
 export function setSSEEmitter(emitter) {
@@ -689,10 +692,12 @@ router.get('/accounts/connect-task', (req, res) => {
     );
 
     if (!task) {
-      // Debug: log why no task found
+      // Debug: log why no task found (throttled — chỉ log khi có account cp>0 mới)
       const pending = allAccounts.filter(a => Number(a.connect_pending) > 0);
-      if (pending.length) {
-        console.log(`[connect-task] ${pending.length} accounts with connect_pending>0 but filtered out:`, pending.map(a => ({
+      if (pending.length && !connectTaskLogThrottle) {
+        connectTaskLogThrottle = true;
+        setTimeout(() => { connectTaskLogThrottle = false; }, 60000); // 1 phút giữa các log
+        console.log(`[connect-task] ${pending.length} accounts stuck with connect_pending>0 (cp=2=processing, cp=1=queued). First 3:`, pending.slice(0, 3).map(a => ({
           id: a.id, email: a.email?.slice(0, 20), cp: a.connect_pending,
           deleted: !!a.deleted_at, active: a.is_active, hasPwd: !!a.password?.trim(), status: a.status,
         })));

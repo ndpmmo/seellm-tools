@@ -284,11 +284,13 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, recorder }) {
 async function sendResult(task, status, message, result = null, tokens = null) {
   const taskId = task.id;
   const source = task.source || 'tools';
+  const flow = task._flow || (task.password ? 'connect' : 'login');
   const preview = String(message).slice(0, 100);
   console.log(`[Report] 📡 ${status.toUpperCase()}: ${preview}`);
 
-  // 1. Gửi về Tools connect-result nếu có tokens (connect flow)
-  if (tokens?.accessToken || tokens?.access_token) {
+  // 1. Gửi về Tools connect-result cho connect flow (cả success lẫn error)
+  //    connect-result endpoint reset connect_pending=0 — quan trọng để không bị stuck cp=2
+  if (flow === 'connect') {
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/connect-result`, {
         method: 'POST',
