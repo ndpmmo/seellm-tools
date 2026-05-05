@@ -75,6 +75,34 @@
   - Add detailed step-by-step logging: authorize GET status, sentinel status, page_type, password/OTP steps, redirect follow, callback URL acquisition.
 - Wrap protocol fallback in `try/catch` in `auto-worker.js` to log exceptions explicitly.
 
+**Codex OAuth Session Seeding Fallback (mirrors upstream `_complete_oauth_with_session`):**
+- `scripts/lib/openai-protocol-register.js` — Thêm `acquireCodexCallbackViaSessionSeeding()`.
+  - Seed browser cookies vào `ProtocolSession` — không cần login lại.
+  - Decode `oai-client-auth-session` cookie để lấy workspaces.
+  - Fallback: fetch consent HTML, extract workspace IDs bằng regex.
+  - Select workspace qua `/api/accounts/workspace/select`.
+  - Select organization qua `/api/accounts/organization/select`.
+  - Follow redirect chain để lấy callback URL với `code=`.
+  - Ưu tiên thử TRƯỚC protocol login vì không cần re-authenticate.
+- `scripts/auto-worker.js` — Hook session-seed vào cả phone screen + consent screen branches.
+  - Fallback order: workspace bypass → session-seed → protocol login → session capture.
+
+**Curl Redirect Cookie Capture Fix:**
+- `scripts/lib/openai-protocol-register.js` — Fix `requestViaCurl()` chỉ capture headers từ response cuối cùng (sau `--location`), bỏ qua `Set-Cookie` từ 302 trung gian.
+  - Root cause: `oai-did` cookie được set ở 302 redirect đầu tiên nhưng bị mất.
+  - Fix: dump headers sang stderr (`-D /dev/stderr`), body sang stdout → parse ALL `Set-Cookie` từ mọi response trong redirect chain.
+- Remove `Accept-Encoding` khỏi `ProtocolSession.defaultHeaders` — curl tự xử lý qua `--compressed`, node:https qua `decompressBody()`.
+- Add cookie names logging sau authorize GET để debug `oai-did` missing.
+
+**Connect Task `is_active=0` Fix (worker không nhận task):**
+- Root cause: Account fail connect → `SyncManager.pushVault` đẩy `is_active=0` lên D1 → `pullVault` ghi đè local `is_active=0` → user bấm Deploy v2 chỉ set `connect_pending=1` không set `is_active=1` → `connect-task` filter `is_active !== 0` → task bị bỏ qua hoàn toàn.
+- `server/routes/vault.js` — `retry-connect`: thêm `is_active=1` khi set `connect_pending=1`.
+- `server/routes/vault.js` — `connect-task`: bỏ filter `is_active !== 0` (connect_pending=1 là explicit user action).
+- `server/routes/vault.js` — Fix SQLite type: `Number(connect_pending) === 1` thay vì `=== 1`.
+- `server/routes/vault.js` — Add debug logging khi account có `connect_pending>0` nhưng bị filter out.
+- `server/services/syncManager.js` — `pullVault`: bảo vệ `is_active` không bị Gateway ghi đè khi account đang ở trạng thái user-initiated (pending/processing/connect_pending>0).
+- `scripts/auto-worker.js` — Add debug logging cho `fetchAnyTask()` connect-task errors.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
