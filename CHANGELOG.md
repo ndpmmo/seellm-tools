@@ -2,6 +2,33 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [Unreleased] - 2026-05-06 01:15:00
+
+### 🚀 Protocol-Mode Registration & Auto-Login Enhancements
+
+**Mô tả:** Tích hợp đăng ký ChatGPT qua HTTP API (protocol mode) làm primary flow, giữ browser automation làm fallback. Cải thiện khả năng phục hồi khi email đã tồn tại và tăng success rate password submission.
+
+**Protocol Registration Engine (mới):**
+- `scripts/lib/openai-protocol-register.js` — Cookie-jar session, OAuth start qua `chatgpt.com/api/auth`, Sentinel minimal check (fallback browser nếu đòi PoW/turnstile), signup/OTP/account-create qua native `node:https`.
+- Hỗ trợ proxy qua HTTP proxy tunneling (không thêm dependency).
+- `runProtocolRegistration()` trả về `{ success, sessionToken, accessToken, deviceId, cookies }` hoặc `{ isExistingAccount: true }`.
+
+**IP Location Guard:**
+- `scripts/lib/proxy-diag.js` — Thêm `checkIpLocation(proxyUrl?)` dùng `cloudflare.com/cdn-cgi/trace`.
+- Blocklist: CN/HK/MO/TW → fast-fail trước khi đốt email.
+
+**Auto-Register Worker (`scripts/auto-register-worker.js`):**
+- Protocol attempt chạy trước browser flow khi `PROTOCOL_FIRST !== 'false'`.
+- Nếu protocol success: seed browser session và skip các bước registration UI, nhảy thẳng MFA setup.
+- Nếu protocol detect existing account (`isExistingAccount`): skip password/about-you trong browser, chỉ chạy OTP → MFA.
+- Browser flow: password retry tối đa 3 candidates (sinh ngẫu nhiên), kiểm tra lỗi `already`/`exists` sau mỗi attempt.
+- Browser flow: email-exists auto-detection — nếu submit email xong vào OTP screen mà không hề thấy password input → đánh dấu existing account.
+
+**Debug:**
+- `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
+
+---
+
 ## [Unreleased] - 2026-05-02 19:58:00
 
 ### 🐛 Bug Fixes

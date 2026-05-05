@@ -23,6 +23,8 @@ import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { getState, fillEmail, fillPassword, fillMfa } from './lib/openai-login-flow.js';
+import { checkIpLocation } from './lib/proxy-diag.js';
+import { runProtocolRegistration } from './lib/openai-protocol-register.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -635,7 +637,7 @@ export async function runAutoRegister(taskInput) {
 
   // Tạo mật khẩu ngẫu nhiên đủ mạnh (CONFIG.passwordLength ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
   const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-  const chatGptPassword = Array.from({ length: CONFIG.passwordLength }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
+  let chatGptPassword = Array.from({ length: CONFIG.passwordLength }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -669,6 +671,50 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
+    // IP location guard
+    console.log(`🌍 [IP Check] Checking IP location...`);
+    const ipCheck = await checkIpLocation(proxyUrl);
+    if (!ipCheck.ok) {
+      console.log(`🛑 [IP Check] FAILED: ${ipCheck.error}`);
+      throw new Error(`IP Check failed: ${ipCheck.error}`);
+    }
+    console.log(`✅ [IP Check] Location: ${ipCheck.loc}`);
+
+    // Protocol-mode registration attempt (primary when PROTOCOL_FIRST is not false)
+    let protocolResult = null;
+    let isExistingAccount = false;
+    let skipRegistrationSteps = false;
+    if (process.env.PROTOCOL_FIRST !== 'false') {
+      console.log(`[Protocol] Attempting protocol-mode registration...`);
+      try {
+        const emailServiceAdapter = {
+          getVerificationCode: async ({ email: em, timeout }) => {
+            return waitForOTPCode({ email: em, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: timeout || 120 });
+          }
+        };
+        protocolResult = await runProtocolRegistration({
+          email,
+          password: chatGptPassword,
+          proxyUrl,
+          emailService: emailServiceAdapter,
+          logFn: (...args) => console.log(...args),
+        });
+      } catch (protocolErr) {
+        console.log(`[Protocol] Error: ${protocolErr.message}`);
+      }
+
+      if (protocolResult?.success) {
+        console.log(`✅ [Protocol] Registration successful via protocol mode!`);
+        skipRegistrationSteps = true;
+      } else if (protocolResult?.isExistingAccount) {
+        console.log(`[Protocol] Email already registered — will switch to login flow`);
+        isExistingAccount = true;
+        skipRegistrationSteps = true;
+      } else {
+        console.log(`[Protocol] Failed: ${protocolResult?.error || 'unknown'} — falling back to browser`);
+      }
+    }
+
     // 1. Khởi động - Đi từ trang login để tránh bị blank page
     console.log(`🚀 [Phase 1] Truy cập trang Login...`);
     const tabRes = await camofoxPostWithSessionKey('/tabs', {
@@ -686,6 +732,25 @@ export async function runAutoRegister(taskInput) {
 
     await new Promise(r => setTimeout(r, 5000));
 
+    // If protocol succeeded, seed the browser session and skip registration UI steps
+    if (skipRegistrationSteps && protocolResult?.success) {
+      console.log(`[Protocol] Seeding browser session from protocol result...`);
+      try {
+        // Navigate to chatgpt.com so the domain matches the cookie domain
+        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+        await new Promise(r => setTimeout(r, 3000));
+        // Inject session token via evaluate if available
+        if (protocolResult.sessionToken) {
+          await evalJson(tabId, USER_ID, `document.cookie = "__Secure-next-auth.session-token=${protocolResult.sessionToken}; Path=/; Secure; SameSite=Lax"`);
+          await new Promise(r => setTimeout(r, 1000));
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      } catch (seedErr) {
+        console.log(`[Protocol] Session seed warning: ${seedErr.message}`);
+      }
+    }
+
     // 🔍 [PostVerify] Re-probe to confirm session inherited proxy
     if (proxyUrl && preFlightResult) {
       console.log(`🔍 [PostVerify] Verifying proxy applied after tab creation...`);
@@ -702,6 +767,7 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
+    if (!skipRegistrationSteps) {
     // Phase 1, Step 1: Login page loaded
     await recorder.checkpoint(1, 1, 'login_page');
 
@@ -889,6 +955,13 @@ export async function runAutoRegister(taskInput) {
 
     console.log(`[Flow Detection]:`, JSON.stringify(flowDetection));
 
+    // Email-exists detection: nếu vào OTP screen mà không hề thấy password input
+    // → account đã tồn tại, chuyển sang existing-account flow
+    if ((flowDetection?.isEmailVerification || flowDetection?.hasCodeInput) && !flowDetection?.hasPasswordInput && !flowDetection?.hasEmailVerificationLink) {
+      console.log(`[Flow] Email already registered — switching to existing-account flow`);
+      isExistingAccount = true;
+    }
+
     // If flow detection returns unknown, retry with reload
     if (flowDetection?.flow === 'unknown') {
       console.log(`[Flow Detection] ⚠️ Flow unknown, retry with reload...`);
@@ -927,7 +1000,9 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    // 3. Điền mật khẩu (flow cũ có password input sẵn, flow mới cần click link trước)
+    // 3. Điền mật khẩu — skip nếu account đã tồn tại
+    if (!isExistingAccount) {
+    // Flow mới: click "Continue with password" link trước
     if (flowDetection?.flow === 'new') {
       // Flow mới: click "Continue with password" link trước
       console.log(`[3] Flow mới: Click "Continue with password"...`);
@@ -955,12 +1030,28 @@ export async function runAutoRegister(taskInput) {
       await recorder.after(2, 2, 'continue_with_password');
     }
 
-    // Điền password (cả 2 flow đều cần)
+    // Điền password (cả 2 flow đều cần) — retry với tối đa 3 candidates
     const hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
     if (hasPwdInput) {
-      console.log(`[3] Điền Password -> ${chatGptPassword}`);
-      const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
-      const pwdClickInfo = await evalJson(tabId, USER_ID, `
+      // Sinh tối đa 3 password candidates
+      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+      const pwdCandidates = [];
+      while (pwdCandidates.length < 3) {
+        const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
+          PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
+        ).join('');
+        if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
+      }
+
+      let passwordSuccess = false;
+      let usedPassword = '';
+
+      for (let attempt = 0; attempt < pwdCandidates.length; attempt++) {
+        const tryPassword = pwdCandidates[attempt];
+        console.log(`[3] Điền Password [${attempt + 1}/${pwdCandidates.length}] -> ${tryPassword.slice(0, 3)}...`);
+
+        const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
+        const pwdClickInfo = await evalJson(tabId, USER_ID, `
             (() => {
               const typeReact = (input, text) => {
                 if (!input) return false;
@@ -974,7 +1065,7 @@ export async function runAutoRegister(taskInput) {
 
               const pwdInput = document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]');
               if (!pwdInput) return { error: 'no-password-input' };
-              typeReact(pwdInput, "${chatGptPassword}");
+              typeReact(pwdInput, "${tryPassword}");
 
               const form = pwdInput.closest('form');
               let btn = null;
@@ -1012,15 +1103,57 @@ export async function runAutoRegister(taskInput) {
               return { ok: true, strategy, text: finalText };
             })()
           `);
-      console.log(`[Password-submit] →`, JSON.stringify(pwdClickInfo || {}));
-      if (pwdClickInfo?.error) {
-        throw new Error(`Password submit failed: ${pwdClickInfo.error}`);
+        console.log(`[Password-submit] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
+        if (pwdClickInfo?.error) {
+          console.log(`[Password] Attempt ${attempt + 1} UI error: ${pwdClickInfo.error}`);
+          if (attempt < pwdCandidates.length - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          throw new Error(`Password submit failed: ${pwdClickInfo.error}`);
+        }
+
+        await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
+        await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
+
+        // Kiểm tra xem password có được chấp nhận không (không còn ở password page)
+        const stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+          !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]')
+        `);
+
+        if (!stillOnPasswordPage) {
+          passwordSuccess = true;
+          usedPassword = tryPassword;
+          console.log(`✅ [Password] Attempt ${attempt + 1} accepted`);
+          break;
+        }
+
+        // Kiểm tra lỗi "already exists" trong page text
+        const errorCheck = await evalJson(tabId, USER_ID, `
+          (() => {
+            const body = (document.body?.innerText || '').toLowerCase();
+            return { hasAlreadyError: body.includes('already') || body.includes('exists') || body.includes('user_exists') };
+          })()
+        `);
+        if (errorCheck?.hasAlreadyError) {
+          throw new Error('Email already registered on OpenAI');
+        }
+
+        console.log(`[Password] Attempt ${attempt + 1} rejected, trying next...`);
+        await new Promise(r => setTimeout(r, 2000));
       }
-      await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
-      await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
+
+      if (!passwordSuccess) {
+        throw new Error('All 3 password attempts rejected');
+      }
+
+      // Cập nhật chatGptPassword thành password đã được chấp nhận
+      chatGptPassword = usedPassword;
+
       // Phase 2, Step 3: After password submit
       await recorder.after(2, 3, 'password_submit');
     }
+    } // end if (!isExistingAccount)
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
@@ -1232,7 +1365,8 @@ export async function runAutoRegister(taskInput) {
       await recorder.after(3, 1, 'pin_verified');
     }
 
-    // 5. Cấp User Info (tên, ngày sinh)
+    // 5. Cấp User Info (tên, ngày sinh) — skip nếu account đã tồn tại
+    if (!isExistingAccount) {
     console.log(`[5] Bypass thông tin Form About...`);
     const userInfo = generateRandomUserInfo();
     await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
@@ -1394,6 +1528,8 @@ export async function runAutoRegister(taskInput) {
     await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
     // Phase 3, Step 2: About form completed
     await recorder.after(3, 2, 'about_completed');
+    } // end if (!isExistingAccount)
+    } // end if (!skipRegistrationSteps)
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);

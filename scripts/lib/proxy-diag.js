@@ -196,6 +196,59 @@ export function validateDiagnosticResult({ proxyUrl, exitIp, localIp }) {
 }
 
 /**
+ * Fetch text via HTTP proxy using native https module (no extra deps)
+ * @param {string} url - Target URL
+ * @param {string} proxyUrl - Proxy URL (e.g. http://host:port)
+ * @param {number} timeoutMs - Timeout
+ * @returns {Promise<string>} Response text
+ */
+export async function fetchTextViaProxy(url, proxyUrl, timeoutMs = 10000) {
+  const proxy = new URL(proxyUrl);
+  const target = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = https.get({
+      host: proxy.hostname,
+      port: proxy.port || (proxy.protocol === 'https:' ? 443 : 80),
+      path: target.href,
+      headers: { Host: target.hostname },
+      timeout: timeoutMs,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += String(chunk); });
+      res.on('end', () => resolve(data));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Check IP geographic location via Cloudflare trace endpoint.
+ * Blocks CN/HK/MO/TW to avoid wasting emails on unsupported regions.
+ * @param {string|null} proxyUrl - Optional proxy URL
+ * @returns {Promise<{ok: boolean, loc: string|null, error?: string}>}
+ */
+export async function checkIpLocation(proxyUrl = null) {
+  try {
+    const traceText = proxyUrl
+      ? await fetchTextViaProxy('https://cloudflare.com/cdn-cgi/trace', proxyUrl, 10000)
+      : await fetchTextNoProxy('https://cloudflare.com/cdn-cgi/trace', 10000);
+
+    const locMatch = traceText.match(/loc=([A-Z]+)/);
+    const loc = locMatch ? locMatch[1] : null;
+
+    const blocked = ['CN', 'HK', 'MO', 'TW'];
+    if (loc && blocked.includes(loc)) {
+      return { ok: false, loc, error: `IP location ${loc} is blocked for registration` };
+    }
+
+    return { ok: true, loc };
+  } catch (e) {
+    return { ok: false, loc: null, error: e.message };
+  }
+}
+
+/**
  * STRICT PRE-FLIGHT: validate syntax → spawn dedicated probe session with EXPLICIT proxy → verify exit IP
  * Throws on any failure. Only call BEFORE main tab creation.
  * @param {string} proxyUrl - Proxy URL (already normalized)
