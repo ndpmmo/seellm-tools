@@ -565,41 +565,19 @@ async function runConnectFlow(task) {
 // ═══════════════════════════════════════════════════════════════
 async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
   const log = (...args) => console.log(`[BrowserOAuth]`, ...args);
-  log('Navigating to Codex auth URL...');
-  await navigate(tabId, userId, authUrl, 20000);
-  await new Promise(r => setTimeout(r, 3000));
-
-  const MAX_ROUNDS = 4;
   const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"]'
     + ',form[action*="/sign-in-with-chatgpt"]'
     + ',form[action*="consent"]';
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    // 1. Check current URL for code
-    let url = '';
-    try { url = await evalJson(tabId, userId, 'location.href', 4000); } catch (_) {}
-    if (url && url.includes('code=') && url.includes('localhost')) {
-      try {
-        const u = new URL(url);
-        const code = u.searchParams.get('code') || '';
-        if (code) return { code, state: u.searchParams.get('state') || '' };
-      } catch (_) {}
-    }
+  const _getUrl = async () => { try { return await evalJson(tabId, userId, 'location.href', 4000) || ''; } catch (_) { return ''; } };
+  const _getIntercepted = async () => { try { return await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || ''; } catch (_) { return ''; } };
 
-    // 2. Check interceptor
-    try {
-      const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
-      if (intercepted && intercepted.includes('code=')) {
-        const u = new URL(intercepted);
-        const code = u.searchParams.get('code') || '';
-        if (code) return { code, state: u.searchParams.get('state') || '' };
-      }
-    } catch (_) {}
+  const _extractCode = (urlStr) => {
+    if (!urlStr || !urlStr.includes('code=')) return null;
+    try { const u = new URL(urlStr); const c = u.searchParams.get('code') || ''; return c ? { code: c, state: u.searchParams.get('state') || '' } : null; } catch (_) { return null; }
+  };
 
-    // 3. Try clicking Continue on consent page
-    log(`Round ${round + 1}/${MAX_ROUNDS}: trying consent click...`);
-    let clicked = false;
-
+  const _clickConsent = async () => {
     // Strategy A: form.requestSubmit(button)
     try {
       const result = await evalJson(tabId, userId, `(sel) => {
@@ -618,65 +596,99 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
         if (typeof form.requestSubmit === 'function') { form.requestSubmit(target); return 'requestSubmit'; }
         target.click(); return 'click';
       }`, 5000, CONSENT_FORM_SEL);
-      if (result && !['no-form', 'no-button'].includes(result)) {
-        log(`Consent clicked via ${result}`);
-        clicked = true;
-      }
+      if (result && !['no-form', 'no-button'].includes(result)) { log(`Consent clicked via ${result}`); return true; }
     } catch (_) {}
 
     // Strategy B: direct JS dispatch on any visible Continue/Allow button
-    if (!clicked) {
-      try {
-        const result = await evalJson(tabId, userId, `() => {
-          const buttons = document.querySelectorAll('button, [role="button"]');
-          for (const el of buttons) {
-            if (el.offsetParent === null) continue;
-            const text = (el.textContent || '').trim().toLowerCase();
-            const dd = el.getAttribute('data-dd-action-name') || '';
-            if (dd === 'Continue' || /continue|allow|authorize|同意|继续/i.test(text)) {
-              el.focus(); el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window}));
-              return text || 'dispatched';
-            }
+    try {
+      const result = await evalJson(tabId, userId, `() => {
+        const buttons = document.querySelectorAll('button, [role="button"]');
+        for (const el of buttons) {
+          if (el.offsetParent === null) continue;
+          const text = (el.textContent || '').trim().toLowerCase();
+          const dd = el.getAttribute('data-dd-action-name') || '';
+          if (dd === 'Continue' || /continue|allow|authorize|同意|继续/i.test(text)) {
+            el.focus(); el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window}));
+            return text || 'dispatched';
           }
-          return null;
-        }`, 5000);
-        if (result) { log(`Consent clicked via JS dispatch: ${result}`); clicked = true; }
-      } catch (_) {}
-    }
-
-    // 4. Wait for redirect after click
-    if (clicked) {
-      // Wait up to 15s for URL to change toward callback
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 800));
-        let u = '';
-        try { u = await evalJson(tabId, userId, 'location.href', 3000); } catch (_) {}
-        if (u && u.includes('localhost') && u.includes('code=')) {
-          try {
-            const parsed = new URL(u);
-            const code = parsed.searchParams.get('code') || '';
-            if (code) return { code, state: parsed.searchParams.get('state') || '' };
-          } catch (_) {}
         }
-        // Also check interceptor
-        try {
-          const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
-          if (intercepted && intercepted.includes('code=')) {
-            const parsed = new URL(intercepted);
-            const code = parsed.searchParams.get('code') || '';
-            if (code) return { code, state: parsed.searchParams.get('state') || '' };
-          }
-        } catch (_) {}
+        return null;
+      }`, 5000);
+      if (result) { log(`Consent clicked via JS dispatch: ${result}`); return true; }
+    } catch (_) {}
+    return false;
+  };
+
+  const _waitForCallback = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 800));
+      const u = await _getUrl();
+      const code = _extractCode(u);
+      if (code) return code;
+      const intercepted = await _getIntercepted();
+      const icode = _extractCode(intercepted);
+      if (icode) return icode;
+    }
+    return null;
+  };
+
+  // Initial navigation
+  log('Navigating to Codex auth URL...');
+  await navigate(tabId, userId, authUrl, 20000);
+  await new Promise(r => setTimeout(r, 4000));
+
+  const MAX_ROUNDS = 4;
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const url = await _getUrl();
+    log(`Round ${round + 1}/${MAX_ROUNDS}: url=${(url || '').slice(0, 120)}`);
+
+    // 1. Check if we already have a callback URL
+    const code = _extractCode(url) || _extractCode(await _getIntercepted());
+    if (code) return code;
+
+    // 2. Detect page type and act accordingly
+    const isPhone = url.includes('add-phone') || url.includes('phone');
+    const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
+    const isAuth = url.includes('auth.openai.com');
+
+    if (isPhone) {
+      // Phone screen: re-navigate to auth URL (browser is authenticated, should skip phone)
+      log(`Phone screen detected, re-navigating to auth URL to skip...`);
+      try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
+      await new Promise(r => setTimeout(r, 5000));
+      // Check if we got callback after re-navigation
+      const afterUrl = await _getUrl();
+      log(`After skip-navigate: ${(afterUrl || '').slice(0, 120)}`);
+      const skipCode = _extractCode(afterUrl) || _extractCode(await _getIntercepted());
+      if (skipCode) return skipCode;
+      // If still on phone, try waiting for redirect
+      if (afterUrl.includes('add-phone') || afterUrl.includes('phone')) {
+        log(`Still on phone screen, waiting for potential redirect...`);
+        const waitedCode = await _waitForCallback(10000);
+        if (waitedCode) return waitedCode;
       }
-      log(`Round ${round + 1} click did not produce callback`);
+      continue;
     }
 
-    // 5. Refresh before next round (except last)
+    if (isConsent || isAuth) {
+      // Consent/auth page: try clicking Continue
+      log(`Consent/auth page, trying consent click...`);
+      const clicked = await _clickConsent();
+      if (clicked) {
+        const cbCode = await _waitForCallback(15000);
+        if (cbCode) return cbCode;
+        log(`Round ${round + 1} click did not produce callback`);
+      } else {
+        log(`Round ${round + 1}: no consent button found`);
+      }
+    }
+
+    // 3. Retry: re-navigate to auth URL (not reload — reload keeps us on same page)
     if (round < MAX_ROUNDS - 1) {
-      log(`Reloading page for round ${round + 2}...`);
-      try { await evalJson(tabId, userId, 'location.reload()', 5000); } catch (_) {}
-      await new Promise(r => setTimeout(r, 3000));
+      log(`Re-navigating to auth URL for round ${round + 2}...`);
+      try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
+      await new Promise(r => setTimeout(r, 4000));
     }
   }
 
