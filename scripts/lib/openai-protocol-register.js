@@ -968,6 +968,37 @@ function parseCallbackUrl(callbackUrl) {
   return { code, state, error, error_description };
 }
 
+function previewText(value, max = 240) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function classifyConsentPayload({ status = 0, headers = {}, body = '', json = null } = {}) {
+  const location = String(headers.location || headers.Location || '').trim();
+  const contentType = String(headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
+  const text = `${body || ''} ${JSON.stringify(json || {})}`.toLowerCase();
+  const hasWorkspace = text.includes('workspaces') || text.includes('workspace_id');
+  const hasOrg = text.includes('organization') || text.includes('orgs') || text.includes('project_id');
+  const hasPhone = text.includes('add-phone') || text.includes('phone') || text.includes('verify');
+  const hasCallback = location.includes('code=') || text.includes('code=');
+  let classification = 'unknown';
+  if (hasCallback) classification = 'no_workspace_but_redirectable';
+  else if (hasWorkspace || hasOrg) classification = hasOrg ? 'needs_org_or_workspace_selection' : 'needs_workspace_selection';
+  else if (hasPhone) classification = 'blocked_by_phone_or_policy';
+  else if (status === 200) classification = 'session_not_reusable_or_empty_consent';
+  return {
+    classification,
+    status,
+    contentType,
+    hasLocation: !!location,
+    hasWorkspace,
+    hasOrg,
+    hasPhone,
+    hasCallback,
+    locationPreview: previewText(location, 180),
+    bodyPreview: previewText(body, 240),
+  };
+}
+
 function normalizeUrl(url, baseUrl = `${OPENAI_AUTH}/sign-in-with-chatgpt/codex/consent`) {
   const raw = String(url || '').trim();
   if (!raw) return '';
@@ -1122,6 +1153,15 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
   const contData = contRes.json || {};
   let pageType = contData.page?.type || '';
   log(`authorize/continue page_type=${pageType || '(empty)'}`);
+  log('authorize/continue summary:', JSON.stringify({
+    keys: Object.keys(contData || {}).slice(0, 12),
+    pageKeys: Object.keys(contData?.page || {}).slice(0, 12),
+    dataKeys: Object.keys(contData?.data || {}).slice(0, 12),
+    continueUrl: previewText(contData?.continue_url || contData?.data?.continue_url || ''),
+    currentUrl: previewText(contData?.current_url || contData?.data?.current_url || ''),
+    orgCount: Array.isArray(contData?.data?.orgs) ? contData.data.orgs.length : 0,
+    workspaceCount: Array.isArray(contData?.data?.workspaces) ? contData.data.workspaces.length : 0,
+  }));
 
   if (pageType === 'email_otp_verification') {
     if (!emailService?.getVerificationCode) {
@@ -1370,6 +1410,12 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
     log('No workspaces in cookie, fetching consent HTML...');
     try {
       const consentRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
+      log('Consent response classifier:', JSON.stringify(classifyConsentPayload({
+        status: consentRes.status,
+        headers: consentRes.headers,
+        body: consentRes.body,
+        json: consentRes.json,
+      })));
       if (consentRes.body) {
         workspaces = extractWorkspacesFromHtml(consentRes.body);
         log(`Workspaces from HTML: ${workspaces.length}`);
@@ -1381,9 +1427,13 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
 
   if (!workspaces.length) {
     log('⚠️ No workspaces found — attempting consent submission without workspace selection');
-    // Fallback: some accounts don't need explicit workspace selection
-    // Try to follow the consent redirect chain directly
     const directRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
+    log('Direct consent classifier:', JSON.stringify(classifyConsentPayload({
+      status: directRes.status,
+      headers: directRes.headers,
+      body: directRes.body,
+      json: directRes.json,
+    })));
     if (directRes.status >= 300 && directRes.headers.location) {
       const nextUrl = normalizeUrl(directRes.headers.location, consentUrl);
       const callbackUrl = await followRedirectsForCode(session, nextUrl, log);
