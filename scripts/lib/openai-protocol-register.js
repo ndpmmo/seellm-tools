@@ -34,6 +34,8 @@ const ENDPOINTS = {
   validateOtp: `${OPENAI_AUTH}/api/accounts/email-otp/validate`,
   createAccount: `${OPENAI_AUTH}/api/accounts/create_account`,
   selectWorkspace: `${OPENAI_AUTH}/api/accounts/workspace/select`,
+  selectOrganization: `${OPENAI_AUTH}/api/accounts/organization/select`,
+  oauth2Auth: `${OPENAI_AUTH}/api/oauth/oauth2/auth`,
 };
 
 const BLOCKED_IP_LOCATIONS = ['CN', 'HK', 'MO', 'TW'];
@@ -1272,4 +1274,217 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
     pkce,
     source: 'codex_protocol',
   };
+}
+
+// ============================================
+// CODEX OAUTH VIA SESSION SEEDING (mirrors upstream _complete_oauth_with_session)
+// Uses browser cookies to complete consent/authorization without re-login
+// ============================================
+
+function decodeOAuthSessionCookie(cookieValue) {
+  const raw = String(cookieValue || '').trim();
+  if (!raw) return {};
+  const first = raw.split('.')[0];
+  for (const decode of [Buffer.from.bind(Buffer)]) {
+    try {
+      const pad = '='.repeat((4 - (first.length % 4)) % 4);
+      const decoded = decode((first + pad), 'base64').toString('utf8');
+      const parsed = JSON.parse(decoded);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+  }
+  // Try URL-safe base64
+  try {
+    const pad = '='.repeat((4 - (first.length % 4)) % 4);
+    const padded = (first + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = Buffer.from(padded, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch (_) {}
+  return {};
+}
+
+function extractWorkspacesFromHtml(html) {
+  if (!html || !html.includes('workspaces')) return [];
+  const ids = [...html.matchAll(/"id"(?:,|:)"([0-9a-f-]{36})"/gi)].map(m => m[1]);
+  const kinds = [...html.matchAll(/"kind"(?:,|:)"([^"]+)"/gi)].map(m => m[1]);
+  const seen = new Set();
+  const workspaces = [];
+  for (let i = 0; i < ids.length; i++) {
+    if (seen.has(ids[i])) continue;
+    seen.add(ids[i]);
+    const item = { id: ids[i] };
+    if (i < kinds.length) item.kind = kinds[i];
+    workspaces.push(item);
+  }
+  return workspaces;
+}
+
+function seedCookiesIntoSession(session, cookiesDict) {
+  for (const [name, value] of Object.entries(cookiesDict)) {
+    for (const domain of ['.openai.com', '.chatgpt.com', '.auth.openai.com', 'auth.openai.com', 'chatgpt.com']) {
+      try {
+        // ProtocolSession uses flat cookie jar — just set directly
+        session.cookies[name] = value;
+      } catch (_) {}
+    }
+  }
+}
+
+async function followRedirectsForCode(session, startUrl, log, maxRedirects = 12) {
+  let currentUrl = normalizeUrl(startUrl);
+  for (let idx = 0; idx < maxRedirects; idx++) {
+    const res = await session.fetch(currentUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+      timeoutMs: 30000,
+    });
+    const location = normalizeUrl(res.headers.location || '', currentUrl);
+    log(`session-seed redirect[${idx + 1}] status=${res.status} url=${currentUrl.slice(0, 100)}`);
+    if (!location) break;
+    const parsed = parseCallbackUrl(location);
+    if (parsed.code) return location;
+    if (res.status < 300 || res.status >= 400) break;
+    currentUrl = location;
+  }
+  return '';
+}
+
+export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pkce, proxyUrl = null, logFn = console.log }) {
+  const log = (...args) => logFn('[SessionSeed]', ...args);
+  const consentUrl = `${OPENAI_AUTH}/sign-in-with-chatgpt/codex/consent`;
+
+  // 1. Create new ProtocolSession and seed browser cookies
+  const session = new ProtocolSession(proxyUrl);
+  seedCookiesIntoSession(session, browserCookies);
+  log(`Seeded ${Object.keys(browserCookies).length} browser cookies into session`);
+
+  // 2. Decode oai-client-auth-session cookie for workspaces
+  const sessionMeta = decodeOAuthSessionCookie(browserCookies['oai-client-auth-session'] || '');
+  let workspaces = sessionMeta.workspaces || [];
+  log(`Workspaces from cookie: ${workspaces.length}`);
+
+  // 3. If no workspaces in cookie, fetch consent HTML and extract
+  if (!workspaces.length) {
+    log('No workspaces in cookie, fetching consent HTML...');
+    try {
+      const consentRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
+      if (consentRes.body) {
+        workspaces = extractWorkspacesFromHtml(consentRes.body);
+        log(`Workspaces from HTML: ${workspaces.length}`);
+      }
+    } catch (e) {
+      log(`Consent HTML fetch failed: ${e.message}`);
+    }
+  }
+
+  if (!workspaces.length) {
+    log('⚠️ No workspaces found — cannot complete OAuth consent');
+    return { success: false, error: 'No workspaces found in cookie or consent HTML' };
+  }
+
+  // 4. Select first workspace
+  const workspaceId = String((workspaces[0] || {}).id || '').trim();
+  log(`Selecting workspace: ${workspaceId}`);
+
+  const wsHeaders = {
+    'Accept': 'application/json',
+    'Referer': consentUrl,
+    'Origin': OPENAI_AUTH,
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+  };
+
+  const wsRes = await session.fetch(ENDPOINTS.selectWorkspace, {
+    method: 'POST',
+    headers: wsHeaders,
+    body: JSON.stringify({ workspace_id: workspaceId }),
+    timeoutMs: 30000,
+  });
+  log(`workspace/select status=${wsRes.status}`);
+
+  let nextUrl = normalizeUrl(wsRes.headers.location || '', consentUrl);
+  let nextData = {};
+  if (!nextUrl) {
+    try { nextData = wsRes.json || {}; } catch (_) { nextData = {}; }
+    nextUrl = normalizeUrl(nextData.continue_url || '', consentUrl);
+  }
+
+  // Check if workspace/select directly returned a code
+  const directCode = parseCallbackUrl(nextUrl);
+  if (directCode.code) {
+    log('Direct code from workspace/select');
+    return { success: true, callbackUrl: nextUrl, code: directCode.code, state: directCode.state, source: 'session_seed' };
+  }
+
+  // 5. Handle organization selection if needed
+  const orgs = ((nextData.data || {}).orgs) || [];
+  if (orgs.length && orgs[0].id) {
+    const orgId = String(orgs[0].id || '').trim();
+    const orgBody = { org_id: orgId };
+    const projects = orgs[0].projects || [];
+    if (projects.length && projects[0].id) {
+      orgBody.project_id = String(projects[0].id || '').trim();
+    }
+    log(`Selecting organization: ${orgId}`);
+
+    const orgRes = await session.fetch(ENDPOINTS.selectOrganization, {
+      method: 'POST',
+      headers: wsHeaders,
+      body: JSON.stringify(orgBody),
+      timeoutMs: 30000,
+    });
+    log(`organization/select status=${orgRes.status}`);
+
+    const orgLocation = normalizeUrl(orgRes.headers.location || '', consentUrl);
+    if (orgLocation) {
+      nextUrl = orgLocation;
+    } else {
+      try {
+        const orgData = orgRes.json || {};
+        const orgContinue = orgData.continue_url || '';
+        if (orgContinue) {
+          nextUrl = normalizeUrl(orgContinue, consentUrl);
+        } else {
+          const flowState = extractFlowState(orgData, consentUrl);
+          nextUrl = flowState.continueUrl || flowState.currentUrl || nextUrl;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 6. If still no next URL, try extracting from workspace response data
+  if (!nextUrl && nextData) {
+    const flowState = extractFlowState(nextData, consentUrl);
+    nextUrl = flowState.continueUrl || flowState.currentUrl || '';
+  }
+
+  // 7. Last resort: construct OAuth2 auth URL from original PKCE params
+  if (!nextUrl && pkce) {
+    const authUrl = buildCodexOAuthURL(pkce);
+    nextUrl = ENDPOINTS.oauth2Auth + '?' + authUrl.split('?', 2)[1];
+    log(`Fallback to oauth2/auth URL: ${nextUrl.slice(0, 100)}`);
+  }
+
+  if (!nextUrl) {
+    return { success: false, error: 'No next URL after workspace/organization selection' };
+  }
+
+  // 8. Follow redirect chain to find callback URL with code
+  const callbackUrl = await followRedirectsForCode(session, nextUrl, log);
+  if (!callbackUrl) {
+    log('⚠️ Could not follow redirects to callback URL');
+    return { success: false, error: 'No callback URL in redirect chain' };
+  }
+
+  const parsed = parseCallbackUrl(callbackUrl);
+  if (parsed.error) {
+    return { success: false, error: `OAuth error: ${parsed.error}: ${parsed.error_description || ''}`.trim() };
+  }
+  if (!parsed.code) {
+    return { success: false, error: 'Callback URL missing code' };
+  }
+
+  log(`Callback URL acquired: ${callbackUrl.slice(0, 100)}`);
+  return { success: true, callbackUrl, code: parsed.code, state: parsed.state, source: 'session_seed' };
 }

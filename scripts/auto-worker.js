@@ -24,7 +24,7 @@ import { createStepRecorder } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, MULTILANG } from './lib/openai-login-flow.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
-import { acquireCodexCallbackViaProtocol } from './lib/openai-protocol-register.js';
+import { acquireCodexCallbackViaProtocol, acquireCodexCallbackViaSessionSeeding } from './lib/openai-protocol-register.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -633,8 +633,37 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); break; }
 
-      // Fallback: pure HTTP API Codex login (bypasses phone screen entirely)
-      console.log(`[Capture] 📵 Workspace bypass failed, trying protocol Codex login...`);
+      // Fallback 1: Session seeding (seed browser cookies into HTTP session, complete consent without re-login)
+      console.log(`[Capture] 📵 Workspace bypass failed, trying session-seed fallback...`);
+      try {
+        const browserCookies = {};
+        try {
+          const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
+          const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+          for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
+        } catch (_) {}
+        if (Object.keys(browserCookies).length > 0) {
+          const seedResult = await acquireCodexCallbackViaSessionSeeding({
+            browserCookies,
+            pkce,
+            proxyUrl: effectiveProxy,
+            logFn: (...args) => console.log(...args),
+          });
+          if (seedResult?.success && seedResult.code) {
+            authCode = seedResult.code;
+            console.log(`[Capture] ✅ Code via session-seed: ${authCode.slice(0, 20)}...`);
+            break;
+          }
+          console.log(`[Capture] ❌ Session-seed failed: ${seedResult?.error}`);
+        } else {
+          console.log(`[Capture] ❌ No browser cookies available for session-seed`);
+        }
+      } catch (seedErr) {
+        console.log(`[Capture] ❌ Session-seed exception: ${seedErr?.message || seedErr}`);
+      }
+
+      // Fallback 2: Pure HTTP API Codex login (bypasses phone screen entirely)
+      console.log(`[Capture] 📵 Session-seed failed, trying protocol Codex login...`);
       try {
         const protocolResult = await acquireCodexCallbackViaProtocol({
           email,
@@ -672,8 +701,37 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
       if (consentBypassExhausted) {
-        // Protocol Codex login as last resort before session fallback
-        console.log(`[Capture] Consent exhausted, trying protocol Codex login...`);
+        // Fallback 1: Session seeding (seed browser cookies, complete consent without re-login)
+        console.log(`[Capture] Consent exhausted, trying session-seed fallback...`);
+        try {
+          const browserCookies = {};
+          try {
+            const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
+            const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+            for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
+          } catch (_) {}
+          if (Object.keys(browserCookies).length > 0) {
+            const seedResult = await acquireCodexCallbackViaSessionSeeding({
+              browserCookies,
+              pkce,
+              proxyUrl: effectiveProxy,
+              logFn: (...args) => console.log(...args),
+            });
+            if (seedResult?.success && seedResult.code) {
+              authCode = seedResult.code;
+              console.log(`[Capture] ✅ Code via session-seed (consent fallback): ${authCode.slice(0, 20)}...`);
+              break;
+            }
+            console.log(`[Capture] ❌ Session-seed failed: ${seedResult?.error}`);
+          } else {
+            console.log(`[Capture] ❌ No browser cookies for session-seed`);
+          }
+        } catch (seedErr) {
+          console.log(`[Capture] ❌ Session-seed exception: ${seedErr?.message || seedErr}`);
+        }
+
+        // Fallback 2: Protocol Codex login (pure HTTP, re-login)
+        console.log(`[Capture] Session-seed failed, trying protocol Codex login...`);
         try {
           const protocolResult = await acquireCodexCallbackViaProtocol({
             email,
