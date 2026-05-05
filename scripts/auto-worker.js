@@ -684,7 +684,34 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       } catch (protocolErr) {
         console.log(`[Capture] ❌ Protocol Codex login exception: ${protocolErr?.message || protocolErr}`);
       }
-      return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+
+      // Fallback 4: Browser-based Codex OAuth (re-navigate authenticated tab, let browser handle consent/workspace)
+      console.log(`[Capture] 📵 Protocol failed, trying browser-based Codex OAuth...`);
+      try {
+        await navigate(tabId, userId, authUrl, 20000);
+        await new Promise(r => setTimeout(r, 20000));
+        const afterNavigateUrl = await evalJson(tabId, userId, 'location.href', 4000);
+        if (afterNavigateUrl && afterNavigateUrl.includes('code=')) {
+          try {
+            const url = new URL(afterNavigateUrl);
+            authCode = url.searchParams.get('code') || '';
+            if (authCode) console.log(`[Capture] ✅ Code via browser-based OAuth: ${authCode.slice(0, 20)}...`);
+          } catch (_) {}
+        }
+        if (!authCode) {
+          const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
+          if (intercepted && intercepted.includes('code=')) {
+            try { authCode = new URL(intercepted).searchParams.get('code') || ''; } catch (_) {}
+            if (authCode) console.log(`[Capture] ✅ Code via browser OAuth interceptor: ${authCode.slice(0, 20)}...`);
+          }
+        }
+      } catch (browserErr) {
+        console.log(`[Capture] ❌ Browser-based OAuth exception: ${browserErr?.message || browserErr}`);
+      }
+
+      if (!authCode) {
+        return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+      }
     }
     if (oauthState?.hasEmailInput && !oauthLoginHandled) {
       await fillEmail(tabId, userId, email);
