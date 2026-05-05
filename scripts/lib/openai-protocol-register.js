@@ -1079,13 +1079,14 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
 
   const authRes = await session.fetch(authUrl, { timeoutMs: 15000 });
   log(`Authorize GET status=${authRes.status}`);
-  const did = session.getCookie('oai-did');
+  let did = session.getCookie('oai-did');
   const cookieNames = Object.keys(session.cookies);
   log(`Cookies after authorize: [${cookieNames.join(', ')}] (total: ${cookieNames.length})`);
   log('Device ID:', did?.slice(0, 20) || 'none');
   if (!did) {
-    log('⚠️ oai-did cookie missing — authorize URL may not have set it through redirect chain');
-    return { success: false, error: 'Codex login: failed to get device_id' };
+    // Fallback: generate a stable device id from email hash so sentinel still works
+    did = crypto.createHash('sha256').update(email).digest('hex').slice(0, 32);
+    log('Generated fallback device_id from email hash');
   }
 
   const senPayload = await fetchSentinelPayload(session, did, 'authorize_continue', log);
@@ -1379,6 +1380,21 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
   }
 
   if (!workspaces.length) {
+    log('⚠️ No workspaces found — attempting consent submission without workspace selection');
+    // Fallback: some accounts don't need explicit workspace selection
+    // Try to follow the consent redirect chain directly
+    const directRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
+    if (directRes.status >= 300 && directRes.headers.location) {
+      const nextUrl = normalizeUrl(directRes.headers.location, consentUrl);
+      const callbackUrl = await followRedirectsForCode(session, nextUrl, log);
+      if (callbackUrl) {
+        const parsed = parseCallbackUrl(callbackUrl);
+        if (parsed.code) {
+          log('Direct consent redirect yielded callback URL');
+          return { success: true, callbackUrl, code: parsed.code, state: parsed.state, source: 'session_seed_direct' };
+        }
+      }
+    }
     log('⚠️ No workspaces found — cannot complete OAuth consent');
     return { success: false, error: 'No workspaces found in cookie or consent HTML' };
   }
