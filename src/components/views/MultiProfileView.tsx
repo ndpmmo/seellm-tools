@@ -196,12 +196,11 @@ function ProfileModal({
 
 // ─── Profile Card ─────────────────────────────────────────────────────────
 function ProfileCard({
-  profile, onLaunch, onClose, onVNC, onEdit, onClone, onDelete, onNavigate
+  profile, onLaunch, onClose, onEdit, onClone, onDelete, onNavigate
 }: {
   profile: BrowserProfile;
   onLaunch: () => void;
   onClose: () => void;
-  onVNC: () => void;
   onEdit: () => void;
   onClone: () => void;
   onDelete: () => void;
@@ -324,7 +323,7 @@ export function MultiProfileView() {
   const {
     profiles, profileOptions, refreshProfiles, refreshProfileOptions,
     launchProfile, closeProfile, createProfile, updateProfile, deleteProfile,
-    cloneProfile, navigateProfile, addToast, runScript, setView
+    cloneProfile, navigateProfile, addToast, setView
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -354,18 +353,12 @@ export function MultiProfileView() {
 
   const handleEdit = async (data: any) => {
     if (!editProfile) return;
+    const id = editProfile.id;
     setEditProfile(null);
-    await updateProfile(editProfile.id, data);
+    await updateProfile(id, data);
   };
 
   const handleLaunch = async (id: string) => {
-    const x = profiles.find(p => p.id === id);
-    if (!x) return;
-    
-    // Optimistic status update
-    x.status = 'launching';
-    refreshProfiles();
-    
     try {
       await launchProfile(id);
     } catch (e: any) {
@@ -441,7 +434,6 @@ export function MultiProfileView() {
               profile={p}
               onLaunch={() => handleLaunch(p.id)}
               onClose={() => handleClose(p.id)}
-              onVNC={() => {}} 
               onEdit={() => setEditProfile(p)}
               onClone={() => cloneProfile(p.id)}
               onDelete={() => handleDelete(p.id)}

@@ -1,6 +1,5 @@
 'use client';
 import React, { createContext, useContext, useCallback, useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface LogEntry { type: 'stdout' | 'stderr' | 'system'; text: string; ts: string; }
@@ -15,6 +14,28 @@ interface ProcessStatusEvent {
 export interface Screenshot { filename: string; url: string; email?: string; ts?: string; }
 export interface Session { id: string; dir: string; imageCount: number; images: Screenshot[]; createdAt?: string; mtime: string; }
 export interface LogFile { filename: string; size: number; createdAt?: string; mtime: string; }
+
+export interface BrowserProfile {
+  id: string; name: string; group_name: string;
+  user_agent: string; screen_resolution: string; language: string;
+  timezone: string; webgl_vendor: string; webgl_renderer: string;
+  canvas_noise: number; font_masking: string;
+  proxy_url: string; start_url: string;
+  status: 'idle' | 'launching' | 'active' | 'error';
+  camofox_port: number | null;
+  camofox_pid: number | null; tab_id: string | null;
+  tags: string[]; notes: string;
+  last_opened_at: string | null;
+  created_at: string; updated_at: string;
+}
+
+export interface ProfileOptions {
+  presets: { key: string; label: string; icon: string }[];
+  timezones: string[];
+  languages: { value: string; label: string }[];
+  resolutions: string[];
+  proxies: { id: string; label: string; url: string }[];
+}
 
 export interface ProcessInfo {
   id: string; name: string; command: string; cwd: string;
@@ -48,7 +69,6 @@ interface IApp {
   liveShots: Record<string, Screenshot>; // sessionId -> latest screenshot
   selectedLog: string | null;
   toasts: Toast[];
-  socket: Socket | null;
   setView: (v: string) => void;
   setSelectedLog: (id: string | null) => void;
   startCamofox: () => Promise<void>;
@@ -65,6 +85,18 @@ interface IApp {
   refreshAccounts: () => Promise<void>;
   accounts: unknown[];
   addToast: (msg: string, type?: Toast['type']) => void;
+  // Multi Profile
+  profiles: BrowserProfile[];
+  profileOptions: ProfileOptions | null;
+  refreshProfiles: () => Promise<void>;
+  refreshProfileOptions: () => Promise<void>;
+  launchProfile: (id: string) => Promise<void>;
+  closeProfile: (id: string) => Promise<void>;
+  createProfile: (data: Partial<BrowserProfile> & { name: string }) => Promise<BrowserProfile | null>;
+  updateProfile: (id: string, data: Partial<BrowserProfile>) => Promise<void>;
+  deleteProfile: (id: string) => Promise<void>;
+  cloneProfile: (id: string, newName?: string) => Promise<BrowserProfile | null>;
+  navigateProfile: (id: string, url: string) => Promise<void>;
 }
 
 const Ctx = createContext<IApp | null>(null);
@@ -82,18 +114,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<unknown[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [socket] = useState<Socket | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return io('/', {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 800,
-      reconnectionDelayMax: 8000,
-      timeout: 20000,
-    });
-  });
+  const [profiles, setProfiles] = useState<BrowserProfile[]>([]);
+  const [profileOptions, setProfileOptions] = useState<ProfileOptions | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const connectedRef = useRef(false);
@@ -102,12 +124,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const disconnectDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processedEventsCache = useRef<Map<string, number>>(new Map());
 
+  // Batched state updates for high-frequency events
+  const processesUpdateRef = useRef<Record<string, ProcessInfo>>({});
+  const liveShotsUpdateRef = useRef<Record<string, Screenshot>>({});
+  const processesUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveShotsUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushProcessesUpdate = useCallback(() => {
+    if (Object.keys(processesUpdateRef.current).length === 0) return;
+    setProcesses(p => ({ ...p, ...processesUpdateRef.current }));
+    processesUpdateRef.current = {};
+    processesUpdateTimer.current = null;
+  }, []);
+
+  const queueProcessesUpdate = useCallback((update: Record<string, ProcessInfo>) => {
+    processesUpdateRef.current = { ...processesUpdateRef.current, ...update };
+    if (!processesUpdateTimer.current) {
+      processesUpdateTimer.current = setTimeout(flushProcessesUpdate, 50);
+    }
+  }, [flushProcessesUpdate]);
+
+  const flushLiveShotsUpdate = useCallback(() => {
+    if (Object.keys(liveShotsUpdateRef.current).length === 0) return;
+    setLiveShots(p => ({ ...p, ...liveShotsUpdateRef.current }));
+    liveShotsUpdateRef.current = {};
+    liveShotsUpdateTimer.current = null;
+  }, []);
+
+  const queueLiveShotsUpdate = useCallback((update: Record<string, Screenshot>) => {
+    liveShotsUpdateRef.current = { ...liveShotsUpdateRef.current, ...update };
+    if (!liveShotsUpdateTimer.current) {
+      liveShotsUpdateTimer.current = setTimeout(flushLiveShotsUpdate, 50);
+    }
+  }, [flushLiveShotsUpdate]);
+
   useEffect(() => {
     connectedRef.current = connected;
   }, [connected]);
 
   useEffect(() => {
     sseConnectedRef.current = sseConnected;
+  }, [sseConnected]);
+
+  useEffect(() => {
+    setConnected(sseConnected);
+    setRealtimeConnected(sseConnected);
   }, [sseConnected]);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
@@ -171,160 +232,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 900);
   }, []);
 
-  // Socket.io
-  useEffect(() => {
-    const markDisconnectedSoon = (delayMs = 1500) => {
-      if (disconnectDebounceTimer.current) {
-        clearTimeout(disconnectDebounceTimer.current);
-      }
-      disconnectDebounceTimer.current = setTimeout(() => {
-        setConnected(false);
-        disconnectDebounceTimer.current = null;
-      }, delayMs);
-    };
+  const refreshAccounts = useCallback(async () => {
+    const res = await fetch('/api/vault/accounts').then(r => r.json());
+    setAccounts(res.data || []);
+  }, []);
 
-    const clearDisconnectDebounce = () => {
-      if (disconnectDebounceTimer.current) {
-        clearTimeout(disconnectDebounceTimer.current);
-        disconnectDebounceTimer.current = null;
-      }
-    };
-
-    if (!socket) return;
-    const socketInstance = socket;
-
-    socketInstance.on('connect', () => {
-      clearDisconnectDebounce();
-      setConnected(true);
-      // Only set realtimeConnected if SSE is not already connected (SSE priority)
-      if (!sseConnectedRef.current) {
-        setRealtimeConnected(true);
-      }
-      refreshProcesses();
-      queueRefreshSessions();
-    });
-    socketInstance.on('disconnect', () => {
-      markDisconnectedSoon(1500);
-      refreshProcesses();
-      queueRefreshSessions();
-      // If SSE is still connected, realtime is still available
-      if (sseConnectedRef.current) {
-        setRealtimeConnected(true);
-      } else {
-        setRealtimeConnected(false);
-      }
-    });
-    socketInstance.on('reconnect', (attemptNumber) => {
-      console.log('[Socket] Reconnected after', attemptNumber, 'attempts');
-      setConnected(true);
-      refreshProcesses();
-    });
-    socketInstance.on('reconnect_attempt', (attemptNumber) => {
-      console.log('[Socket] Reconnection attempt', attemptNumber);
-    });
-    socketInstance.on('reconnect_failed', () => {
-      console.log('[Socket] Reconnection failed');
-      markDisconnectedSoon(0);
-    });
-    socketInstance.on('connect_error', (err) => {
-      console.log('[Socket] Connect error:', err?.message || String(err));
-      markDisconnectedSoon(1000);
-    });
-
-    socketInstance.on('processes:sync', (list: ProcessInfo[]) => {
-      // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnectedRef.current) return;
-      const m: Record<string, ProcessInfo> = {};
-      list.forEach(p => {
-        if (!p) return;
-        m[p.id] = p;
-        socketInstance.emit('process:getLogs', { id: p.id });
-      });
-      setProcesses(m);
-    });
-
-    socketInstance.on('process:log', ({ id, log }: { id: string; log: LogEntry }) => {
-      // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnectedRef.current) return;
-      setProcesses(p => {
-        const e = p[id] || {
-          id, name: `Script ${id}`, command: '', cwd: '',
-          status: 'running', startedAt: new Date().toISOString(), logs: []
-        };
-        return { ...p, [id]: { ...e, logs: [...e.logs, log].slice(-5000) } };
-      });
-    });
-
-    socketInstance.on('process:logsHistory', ({ id, logs }: { id: string; logs: LogEntry[] }) => {
-      setProcesses(p => {
-        const e = p[id] || {
-          id, name: `Script ${id}`, command: '', cwd: '',
-          status: 'running', startedAt: new Date().toISOString(), logs: []
-        };
-        return { ...p, [id]: { ...e, logs: Array.isArray(logs) ? logs.slice(-5000) : e.logs } };
-      });
-    });
-
-    socketInstance.on('process:status', ({ id, status, exitCode, pid, name }: ProcessStatusEvent) => {
-      // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnectedRef.current) return;
-      setProcesses(p => {
-        const e = p[id] || {
-          id, name: name || `Script ${id}`, command: '', cwd: '',
-          status: status || 'running', startedAt: new Date().toISOString(), logs: []
-        };
-        return { ...p, [id]: { ...e, status: status || e.status, exitCode: exitCode ?? e.exitCode, pid: pid ?? e.pid, name: name || e.name } };
-      });
-    });
-
-    // Live screenshot pushed from server when new file appears
-    socketInstance.on('screenshot:new', (data: { sessionId: string; filename: string; url: string; ts: string; email?: string }) => {
-      // Skip if SSE is already handling realtime (SSE priority)
-      if (sseConnectedRef.current) return;
-      setLiveShots(prev => ({
-        ...prev,
-        [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
-      }));
-      // Keep sessions in sync without immediate full reload on every frame.
-      setSessions(prev => {
-        const idx = prev.findIndex(s => s.id === data.sessionId);
-        if (idx === -1) return prev;
-        const session = prev[idx];
-        const exists = session.images.some(img => img.filename === data.filename);
-        const nextShot: Screenshot = { filename: data.filename, url: data.url, email: data.email, ts: data.ts };
-        const nextSession: Session = {
-          ...session,
-          mtime: data.ts || session.mtime,
-          imageCount: exists ? session.imageCount : session.imageCount + 1,
-          images: exists ? session.images : [nextShot, ...session.images].slice(0, 200),
-        };
-        const out = [...prev];
-        out[idx] = nextSession;
-        return out;
-      });
-      queueRefreshSessions();
-    });
-
-    return () => {
-      if (sessionsRefreshTimer.current) {
-        clearTimeout(sessionsRefreshTimer.current);
-        sessionsRefreshTimer.current = null;
-      }
-      if (disconnectDebounceTimer.current) {
-        clearTimeout(disconnectDebounceTimer.current);
-        disconnectDebounceTimer.current = null;
-      }
-      socketInstance.disconnect();
-    };
-  }, [queueRefreshSessions, refreshProcesses, socket]);
-
-  // SSE (Server-Sent Events) - runs in parallel with Socket.io
+  // SSE (Server-Sent Events) - primary realtime transport
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let closedByCleanup = false;
 
     const updateRealtimeFromFallback = () => {
-      setRealtimeConnected(connectedRef.current);
+      setRealtimeConnected(false);
     };
 
     try {
@@ -334,7 +253,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       eventSource.addEventListener('ready', () => {
         console.log('[SSE] Ready');
         setSseConnected(true);
-        setRealtimeConnected(true);
       });
 
       eventSource.addEventListener('processes:sync', (e: MessageEvent) => {
@@ -367,15 +285,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       eventSource.addEventListener('process:log', (e: MessageEvent) => {
         try {
-          const { id, log }: { id: string; log: LogEntry } = JSON.parse(e.data);
+          const data: { id: string; log?: LogEntry; logs?: LogEntry[] } = JSON.parse(e.data);
+          const logs = data.logs || (data.log ? [data.log] : []);
           // Dedup to prevent duplicate processing
-          if (isEventProcessed('process:log', id, log.ts)) return;
+          logs.forEach(log => {
+            if (isEventProcessed('process:log', data.id, log.ts)) return;
+          });
+          // Use batching to reduce rerenders
           setProcesses(p => {
-            const e = p[id] || {
-              id, name: `Script ${id}`, command: '', cwd: '',
+            const e = p[data.id] || {
+              id: data.id, name: `Script ${data.id}`, command: '', cwd: '',
               status: 'running', startedAt: new Date().toISOString(), logs: []
             };
-            return { ...p, [id]: { ...e, logs: [...e.logs, log].slice(-5000) } };
+            return { ...p, [data.id]: { ...e, logs: [...e.logs, ...logs].slice(-5000) } };
           });
         } catch (err) {
           console.warn('[SSE] Failed to parse process:log:', err);
@@ -385,14 +307,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       eventSource.addEventListener('process:status', (e: MessageEvent) => {
         try {
           const { id, status, exitCode, pid, name }: ProcessStatusEvent = JSON.parse(e.data);
-          // Dedup to prevent duplicate processing (use current timestamp for key)
-          if (isEventProcessed('process:status', id, new Date().toISOString())) return;
+          if (isEventProcessed('process:status', id, `${status || 'unknown'}:${exitCode ?? 'null'}:${pid ?? 'null'}`)) return;
           setProcesses(p => {
-            const e = p[id] || {
+            const existing = p[id] || {
               id, name: name || `Script ${id}`, command: '', cwd: '',
               status: status || 'running', startedAt: new Date().toISOString(), logs: []
             };
-            return { ...p, [id]: { ...e, status: status || e.status, exitCode: exitCode ?? e.exitCode, pid: pid ?? e.pid, name: name || e.name } };
+            queueProcessesUpdate({
+              [id]: {
+                ...existing,
+                status: status || existing.status,
+                exitCode: exitCode ?? existing.exitCode,
+                pid: pid ?? existing.pid,
+                name: name || existing.name,
+              }
+            });
+            return p;
           });
         } catch (err) {
           console.warn('[SSE] Failed to parse process:status:', err);
@@ -404,10 +334,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const data: { sessionId: string; filename: string; url: string; ts: string; email?: string } = JSON.parse(e.data);
           // Dedup to prevent duplicate processing
           if (isEventProcessed('screenshot:new', data.sessionId, data.ts)) return;
-          setLiveShots(prev => ({
-            ...prev,
+          // Use batching for live shots to reduce rerenders
+          queueLiveShotsUpdate({
             [data.sessionId]: { filename: data.filename, url: data.url, email: data.email, ts: data.ts }
-          }));
+          });
           setSessions(prev => {
             const idx = prev.findIndex(s => s.id === data.sessionId);
             if (idx === -1) return prev;
@@ -428,6 +358,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (err) {
           console.warn('[SSE] Failed to parse screenshot:new:', err);
         }
+      });
+
+      eventSource.addEventListener('email-pool-updated', (e: MessageEvent) => {
+        try {
+          const data: { email: string } = JSON.parse(e.data);
+          // Trigger vault accounts refresh when email pool changes
+          refreshAccounts();
+        } catch (err) {
+          console.warn('[SSE] Failed to parse email-pool-updated:', err);
+        }
+      });
+
+      eventSource.addEventListener('vault:update', (e: MessageEvent) => {
+        try {
+          // Trigger vault refresh when cloud sync updates
+          refreshAccounts();
+        } catch (err) {
+          console.warn('[SSE] Failed to parse vault:update:', err);
+        }
+      });
+
+      eventSource.addEventListener('profile:launched', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          refreshProfiles();
+          addToast(`🦊 Profile "${data.id}" launched on port ${data.port}`, 'success');
+        } catch { }
+      });
+
+      eventSource.addEventListener('profile:closed', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          refreshProfiles();
+          addToast(`Profile "${data.id}" closed`, 'info');
+        } catch { }
+      });
+
+      eventSource.addEventListener('profile:status', (e: MessageEvent) => {
+        try {
+          refreshProfiles();
+        } catch { }
       });
 
       eventSource.addEventListener('ping', () => {
@@ -460,7 +431,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateRealtimeFromFallback();
       }
     };
-  }, [isEventProcessed, queueRefreshSessions]);
+  }, [isEventProcessed, queueRefreshSessions, refreshAccounts]);
 
   // Initial load
   useEffect(() => {
@@ -473,6 +444,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fetch('/api/sessions').then(r => r.json()).then(setSessions).catch(console.error);
     fetch('/api/logfiles').then(r => r.json()).then(setLogFiles).catch(console.error);
     fetch('/api/vault/accounts').then(r => r.json()).then(res => setAccounts(res.data || [])).catch(console.error);
+    fetch('/api/profiles').then(r => r.json()).then(setProfiles).catch(console.error);
+    fetch('/api/profiles/options').then(r => r.json()).then(setProfileOptions).catch(console.error);
   }, []);
 
   // Fallback sync when realtime transport disconnects or misses updates.
@@ -485,24 +458,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(t);
   }, [realtimeConnected, queueRefreshSessions, refreshProcesses]);
 
-  // Socket watchdog: if disconnected for too long, trigger reconnect.
-  useEffect(() => {
-    if (connected || !socket) return;
-    const t = setInterval(() => {
-      if (!socket.connected) {
-        try { socket.connect(); } catch { }
-      }
-    }, 5000);
-    return () => clearInterval(t);
-  }, [connected, socket]);
-
   async function post(url: string, body?: unknown) {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
-    return r.json();
+    const text = await r.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text || `Request failed with status ${r.status}` };
+    }
   }
 
   function optimisticAdd(id: string, name: string, command: string, pid?: number) {
@@ -568,21 +535,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLogFiles(l);
   }, []);
 
-  const refreshAccounts = useCallback(async () => {
-    const res = await fetch('/api/vault/accounts').then(r => r.json());
-    setAccounts(res.data || []);
+  const refreshProfiles = useCallback(async () => {
+    const p = await fetch('/api/profiles').then(r => r.json());
+    setProfiles(p);
   }, []);
+
+  const refreshProfileOptions = useCallback(async () => {
+    const o = await fetch('/api/profiles/options').then(r => r.json());
+    setProfileOptions(o);
+  }, []);
+
+  const launchProfile = useCallback(async (id: string) => {
+    const res = await post(`/api/profiles/${id}/launch`);
+    if (res.error) { addToast(`Launch failed: ${res.error}`, 'error'); return; }
+    refreshProfiles();
+  }, [addToast, refreshProfiles]);
+
+  const closeProfile = useCallback(async (id: string) => {
+    const res = await post(`/api/profiles/${id}/close`);
+    if (res.error) { addToast(`Close failed: ${res.error}`, 'error'); return; }
+    refreshProfiles();
+  }, [addToast, refreshProfiles]);
+
+  const createProfile = useCallback(async (data: Partial<BrowserProfile> & { name: string }) => {
+    const res = await post('/api/profiles', data);
+    if (res.error) { addToast(`Create failed: ${res.error}`, 'error'); return null; }
+    addToast(`✅ Profile "${data.name}" created`, 'success');
+    refreshProfiles();
+    return res.profile;
+  }, [addToast, refreshProfiles]);
+
+  const updateProfile = useCallback(async (id: string, data: Partial<BrowserProfile>) => {
+    const res = await fetch(`/api/profiles/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => r.json());
+    if (res.error) { addToast(`Update failed: ${res.error}`, 'error'); return; }
+    refreshProfiles();
+  }, [addToast, refreshProfiles]);
+
+  const deleteProfile = useCallback(async (id: string) => {
+    const res = await fetch(`/api/profiles/${id}`, { method: 'DELETE' }).then(r => r.json());
+    if (res.error) { addToast(`Delete failed: ${res.error}`, 'error'); return; }
+    addToast('Profile deleted', 'info');
+    refreshProfiles();
+  }, [addToast, refreshProfiles]);
+
+  const cloneProfile = useCallback(async (id: string, newName?: string) => {
+    const res = await post(`/api/profiles/${id}/clone`, { name: newName });
+    if (res.error) { addToast(`Clone failed: ${res.error}`, 'error'); return null; }
+    addToast('Profile cloned', 'success');
+    refreshProfiles();
+    return res.profile;
+  }, [addToast, refreshProfiles]);
+
+  const navigateProfile = useCallback(async (id: string, url: string) => {
+    const res = await post(`/api/profiles/${id}/navigate`, { url });
+    if (res.error) addToast(`Navigate failed: ${res.error}`, 'error');
+  }, [addToast]);
 
   return (
     <Ctx.Provider value={{
       processes, config, connected, sseConnected, realtimeConnected, view, sessions, logFiles,
-      liveShots, selectedLog, toasts, socket,
+      liveShots, selectedLog, toasts,
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, stopProcess, runScript,
       saveConfig, pingCamofox, pingGateway, getScripts,
       refreshSessions, refreshLogFiles, refreshProcesses, refreshAccounts,
       accounts,
       addToast,
+      profiles, profileOptions, refreshProfiles, refreshProfileOptions,
+      launchProfile, closeProfile, createProfile, updateProfile, deleteProfile,
+      cloneProfile, navigateProfile,
     }}>
       {children}
     </Ctx.Provider>
