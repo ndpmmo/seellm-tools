@@ -44,6 +44,7 @@ export function SettingsView() {
     workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
     forceEnLocale: true,
     workerMode: 'auto',
+    protocolFirst: true,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -129,6 +130,26 @@ export function SettingsView() {
                 ✅ Mode sẽ tự động áp dụng sau ~5s (không cần restart)
               </div>
             )}
+          </Field>
+          <Field
+            label="Protocol-Mode Registration"
+            hint="Khi BẬT: Worker thử đăng ký qua HTTP API trước (nhanh, ít bị phát hiện). Nếu thất bại hoặc Sentinel đòi CAPTCHA thì tự động fallback về browser. Khi TẮT: Luôn dùng browser automation."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('protocolFirst', !f.protocolFirst)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.protocolFirst
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.protocolFirst ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.protocolFirst ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.protocolFirst ? 'BẬT — API-first' : 'TẮT — Browser-only'}
+            </button>
           </Field>
           <Field
             label="Ép Locale English (en-US)"

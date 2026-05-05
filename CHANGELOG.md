@@ -24,6 +24,11 @@
 - Browser flow: password retry tối đa 3 candidates (sinh ngẫu nhiên), kiểm tra lỗi `already`/`exists` sau mỗi attempt.
 - Browser flow: email-exists auto-detection — nếu submit email xong vào OTP screen mà không hề thấy password input → đánh dấu existing account.
 
+**Config Setting:**
+- `protocolFirst` được thêm vào `tools.config.json` defaults (cả `server/db/config.js` lẫn `scripts/config.js`).
+- Export `PROTOCOL_FIRST` từ `scripts/config.js`: ưu tiên `process.env.PROTOCOL_FIRST`, fallback về config.
+- Settings UI (`src/components/views/SettingsView.tsx`) có toggle "Protocol-Mode Registration" để bật/tắt trực tiếp.
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 

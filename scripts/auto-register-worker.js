@@ -13,7 +13,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
-import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL } from './config.js';
+import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
@@ -684,7 +684,7 @@ export async function runAutoRegister(taskInput) {
     let protocolResult = null;
     let isExistingAccount = false;
     let skipRegistrationSteps = false;
-    if (process.env.PROTOCOL_FIRST !== 'false') {
+    if (PROTOCOL_FIRST) {
       console.log(`[Protocol] Attempting protocol-mode registration...`);
       try {
         const emailServiceAdapter = {

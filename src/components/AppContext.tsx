@@ -53,6 +53,8 @@ export interface AppConfig {
   forceEnLocale?: boolean;
   /** Worker mode: 'auto' | 'direct-login' | 'pkce-login' */
   workerMode?: string;
+  /** Bật protocol-mode registration làm primary flow (true = API-first, false = browser-only) */
+  protocolFirst?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

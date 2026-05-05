@@ -19,6 +19,7 @@ export function loadConfig() {
     maxThreads:    3,
     forceEnLocale: true,
     workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
+    protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
   };
   try {
     if (existsSync(CONFIG_PATH)) {

@@ -20,6 +20,7 @@ const defaults = {
   maxThreads: 3,
   forceEnLocale: true,
   workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
+  protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
 };
 
 export function loadConfig() {
@@ -47,5 +48,6 @@ export const POLL_INTERVAL_MS = config.pollIntervalMs;
 export const MAX_THREADS = config.maxThreads;
 export const FORCE_EN_LOCALE = config.forceEnLocale !== false; // default true
 export const WORKER_MODE = process.env.WORKER_MODE || config.workerMode || 'auto'; // 'auto' | 'direct-login' | 'pkce-login'
+export const PROTOCOL_FIRST = process.env.PROTOCOL_FIRST !== undefined ? process.env.PROTOCOL_FIRST !== 'false' : (config.protocolFirst !== false);
 /** Locale string truyền cho camofox khi bật forceEnLocale */
 export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;
