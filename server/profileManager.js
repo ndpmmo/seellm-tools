@@ -105,6 +105,7 @@ export async function launchProfile(profileId, emitSSE) {
     ...process.env,
     CAMOFOX_PORT: String(port),
     CAMOFOX_PROFILE_DIR: profileDir,
+    PROFILE_NAME: profile.name, // Pass profile name to identify window
     ENABLE_VNC: '0', 
   };
 
@@ -171,6 +172,8 @@ export async function launchProfile(profileId, emitSSE) {
 
   // Create tab
   let tabId = null;
+  const launchUrl = profile.last_url || profile.start_url || 'https://www.google.com';
+  
   try {
     const tabRes = await fetch(`http://localhost:${port}/tabs`, {
       method: 'POST',
@@ -178,7 +181,7 @@ export async function launchProfile(profileId, emitSSE) {
       body: JSON.stringify({
         userId: `profile-${profileId}`,
         sessionKey: `profile-${profileId}`,
-        url: profile.start_url || 'https://www.google.com',
+        url: launchUrl,
         locale: profile.language || undefined,
       }),
       signal: AbortSignal.timeout(10000),
@@ -210,6 +213,19 @@ export async function closeProfile(profileId, emitSSE) {
   const userId = `profile-${profileId}`;
 
   if (port) {
+    // Try to get and save current URL before closing
+    try {
+      if (profile.tab_id) {
+        const snapRes = await fetch(`http://localhost:${port}/tabs/${profile.tab_id}/snapshot?userId=${userId}`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        const snapData = await snapRes.json();
+        if (snapData.url && snapData.url !== 'about:blank') {
+          vault.updateProfileLastUrl(profileId, snapData.url);
+        }
+      }
+    } catch (e) { /* ignore snapshot failure on close */ }
+
     try {
       await fetch(`http://localhost:${port}/sessions/${userId}`, {
         method: 'DELETE',

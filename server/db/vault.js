@@ -108,18 +108,46 @@ function initSchema() {
       updated_at        TEXT NOT NULL,
       created_at        TEXT NOT NULL
     );
+
+    -- Browser Profiles (Multi Profile)
+    CREATE TABLE IF NOT EXISTS browser_profiles (
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL,
+      group_name        TEXT DEFAULT '',
+      user_agent        TEXT DEFAULT '',
+      screen_resolution TEXT DEFAULT '1920x1080',
+      language          TEXT DEFAULT 'en-US',
+      timezone          TEXT DEFAULT 'America/New_York',
+      webgl_vendor      TEXT DEFAULT '',
+      webgl_renderer    TEXT DEFAULT '',
+      canvas_noise      INTEGER DEFAULT 0,
+      font_masking      TEXT DEFAULT '',
+      proxy_url         TEXT DEFAULT '',
+      start_url         TEXT DEFAULT 'about:blank',
+      status            TEXT DEFAULT 'idle',
+      camofox_port      INTEGER DEFAULT NULL,
+      novnc_port        INTEGER DEFAULT NULL,
+      camofox_pid       INTEGER DEFAULT NULL,
+      tab_id            TEXT DEFAULT NULL,
+      tags              TEXT DEFAULT '[]',
+      notes             TEXT DEFAULT '',
+      last_opened_at    TEXT DEFAULT NULL,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL
+    );
   `);
 }
 
 function applyMigrations() {
-  const tables = ['vault_accounts', 'vault_proxies', 'vault_api_keys'];
-  for (const t of tables) {
-    try {
-      db.exec(`ALTER TABLE ${t} ADD COLUMN deleted_at TEXT`);
-    } catch (e) { }
+  // Add last_url to browser_profiles
+  try {
+    db.prepare(`ALTER TABLE browser_profiles ADD COLUMN last_url TEXT`).run();
+    db.prepare(`UPDATE browser_profiles SET last_url = 'https://www.google.com' WHERE last_url IS NULL`).run();
+  } catch (e) {
+    // Column might already exist
   }
 
-  // Specific migrations
+  // Specific migrations for other tables
   try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN services_json TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN is_active INTEGER DEFAULT 1`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN quota_json TEXT`); } catch (e) { }
@@ -675,5 +703,146 @@ export const vault = {
   updateAccountStatus: (id, status, error = null) => {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_accounts SET status = ?, notes = ?, updated_at = ? WHERE id = ?').run(status, error || '', now, id);
-  }
+  },
+
+  // ─── BROWSER PROFILES (Multi Profile) ────────────────────────────────────
+
+  getProfiles: () => {
+    return db.prepare('SELECT * FROM browser_profiles ORDER BY last_opened_at DESC NULLS LAST, created_at DESC').all()
+      .map(p => ({ ...p, tags: safeParseJson(p.tags, []) }));
+  },
+
+  getProfile: (id) => {
+    const p = db.prepare('SELECT * FROM browser_profiles WHERE id = ?').get(id);
+    if (!p) return null;
+    return { ...p, tags: safeParseJson(p.tags, []) };
+  },
+
+  getActiveProfiles: () => {
+    return db.prepare("SELECT * FROM browser_profiles WHERE status = 'active' ORDER BY camofox_port").all()
+      .map(p => ({ ...p, tags: safeParseJson(p.tags, []) }));
+  },
+
+  upsertProfile: (data) => {
+    const id = data.id || `prof_${uuidv4().slice(0, 8)}`;
+    const now = dayjs().toISOString();
+    const existing = db.prepare('SELECT * FROM browser_profiles WHERE id = ?').get(id);
+
+    const stmt = db.prepare(`
+      INSERT INTO browser_profiles (
+        id, name, group_name, user_agent, screen_resolution, language, timezone,
+        webgl_vendor, webgl_renderer, canvas_noise, font_masking,
+        proxy_url, start_url, status, camofox_port, novnc_port, camofox_pid, tab_id,
+        tags, notes, last_url, last_opened_at, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        name              = excluded.name,
+        group_name        = excluded.group_name,
+        user_agent        = excluded.user_agent,
+        screen_resolution = excluded.screen_resolution,
+        language          = excluded.language,
+        timezone          = excluded.timezone,
+        webgl_vendor      = excluded.webgl_vendor,
+        webgl_renderer    = excluded.webgl_renderer,
+        canvas_noise      = excluded.canvas_noise,
+        font_masking      = excluded.font_masking,
+        proxy_url         = excluded.proxy_url,
+        start_url         = excluded.start_url,
+        status            = excluded.status,
+        camofox_port      = excluded.camofox_port,
+        novnc_port        = excluded.novnc_port,
+        camofox_pid       = excluded.camofox_pid,
+        tab_id            = excluded.tab_id,
+        tags              = excluded.tags,
+        notes             = excluded.notes,
+        last_url          = excluded.last_url,
+        last_opened_at    = excluded.last_opened_at,
+        updated_at        = excluded.updated_at
+    `);
+
+    const record = {
+      id,
+      name: data.name ?? existing?.name ?? '',
+      group_name: data.group_name ?? existing?.group_name ?? '',
+      user_agent: data.user_agent ?? existing?.user_agent ?? '',
+      screen_resolution: data.screen_resolution ?? existing?.screen_resolution ?? '1920x1080',
+      language: data.language ?? existing?.language ?? 'en-US',
+      timezone: data.timezone ?? existing?.timezone ?? 'America/New_York',
+      webgl_vendor: data.webgl_vendor ?? existing?.webgl_vendor ?? '',
+      webgl_renderer: data.webgl_renderer ?? existing?.webgl_renderer ?? '',
+      canvas_noise: data.canvas_noise ?? existing?.canvas_noise ?? 0,
+      font_masking: data.font_masking ?? existing?.font_masking ?? '',
+      proxy_url: data.proxy_url ?? existing?.proxy_url ?? '',
+      start_url: data.start_url ?? existing?.start_url ?? 'https://www.google.com',
+      status: data.status ?? existing?.status ?? 'idle',
+      camofox_port: data.camofox_port ?? existing?.camofox_port ?? null,
+      novnc_port: data.novnc_port ?? existing?.novnc_port ?? null,
+      camofox_pid: data.camofox_pid ?? existing?.camofox_pid ?? null,
+      tab_id: data.tab_id ?? existing?.tab_id ?? null,
+      tags: JSON.stringify(data.tags ?? (existing ? safeParseJson(existing.tags, []) : [])),
+      notes: data.notes ?? existing?.notes ?? '',
+      last_url: data.last_url ?? existing?.last_url ?? 'https://www.google.com',
+      last_opened_at: data.last_opened_at ?? existing?.last_opened_at ?? null,
+      created_at: existing ? existing.created_at : now,
+      updated_at: now,
+    };
+
+    stmt.run(
+      record.id, record.name, record.group_name, record.user_agent, record.screen_resolution,
+      record.language, record.timezone, record.webgl_vendor, record.webgl_renderer,
+      record.canvas_noise, record.font_masking, record.proxy_url, record.start_url,
+      record.status, record.camofox_port, record.novnc_port, record.camofox_pid, record.tab_id,
+      record.tags, record.notes, record.last_url, record.last_opened_at, record.created_at, record.updated_at
+    );
+    return record;
+  },
+
+  deleteProfile: (id) => {
+    db.prepare('DELETE FROM browser_profiles WHERE id = ?').run(id);
+  },
+
+  updateProfileRuntime: (id, { status, camofox_port, novnc_port, camofox_pid, tab_id }) => {
+    const now = dayjs().toISOString();
+    const lastOpened = status === 'active' ? now : undefined;
+    
+    if (lastOpened) {
+      db.prepare(`
+        UPDATE browser_profiles 
+        SET status = ?, camofox_port = ?, novnc_port = ?, camofox_pid = ?, tab_id = ?, last_opened_at = ?, updated_at = ?
+        WHERE id = ?
+      `).run(status, camofox_port, novnc_port, camofox_pid, tab_id, lastOpened, now, id);
+    } else {
+      db.prepare(`
+        UPDATE browser_profiles 
+        SET status = ?, camofox_port = ?, novnc_port = ?, camofox_pid = ?, tab_id = ?, updated_at = ?
+        WHERE id = ?
+      `).run(status, camofox_port, novnc_port, camofox_pid, tab_id, now, id);
+    }
+  },
+
+  updateProfileLastUrl: (id, url) => {
+    if (!url) return;
+    db.prepare('UPDATE browser_profiles SET last_url = ?, updated_at = ? WHERE id = ?')
+      .run(url, dayjs().toISOString(), id);
+  },
+
+  cloneProfile: (id, newName) => {
+    const src = db.prepare('SELECT * FROM browser_profiles WHERE id = ?').get(id);
+    if (!src) return null;
+    const newId = `prof_${uuidv4().slice(0, 8)}`;
+    const now = dayjs().toISOString();
+    db.prepare(`
+      INSERT INTO browser_profiles (
+        id, name, group_name, user_agent, screen_resolution, language, timezone,
+        webgl_vendor, webgl_renderer, canvas_noise, font_masking,
+        proxy_url, start_url, status, tags, notes, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      newId, newName || `${src.name} (Copy)`, src.group_name, src.user_agent, src.screen_resolution,
+      src.language, src.timezone, src.webgl_vendor, src.webgl_renderer,
+      src.canvas_noise, src.font_masking, src.proxy_url, src.start_url,
+      'idle', src.tags, '', now, now
+    );
+    return vault.getProfile(newId);
+  },
 };

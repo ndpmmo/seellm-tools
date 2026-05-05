@@ -1963,10 +1963,12 @@ All 13 views fully migrated to Tailwind CSS:
 
 ### Added
 - **Multi Profile Headful Mode (macOS)**: Trình duyệt giờ đây khởi động với cửa sổ thật trên macOS, cho phép tương tác trực tiếp (giải captcha, đăng nhập tay) mà không cần VNC.
+- **Tab Persistence (Restore Last URL)**: Tự động ghi nhớ và mở lại trang web cuối cùng bạn đang truy cập khi khởi động lại profile.
 - **Auto-focus Window**: Cửa sổ trình duyệt tự động bật lên và tập trung (focus) khi nhấn Launch.
 - **Smart Viewport Alignment**: Tự động căn chỉnh vùng hiển thị (viewport) khớp hoàn hảo với kích thước cửa sổ trên macOS.
+- **Profile Title Prefix**: Tự động gắn tên profile vào tiêu đề cửa sổ trình duyệt để dễ dàng phân biệt khi mở nhiều tài khoản.
 - **Enhanced UI**: Giao diện Card Profile mới chuyên nghiệp hơn, hiển thị rõ ràng trạng thái và thông tin runtime.
-
+- **Full Disk Cleanup on Delete**: Khi xóa một profile, toàn bộ thư mục dữ liệu (cookies, cache, storage) trên ổ đĩa sẽ được xóa sạch sẽ.
 - **Vietnam timezone timestamps across history views**:
   - Added detailed VN time (`Asia/Ho_Chi_Minh`) display for:
     - `#screenshots` history and live cards
@@ -1978,6 +1980,10 @@ All 13 views fully migrated to Tailwind CSS:
   - Pull merge now keeps `created_at` from D1-managed records when available.
 
 ### Fixed
+- **RangeError: Too many parameter values**: Sửa lỗi crash server khi cập nhật profile hoặc gắn proxy do sai lệch số lượng cột trong Database.
+- **Blocked URL scheme: about:**: Trình duyệt giờ đây khởi động với Google.com thay vì about:blank để tránh bị chặn trên một số hệ thống.
+- **Viewport Mismatch**: Sửa lỗi hiển thị bị lệch (khoảng đen) trên macOS khi dùng chế độ headful.
+- **VNC Remnants Cleanup**: Loại bỏ hoàn toàn các đoạn code thừa, endpoint và UI liên quan đến VNC/Docker cũ.
 - **Screenshot delete UX after successful removal**:
   - Stopped repeated 404 live-image fetch loops by auto-hiding stale live entries on image load errors.
 - **Delete error diagnostics**:
