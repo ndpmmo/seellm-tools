@@ -383,7 +383,13 @@ export const SyncManager = {
                 // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
               } else {
                 existing.status = ga.status || existing.status;
-                existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
+                // [PROTECT] Không cho Gateway ghi đè is_active khi account đang trong flow người dùng khởi tạo
+                // (pending/processing/connect_pending>0). Gateway có thể gửi is_active=0 cho account lỗi,
+                // nhưng nếu user vừa bấm Deploy v2, is_active phải giữ nguyên 1.
+                const localUserInitiated = existing.status === 'pending' || existing.status === 'processing' || Number(existing.connect_pending) > 0;
+                if (!localUserInitiated) {
+                  existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
+                }
                 existing.quota_json = ga.quota_json || existing.quota_json;
                 existing.notes = ga.last_error || existing.notes;
                 // [FIX] Chỉ lan truyền deleted_at từ Gateway nếu local đã có deleted_at trước rồi (nhất quán)

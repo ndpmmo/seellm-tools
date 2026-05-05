@@ -852,7 +852,7 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
     } catch (_) { /* column đã tồn tại */ }
 
     vault.db.prepare(
-      `UPDATE vault_accounts SET connect_pending=1, status='pending', notes='', updated_at=datetime('now') WHERE id=?`
+      `UPDATE vault_accounts SET connect_pending=1, status='pending', is_active=1, notes='', updated_at=datetime('now') WHERE id=?`
     ).run(req.params.id);
 
     console.log(`[Deploy v2] 🔌 Đánh dấu connect_pending cho: ${account.email}`);
