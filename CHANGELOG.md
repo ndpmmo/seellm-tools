@@ -103,6 +103,11 @@
 - `server/services/syncManager.js` — `pullVault`: bảo vệ `is_active` không bị Gateway ghi đè khi account đang ở trạng thái user-initiated (pending/processing/connect_pending>0).
 - `scripts/auto-worker.js` — Add debug logging cho `fetchAnyTask()` connect-task errors.
 
+**Connect Result Routing Fix (accounts stuck cp=2 vĩnh viễn):**
+- Root cause: `sendResult()` chỉ gửi đến `/connect-result` khi có tokens (success). Khi fail (NEED_PHONE, proxy error...), không có tokens → gửi đến `/result` (login endpoint) → endpoint này không reset `connect_pending` → accounts stuck ở `cp=2` vĩnh viễn.
+- `scripts/auto-worker.js` — `sendResult`: dùng `task._flow` để route — mọi connect flow result (cả success lẫn error) đều đi qua `/connect-result`.
+- `server/routes/vault.js` — Throttle connect-task debug log (1 phút/lần thay vì mỗi 10s poll).
+
 **Debug:**
 - `scripts/debug/test-protocol-register.js` — Standalone script để test protocol flow với một email.
 
