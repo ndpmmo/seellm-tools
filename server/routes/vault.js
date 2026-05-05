@@ -15,10 +15,10 @@ import {
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
 
-// Socket.IO instance - set from server.js
-let io = null;
-export function setSocketIO(socketIO) {
-  io = socketIO;
+// SSE emitter - set from server.js (replaces Socket.IO for realtime events)
+let emitSSE = null;
+export function setSSEEmitter(emitter) {
+  emitSSE = emitter;
 }
 
 /* ─── PKCE Generator ─────────────────────────────────────────────────────── */
@@ -275,16 +275,16 @@ router.post('/email-pool', async (req, res) => {
   try {
     const record = vault.upsertEmailPool(req.body);
     res.json({ ok: true, email: record.email });
-    // Emit event for real-time UI update
-    if (io) io.emit('email-pool-updated', { email: record.email });
+    // Emit event for real-time UI update via SSE
+    if (emitSSE) emitSSE('email-pool-updated', { email: record.email });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.delete('/email-pool/:email', async (req, res) => {
-  try { 
-    vault.deleteEmailPool(req.params.email); 
-    res.json({ ok: true }); 
-    if (io) io.emit('email-pool-updated', { email: req.params.email });
+  try {
+    vault.deleteEmailPool(req.params.email);
+    res.json({ ok: true });
+    if (emitSSE) emitSSE('email-pool-updated', { email: req.params.email });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -678,16 +678,27 @@ router.get('/accounts/connect-task', (req, res) => {
     const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
 
     // Tìm account có connect_pending = 1 (đã bấm Deploy v2)
+    // Note: SQLite may return connect_pending as string '1' or integer 1
+    // Note: Không kiểm tra is_active vì connect_pending=1 là hành động explicit từ user
     const task = allAccounts.find(a =>
-      a.connect_pending === 1 &&
+      Number(a.connect_pending) === 1 &&
       !a.deleted_at &&
-      a.is_active !== 0 &&
       a.email && a.email.trim() &&
       a.password && a.password.trim() &&
       !excludeIds.includes(a.id)
     );
 
-    if (!task) return res.json({ ok: true, task: null });
+    if (!task) {
+      // Debug: log why no task found
+      const pending = allAccounts.filter(a => Number(a.connect_pending) > 0);
+      if (pending.length) {
+        console.log(`[connect-task] ${pending.length} accounts with connect_pending>0 but filtered out:`, pending.map(a => ({
+          id: a.id, email: a.email?.slice(0, 20), cp: a.connect_pending,
+          deleted: !!a.deleted_at, active: a.is_active, hasPwd: !!a.password?.trim(), status: a.status,
+        })));
+      }
+      return res.json({ ok: true, task: null });
+    }
 
     // Lock: đánh dấu đang xử lý
     vault.db.prepare(

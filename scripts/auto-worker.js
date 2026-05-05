@@ -1086,8 +1086,12 @@ async function fetchAnyTask() {
       if (res.ok) {
         const d = await res.json();
         if (d?.task) { d.task._flow = 'connect'; d.task.source = d.task.source || 'tools'; return d.task; }
+      } else {
+        if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] connect-task HTTP ${res.status}`);
       }
-    } catch (_) {}
+    } catch (e) {
+      if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] connect-task error: ${e.message}`);
+    }
   }
 
   // 2. Login tasks (Tools local)
