@@ -11,11 +11,14 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 
 // ============================================
-// CONSTANTS
+// CONSTANTS (mirrors upstream platforms/chatgpt/constants.py)
 // ============================================
-const SENTINEL_SDK_URL = 'https://cdn.jsdelivr.net/npm/@cloudflare/turnstile@0.4.3/dist/vanilla.js';
-const SENTINEL_FRAME_URL = 'https://sentinel.openai.com/backend-api/sentinel/frame.html';
-const SENTINEL_REQ_URL = 'https://sentinel.openai.com/backend-api/sentinel/req';
+const SENTINEL_BASE = 'https://sentinel.openai.com';
+const SENTINEL_SDK_VERSION = '20260124ceb8';
+const SENTINEL_FRAME_VERSION = '20260219f9f6';
+const SENTINEL_SDK_URL = `${SENTINEL_BASE}/sentinel/${SENTINEL_SDK_VERSION}/sdk.js`;
+const SENTINEL_FRAME_URL = `${SENTINEL_BASE}/backend-api/sentinel/frame.html?sv=${SENTINEL_FRAME_VERSION}`;
+const SENTINEL_REQ_URL = `${SENTINEL_BASE}/backend-api/sentinel/req`;
 
 // Datadog trace headers (mirrors upstream Python)
 export function generateDatadogTraceHeaders() {
@@ -494,7 +497,12 @@ class SentinelVM {
 
     const h_atob = (r) => {
       try {
-        const decoded = b64Decode(vm._g(r)).toString('latin-1');
+        let decoded;
+        try {
+          decoded = b64Decode(vm._g(r)).toString('latin1');
+        } catch (_) {
+          decoded = b64Decode(vm._g(r)).toString('binary');
+        }
         vm._s(r, decoded);
       } catch (e) { /* ignore */ }
     };
@@ -647,9 +655,20 @@ class SentinelVM {
 
   solve(dxB64, xorKey) {
     if (!dxB64) throw new Error('dx challenge is empty');
-    const raw = b64Decode(dxB64).toString('latin-1');
+    let raw;
+    try {
+      raw = b64Decode(dxB64).toString('latin1');
+    } catch (e) {
+      // Fallback: try binary encoding if latin1 fails
+      raw = b64Decode(dxB64).toString('binary');
+    }
     const decrypted = xorStr(raw, xorKey);
-    const instructions = JSON.parse(decrypted);
+    let instructions;
+    try {
+      instructions = JSON.parse(decrypted);
+    } catch (e) {
+      throw new Error(`SentinelVM: failed to parse decrypted instructions: ${e.message}`);
+    }
 
     this._done = false;
     this._result = null;

@@ -19,8 +19,12 @@ import { checkSentinelWithVm, generateDatadogTraceHeaders, SentinelTokenGenerato
 // ============================================
 const OPENAI_AUTH = 'https://auth.openai.com';
 const CHATGPT_APP = 'https://chatgpt.com';
-const SENTINEL_REQ_URL = 'https://sentinel.openai.com/backend-api/sentinel/req';
-const SENTINEL_SDK_URL = 'https://cdn.jsdelivr.net/npm/@cloudflare/turnstile@0.4.3/dist/vanilla.js';
+const SENTINEL_BASE = 'https://sentinel.openai.com';
+const SENTINEL_SDK_VERSION = '20260124ceb8';
+const SENTINEL_FRAME_VERSION = '20260219f9f6';
+const SENTINEL_REQ_URL = `${SENTINEL_BASE}/backend-api/sentinel/req`;
+const SENTINEL_SDK_URL = `${SENTINEL_BASE}/sentinel/${SENTINEL_SDK_VERSION}/sdk.js`;
+const SENTINEL_FRAME_URL = `${SENTINEL_BASE}/backend-api/sentinel/frame.html?sv=${SENTINEL_FRAME_VERSION}`;
 
 const OAUTH_CLIENT_ID = 'app_X8zY6vW2pQ9tR3dE7nK1jL5gH';
 const OAUTH_REDIRECT_URI = 'https://chatgpt.com/api/auth/callback/openai';
@@ -1036,7 +1040,7 @@ async function fetchSentinelPayload(session, did, flow, log) {
     method: 'POST',
     headers: {
       'Origin': 'https://sentinel.openai.com',
-      'Referer': 'https://sentinel.openai.com/backend-api/sentinel/frame.html',
+      'Referer': SENTINEL_FRAME_URL,
       'Content-Type': 'text/plain;charset=UTF-8',
       'Accept': '*/*',
       'Sec-Fetch-Dest': 'empty',
