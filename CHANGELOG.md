@@ -1959,15 +1959,14 @@ All 13 views fully migrated to Tailwind CSS:
 - **Manual fix script sync contract**:
   - `scripts/fix_and_sync.mjs` now forwards `workspace_id` and `provider_specific_data` in connection payload when present.
 
-## [0.1.13] - 2026-04-12
+## [3.0.0-beta.2] - 2026-05-05
 
 ### Added
-- **Screenshots & Log Files management controls**:
-  - Added search/filter controls and delete actions in `#screenshots` and `#logfiles`.
-  - Added bulk-select + bulk-delete flows for log files and screenshot sessions.
-  - Added API delete endpoints for screenshots sessions/images and log files.
+- **Multi Profile Headful Mode (macOS)**: Trình duyệt giờ đây khởi động với cửa sổ thật trên macOS, cho phép tương tác trực tiếp (giải captcha, đăng nhập tay) mà không cần VNC.
+- **Auto-focus Window**: Cửa sổ trình duyệt tự động bật lên và tập trung (focus) khi nhấn Launch.
+- **Smart Viewport Alignment**: Tự động căn chỉnh vùng hiển thị (viewport) khớp hoàn hảo với kích thước cửa sổ trên macOS.
+- **Enhanced UI**: Giao diện Card Profile mới chuyên nghiệp hơn, hiển thị rõ ràng trạng thái và thông tin runtime.
 
-### Changed
 - **Vietnam timezone timestamps across history views**:
   - Added detailed VN time (`Asia/Ho_Chi_Minh`) display for:
     - `#screenshots` history and live cards
