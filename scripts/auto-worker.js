@@ -559,6 +559,131 @@ async function runConnectFlow(task) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BROWSER-BASED CODEX OAUTH (mirrors upstream _complete_oauth_in_browser)
+// Interact with consent/workspace page in the real browser, click Continue,
+// wait for redirect to localhost:1455 callback, extract code even if page errors.
+// ═══════════════════════════════════════════════════════════════
+async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
+  const log = (...args) => console.log(`[BrowserOAuth]`, ...args);
+  log('Navigating to Codex auth URL...');
+  await navigate(tabId, userId, authUrl, 20000);
+  await new Promise(r => setTimeout(r, 3000));
+
+  const MAX_ROUNDS = 4;
+  const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"]'
+    + ',form[action*="/sign-in-with-chatgpt"]'
+    + ',form[action*="consent"]';
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    // 1. Check current URL for code
+    let url = '';
+    try { url = await evalJson(tabId, userId, 'location.href', 4000); } catch (_) {}
+    if (url && url.includes('code=') && url.includes('localhost')) {
+      try {
+        const u = new URL(url);
+        const code = u.searchParams.get('code') || '';
+        if (code) return { code, state: u.searchParams.get('state') || '' };
+      } catch (_) {}
+    }
+
+    // 2. Check interceptor
+    try {
+      const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
+      if (intercepted && intercepted.includes('code=')) {
+        const u = new URL(intercepted);
+        const code = u.searchParams.get('code') || '';
+        if (code) return { code, state: u.searchParams.get('state') || '' };
+      }
+    } catch (_) {}
+
+    // 3. Try clicking Continue on consent page
+    log(`Round ${round + 1}/${MAX_ROUNDS}: trying consent click...`);
+    let clicked = false;
+
+    // Strategy A: form.requestSubmit(button)
+    try {
+      const result = await evalJson(tabId, userId, `(sel) => {
+        const form = document.querySelector(sel);
+        if (!form) return 'no-form';
+        const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        let target = null;
+        for (const el of buttons) {
+          if (el.offsetParent === null) continue;
+          const text = (el.textContent || '').trim().toLowerCase();
+          const dd = el.getAttribute('data-dd-action-name') || '';
+          if (dd === 'Continue' || /continue|allow|authorize|同意|继续/i.test(text)) { target = el; break; }
+        }
+        if (!target) target = Array.from(buttons).find(el => el.offsetParent !== null);
+        if (!target) return 'no-button';
+        if (typeof form.requestSubmit === 'function') { form.requestSubmit(target); return 'requestSubmit'; }
+        target.click(); return 'click';
+      }`, 5000, CONSENT_FORM_SEL);
+      if (result && !['no-form', 'no-button'].includes(result)) {
+        log(`Consent clicked via ${result}`);
+        clicked = true;
+      }
+    } catch (_) {}
+
+    // Strategy B: direct JS dispatch on any visible Continue/Allow button
+    if (!clicked) {
+      try {
+        const result = await evalJson(tabId, userId, `() => {
+          const buttons = document.querySelectorAll('button, [role="button"]');
+          for (const el of buttons) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            const dd = el.getAttribute('data-dd-action-name') || '';
+            if (dd === 'Continue' || /continue|allow|authorize|同意|继续/i.test(text)) {
+              el.focus(); el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window}));
+              return text || 'dispatched';
+            }
+          }
+          return null;
+        }`, 5000);
+        if (result) { log(`Consent clicked via JS dispatch: ${result}`); clicked = true; }
+      } catch (_) {}
+    }
+
+    // 4. Wait for redirect after click
+    if (clicked) {
+      // Wait up to 15s for URL to change toward callback
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 800));
+        let u = '';
+        try { u = await evalJson(tabId, userId, 'location.href', 3000); } catch (_) {}
+        if (u && u.includes('localhost') && u.includes('code=')) {
+          try {
+            const parsed = new URL(u);
+            const code = parsed.searchParams.get('code') || '';
+            if (code) return { code, state: parsed.searchParams.get('state') || '' };
+          } catch (_) {}
+        }
+        // Also check interceptor
+        try {
+          const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
+          if (intercepted && intercepted.includes('code=')) {
+            const parsed = new URL(intercepted);
+            const code = parsed.searchParams.get('code') || '';
+            if (code) return { code, state: parsed.searchParams.get('state') || '' };
+          }
+        } catch (_) {}
+      }
+      log(`Round ${round + 1} click did not produce callback`);
+    }
+
+    // 5. Refresh before next round (except last)
+    if (round < MAX_ROUNDS - 1) {
+      log(`Reloading page for round ${round + 2}...`);
+      try { await evalJson(tabId, userId, 'location.reload()', 5000); } catch (_) {}
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  return { error: 'Browser OAuth consent exhausted after 4 rounds' };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CAPTURE & REPORT (sau khi đã logged in → PKCE + token exchange)
 // ═══════════════════════════════════════════════════════════════
 async function captureAndReport(tabId, userId, runDir, task, email, recorder, effectiveProxy) {
@@ -685,25 +810,15 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         console.log(`[Capture] ❌ Protocol Codex login exception: ${protocolErr?.message || protocolErr}`);
       }
 
-      // Fallback 4: Browser-based Codex OAuth (re-navigate authenticated tab, let browser handle consent/workspace)
+      // Fallback 4: Browser-based Codex OAuth — interact with consent page in browser
       console.log(`[Capture] 📵 Protocol failed, trying browser-based Codex OAuth...`);
       try {
-        await navigate(tabId, userId, authUrl, 20000);
-        await new Promise(r => setTimeout(r, 20000));
-        const afterNavigateUrl = await evalJson(tabId, userId, 'location.href', 4000);
-        if (afterNavigateUrl && afterNavigateUrl.includes('code=')) {
-          try {
-            const url = new URL(afterNavigateUrl);
-            authCode = url.searchParams.get('code') || '';
-            if (authCode) console.log(`[Capture] ✅ Code via browser-based OAuth: ${authCode.slice(0, 20)}...`);
-          } catch (_) {}
-        }
-        if (!authCode) {
-          const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000);
-          if (intercepted && intercepted.includes('code=')) {
-            try { authCode = new URL(intercepted).searchParams.get('code') || ''; } catch (_) {}
-            if (authCode) console.log(`[Capture] ✅ Code via browser OAuth interceptor: ${authCode.slice(0, 20)}...`);
-          }
+        const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce);
+        if (browserResult?.code) {
+          authCode = browserResult.code;
+          console.log(`[Capture] ✅ Code via browser OAuth: ${authCode.slice(0, 20)}...`);
+        } else {
+          console.log(`[Capture] ❌ Browser OAuth: ${browserResult?.error || 'no code'}`);
         }
       } catch (browserErr) {
         console.log(`[Capture] ❌ Browser-based OAuth exception: ${browserErr?.message || browserErr}`);
