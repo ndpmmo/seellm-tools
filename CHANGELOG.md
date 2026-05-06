@@ -2,6 +2,37 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.43] - 2026-05-07 01:55:00
+
+### 🔒 Connection Sync — Smart Filtering (ever_ready)
+
+**Commit**: `69642d1` (2026-05-07 01:55 +0700)
+
+**Problem**: Gateway Connections tab cluttered with `pending`/`processing`/`error`/`need_phone` accounts that never successfully connected. Orphan badges appeared for accounts without valid tokens.
+
+**Root cause**: `SyncManager._executePush` pushed `connections[]` for every non-idle status, creating runtime connection records before accounts were actually usable.
+
+**Fix**:
+
+- **`server/db/vault.js`** (L49, L163, L318, L340, L418, L434, L707-710)
+  - Schema: New column `ever_ready INTEGER DEFAULT 0` in `vault_accounts`.
+  - Migration: Runtime `ALTER TABLE vault_accounts ADD COLUMN ever_ready INTEGER DEFAULT 0`.
+  - `upsertAccount()`: Added `ever_ready` to INSERT/UPDATE with `COALESCE(excluded.ever_ready, vault_accounts.ever_ready)` to preserve sticky flag.
+  - `updateAccountStatus()`: Auto-sets `ever_ready = 1` via dynamic SQL clause when status transitions to `'ready'`.
+
+- **`server/services/syncManager.js`** (L34, L62, L198-333)
+  - `normalizeAccountState()`: Added `ever_ready` to normalized state.
+  - `isCriticalAccountChange()`: Added `ever_ready` to critical keys so state changes trigger re-sync.
+  - `_executePush()`: Refactored Rule 4 (single "active" branch) into 3 explicit branches:
+    - `ready` → push full `managedAccounts + connections` (connection đầy đủ token + metadata)
+    - `error/need_phone/relogin` + `ever_ready=1` → push both (giữ connection để hiển thị lỗi trên account đã từng hoạt động)
+    - `error/need_phone/relogin` + `ever_ready=0` → push `managedAccounts` only, connection nhận tombstone (`deleted_at = now`)
+    - `pending/processing/...` → push `managedAccounts` only, connection nhận tombstone
+
+**Result**: Chỉ account có token hợp lệ (hoặc đã từng hoạt động rồi mới lỗi) mới xuất hiện trong Gateway Connections tab. Account đang xử lý hoặc lỗi từ đầu chỉ hiển thị trong Automation / Managed Accounts tab.
+
+---
+
 ## [0.2.42] - 2026-05-06 21:30:00
 
 ### 🐛 Dashboard Fix — Enable Vertical Scrolling

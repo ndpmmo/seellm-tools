@@ -46,6 +46,7 @@ function initSchema() {
       plan          TEXT,
       is_active     INTEGER DEFAULT 1,
       quota_json    TEXT,
+      ever_ready    INTEGER DEFAULT 0,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
     );
@@ -159,6 +160,7 @@ function applyMigrations() {
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN machine_id TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN auth_method TEXT DEFAULT 'graph'`); } catch (e) { }
+  try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN ever_ready INTEGER DEFAULT 0`); } catch (e) { }
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -313,7 +315,7 @@ export const vault = {
       INSERT INTO vault_accounts (
         id, provider, label, email, password, two_fa_secret, proxy_url, 
         cookies, access_token, refresh_token, workspace_id, device_id, machine_id, provider_specific_data, status, notes, tags, plan,
-        is_active, quota_json, exported_to, exported_at, created_at, updated_at, deleted_at
+        is_active, quota_json, ever_ready, exported_to, exported_at, created_at, updated_at, deleted_at
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
@@ -335,6 +337,7 @@ export const vault = {
         plan          = excluded.plan,
         is_active     = excluded.is_active,
         quota_json    = excluded.quota_json,
+        ever_ready    = COALESCE(excluded.ever_ready, vault_accounts.ever_ready),
         exported_to   = excluded.exported_to,
         exported_at   = excluded.exported_at,
         updated_at    = excluded.updated_at,
@@ -412,6 +415,7 @@ export const vault = {
       plan: data.plan !== undefined ? data.plan : (existing ? existing.plan : null),
       is_active: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : (existing ? existing.is_active : 1)),
       quota_json: data.quota_json !== undefined ? (typeof data.quota_json === 'object' ? JSON.stringify(data.quota_json) : data.quota_json) : (data.quotaJson !== undefined ? (typeof data.quotaJson === 'object' ? JSON.stringify(data.quotaJson) : data.quotaJson) : (existing ? existing.quota_json : null)),
+      ever_ready: data.ever_ready !== undefined ? data.ever_ready : (existing ? existing.ever_ready : 0),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,
       // [CRITICAL FIX] Vault là kho độc lập.
@@ -427,7 +431,7 @@ export const vault = {
       record.id, record.provider, record.label, record.email, record.password,
       record.two_fa_secret, record.proxy_url, record.cookies, record.access_token,
       record.refresh_token, record.workspace_id, record.device_id, record.machine_id, record.provider_specific_data, record.status, record.notes, record.tags, record.plan,
-      record.is_active, record.quota_json,
+      record.is_active, record.quota_json, record.ever_ready,
       record.exported_to, record.exported_at, record.created_at, record.updated_at, record.deleted_at
     );
 
@@ -702,7 +706,8 @@ export const vault = {
 
   updateAccountStatus: (id, status, error = null) => {
     const now = dayjs().toISOString();
-    db.prepare('UPDATE vault_accounts SET status = ?, notes = ?, updated_at = ? WHERE id = ?').run(status, error || '', now, id);
+    const everReadyClause = status === 'ready' ? ', ever_ready = 1' : '';
+    db.prepare(`UPDATE vault_accounts SET status = ?, notes = ?, updated_at = ?${everReadyClause} WHERE id = ?`).run(status, error || '', now, id);
   },
 
   // ─── BROWSER PROFILES (Multi Profile) ────────────────────────────────────
