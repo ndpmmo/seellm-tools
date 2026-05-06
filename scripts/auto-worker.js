@@ -579,7 +579,8 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
 
   const _submitLoginEmail = async (emailAddr) => {
     try {
-      const result = await evalJson(tabId, userId, `(email) => {
+      const result = await evalJson(tabId, userId, `(() => {
+        const email = ${JSON.stringify(emailAddr)};
         const inputs = document.querySelectorAll('input[type="email"], input[name="email"], input[name="username"], input[autocomplete="username"], input[id*="email"], input#login-email');
         let target = null;
         for (const el of inputs) {
@@ -590,16 +591,14 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         target.value = email;
         target.dispatchEvent(new Event('input', {bubbles:true}));
         target.dispatchEvent(new Event('change', {bubbles:true}));
-        // Find and click submit button
         const form = target.closest('form');
         if (form) {
           const btn = form.querySelector('button[type="submit"], input[type="submit"]');
           if (btn) { btn.click(); return 'form-submit'; }
         }
-        // Fallback: press Enter
         target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
         return 'enter';
-      }`, 5000, emailAddr);
+      })()`, { timeoutMs: 5000 });
       log(`Login email submit: ${result}`);
       return result && result !== 'no-input';
     } catch (_) { return false; }
@@ -607,7 +606,8 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
 
   const _submitLoginPassword = async (pwd) => {
     try {
-      const result = await evalJson(tabId, userId, `(pwd) => {
+      const result = await evalJson(tabId, userId, `(() => {
+        const password = ${JSON.stringify(pwd)};
         const inputs = document.querySelectorAll('input[type="password"]');
         let target = null;
         for (const el of inputs) {
@@ -615,7 +615,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
         if (!target) return 'no-input';
         target.focus();
-        target.value = pwd;
+        target.value = password;
         target.dispatchEvent(new Event('input', {bubbles:true}));
         target.dispatchEvent(new Event('change', {bubbles:true}));
         const form = target.closest('form');
@@ -625,7 +625,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
         target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
         return 'enter';
-      }`, 5000, pwd);
+      })()`, { timeoutMs: 5000 });
       log(`Login password submit: ${result}`);
       return result && result !== 'no-input';
     } catch (_) { return false; }
@@ -634,7 +634,8 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
   const _clickConsent = async () => {
     // Strategy A: form.requestSubmit(button)
     try {
-      const result = await evalJson(tabId, userId, `(sel) => {
+      const result = await evalJson(tabId, userId, `(() => {
+        const sel = ${JSON.stringify(CONSENT_FORM_SEL)};
         const form = document.querySelector(sel);
         if (!form) return 'no-form';
         const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
@@ -649,13 +650,13 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         if (!target) return 'no-button';
         if (typeof form.requestSubmit === 'function') { form.requestSubmit(target); return 'requestSubmit'; }
         target.click(); return 'click';
-      }`, 5000, CONSENT_FORM_SEL);
+      })()`, { timeoutMs: 5000 });
       if (result && !['no-form', 'no-button'].includes(result)) { log(`Consent clicked via ${result}`); return true; }
     } catch (_) {}
 
     // Strategy B: direct JS dispatch on any visible Continue/Allow button
     try {
-      const result = await evalJson(tabId, userId, `() => {
+      const result = await evalJson(tabId, userId, `(() => {
         const buttons = document.querySelectorAll('button, [role="button"]');
         for (const el of buttons) {
           if (el.offsetParent === null) continue;
@@ -667,7 +668,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
           }
         }
         return null;
-      }`, 5000);
+      })()`, { timeoutMs: 5000 });
       if (result) { log(`Consent clicked via JS dispatch: ${result}`); return true; }
     } catch (_) {}
     return false;
@@ -730,17 +731,17 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
 
     if (isLogin && !loginEmailDone && email) {
       log(`Login page detected, submitting email...`);
-      await _submitLoginEmail(email);
-      loginEmailDone = true;
-      await new Promise(r => setTimeout(r, 5000));
+      const emailOk = await _submitLoginEmail(email);
+      if (emailOk) loginEmailDone = true;
+      await new Promise(r => setTimeout(r, emailOk ? 5000 : 3000));
       continue;
     }
 
     if (isPassword && !loginPasswordDone && password) {
       log(`Password page detected, submitting password...`);
-      await _submitLoginPassword(password);
-      loginPasswordDone = true;
-      await new Promise(r => setTimeout(r, 5000));
+      const pwdOk = await _submitLoginPassword(password);
+      if (pwdOk) loginPasswordDone = true;
+      await new Promise(r => setTimeout(r, pwdOk ? 5000 : 3000));
       continue;
     }
 
