@@ -563,18 +563,23 @@ async function runConnectFlow(task) {
 // Interact with consent/workspace page in the real browser, click Continue,
 // wait for redirect to localhost:1455 callback, extract code even if page errors.
 // ═══════════════════════════════════════════════════════════════
-async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password) {
+async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password, totpSecret = null) {
   const log = (...args) => console.log(`[BrowserOAuth]`, ...args);
   const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"]'
     + ',form[action*="/sign-in-with-chatgpt"]'
     + ',form[action*="consent"]';
 
-  const _getUrl = async () => { try { return await evalJson(tabId, userId, 'location.href', 4000) || ''; } catch (_) { return ''; } };
-  const _getIntercepted = async () => { try { return await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || ''; } catch (_) { return ''; } };
+  const _getUrl = async () => { try { return await evalJson(tabId, userId, 'location.href', { timeoutMs: 4000 }) || ''; } catch (_) { return ''; } };
+  const _getIntercepted = async () => { try { return await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', { timeoutMs: 2000 }) || ''; } catch (_) { return ''; } };
 
   const _extractCode = (urlStr) => {
     if (!urlStr || !urlStr.includes('code=')) return null;
     try { const u = new URL(urlStr); const c = u.searchParams.get('code') || ''; return c ? { code: c, state: u.searchParams.get('state') || '' } : null; } catch (_) { return null; }
+  };
+
+  const _isMfaUrl = (u = '') => {
+    const s = String(u || '').toLowerCase();
+    return s.includes('/mfa') || s.includes('/totp') || s.includes('two-factor') || s.includes('/mfa-challenge');
   };
 
   const _submitLoginEmail = async (emailAddr) => {
@@ -710,6 +715,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     const isLogin = url.includes('/log-in') && !url.includes('password');
     const isPassword = url.includes('log-in/password') || url.includes('create-account/password');
     const isOtp = url.includes('email-verification') || url.includes('email-otp');
+    const isMfa = _isMfaUrl(url);
     const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
     const isWorkspace = url.includes('workspace') && url.includes('select');
 
@@ -742,6 +748,36 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       const pwdOk = await _submitLoginPassword(password);
       if (pwdOk) loginPasswordDone = true;
       await new Promise(r => setTimeout(r, pwdOk ? 5000 : 3000));
+      continue;
+    }
+
+    if (isMfa) {
+      if (!totpSecret) {
+        return { error: 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret' };
+      }
+      log(`MFA challenge detected, submitting TOTP...`);
+      const { otp } = await getFreshTOTP(totpSecret, 8);
+      const mfaResult = await fillMfa(tabId, userId, otp);
+      log(`MFA submit #1: ${JSON.stringify(mfaResult)}`);
+      await new Promise(r => setTimeout(r, 4500));
+
+      const afterMfaUrl = await _getUrl();
+      const mfaCode = _extractCode(afterMfaUrl) || _extractCode(await _getIntercepted());
+      if (mfaCode) return mfaCode;
+
+      if (_isMfaUrl(afterMfaUrl)) {
+        const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
+        const mfaResult2 = await fillMfa(tabId, userId, otp2);
+        log(`MFA submit #2: ${JSON.stringify(mfaResult2)}`);
+        await new Promise(r => setTimeout(r, 4500));
+
+        const afterMfaUrl2 = await _getUrl();
+        const mfaCode2 = _extractCode(afterMfaUrl2) || _extractCode(await _getIntercepted());
+        if (mfaCode2) return mfaCode2;
+        if (_isMfaUrl(afterMfaUrl2)) {
+          return { error: 'NEED_MFA: MFA challenge chưa vượt qua sau 2 lần nhập TOTP' };
+        }
+      }
       continue;
     }
 
@@ -905,7 +941,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       // Fallback 4: Browser-based Codex OAuth — interact with consent page in browser
       console.log(`[Capture] 📵 Protocol failed, trying browser-based Codex OAuth...`);
       try {
-        const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password);
+        const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password, totpSecret);
         if (browserResult?.code) {
           authCode = browserResult.code;
           console.log(`[Capture] ✅ Code via browser OAuth: ${authCode.slice(0, 20)}...`);
@@ -917,7 +953,15 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       }
 
       if (!authCode) {
-        return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+        const finalOauthState = await getState(tabId, userId);
+        if (finalOauthState?.hasMfaInput) {
+          if (!totpSecret) return sendResult(task, 'error', 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret');
+          return sendResult(task, 'error', 'NEED_MFA: Không thể vượt qua màn hình 2FA');
+        }
+        if (finalOauthState?.hasPhoneScreen) {
+          return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+        }
+        return sendResult(task, 'error', `OAUTH_FAILED: Không lấy được code callback. URL: ${finalOauthState?.href || 'unknown'}`);
       }
     }
     if (oauthState?.hasEmailInput && !oauthLoginHandled) {
