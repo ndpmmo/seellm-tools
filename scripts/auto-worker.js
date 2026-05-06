@@ -1157,133 +1157,117 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     }
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
-      if (consentBypassExhausted) {
-        // Fallback 1: Session seeding (seed browser cookies, complete consent without re-login)
-        console.log(`[Capture] Consent exhausted, trying session-seed fallback...`);
+      // Detect consent/workspace page by URL (mirrors upstream _infer_page_type)
+      const isConsentPage = currentUrl.includes('consent') || currentUrl.includes('sign-in-with-chatgpt') || currentUrl.includes('workspace') || currentUrl.includes('organization');
+
+      if (isConsentPage) {
+        // Upstream approach: click Continue button directly in browser
+        // _complete_oauth_in_browser: form.requestSubmit → JS dispatch → form action
+        consentAttempts++;
+        console.log(`[Capture] Consent page detected (attempt ${consentAttempts}), clicking Continue...`);
+        await recorder.before(1, 3, `consent_attempt_${consentAttempts}`);
+
+        // Wait for React to render
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Use _clickConsent strategies (same as _completeBrowserOAuth)
+        const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"],form[action*="/sign-in-with-chatgpt"],form[action*="consent"]';
+        let clicked = false;
+
+        // Strategy A: form.requestSubmit
         try {
-          const browserCookies = {};
+          const r = await evalJson(tabId, userId, `(() => {
+            const sel = ${JSON.stringify(CONSENT_FORM_SEL)};
+            const form = document.querySelector(sel);
+            if (!form) return 'no-form';
+            const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+            let target = Array.from(buttons).find(el => el.offsetParent !== null);
+            if (!target) return 'no-button';
+            if (typeof form.requestSubmit === 'function') { form.requestSubmit(target); return 'requestSubmit'; }
+            target.click(); return 'click';
+          })()`, { timeoutMs: 5000 });
+          if (r && !['no-form', 'no-button'].includes(r)) { console.log(`[Capture] Consent clicked via ${r}`); clicked = true; }
+        } catch (_) {}
+
+        // Strategy B: JS dispatch on Continue/Allow button
+        if (!clicked) {
           try {
-            const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
-            const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
-            for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
+            const r = await evalJson(tabId, userId, `(() => {
+              const btns = document.querySelectorAll('button, [role="button"]');
+              for (const el of btns) {
+                if (el.offsetParent === null) continue;
+                const text = (el.textContent || '').trim().toLowerCase();
+                const dd = el.getAttribute('data-dd-action-name') || '';
+                if (dd === 'Continue' || /continue|allow|authorize/i.test(text)) {
+                  el.focus(); el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:window}));
+                  return text || 'dispatched';
+                }
+              }
+              return null;
+            })()`, { timeoutMs: 5000 });
+            if (r) { console.log(`[Capture] Consent clicked via dispatch: ${r}`); clicked = true; }
           } catch (_) {}
-          if (Object.keys(browserCookies).length > 0) {
-            const browserFetchFn2 = async (url, init = {}) => {
-              const result = await tryFetchInPage(tabId, userId, url, init, 20000);
-              return result?.body || null;
-            };
-            const seedResult = await acquireCodexCallbackViaSessionSeeding({
-              browserCookies,
-              pkce,
-              proxyUrl: effectiveProxy,
-              logFn: (...args) => console.log(...args),
-              browserFetchFn: browserFetchFn2,
-            });
-            if (seedResult?.success && seedResult.code) {
-              authCode = seedResult.code;
-              console.log(`[Capture] ✅ Code via session-seed (consent fallback): ${authCode.slice(0, 20)}...`);
-              break;
-            }
-            console.log(`[Capture] ❌ Session-seed failed: ${seedResult?.error}`);
-          } else {
-            console.log(`[Capture] ❌ No browser cookies for session-seed`);
-          }
-        } catch (seedErr) {
-          console.log(`[Capture] ❌ Session-seed exception: ${seedErr?.message || seedErr}`);
         }
 
-        // Fallback 2: Protocol Codex login (pure HTTP, re-login)
-        console.log(`[Capture] Session-seed failed, trying protocol Codex login...`);
-        try {
-          const protocolResult = await acquireCodexCallbackViaProtocol({
-            email,
-            password,
-            proxyUrl: effectiveProxy,
-            logFn: (...args) => console.log(...args),
-          });
-          if (protocolResult?.success && protocolResult.code) {
-            authCode = protocolResult.code;
-            pkce.codeVerifier = protocolResult.pkce.codeVerifier;
-            pkce.state = protocolResult.pkce.state;
-            console.log(`[Capture] ✅ Code via protocol Codex login (consent fallback): ${authCode.slice(0, 20)}...`);
-            break;
+        if (clicked) {
+          // Poll for callback (mirrors upstream _wait_for_callback)
+          for (let poll = 0; poll < 25; poll++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const pollUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
+            if (pollUrl.includes('code=') || pollUrl.includes('localhost:1455')) {
+              try { const u = new URL(pollUrl); const c = u.searchParams.get('code') || ''; if (c) { authCode = c; console.log(`[Capture] ✅ Code via consent click`); break; } } catch (_) {}
+            }
+            const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
+            if (intercepted?.includes('code=')) {
+              try { authCode = new URL(intercepted).searchParams.get('code') || ''; if (authCode) break; } catch (_) {}
+            }
+            if (pollUrl.includes('about:neterror') || pollUrl.includes('about:blank')) {
+              const int2 = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
+              if (int2?.includes('code=')) { try { authCode = new URL(int2).searchParams.get('code') || ''; if (authCode) break; } catch (_) {} }
+            }
           }
-          console.log(`[Capture] ❌ Protocol Codex login failed: ${protocolResult?.error}`);
-        } catch (protocolErr) {
-          console.log(`[Capture] ❌ Protocol Codex login exception: ${protocolErr?.message || protocolErr}`);
+          if (authCode) { await recorder.after(1, 3, `consent_clicked_${consentAttempts}`); break; }
+          console.log(`[Capture] Consent click did not produce callback`);
+        } else {
+          console.log(`[Capture] No consent button found, reloading...`);
+          try { await evalJson(tabId, userId, 'location.reload()', { timeoutMs: 3000 }); } catch (_) {}
+          await new Promise(r => setTimeout(r, 2000));
         }
+
+        if (consentAttempts >= 4) {
+          // After 4 attempts, try protocol login as last resort
+          console.log(`[Capture] Consent click exhausted (${consentAttempts} attempts), trying protocol login...`);
+          try {
+            const protocolResult = await acquireCodexCallbackViaProtocol({ email, password, proxyUrl: effectiveProxy, logFn: (...args) => console.log(...args) });
+            if (protocolResult?.success && protocolResult.code) {
+              authCode = protocolResult.code;
+              pkce.codeVerifier = protocolResult.pkce.codeVerifier;
+              pkce.state = protocolResult.pkce.state;
+              console.log(`[Capture] ✅ Code via protocol (consent fallback): ${authCode.slice(0, 20)}...`);
+              break;
+            }
+          } catch (_) {}
+          fallbackToSessionNow = true;
+          break;
+        }
+        continue;
+      }
+
+      // Not a consent page — unknown auth.openai.com state, try workspace bypass
+      if (consentBypassExhausted) {
         fallbackToSessionNow = true;
         break;
       }
       if (consentAttempts >= MAX_CONSENT_ATTEMPTS) {
-        console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), trying in-browser consent click...`);
-        // Tab is already on consent page — just click Continue and wait for callback
-        // This mirrors upstream _complete_oauth_in_browser
-        try {
-          let consentCode = null;
-          for (let attempt = 0; attempt < 4 && !consentCode; attempt++) {
-            // Wait for React to render
-            await new Promise(r => setTimeout(r, attempt === 0 ? 1500 : 2000));
-            // Try clicking consent button
-            const clicked = await clickBestMatchingAction(tabId, userId, {
-              exactTexts: ['continue', 'authorize', 'allow'],
-              excludeTexts: ['close', 'cancel'],
-              timeoutMs: 5000,
-            });
-            if (clicked?.ok) {
-              console.log(`[Capture] Consent clicked: ${clicked.text}`);
-              // Wait for redirect to localhost:1455
-              for (let poll = 0; poll < 20; poll++) {
-                await new Promise(r => setTimeout(r, 1000));
-                const pollUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
-                if (pollUrl.includes('code=') || pollUrl.includes('localhost:1455')) {
-                  try {
-                    const u = new URL(pollUrl);
-                    consentCode = u.searchParams.get('code') || '';
-                    if (consentCode) break;
-                  } catch (_) {}
-                }
-                const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
-                if (intercepted?.includes('code=')) {
-                  try { consentCode = new URL(intercepted).searchParams.get('code') || ''; if (consentCode) break; } catch (_) {}
-                }
-                // about:neterror means browser tried to connect to localhost:1455 — extract from URL
-                if (pollUrl.includes('about:neterror') || pollUrl.includes('about:blank')) {
-                  const intercepted2 = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
-                  if (intercepted2?.includes('code=')) {
-                    try { consentCode = new URL(intercepted2).searchParams.get('code') || ''; if (consentCode) break; } catch (_) {}
-                  }
-                }
-              }
-            } else {
-              // Reload and retry
-              console.log(`[Capture] No consent button found (attempt ${attempt + 1}), reloading...`);
-              try { await evalJson(tabId, userId, 'location.reload()', { timeoutMs: 3000 }); } catch (_) {}
-            }
-          }
-          if (consentCode) {
-            authCode = consentCode;
-            console.log(`[Capture] ✅ Code via in-browser consent click: ${authCode.slice(0, 20)}...`);
-            break;
-          }
-          console.log(`[Capture] ❌ In-browser consent click failed`);
-        } catch (consentErr) {
-          console.log(`[Capture] ❌ In-browser consent exception: ${consentErr?.message || consentErr}`);
-        }
         consentBypassExhausted = true;
         fallbackToSessionNow = true;
         break;
       }
       consentAttempts++;
-      console.log(`[Capture] Consent bypass attempt (${consentAttempts}/${MAX_CONSENT_ATTEMPTS})...`);
+      console.log(`[Capture] Unknown auth state, workspace bypass attempt (${consentAttempts}/${MAX_CONSENT_ATTEMPTS})...`);
       await recorder.before(1, 3, `consent_attempt_${consentAttempts}`);
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; break; }
-      const clickResult = await clickBestMatchingAction(tabId, userId, { exactTexts: ['authorize', 'allow', 'continue'], excludeTexts: ['close'], timeoutMs: 4000 });
-      if (clickResult?.ok) {
-        console.log(`[Capture] Clicked: ${clickResult.text}`);
-        await recorder.after(1, 3, `consent_clicked_${consentAttempts}`);
-      }
     }
     await new Promise(r => setTimeout(r, 1500));
   }
