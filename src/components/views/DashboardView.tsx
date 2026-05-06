@@ -105,7 +105,18 @@ export function DashboardView() {
     setChecking(false);
   }, [pingCamofox, pingGateway]);
 
-  useEffect(() => { check(); const t = setInterval(check, 20000); return () => clearInterval(t); }, [check]);
+  useEffect(() => {
+    const initial = setTimeout(() => {
+      void check();
+    }, 0);
+    const t = setInterval(() => {
+      void check();
+    }, 20000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(t);
+    };
+  }, [check]);
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-6 custom-scrollbar">
@@ -179,29 +190,20 @@ export function DashboardView() {
               </div>
 
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
-                <span className="text-[12.5px] font-semibold text-slate-300">⚡ Socket.io</span>
-                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${connected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                  }`}>
-                  {connected ? '✓ Connected' : '✗ Disconnected'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
-                <span className="text-[12.5px] font-semibold text-slate-300">📡 SSE Stream</span>
+                <span className="text-[12.5px] font-semibold text-slate-300">📡 SSE Stream (Realtime)</span>
                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${sseConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                   'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                  }`}>
+                }`}>
                   {sseConnected ? '✓ Connected' : '✗ Disconnected'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
-                <span className="text-[12.5px] font-semibold text-slate-300">🔄 Realtime Source</span>
+                <span className="text-[12.5px] font-semibold text-slate-300">🔄 Realtime Status</span>
                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-md border ${realtimeConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                   'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                  }`}>
-                  {sseConnected ? 'SSE (Priority)' : connected ? 'Socket.io' : 'Polling'}
+                }`}>
+                  {sseConnected ? 'SSE Active' : 'Polling Fallback'}
                 </span>
               </div>
             </div>
@@ -224,7 +226,7 @@ export function DashboardView() {
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" /> LIVE
                   </div>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`${shot.url}?t=${Date.now()}`} alt="Live" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  <img src={`${shot.url}`} alt="Live" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3 pt-8">
                     <div className="text-[11px] font-semibold text-slate-200 truncate">{shot.email || sessionId.replace(/^run_/, '')}</div>
                   </div>

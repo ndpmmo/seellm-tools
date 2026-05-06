@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.42] - 2026-05-06 21:30:00
+
+### 🐛 Dashboard Fix — Enable Vertical Scrolling
+
+- `Dashboard.tsx` — Thêm `overflow-hidden` vào container chính để cho phép scroll trong DashboardView
+- `DashboardView.tsx` — Cải thiện useEffect cleanup, loại bỏ Socket.io status (thay bằng SSE), sửa image URL
+- `Dashboard.tsx` — Thêm Multi Profile navigation và Badge cho active profiles
+
+### 🔧 Scripts & Server Updates
+
+- `scripts/lib/camofox.js` — Cập nhật logic capture và OAuth flow
+- `scripts/lib/screenshot.js` — Cải thiện screenshot capture
+- `server.js` — Backend updates và fixes
+
+---
+
 ## [0.2.41] - 2026-05-06 15:00:00
 
 ### 🔧 Connect Flow — Phone Screen Fast-Fail + Consent Click + Protocol Fixes

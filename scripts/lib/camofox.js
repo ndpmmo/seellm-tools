@@ -88,20 +88,15 @@ export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 
 
 /**
  * Convenience alias for camofoxEval that extracts .result field
+ * Uses retry logic for transient errors and logs full error messages
  * @param {string} tabId - Tab ID
  * @param {string} userId - User ID
  * @param {string} expression - JavaScript expression
- * @param {object} options - { timeoutMs = 8000 }
+ * @param {object} options - { timeoutMs = 8000, maxRetries = 2, retryDelayMs = 500 }
  * @returns {Promise<any>} result field from response, or null
  */
-export async function evalJson(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
-  try {
-    const res = await camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
-    return res?.result ?? null;
-  } catch (e) {
-    console.log(`[camofox] eval failed: ${e.message.slice(0, 80)}`);
-    return null;
-  }
+export async function evalJson(tabId, userId, expression, { timeoutMs = 8000, maxRetries = 2, retryDelayMs = 500 } = {}) {
+  return camofoxEvalRetry(tabId, userId, expression, { timeoutMs, maxRetries, retryDelayMs, behavior: 'returnNull' });
 }
 
 /**
@@ -116,7 +111,7 @@ export async function navigate(tabId, userId, url, { timeoutMs = 15000 } = {}) {
   try {
     await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs });
   } catch (e) {
-    console.log(`[camofox] navigate failed: ${e.message.slice(0, 80)}`);
+    console.log(`[camofox] navigate failed: ${e.message}`);
   }
 }
 
@@ -133,7 +128,7 @@ export async function waitForSelector(tabId, userId, selector, { timeoutMs = 150
     await camofoxPost(`/tabs/${tabId}/wait-for-selector`, { userId, selector, state }, { timeoutMs });
     return true;
   } catch (e) {
-    console.log(`[camofox] waitForSelector(${selector}) timeout: ${e.message.slice(0, 60)}`);
+    console.log(`[camofox] waitForSelector(${selector}) timeout: ${e.message}`);
     return false;
   }
 }
@@ -151,7 +146,7 @@ export async function waitForUrl(tabId, userId, url, { timeoutMs = 15000 } = {})
     await camofoxPost(`/tabs/${tabId}/wait-for-url`, { userId, url }, { timeoutMs });
     return true;
   } catch (e) {
-    console.log(`[camofox] waitForUrl(${url}) timeout: ${e.message.slice(0, 60)}`);
+    console.log(`[camofox] waitForUrl(${url}) timeout: ${e.message}`);
     return false;
   }
 }
@@ -168,7 +163,7 @@ export async function pressKey(tabId, userId, key, { timeoutMs = 5000 } = {}) {
   try {
     await camofoxPost(`/tabs/${tabId}/press`, { userId, key }, { timeoutMs });
   } catch (e) {
-    console.log(`[camofox] pressKey(${key}) failed: ${e.message.slice(0, 60)}`);
+    console.log(`[camofox] pressKey(${key}) failed: ${e.message}`);
   }
 }
 
@@ -225,6 +220,99 @@ export async function tripleClick(tabId, userId, selector, { timeoutMs = 5000 } 
 }
 
 // ============================================================================
+// EVALUATE ERROR CLASSIFICATION & RETRY LOGIC
+// ============================================================================
+
+/**
+ * Classify Camofox evaluate errors into categories for retry decision
+ * @param {Error|string} error - Error object or message
+ * @returns {object} { type, transient, message }
+ */
+export function classifyEvaluateError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+
+  // Transient errors - safe to retry
+  if (msg.includes('execution context') && (msg.includes('destroyed') || msg.includes('not found'))) {
+    return { type: 'execution_context_destroyed', transient: true, message: String(error?.message || error) };
+  }
+  if (msg.includes('frame was detached') || msg.includes('frame detached')) {
+    return { type: 'frame_detached', transient: true, message: String(error?.message || error) };
+  }
+  if (msg.includes('page closed') || msg.includes('target page') || msg.includes('target closed')) {
+    return { type: 'page_closed', transient: false, message: String(error?.message || error) };
+  }
+  if (msg.includes('timeout') || msg.includes('timed out')) {
+    return { type: 'timeout', transient: true, message: String(error?.message || error) };
+  }
+
+  // Unknown - treat as transient for retry
+  return { type: 'unknown', transient: true, message: String(error?.message || error) };
+}
+
+/**
+ * Evaluate with retry for transient errors
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} expression - JavaScript expression
+ * @param {object} options - { timeoutMs = 8000, maxRetries = 2, retryDelayMs = 500, behavior = 'retry' }
+ * @returns {Promise<any>} Result or null based on behavior
+ */
+export async function camofoxEvalRetry(tabId, userId, expression, {
+  timeoutMs = 8000,
+  maxRetries = 2,
+  retryDelayMs = 500,
+  behavior = 'retry', // 'retry' | 'silent' | 'throw' | 'returnNull'
+} = {}) {
+  let lastError = null;
+  let lastClassification = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
+      return res?.result ?? null;
+    } catch (e) {
+      lastError = e;
+      lastClassification = classifyEvaluateError(e);
+
+      if (attempt < maxRetries && lastClassification.transient && behavior === 'retry') {
+        console.log(`[camofox] eval retry (${attempt + 1}/${maxRetries}): ${lastClassification.type} - ${lastClassification.message.slice(0, 120)}`);
+        await new Promise(r => setTimeout(r, retryDelayMs * (attempt + 1))); // Exponential backoff
+        continue;
+      }
+    }
+  }
+
+  // All retries exhausted or non-transient error
+  const fullMsg = `[camofox] eval failed: ${lastClassification?.type} - ${lastClassification?.message}`;
+
+  switch (behavior) {
+    case 'silent':
+      return null;
+    case 'throw':
+      throw new Error(fullMsg);
+    case 'returnNull':
+      console.log(fullMsg);
+      return null;
+    case 'retry':
+    default:
+      console.log(fullMsg);
+      return null;
+  }
+}
+
+/**
+ * Strict evaluate - throws on error (for critical operations)
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} expression - JavaScript expression
+ * @param {object} options - { timeoutMs = 8000, maxRetries = 2 }
+ * @returns {Promise<any>} Result
+ */
+export async function evalStrict(tabId, userId, expression, { timeoutMs = 8000, maxRetries = 2 } = {}) {
+  return camofoxEvalRetry(tabId, userId, expression, { timeoutMs, maxRetries, behavior: 'throw' });
+}
+
+// ============================================================================
 // NEW FEATURES FROM CAMOFOX v1.8.15
 // ============================================================================
 
@@ -240,7 +328,7 @@ export async function extractData(tabId, userId, schema, { timeoutMs = 30000 } =
   try {
     return await camofoxPost(`/tabs/${tabId}/extract`, { userId, schema }, { timeoutMs });
   } catch (e) {
-    console.log(`[camofox] extractData failed: ${e.message.slice(0, 80)}`);
+    console.log(`[camofox] extractData failed: ${e.message}`);
     return null;
   }
 }
@@ -255,7 +343,7 @@ export async function getTraces(userId, { timeoutMs = 10000 } = {}) {
   try {
     return await camofoxGet(`/sessions/${userId}/traces`, { timeoutMs });
   } catch (e) {
-    console.log(`[camofox] getTraces failed: ${e.message.slice(0, 80)}`);
+    console.log(`[camofox] getTraces failed: ${e.message}`);
     return null;
   }
 }
@@ -286,7 +374,7 @@ export async function deleteTrace(userId, filename, { timeoutMs = 10000 } = {}) 
   try {
     return await camofoxDelete(`/sessions/${userId}/traces/${filename}`, { timeoutMs });
   } catch (e) {
-    console.log(`[camofox] deleteTrace failed: ${e.message.slice(0, 80)}`);
+    console.log(`[camofox] deleteTrace failed: ${e.message}`);
     return null;
   }
 }

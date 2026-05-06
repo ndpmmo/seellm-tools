@@ -235,7 +235,7 @@ function SessionCard({
           ) : session.images.map(img => (
             <div key={img.filename} className="group relative aspect-video bg-black/60 rounded-lg overflow-hidden border border-white/5 hover:border-indigo-500/50 cursor-pointer" onClick={() => onOpenViewer(session, img)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt={img.filename} loading="lazy" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+              <img src={`${img.url}`} alt="live" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <button
                 className="absolute top-1 right-1 w-6 h-6 rounded bg-rose-500/80 hover:bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10 shadow-md"
                 onClick={(e) => {
@@ -449,7 +449,7 @@ export function ScreenshotsView() {
                       >✕</button>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={`${shot.url}?t=${Date.now()}`}
+                        src={`${shot.url}`}
                         alt="live"
                         className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                         onError={() => {

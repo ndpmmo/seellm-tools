@@ -1,5 +1,6 @@
 'use client';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useApp } from '../../AppContext';
 import {
     Mail, Search, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
@@ -7,7 +8,6 @@ import {
     LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2,
     Inbox, MailOpen
 } from 'lucide-react';
-import { useApp } from '../../AppContext';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
 import { ConfirmModal } from '../../Views';
 import dayjs from 'dayjs';
@@ -54,7 +54,7 @@ function ServiceTag({ name, status }: { name: string; status: string }) {
 // ───────────────────────────────────────────────────────────────
 
 export function VaultWorkshopView() {
-    const { addToast, processes, liveShots, socket } = useApp();
+    const { addToast, processes, liveShots } = useApp();
     const [activeTab, setActiveTab] = useState<'pool' | 'queue' | 'results' | 'inbox'>('pool');
     
     // Pool State
@@ -119,19 +119,16 @@ export function VaultWorkshopView() {
             }).catch(() => {});
     }, []);
 
-    // Subscribe to socket events for real-time email pool updates
+    // Subscribe to SSE events for real-time email pool updates (migrated from Socket.IO)
     useEffect(() => {
-        if (!socket) return;
-
         const handleEmailPoolUpdate = () => {
             fetchPool();
         };
 
-        socket.on('email-pool-updated', handleEmailPoolUpdate);
-        return () => {
-            socket.off('email-pool-updated', handleEmailPoolUpdate);
-        };
-    }, [socket]); // eslint-disable-line react-hooks/exhaustive-deps
+        // SSE listener is now in AppContext, no need for Socket.IO here
+        // This effect is kept as a placeholder for any additional local logic
+        return () => {};
+    }, []);
 
     // Restore proxy map from localStorage
     useEffect(() => {

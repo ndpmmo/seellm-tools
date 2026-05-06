@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
  * SeeLLM Tools - Server
- * Express + Socket.io: manage processes, serve screenshots, sessions API
+ * Express + SSE: manage processes, serve screenshots, sessions API
  */
 
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
-import { Server as SocketIO } from 'socket.io';
 import express from 'express';
 import { spawn } from 'child_process';
 import {
   existsSync, readFileSync, writeFileSync,
-  readdirSync, statSync, mkdirSync, appendFileSync,
+  readdirSync, statSync, mkdirSync, createWriteStream,
   unlinkSync, rmSync,
   watch,
 } from 'fs';
@@ -20,9 +19,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig, saveConfig } from './server/db/config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import vaultRouter, { setSocketIO } from './server/routes/vault.js';
+import vaultRouter, { setSSEEmitter } from './server/routes/vault.js';
+import profileRouter, { setProfileSSEEmitter } from './server/routes/profiles.js';
 import { vault } from './server/db/vault.js';
 import { SyncManager } from './server/services/syncManager.js';
+import { recoverProfilesOnStartup, closeAllProfiles } from './server/profileManager.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -41,15 +42,12 @@ const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 // ─── Processes ───────────────────────────────────────────────────────────────
 const processes = {};
-let io = null;
 
 // ─── SSE (Server-Sent Events) ───────────────────────────────────────────────
 const sseClients = new Set();
 
 function broadcastRealtimeEvent(type, payload) {
-  // Broadcast via Socket.io (existing)
-  io?.emit(type, payload);
-  // Broadcast via SSE (new, parallel)
+  // Broadcast via SSE only (consolidated from dual Socket.IO + SSE)
   const data = JSON.stringify(payload);
   sseClients.forEach(res => {
     try {
@@ -59,6 +57,11 @@ function broadcastRealtimeEvent(type, payload) {
       sseClients.delete(res);
     }
   });
+}
+
+// Export SSE emitter for use in other modules (e.g., vault.js)
+export function emitSSE(type, payload) {
+  broadcastRealtimeEvent(type, payload);
 }
 
 function logServerEvent(label, extra = '') {
@@ -72,12 +75,101 @@ function makeLogPath(id, name) {
   return path.join(LOGS_DIR, `${ts}_${safe}.log`);
 }
 
+// Buffered log writers - map of logFile -> { buffer, timer, stream }
+const logWriters = new Map();
+
+function getLogWriter(logFile) {
+  if (logWriters.has(logFile)) return logWriters.get(logFile);
+
+  // Ensure directory exists
+  mkdirSync(path.dirname(logFile), { recursive: true });
+
+  // Create write stream with buffering
+  const stream = createWriteStream(logFile, { flags: 'a', encoding: 'utf8' });
+  const buffer = [];
+  let timer = null;
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    const chunk = buffer.join('');
+    buffer.length = 0;
+    try {
+      stream.write(chunk);
+    } catch (err) {
+      console.error(`[ProcessLog] flush failed for ${logFile}:`, err.message);
+    }
+  };
+
+  // Flush every 100ms or when buffer reaches 50KB
+  const scheduleFlush = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      flush();
+      timer = null;
+    }, 100);
+  };
+
+  const writer = {
+    write: (text) => {
+      buffer.push(text);
+      // Flush if buffer is large (approx 50KB)
+      if (buffer.reduce((sum, s) => sum + s.length, 0) > 50000) {
+        flush();
+      } else {
+        scheduleFlush();
+      }
+    },
+    flush,
+    close: () => {
+      if (timer) clearTimeout(timer);
+      flush();
+      stream.end();
+      logWriters.delete(logFile);
+    }
+  };
+
+  logWriters.set(logFile, writer);
+  return writer;
+}
+
+// SSE log batching - batch logs per process to reduce event frequency
+const logBatches = new Map(); // processId -> { logs: [], timer: null }
+
+function batchLogForSSE(id, log) {
+  if (!logBatches.has(id)) {
+    logBatches.set(id, { logs: [], timer: null });
+  }
+
+  const batch = logBatches.get(id);
+  batch.logs.push(log);
+
+  // Flush batch after 50ms or if it has 20 logs
+  if (batch.logs.length >= 20) {
+    flushLogBatch(id);
+  } else if (!batch.timer) {
+    batch.timer = setTimeout(() => flushLogBatch(id), 50);
+  }
+}
+
+function flushLogBatch(id) {
+  const batch = logBatches.get(id);
+  if (!batch || batch.logs.length === 0) return;
+
+  if (batch.timer) {
+    clearTimeout(batch.timer);
+    batch.timer = null;
+  }
+
+  broadcastRealtimeEvent('process:log', { id, logs: batch.logs });
+  batch.logs = [];
+}
+
 function appendToProcessLog(logFile, text) {
   try {
-    mkdirSync(path.dirname(logFile), { recursive: true });
-    appendFileSync(logFile, text);
+    const writer = getLogWriter(logFile);
+    writer.write(text);
   } catch (err) {
-    console.error(`[ProcessLog] append failed for ${logFile}: ${err.message}`);
+    console.error(`[ProcessLog] append failed for ${logFile}:`, err.message);
   }
 }
 
@@ -110,9 +202,10 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
       const log = { type, text: line, ts: new Date().toISOString() };
       entry.logs.push(log);
       if (entry.logs.length > 5000) entry.logs.shift();
-      // Write to log file
+      // Write to log file (buffered)
       appendToProcessLog(logFile, `[${log.ts}] [${type}] ${line}\n`);
-      broadcastRealtimeEvent('process:log', { id, log });
+      // Batch for SSE delivery
+      batchLogForSSE(id, log);
     });
   }
 
@@ -125,6 +218,11 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
     entry.stoppedAt = new Date().toISOString();
     pushLog('system', `Thoát với code ${code} (signal: ${signal})`);
     appendToProcessLog(logFile, `\n# Stopped: ${entry.stoppedAt} | Exit: ${code}\n`);
+    // Close the buffered log writer to flush remaining data
+    const writer = logWriters.get(logFile);
+    if (writer) writer.close();
+    // Flush any remaining log batches for SSE
+    flushLogBatch(id);
     broadcastRealtimeEvent('process:status', { id, status: entry.status, exitCode: code });
   });
   proc.on('error', err => {
@@ -163,9 +261,19 @@ function safeProc(id) {
 }
 
 // ─── Sessions (screenshot dirs) ──────────────────────────────────────────────
+// Cache sessions to avoid synchronous rescans on every request
+let sessionsCache = null;
+let sessionsCacheTime = 0;
+const SESSIONS_CACHE_TTL = 5000; // 5 seconds
+
 function listSessions() {
+  const now = Date.now();
+  if (sessionsCache && (now - sessionsCacheTime < SESSIONS_CACHE_TTL)) {
+    return sessionsCache;
+  }
+
   try {
-    return readdirSync(SCREENSHOTS_DIR)
+    const sessions = readdirSync(SCREENSHOTS_DIR)
       .filter(d => {
         try { return statSync(path.join(SCREENSHOTS_DIR, d)).isDirectory(); } catch { return false; }
       })
@@ -189,10 +297,16 @@ function listSessions() {
         };
       })
       .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+
+    sessionsCache = sessions;
+    sessionsCacheTime = now;
+    return sessions;
   } catch { return []; }
 }
 
-// Watch SCREENSHOTS_DIR for new files → emit socket event
+// Watch SCREENSHOTS_DIR for new files → emit SSE event (debounced)
+const screenshotEventQueue = new Map(); // sessionId -> { lastEvent: timestamp, timer: null }
+
 function watchScreenshots() {
   try {
     watch(SCREENSHOTS_DIR, { recursive: true }, (evt, filename) => {
@@ -201,39 +315,69 @@ function watchScreenshots() {
         const sessionId = parts[0];
         const imgFile = parts[parts.length - 1];
 
-        let email = sessionId;
-        try {
-          // Thử tra cứu email từ local Vault dựa trên sessionId (chính là account ID)
-          const accRow = vault.db.prepare('SELECT email FROM vault_accounts WHERE id = ?').get(sessionId);
-          if (accRow && accRow.email) {
-            email = accRow.email;
-          }
-        } catch (e) { }
+        // Debounce events per session to reduce SSE traffic
+        if (screenshotEventQueue.has(sessionId)) {
+          const queue = screenshotEventQueue.get(sessionId);
+          if (queue.timer) clearTimeout(queue.timer);
+        }
 
-        broadcastRealtimeEvent('screenshot:new', {
-          sessionId,
-          email,
-          filename: imgFile,
-          url: `/data/screenshots/${sessionId}/${imgFile}`,
-          ts: new Date().toISOString(),
+        screenshotEventQueue.set(sessionId, {
+          lastEvent: Date.now(),
+          timer: setTimeout(() => {
+            let email = sessionId;
+            try {
+              const accRow = vault.db.prepare('SELECT email FROM vault_accounts WHERE id = ?').get(sessionId);
+              if (accRow && accRow.email) {
+                email = accRow.email;
+              }
+            } catch (e) { }
+
+            broadcastRealtimeEvent('screenshot:new', {
+              sessionId,
+              filename: imgFile,
+              url: `/data/screenshots/${sessionId}/${imgFile}`,
+              ts: new Date().toISOString(),
+              email,
+            });
+
+            // Invalidate sessions cache on new screenshot
+            sessionsCache = null;
+            sessionsCacheTime = 0;
+
+            screenshotEventQueue.delete(sessionId);
+          }, 100) // 100ms debounce per session
         });
       }
     });
   } catch (e) {
-    console.warn('[Watch] Cannot watch screenshots dir:', e.message);
+    console.error('[Screenshots] Watch failed:', e.message);
   }
 }
 
 // ─── Log files list ──────────────────────────────────────────────────────────
+// Cache log files to avoid synchronous rescans on every request
+let logFilesCache = null;
+let logFilesCacheTime = 0;
+const LOGFILES_CACHE_TTL = 5000; // 5 seconds
+
 function listLogFiles() {
+  const now = Date.now();
+  if (logFilesCache && (now - logFilesCacheTime < LOGFILES_CACHE_TTL)) {
+    return logFilesCache;
+  }
+
   try {
-    return readdirSync(LOGS_DIR)
+    const logFiles = readdirSync(LOGS_DIR)
       .filter(f => f.endsWith('.log'))
       .sort().reverse()
       .map(f => {
         const s = statSync(path.join(LOGS_DIR, f));
         return { filename: f, size: s.size, createdAt: s.birthtime, mtime: s.mtime };
       });
+
+    logFilesCache = logFiles;
+    logFilesCacheTime = now;
+    return logFiles;
   } catch { return []; }
 }
 
@@ -244,7 +388,15 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
   const ex = express();
   ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
+  // Set SSE emitter for vault router
+  setSSEEmitter(emitSSE);
+  setProfileSSEEmitter(emitSSE);
   ex.use('/api/vault', vaultRouter);
+  ex.use('/api/profiles', profileRouter);
+
+  // Recover profiles on startup (mark orphaned 'active' profiles as 'idle')
+  const recoveredCount = recoverProfilesOnStartup();
+  if (recoveredCount) console.log(`[ProfileManager] Recovered ${recoveredCount} orphaned profiles`);
 
   // Serve screenshots + logs as static files
   ex.use('/data/screenshots', express.static(SCREENSHOTS_DIR));
@@ -523,7 +675,7 @@ app.prepare().then(() => {
         console.log('[Sync] Vault updated from cloud successfully.');
 
         // Thông báo cho UI qua Socket.io nếu cần
-        io?.emit('vault:synced', { cursor: lastVaultSyncCursor });
+        emitSSE('vault:synced', { cursor: lastVaultSyncCursor });
         return true; // có data mới
       }
     } catch (e) {
@@ -578,8 +730,8 @@ app.prepare().then(() => {
         }
       }
 
-      if (hasChanges && io) {
-        io.emit('vault:update');
+      if (hasChanges) {
+        emitSSE('vault:update', {});
       }
       // Trừ lùi 5 giây để tránh mất event do chênh lệch mili-giây hoặc clock drift giữa VPS/Local/Cloud
       lastEventCheck = new Date(Date.now() - 5000).toISOString();
@@ -1506,32 +1658,8 @@ app.prepare().then(() => {
   // ── Next.js fallback ─────────────────────────────────────────────────────
   ex.all(/(.*)/, (req, res) => handle(req, res));
 
-  // ── HTTP + Socket.io ─────────────────────────────────────────────────────
+  // ── HTTP Server (SSE-only, Socket.IO removed for performance) ───────────────
   const httpServer = createServer(ex);
-
-  io = new SocketIO(httpServer, {
-    cors: { origin: '*' },
-    path: '/socket.io',
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    transports: ['websocket', 'polling'],
-  });
-  setSocketIO(io); // Pass to vault router for real-time email pool events
-  io.on('connection', socket => {
-    const transport = socket.conn?.transport?.name || 'unknown';
-    console.log('[Socket] Client:', socket.id, `transport=${transport}`);
-    socket.emit('processes:sync', Object.keys(processes).map(id => safeProc(id)));
-    socket.on('process:getLogs', ({ id }) => {
-      const e = processes[id];
-      if (e) socket.emit('process:logsHistory', { id, logs: e.logs });
-    });
-    socket.on('disconnect', (reason) => console.log('[Socket] Disconnected:', socket.id, `reason=${reason}`));
-    socket.conn.on('upgrade', () => {
-      const upgraded = socket.conn?.transport?.name || 'unknown';
-      console.log('[Socket] Upgraded:', socket.id, `transport=${upgraded}`);
-    });
-    socket.on('error', (err) => console.log('[Socket] Error:', socket.id, err?.message || String(err)));
-  });
 
   // Watch screenshot directory for realtime updates
   watchScreenshots();
@@ -1554,6 +1682,9 @@ async function handleTerminationSignal(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logServerEvent(`${signal} received, stopping all processes...`);
+
+  // Close all active browser profiles
+  await closeAllProfiles(emitSSE);
 
   // Stop all running processes
   const stopPromises = Object.entries(processes)

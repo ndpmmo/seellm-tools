@@ -3,7 +3,7 @@ import React from 'react';
 import {
   Users, Globe, Link2, LayoutDashboard, FileImage, Terminal,
   FileText, Play, Settings, Zap, Bot, ExternalLink,
-  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon, Mail
+  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon, Mail, Monitor
 } from 'lucide-react';
 import { AppProvider, useApp } from './AppContext';
 import { ToastContainer } from './Views';
@@ -18,6 +18,7 @@ import { ProxiesView } from './views/ProxiesView';
 import { ConnectionsView } from './views/ConnectionsView';
 import { ChangelogView } from './views/ChangelogView';
 import { CamofoxDocsView } from './views/CamofoxDocsView';
+import { MultiProfileView } from './views/MultiProfileView';
 
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
@@ -64,10 +65,11 @@ function NavItem({
 
 // ── Sidebar ───────────────────────────────────────────────
 function Sidebar() {
-  const { view, setView, connected, processes, startCamofox, startWorker } = useApp();
+  const { view, setView, connected, processes, startCamofox, startWorker, profiles } = useApp();
   const procs = Object.values(processes);
   const running = procs.filter(p => p.status === 'running').length;
   const errors = procs.filter(p => p.status === 'error').length;
+  const activeProfiles = profiles.filter(p => p.status === 'active').length;
 
   const isCamofox = processes['camofox']?.status === 'running';
   const isWorker = processes['worker']?.status === 'running';
@@ -105,6 +107,9 @@ function Sidebar() {
         <NavItem id="services" icon={Bot} label="Managed Services" />
         <NavItem id="proxies" icon={Globe} label="Gateway Proxies" />
         <NavItem id="connections" icon={Link2} label="Connections" />
+
+        <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Browser</div>
+        <NavItem id="multi-profile" icon={Monitor} label="Multi Profile" badge={activeProfiles} badgeColor="green" />
 
         <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Công cụ</div>
         <NavItem id="scripts" icon={Play} label="Scripts" />
@@ -156,6 +161,7 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
   scripts: { title: 'Scripts', desc: 'Các scripts tích hợp sẵn' },
   settings: { title: 'Cài đặt', desc: 'Cấu hình hệ thống · Tools & Gateway' },
   changelog: { title: 'Change Logs', desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
+  'multi-profile': { title: 'Multi Profile', desc: 'Quản lý nhiều profile trình duyệt · Chạy song song · VNC điều khiển' },
   'camofox-docs': { title: 'Camofox Docs', desc: 'Tài liệu hướng dẫn custom Camofox API' },
 };
 
@@ -164,7 +170,7 @@ const PAGE_ICONS: Record<string, React.ElementType> = {
   'vault-workshop': Zap,
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
-  changelog: HistoryIcon, 'camofox-docs': FileText,
+  changelog: HistoryIcon, 'multi-profile': Monitor, 'camofox-docs': FileText,
 };
 
 function Topbar() {
@@ -220,6 +226,7 @@ function ContentRouter() {
       {view === 'scripts' && <ScriptsView />}
       {view === 'settings' && <SettingsView />}
       {view === 'changelog' && <ChangelogView />}
+      {view === 'multi-profile' && <MultiProfileView />}
       {view === 'camofox-docs' && <CamofoxDocsView />}
     </>
   );
@@ -232,7 +239,7 @@ export default function Dashboard() {
         <Sidebar />
         <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
           <Topbar />
-          <div className="flex-1 min-h-0 relative h-full">
+          <div className="flex-1 min-h-0 relative h-full overflow-hidden">
             <ContentRouter />
           </div>
         </main>
