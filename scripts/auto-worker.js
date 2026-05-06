@@ -563,7 +563,7 @@ async function runConnectFlow(task) {
 // Interact with consent/workspace page in the real browser, click Continue,
 // wait for redirect to localhost:1455 callback, extract code even if page errors.
 // ═══════════════════════════════════════════════════════════════
-async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
+async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password) {
   const log = (...args) => console.log(`[BrowserOAuth]`, ...args);
   const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"]'
     + ',form[action*="/sign-in-with-chatgpt"]'
@@ -575,6 +575,60 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
   const _extractCode = (urlStr) => {
     if (!urlStr || !urlStr.includes('code=')) return null;
     try { const u = new URL(urlStr); const c = u.searchParams.get('code') || ''; return c ? { code: c, state: u.searchParams.get('state') || '' } : null; } catch (_) { return null; }
+  };
+
+  const _submitLoginEmail = async (emailAddr) => {
+    try {
+      const result = await evalJson(tabId, userId, `(email) => {
+        const inputs = document.querySelectorAll('input[type="email"], input[name="email"], input[name="username"], input[autocomplete="username"], input[id*="email"], input#login-email');
+        let target = null;
+        for (const el of inputs) {
+          if (el.offsetParent !== null) { target = el; break; }
+        }
+        if (!target) return 'no-input';
+        target.focus();
+        target.value = email;
+        target.dispatchEvent(new Event('input', {bubbles:true}));
+        target.dispatchEvent(new Event('change', {bubbles:true}));
+        // Find and click submit button
+        const form = target.closest('form');
+        if (form) {
+          const btn = form.querySelector('button[type="submit"], input[type="submit"]');
+          if (btn) { btn.click(); return 'form-submit'; }
+        }
+        // Fallback: press Enter
+        target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
+        return 'enter';
+      }`, 5000, emailAddr);
+      log(`Login email submit: ${result}`);
+      return result && result !== 'no-input';
+    } catch (_) { return false; }
+  };
+
+  const _submitLoginPassword = async (pwd) => {
+    try {
+      const result = await evalJson(tabId, userId, `(pwd) => {
+        const inputs = document.querySelectorAll('input[type="password"]');
+        let target = null;
+        for (const el of inputs) {
+          if (el.offsetParent !== null) { target = el; break; }
+        }
+        if (!target) return 'no-input';
+        target.focus();
+        target.value = pwd;
+        target.dispatchEvent(new Event('input', {bubbles:true}));
+        target.dispatchEvent(new Event('change', {bubbles:true}));
+        const form = target.closest('form');
+        if (form) {
+          const btn = form.querySelector('button[type="submit"], input[type="submit"]');
+          if (btn) { btn.click(); return 'form-submit'; }
+        }
+        target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
+        return 'enter';
+      }`, 5000, pwd);
+      log(`Login password submit: ${result}`);
+      return result && result !== 'no-input';
+    } catch (_) { return false; }
   };
 
   const _clickConsent = async () => {
@@ -638,7 +692,10 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
   await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 4000));
 
-  const MAX_ROUNDS = 4;
+  const MAX_ROUNDS = 6;
+  let loginEmailDone = false;
+  let loginPasswordDone = false;
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const url = await _getUrl();
     log(`Round ${round + 1}/${MAX_ROUNDS}: url=${(url || '').slice(0, 120)}`);
@@ -649,20 +706,20 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
 
     // 2. Detect page type and act accordingly
     const isPhone = url.includes('add-phone') || url.includes('phone');
+    const isLogin = url.includes('/log-in') && !url.includes('password');
+    const isPassword = url.includes('log-in/password') || url.includes('create-account/password');
+    const isOtp = url.includes('email-verification') || url.includes('email-otp');
     const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
-    const isAuth = url.includes('auth.openai.com');
+    const isWorkspace = url.includes('workspace') && url.includes('select');
 
     if (isPhone) {
-      // Phone screen: re-navigate to auth URL (browser is authenticated, should skip phone)
       log(`Phone screen detected, re-navigating to auth URL to skip...`);
       try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
       await new Promise(r => setTimeout(r, 5000));
-      // Check if we got callback after re-navigation
       const afterUrl = await _getUrl();
       log(`After skip-navigate: ${(afterUrl || '').slice(0, 120)}`);
       const skipCode = _extractCode(afterUrl) || _extractCode(await _getIntercepted());
       if (skipCode) return skipCode;
-      // If still on phone, try waiting for redirect
       if (afterUrl.includes('add-phone') || afterUrl.includes('phone')) {
         log(`Still on phone screen, waiting for potential redirect...`);
         const waitedCode = await _waitForCallback(10000);
@@ -671,9 +728,31 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
       continue;
     }
 
-    if (isConsent || isAuth) {
-      // Consent/auth page: try clicking Continue
-      log(`Consent/auth page, trying consent click...`);
+    if (isLogin && !loginEmailDone && email) {
+      log(`Login page detected, submitting email...`);
+      await _submitLoginEmail(email);
+      loginEmailDone = true;
+      await new Promise(r => setTimeout(r, 5000));
+      continue;
+    }
+
+    if (isPassword && !loginPasswordDone && password) {
+      log(`Password page detected, submitting password...`);
+      await _submitLoginPassword(password);
+      loginPasswordDone = true;
+      await new Promise(r => setTimeout(r, 5000));
+      continue;
+    }
+
+    if (isOtp) {
+      log(`OTP page detected — cannot auto-solve in browser OAuth, waiting...`);
+      const waitedCode = await _waitForCallback(20000);
+      if (waitedCode) return waitedCode;
+      log(`OTP timeout, no callback received`);
+    }
+
+    if (isConsent || isWorkspace) {
+      log(`Consent/workspace page, trying consent click...`);
       const clicked = await _clickConsent();
       if (clicked) {
         const cbCode = await _waitForCallback(15000);
@@ -684,7 +763,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
       }
     }
 
-    // 3. Retry: re-navigate to auth URL (not reload — reload keeps us on same page)
+    // 3. Retry: re-navigate to auth URL
     if (round < MAX_ROUNDS - 1) {
       log(`Re-navigating to auth URL for round ${round + 2}...`);
       try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
@@ -692,7 +771,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce) {
     }
   }
 
-  return { error: 'Browser OAuth consent exhausted after 4 rounds' };
+  return { error: 'Browser OAuth consent exhausted after 6 rounds' };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -825,7 +904,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       // Fallback 4: Browser-based Codex OAuth — interact with consent page in browser
       console.log(`[Capture] 📵 Protocol failed, trying browser-based Codex OAuth...`);
       try {
-        const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce);
+        const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password);
         if (browserResult?.code) {
           authCode = browserResult.code;
           console.log(`[Capture] ✅ Code via browser OAuth: ${authCode.slice(0, 20)}...`);
