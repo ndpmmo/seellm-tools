@@ -797,8 +797,8 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         loginCycleCount++;
         log(`Session expired after phone screen (cycle ${loginCycleCount}), resetting login state for re-login...`);
         if (loginCycleCount >= 2) {
-          log(`Re-login cycle limit reached, giving up`);
-          return { error: 'Browser OAuth: session keeps expiring after phone screen' };
+          log(`Re-login cycle limit reached — account requires phone verification`);
+          return { error: 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại' };
         }
         loginEmailDone = false;
         loginPasswordDone = false;
@@ -1123,7 +1123,11 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           authCode = browserResult.code;
           console.log(`[Capture] ✅ Code via browser OAuth: ${authCode.slice(0, 20)}...`);
         } else {
-          console.log(`[Capture] ❌ Browser OAuth: ${browserResult?.error || 'no code'}`);
+          const errMsg = browserResult?.error || 'no code';
+          console.log(`[Capture] ❌ Browser OAuth: ${errMsg}`);
+          // Propagate NEED_PHONE/NEED_MFA immediately
+          if (errMsg.startsWith('NEED_PHONE')) return sendResult(task, 'error', errMsg);
+          if (errMsg.startsWith('NEED_MFA')) return sendResult(task, 'error', errMsg);
         }
       } catch (browserErr) {
         console.log(`[Capture] ❌ Browser-based OAuth exception: ${browserErr?.message || browserErr}`);

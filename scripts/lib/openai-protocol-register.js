@@ -1357,7 +1357,14 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
     if (!password) {
       return { success: false, error: 'Codex login: password required but not provided' };
     }
-    await session.fetch(`${OPENAI_AUTH}/log-in/password`, { timeoutMs: 15000 });
+    // Follow continue_url first to advance flow state (required before password submit)
+    const continueUrl = contData.continue_url || contData.data?.continue_url || '';
+    if (continueUrl) {
+      log(`Following continue_url: ${continueUrl.slice(0, 80)}`);
+      await session.fetch(continueUrl, { timeoutMs: 15000 });
+    } else {
+      await session.fetch(`${OPENAI_AUTH}/log-in/password`, { timeoutMs: 15000 });
+    }
     const pwdSent = await fetchSentinelPayload(session, did, 'login_password', log);
     const pwdHeaders = {
       'Origin': OPENAI_AUTH,
