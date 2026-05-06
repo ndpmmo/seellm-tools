@@ -146,10 +146,11 @@ async function tryFetchInPage(tabId, userId, url, init = {}, timeoutMs = 8000) {
           credentials: 'include',
           redirect: 'follow',
           ...init,
-          headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+          headers: { ...(init.headers || {}) },
         });
         const text = await res.text();
-        return { ok: res.ok, status: res.status, url: res.url, body: text.slice(0, 2000) };
+        // No truncation — caller needs full body for workspace ID extraction
+        return { ok: res.ok, status: res.status, url: res.url, body: text };
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -637,7 +638,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
   };
 
   const _clickConsent = async () => {
-    // Strategy A: form.requestSubmit(button)
+    // Strategy A: form.requestSubmit(button) — most reliable, mirrors upstream Python
     try {
       const result = await evalJson(tabId, userId, `(() => {
         const sel = ${JSON.stringify(CONSENT_FORM_SEL)};
@@ -676,6 +677,33 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       })()`, { timeoutMs: 5000 });
       if (result) { log(`Consent clicked via JS dispatch: ${result}`); return true; }
     } catch (_) {}
+
+    // Strategy C: find any form with consent-like action and submit it
+    try {
+      const result = await evalJson(tabId, userId, `(() => {
+        const forms = document.querySelectorAll('form');
+        for (const form of forms) {
+          const action = (form.getAttribute('action') || '').toLowerCase();
+          if (action.includes('consent') || action.includes('sign-in-with-chatgpt') || action.includes('authorize')) {
+            if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return 'form-action-requestSubmit'; }
+            form.submit(); return 'form-action-submit';
+          }
+        }
+        return null;
+      })()`, { timeoutMs: 5000 });
+      if (result) { log(`Consent clicked via form action: ${result}`); return true; }
+    } catch (_) {}
+
+    // Strategy D: dump page state for debugging
+    try {
+      const debug = await evalJson(tabId, userId, `(() => {
+        const forms = Array.from(document.querySelectorAll('form')).map(f => f.getAttribute('action') || '');
+        const btns = Array.from(document.querySelectorAll('button')).map(b => (b.textContent||'').trim().slice(0,30));
+        return { url: location.href, forms, btns: btns.slice(0,10), bodyLen: document.body?.innerHTML?.length || 0 };
+      })()`, { timeoutMs: 3000 });
+      log(`Consent page debug: ${JSON.stringify(debug)}`);
+    } catch (_) {}
+
     return false;
   };
 
@@ -720,17 +748,40 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     const isWorkspace = url.includes('workspace') && url.includes('select');
 
     if (isPhone) {
-      log(`Phone screen detected, re-navigating to auth URL to skip...`);
+      log(`Phone screen detected — navigating authUrl (mirrors upstream _do_codex_oauth add_phone handler)...`);
+      // Upstream: page.goto(oauth_start.auth_url) then poll 5s for code= or consent
       try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 2000));
+      // Poll 5 times (mirrors upstream: for _ in range(5): time.sleep(1))
+      for (let poll = 0; poll < 5; poll++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const pollUrl = await _getUrl();
+        const pollCode = _extractCode(pollUrl) || _extractCode(await _getIntercepted());
+        if (pollCode) { log(`✅ Direct callback after authUrl navigate`); return pollCode; }
+        if (pollUrl.includes('code=')) break;
+      }
       const afterUrl = await _getUrl();
-      log(`After skip-navigate: ${(afterUrl || '').slice(0, 120)}`);
-      const skipCode = _extractCode(afterUrl) || _extractCode(await _getIntercepted());
-      if (skipCode) return skipCode;
-      if (afterUrl.includes('add-phone') || afterUrl.includes('phone')) {
-        log(`Still on phone screen, waiting for potential redirect...`);
-        const waitedCode = await _waitForCallback(10000);
-        if (waitedCode) return waitedCode;
+      log(`After authUrl navigate: ${(afterUrl || '').slice(0, 120)}`);
+      const afterCode = _extractCode(afterUrl) || _extractCode(await _getIntercepted());
+      if (afterCode) return afterCode;
+
+      // Check page state (mirrors upstream: skip_state = _derive_registration_state_from_page)
+      if (afterUrl.includes('consent') || afterUrl.includes('sign-in-with-chatgpt')) {
+        log(`Reached consent page, trying consent click...`);
+        await new Promise(r => setTimeout(r, 2000));
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const clicked = await _clickConsent();
+          if (clicked) {
+            const cbCode = await _waitForCallback(20000);
+            if (cbCode) return cbCode;
+          }
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+        }
+      } else if (afterUrl.includes('/log-in')) {
+        // Session expired — reset login flags so next round re-logs in
+        log(`Session expired after phone screen, resetting login state for re-login...`);
+        loginEmailDone = false;
+        loginPasswordDone = false;
       }
       continue;
     }
@@ -790,17 +841,52 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
 
     if (isConsent || isWorkspace) {
       log(`Consent/workspace page, trying consent click...`);
+      // Wait for React to render before clicking
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Handle "Try again" error page — click it and reload
+      try {
+        const tryAgainResult = await evalJson(tabId, userId, `(() => {
+          const btns = Array.from(document.querySelectorAll('button'));
+          const tryAgain = btns.find(b => /try again/i.test(b.textContent || ''));
+          if (tryAgain && tryAgain.offsetParent !== null) {
+            tryAgain.click();
+            return 'clicked-try-again';
+          }
+          return null;
+        })()`, { timeoutMs: 3000 });
+        if (tryAgainResult === 'clicked-try-again') {
+          log(`Clicked "Try again" on error page, waiting for reload...`);
+          await new Promise(r => setTimeout(r, 3000));
+          // After "Try again", re-navigate authUrl to create proper OAuth session
+          log(`Re-navigating authUrl after Try again to create OAuth session...`);
+          try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
+          await new Promise(r => setTimeout(r, 3000));
+          continue;
+        }
+      } catch (_) {}
+
       const clicked = await _clickConsent();
       if (clicked) {
-        const cbCode = await _waitForCallback(15000);
+        const cbCode = await _waitForCallback(20000);
         if (cbCode) return cbCode;
         log(`Round ${round + 1} click did not produce callback`);
       } else {
         log(`Round ${round + 1}: no consent button found`);
       }
+      // When on consent page, do NOT re-navigate to authUrl (causes logout)
+      // Instead reload the consent page and retry
+      if (round < MAX_ROUNDS - 1) {
+        log(`Reloading consent page for round ${round + 2}...`);
+        try {
+          await evalJson(tabId, userId, 'location.reload()', { timeoutMs: 3000 });
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      continue;
     }
 
-    // 3. Retry: re-navigate to auth URL
+    // 3. Retry: re-navigate to auth URL (only when NOT on consent page)
     if (round < MAX_ROUNDS - 1) {
       log(`Re-navigating to auth URL for round ${round + 2}...`);
       try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}
@@ -842,6 +928,24 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
 
   await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 3000));
+
+  // Re-setup interceptor after navigation
+  await evalJson(tabId, userId, `
+    (() => {
+      window.__oauthCallbackUrl = null;
+      try {
+        const obs = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.name && entry.name.includes('localhost:1455') && entry.name.includes('code=')) {
+              window.__oauthCallbackUrl = entry.name;
+            }
+          }
+        });
+        obs.observe({ entryTypes: ['navigation', 'resource'] });
+      } catch (_) {}
+      return 'listener-set';
+    })()
+  `, 3000);
   await recorder.checkpoint(1, 1, 'oauth_redirect_ready');
   console.log(`[Timing] capture.oauth_redirect_ready=${elapsedMs()}ms`);
 
@@ -888,6 +992,49 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
       if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); break; }
 
+      // Fallback 0: Navigate authUrl directly in browser tab (works for free accounts — no workspace needed)
+      // Free accounts: authUrl → direct redirect to localhost:1455?code= (no consent page)
+      // Pro/Team accounts: authUrl → consent page → click Continue → code
+      console.log(`[Capture] 📵 Workspace bypass failed, trying direct authUrl navigate (free account path)...`);
+      try {
+        await navigate(tabId, userId, authUrl, 20000);
+        // Poll for up to 10s — free accounts redirect directly to code=
+        let directCode = null;
+        for (let poll = 0; poll < 10; poll++) {
+          await new Promise(r => setTimeout(r, 1000));
+          const pollUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
+          if (pollUrl.includes('code=') || pollUrl.includes('localhost:1455')) {
+            try {
+              const u = new URL(pollUrl);
+              const c = u.searchParams.get('code') || '';
+              if (c) { directCode = c; break; }
+            } catch (_) {}
+          }
+          // Also check interceptor
+          const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
+          if (intercepted && intercepted.includes('code=')) {
+            try { directCode = new URL(intercepted).searchParams.get('code') || ''; if (directCode) break; } catch (_) {}
+          }
+          // If redirected to consent page, stop polling and let session-seed handle it
+          if (pollUrl.includes('consent') || pollUrl.includes('sign-in-with-chatgpt')) {
+            console.log(`[Capture] Reached consent page after authUrl navigate — account has workspace`);
+            break;
+          }
+          // If redirected back to login, session was lost
+          if (pollUrl.includes('/log-in') && poll > 2) {
+            console.log(`[Capture] Redirected to login after authUrl navigate (session lost)`);
+            break;
+          }
+        }
+        if (directCode) {
+          authCode = directCode;
+          console.log(`[Capture] ✅ Code via direct authUrl navigate (free account): ${authCode.slice(0, 20)}...`);
+          break;
+        }
+      } catch (directErr) {
+        console.log(`[Capture] ❌ Direct authUrl navigate failed: ${directErr?.message || directErr}`);
+      }
+
       // Fallback 1: Session seeding (seed browser cookies into HTTP session, complete consent without re-login)
       console.log(`[Capture] 📵 Workspace bypass failed, trying session-seed fallback...`);
       try {
@@ -898,11 +1045,17 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
         } catch (_) {}
         if (Object.keys(browserCookies).length > 0) {
+          // browserFetchFn: fetch via Camoufox browser tab — real TLS fingerprint, bypasses Cloudflare
+          const browserFetchFn = async (url, init = {}) => {
+            const result = await tryFetchInPage(tabId, userId, url, init, 20000);
+            return result?.body || null;
+          };
           const seedResult = await acquireCodexCallbackViaSessionSeeding({
             browserCookies,
             pkce,
             proxyUrl: effectiveProxy,
             logFn: (...args) => console.log(...args),
+            browserFetchFn,
           });
           if (seedResult?.success && seedResult.code) {
             authCode = seedResult.code;
@@ -991,11 +1144,16 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
             for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
           } catch (_) {}
           if (Object.keys(browserCookies).length > 0) {
+            const browserFetchFn2 = async (url, init = {}) => {
+              const result = await tryFetchInPage(tabId, userId, url, init, 20000);
+              return result?.body || null;
+            };
             const seedResult = await acquireCodexCallbackViaSessionSeeding({
               browserCookies,
               pkce,
               proxyUrl: effectiveProxy,
               logFn: (...args) => console.log(...args),
+              browserFetchFn: browserFetchFn2,
             });
             if (seedResult?.success && seedResult.code) {
               authCode = seedResult.code;

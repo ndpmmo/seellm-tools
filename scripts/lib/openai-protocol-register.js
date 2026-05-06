@@ -272,6 +272,86 @@ async function isCurlAvailable() {
   return curlAvailable;
 }
 
+// ============================================
+// CURL_CFFI TRANSPORT (Chrome TLS fingerprint — mirrors upstream curl_cffi.Session)
+// Uses python3 curl_cffi_fetch.py wrapper to impersonate Chrome131
+// This bypasses Cloudflare bot detection that blocks plain curl/node:https
+// ============================================
+import { fileURLToPath as _fileURLToPath } from 'node:url';
+import { dirname as _dirname, join as _join } from 'node:path';
+const _scriptDir = _dirname(_fileURLToPath(import.meta.url));
+const CURL_CFFI_SCRIPT = _join(_scriptDir, 'curl_cffi_fetch.py');
+
+let curlCffiAvailable = null;
+async function isCurlCffiAvailable() {
+  if (curlCffiAvailable !== null) return curlCffiAvailable;
+  try {
+    await new Promise((resolve, reject) => {
+      const p = spawn('python3', ['-c', 'import curl_cffi'], { stdio: 'ignore' });
+      p.on('close', c => c === 0 ? resolve() : reject(new Error('exit ' + c)));
+      p.on('error', reject);
+    });
+    curlCffiAvailable = true;
+  } catch (_) {
+    curlCffiAvailable = false;
+  }
+  return curlCffiAvailable;
+}
+
+function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000, impersonate = 'chrome131', stopAtLocalhost = false }) {
+  return new Promise((resolve, reject) => {
+    const reqPayload = JSON.stringify({
+      method,
+      url,
+      headers,
+      body: body || null,
+      proxy: proxyUrl || null,
+      timeout: Math.ceil(timeoutMs / 1000),
+      allow_redirects: !stopAtLocalhost,  // if stopAtLocalhost, we handle redirects manually
+      stop_at_localhost: stopAtLocalhost,
+      impersonate,
+    });
+
+    const proc = spawn('python3', [CURL_CFFI_SCRIPT, reqPayload], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+
+    proc.stdout.on('data', chunk => stdoutChunks.push(chunk));
+    proc.stderr.on('data', chunk => stderrChunks.push(chunk));
+    proc.on('close', code => {
+      const raw = Buffer.concat(stdoutChunks).toString('utf8').trim();
+      if (!raw) {
+        const err = Buffer.concat(stderrChunks).toString('utf8').slice(0, 300);
+        return reject(new Error(`curl_cffi empty output (exit ${code}): ${err}`));
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.error) return reject(new Error(`curl_cffi error: ${parsed.error}`));
+
+        // Convert cookies from curl_cffi response into Set-Cookie format for cookie jar
+        const setCookieArr = [];
+        for (const [name, value] of Object.entries(parsed.cookies || {})) {
+          setCookieArr.push(`${name}=${value}`);
+        }
+        const resHeaders = { ...parsed.headers };
+        if (setCookieArr.length) resHeaders['set-cookie'] = setCookieArr;
+
+        resolve({
+          status: parsed.status,
+          headers: resHeaders,
+          body: parsed.body || '',
+          redirect_chain: parsed.redirect_chain || [],
+        });
+      } catch (e) {
+        reject(new Error(`curl_cffi parse error: ${e.message} — raw: ${raw.slice(0, 200)}`));
+      }
+    });
+    proc.on('error', err => reject(new Error(`curl_cffi spawn error: ${err.message}`)));
+  });
+}
+
 function buildProxyAuthHeader(proxy) {
   if (!proxy.username && !proxy.password) return null;
   return `Basic ${Buffer.from(`${decodeURIComponent(proxy.username || '')}:${decodeURIComponent(proxy.password || '')}`).toString('base64')}`;
@@ -411,7 +491,16 @@ class ProtocolSession {
 
   async _chooseTransport() {
     if (this._curlChecked) return;
+    // Priority: curl_cffi (Chrome TLS fingerprint) > curl CLI > node:https
+    const hasCurlCffi = await isCurlCffiAvailable();
+    if (hasCurlCffi) {
+      this._transport = 'curl_cffi';
+      this._curlChecked = true;
+      console.log(`[Protocol] Transport: curl_cffi (Chrome131 TLS fingerprint — bypasses Cloudflare)`);
+      return;
+    }
     this._useCurl = await isCurlAvailable();
+    this._transport = this._useCurl ? 'curl' : 'node_https';
     this._curlChecked = true;
     console.log(`[Protocol] Transport: ${this._useCurl ? 'curl (Chrome impersonation)' : 'node:https (fallback)'}`);
   }
@@ -423,9 +512,14 @@ class ProtocolSession {
       mergedHeaders['Cookie'] = cookieJarToHeader(this.cookies);
     }
 
-    const res = this._useCurl
-      ? await requestViaCurl({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs })
-      : await request({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs });
+    let res;
+    if (this._transport === 'curl_cffi') {
+      res = await requestViaCurlCffi({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs });
+    } else if (this._transport === 'curl') {
+      res = await requestViaCurl({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs });
+    } else {
+      res = await request({ method, url, headers: mergedHeaders, body, proxyUrl: this.proxyUrl, timeoutMs });
+    }
 
     // Update cookie jar from Set-Cookie headers
     const setCookie = res.headers['set-cookie'];
@@ -1075,6 +1169,53 @@ async function fetchSentinelPayload(session, did, flow, log) {
 }
 
 async function followRedirectsForCallbackUrl(session, startUrl, log) {
+  // Use curl_cffi with stopAtLocalhost to follow redirect chain
+  // and stop when we hit localhost:1455 (Codex CLI callback)
+  if (session._transport === 'curl_cffi') {
+    try {
+      const mergedHeaders = {
+        ...session.defaultHeaders,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      };
+      if (Object.keys(session.cookies).length) {
+        mergedHeaders['Cookie'] = cookieJarToHeader(session.cookies);
+      }
+      const res = await requestViaCurlCffi({
+        method: 'GET',
+        url: normalizeUrl(startUrl),
+        headers: mergedHeaders,
+        proxyUrl: session.proxyUrl,
+        timeoutMs: 30000,
+        stopAtLocalhost: true,
+      });
+      // Update session cookies from response
+      const setCookie = res.headers['set-cookie'];
+      if (setCookie) {
+        const parsed = parseCookies(setCookie, startUrl);
+        Object.assign(session.cookies, parsed.cookies);
+      }
+      // Check redirect_chain for localhost callback
+      const chain = res.redirect_chain || [];
+      for (const u of chain) {
+        const parsed = parseCallbackUrl(u);
+        if (parsed.code) { log(`curl_cffi redirect chain found callback: ${u.slice(0, 100)}`); return u; }
+      }
+      // Check final URL
+      const finalParsed = parseCallbackUrl(res.url || '');
+      if (finalParsed.code) return res.url;
+      // Check location header
+      const location = normalizeUrl(res.headers.location || '', startUrl);
+      if (location) {
+        const locParsed = parseCallbackUrl(location);
+        if (locParsed.code) return location;
+      }
+      log(`curl_cffi followRedirects: no callback found, status=${res.status} url=${(res.url || '').slice(0, 100)}`);
+    } catch (e) {
+      log(`curl_cffi followRedirects error: ${e.message}, falling back to manual`);
+    }
+  }
+
+  // Fallback: manual redirect following
   let currentUrl = normalizeUrl(startUrl);
   if (!currentUrl) return '';
   for (let i = 0; i < 10; i++) {
@@ -1128,9 +1269,10 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
   if (senPayload) log(`Sentinel acquired: flow=${senPayload.flow}`);
 
   const signupHeaders = {
-    'Referer': `${OPENAI_AUTH}/log-in`,
+    'Referer': authUrl,
     'Accept': 'application/json',
     'Content-Type': 'application/json',
+    'oai-device-id': did,
     ...generateDatadogTraceHeaders(),
   };
   if (senPayload) {
@@ -1395,7 +1537,7 @@ async function followRedirectsForCode(session, startUrl, log, maxRedirects = 12)
   return '';
 }
 
-export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pkce, proxyUrl = null, logFn = console.log }) {
+export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pkce, proxyUrl = null, logFn = console.log, browserFetchFn = null }) {
   const log = (...args) => logFn('[SessionSeed]', ...args);
   const consentUrl = `${OPENAI_AUTH}/sign-in-with-chatgpt/codex/consent`;
 
@@ -1403,6 +1545,33 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
   const session = new ProtocolSession(proxyUrl);
   seedCookiesIntoSession(session, browserCookies);
   log(`Seeded ${Object.keys(browserCookies).length} browser cookies into session`);
+
+  // Helper: fetch consent HTML — prefer browser fetch (bypasses Cloudflare) over curl/node:https
+  const fetchConsentHtml = async () => {
+    // Primary: use Camoufox browser tab if available (real TLS fingerprint, bypasses CF)
+    if (typeof browserFetchFn === 'function') {
+      try {
+        log('Fetching consent HTML via browser (CF bypass)...');
+        const html = await browserFetchFn(consentUrl, { credentials: 'include', redirect: 'follow' });
+        if (html && typeof html === 'string' && html.length > 100) {
+          log(`Consent HTML via browser: ${html.length} bytes`);
+          return { body: html, source: 'browser' };
+        }
+        log('Browser fetch returned empty/short response, falling back to protocol session');
+      } catch (e) {
+        log(`Browser fetch failed: ${e?.message || e}, falling back to protocol session`);
+      }
+    }
+    // Fallback: curl/node:https (may be blocked by Cloudflare)
+    const res = await session.fetch(consentUrl, { timeoutMs: 30000 });
+    log('Consent response classifier:', JSON.stringify(classifyConsentPayload({
+      status: res.status,
+      headers: res.headers,
+      body: res.body,
+      json: res.json,
+    })));
+    return { body: res.body, status: res.status, headers: res.headers, source: 'protocol' };
+  };
 
   // 2. Decode oai-client-auth-session cookie for workspaces
   const sessionMeta = decodeOAuthSessionCookie(browserCookies['oai-client-auth-session'] || '');
@@ -1413,16 +1582,10 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
   if (!workspaces.length) {
     log('No workspaces in cookie, fetching consent HTML...');
     try {
-      const consentRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
-      log('Consent response classifier:', JSON.stringify(classifyConsentPayload({
-        status: consentRes.status,
-        headers: consentRes.headers,
-        body: consentRes.body,
-        json: consentRes.json,
-      })));
-      if (consentRes.body) {
-        workspaces = extractWorkspacesFromHtml(consentRes.body);
-        log(`Workspaces from HTML: ${workspaces.length}`);
+      const consentResult = await fetchConsentHtml();
+      if (consentResult.body) {
+        workspaces = extractWorkspacesFromHtml(consentResult.body);
+        log(`Workspaces from HTML (${consentResult.source}): ${workspaces.length}`);
       }
     } catch (e) {
       log(`Consent HTML fetch failed: ${e.message}`);
@@ -1431,6 +1594,7 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
 
   if (!workspaces.length) {
     log('⚠️ No workspaces found — attempting consent submission without workspace selection');
+    // For direct consent attempt, use protocol session (needs Location header from 302)
     const directRes = await session.fetch(consentUrl, { timeoutMs: 30000 });
     log('Direct consent classifier:', JSON.stringify(classifyConsentPayload({
       status: directRes.status,
@@ -1445,7 +1609,7 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
         const parsed = parseCallbackUrl(callbackUrl);
         if (parsed.code) {
           log('Direct consent redirect yielded callback URL');
-          return { success: true, callbackUrl, code: parsed.code, state: parsed.state, source: 'session_seed_direct' };
+          return { success: true, callbackUrl, code: parsed.code, state: parsed.state, pkce, source: 'session_seed_direct' };
         }
       }
     }
@@ -1484,7 +1648,7 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
   const directCode = parseCallbackUrl(nextUrl);
   if (directCode.code) {
     log('Direct code from workspace/select');
-    return { success: true, callbackUrl: nextUrl, code: directCode.code, state: directCode.state, source: 'session_seed' };
+    return { success: true, callbackUrl: nextUrl, code: directCode.code, state: directCode.state, pkce, source: 'session_seed' };
   }
 
   // 5. Handle organization selection if needed
@@ -1556,5 +1720,5 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
   }
 
   log(`Callback URL acquired: ${callbackUrl.slice(0, 100)}`);
-  return { success: true, callbackUrl, code: parsed.code, state: parsed.state, source: 'session_seed' };
+  return { success: true, callbackUrl, code: parsed.code, state: parsed.state, pkce, source: 'session_seed' };
 }

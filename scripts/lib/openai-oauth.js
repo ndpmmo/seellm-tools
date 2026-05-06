@@ -60,18 +60,26 @@ export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
   // ── Nếu có proxy: dùng curl để đồng bộ IP với trình duyệt ──
   if (proxyUrl) {
     try {
-      const { execSync } = await import('node:child_process');
-      const curlCmd = [
-        'curl', '-s', '-X', 'POST',
-        '-H', '"Content-Type: application/x-www-form-urlencoded"',
-        '-H', '"Accept: application/json"',
-        '--proxy', `"${proxyUrl}"`,
-        '--data', `"${postData}"`,
-        `"${OAUTH_TOKEN_URL}"`
-      ].join(' ');
-
-      const responseText = execSync(curlCmd, { encoding: 'utf8', timeout: 15000 });
-      const data = JSON.parse(responseText);
+      const { spawn } = await import('node:child_process');
+      const result = await new Promise((resolve, reject) => {
+        const proc = spawn('curl', [
+          '-s', '-X', 'POST',
+          '-H', 'Content-Type: application/x-www-form-urlencoded',
+          '-H', 'Accept: application/json',
+          '--proxy', proxyUrl,
+          '--data', postData,
+          '--max-time', '15',
+          OAUTH_TOKEN_URL,
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const chunks = [];
+        proc.stdout.on('data', c => chunks.push(c));
+        proc.on('close', code => {
+          if (code !== 0) return reject(new Error(`curl exit ${code}`));
+          resolve(Buffer.concat(chunks).toString('utf8'));
+        });
+        proc.on('error', reject);
+      });
+      const data = JSON.parse(result);
       if (data.error) throw new Error(data.error_description || JSON.stringify(data.error));
       return data;
     } catch (err) {
@@ -104,28 +112,22 @@ export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
  * @returns {object|null} - Decoded payload or null if invalid
  */
 export function decodeAuthSessionCookie(cookieValue) {
-  if (!cookieValue || typeof cookieValue !== 'string') {
-    return null;
+  if (!cookieValue || typeof cookieValue !== 'string') return null;
+  const segments = cookieValue.split('.');
+  if (!segments.length) return null;
+  let best = null;
+  for (const seg of segments.slice(0, 2)) {
+    try {
+      const pad = '='.repeat((4 - (seg.length % 4)) % 4);
+      const decoded = Buffer.from(seg.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf-8');
+      const parsed = JSON.parse(decoded);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.workspaces || parsed.workspace_id) return parsed; // has workspace data — use immediately
+        if (!best) best = parsed;
+      }
+    } catch (_) {}
   }
-
-  try {
-    // JWT format: header.payload.signature
-    const segments = cookieValue.split('.');
-    if (segments.length < 2) {
-      return null;
-    }
-
-    // Decode the payload (second segment)
-    const payload = segments[0]; // Note: zc-zhangchen uses first segment for workspace
-    const pad = '='.repeat((4 - (payload.length % 4)) % 4);
-    const decoded = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf-8');
-    const parsed = JSON.parse(decoded);
-
-    return parsed;
-  } catch (err) {
-    console.warn(`[OAuth] Failed to decode auth session cookie: ${err.message}`);
-    return null;
-  }
+  return best;
 }
 
 /**

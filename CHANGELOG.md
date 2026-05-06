@@ -2,6 +2,55 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.40] - 2026-05-06 10:00:00
+
+### 🚀 Codex OAuth — curl_cffi Chrome131 TLS Fingerprint + Protocol Flow Overhaul
+
+**Root cause được giải quyết:** `ProtocolSession` trước đây dùng `curl` CLI với fake Chrome headers — bị Cloudflare bot detection block (trả về 403/challenge page). Upstream Python dùng `curl_cffi` với `impersonate="chrome131"` để clone TLS/HTTP2 fingerprint thật của Chrome, bypass hoàn toàn Cloudflare.
+
+**curl_cffi Transport (mới):**
+- `scripts/lib/curl_cffi_fetch.py` — Python wrapper dùng `curl_cffi.Session(impersonate="chrome131")`, mirrors upstream `lxf746/any-auto-register`.
+  - Hỗ trợ `allow_redirects=true/false` và `stop_at_localhost=true` để follow redirect chain và dừng tại `localhost:1455` (Codex CLI callback URL).
+  - Tích lũy cookies từ toàn bộ redirect chain qua `session.cookies.jar`.
+  - Trả về `redirect_chain[]` để Node.js extract callback URL.
+- `scripts/lib/openai-protocol-register.js` — `ProtocolSession._chooseTransport()` ưu tiên `curl_cffi` > `curl` CLI > `node:https`.
+  - `requestViaCurlCffi()` — spawn `python3 curl_cffi_fetch.py` với JSON payload, parse response.
+  - `isCurlCffiAvailable()` — check `python3 -c "import curl_cffi"` một lần, cache kết quả.
+  - `followRedirectsForCallbackUrl()` — dùng `curl_cffi` với `stopAtLocalhost=true` khi transport là `curl_cffi`.
+
+**Kết quả thực tế (đo được):**
+- `curl` CLI: `403 Forbidden` từ Cloudflare khi gọi `auth.openai.com/oauth/authorize`
+- `curl_cffi`: `302 → 200` với 13 cookies thật (`oai-did`, `login_session`, `oai-client-auth-session`, v.v.)
+- `authorize/continue` giờ trả về `page_type=login_password` thay vì `(empty)` — response thật từ OpenAI
+
+**Protocol Flow Fixes:**
+- `acquireCodexCallbackViaProtocol()` — sửa `signupHeaders`:
+  - `Referer` đổi từ `${OPENAI_AUTH}/log-in` → `authUrl` (đúng context OAuth)
+  - Thêm `oai-device-id: did` header (bắt buộc cho OpenAI API)
+- `acquireCodexCallbackViaSessionSeeding()` — thêm `pkce` vào tất cả 3 return objects (`session_seed_direct`, `session_seed`, workspace/org path) để token exchange dùng đúng `codeVerifier`.
+
+---
+
+### 🔧 Connect Flow — Session & OAuth Fixes
+
+**Browser OAuth State Machine (`_completeBrowserOAuth`):**
+- Mirrors upstream `_do_codex_oauth` — sau phone screen, navigate `authUrl` và poll 5s (giống upstream `for _ in range(5): time.sleep(1)`).
+- Nếu session expire (redirect về `/log-in`) → reset `loginEmailDone/loginPasswordDone` → login lại từ đầu thay vì bridge phức tạp.
+- Xóa toàn bộ bridge logic tự biên chế (CSRF fetch, signin/openai, fetch authorizeUrl) — không có trong upstream.
+- Thêm "Try again" handler: khi consent page trả về error page (chỉ có button "Try again"), click → re-navigate `authUrl` để tạo OAuth session mới.
+- Consent page: reload thay vì re-navigate `authUrl` để tránh logout.
+
+**captureAndReport:**
+- Thêm Fallback 0: navigate `authUrl` trực tiếp + poll 10s — account free không có workspace sẽ redirect thẳng đến `localhost:1455?code=` mà không cần consent page.
+- `tryFetchInPage()` — bỏ `text.slice(0, 2000)` truncation, trả về full body để `extractWorkspacesFromHtml()` tìm được workspace ID.
+- Cả 2 call `acquireCodexCallbackViaSessionSeeding` (phone screen path và consent exhausted path) đều truyền `browserFetchFn` để fetch consent HTML qua Camoufox browser (real TLS fingerprint, bypass CF).
+
+**openai-oauth.js:**
+- `exchangeCodeForTokens()` proxy path — thay `execSync` với shell string interpolation (unsafe) bằng `spawn()` với array args (safe).
+- `decodeAuthSessionCookie()` — loop qua 2 segments đầu của cookie, ưu tiên segment có `workspaces`/`workspace_id`, fallback về segment đầu tiên parse được.
+
+---
+
 ## [Unreleased] - 2026-05-06 07:15:00
 
 ### 🐛 Connect Flow — Browser OAuth evalJson Fix + MFA Challenge Handling
