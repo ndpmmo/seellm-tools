@@ -27,12 +27,61 @@ interface ProxyBinding {
   slot_index?: number | null;
 }
 
+function detectProxyType(url: string): string {
+  if (!url) return 'http';
+  const u = url.toLowerCase();
+  if (u.startsWith('socks5://')) return 'socks5';
+  if (u.startsWith('socks4://')) return 'socks4';
+  if (u.startsWith('https://')) return 'https';
+  return 'http';
+}
+
+function formatProxyUrl(rawUrl: string, defaultType = 'http') {
+  let val = rawUrl.trim();
+  let type = defaultType;
+
+  const typeMatch = val.match(/^(http|https|socks4|socks5):\/\/(.*)$/i);
+  if (typeMatch) {
+    type = typeMatch[1].toLowerCase();
+    val = typeMatch[2];
+  }
+
+  const parts = val.split(':');
+  // host:port:user:pass
+  if (parts.length === 4 && !val.includes('@')) {
+    val = `${parts[2]}:${parts[3]}@${parts[0]}:${parts[1]}`;
+  }
+
+  return `${type}://${val}`;
+}
+
 function parseBulkProxies(raw: string) {
   return raw.split('\n')
     .map(l => l.trim()).filter(Boolean)
     .map(line => {
-      const norm = line.replace(/\t/g, ':').replace(/\s*[|]\s*/g, ':');
-      const [url = '', label = '', slots = '4'] = norm.split(':').map(s => s.trim());
+      // First check if line already has a protocol → treat as url:label:slots
+      const hasProtocol = /^(http|https|socks4|socks5):\/\//i.test(line);
+      if (hasProtocol) {
+        const norm = line.replace(/\t/g, ':').replace(/\s*[|]\s*/g, ':');
+        const [url = '', label = '', slots = '4'] = norm.split(':').map(s => s.trim());
+        return { url, label, slotCount: parseInt(slots, 10) || 4 };
+      }
+
+      // Handle host:port:user:pass:label:slots or host:port:user:pass
+      const parts = line.replace(/\t/g, ':').replace(/\s*[|]\s*/g, ':').split(':');
+      if (parts.length >= 4) {
+        const host = parts[0];
+        const port = parts[1];
+        const user = parts[2];
+        const pass = parts[3];
+        const label = parts[4] || '';
+        const slots = parts[5] || '4';
+        const url = formatProxyUrl(`${host}:${port}:${user}:${pass}`);
+        return { url, label, slotCount: parseInt(slots, 10) || 4 };
+      }
+
+      // Fallback: url:label:slots
+      const [url = '', label = '', slots = '4'] = parts.map(s => s.trim());
       return { url, label, slotCount: parseInt(slots, 10) || 4 };
     })
     .filter(r => r.url.startsWith('http://') || r.url.startsWith('https://') || r.url.startsWith('socks'));
@@ -206,10 +255,11 @@ export function ProxiesView() {
             <div className="flex flex-col gap-3">
               <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-400 leading-relaxed">
                 <strong className="text-slate-200">Định dạng:</strong>{' '}
-                <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">url:label:slots</code> hoặc <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">url|label|slots</code>
+                <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">url:label:slots</code>{' '}
+                hoặc <code className="text-cyan-400 bg-cyan-500/10 px-1 rounded">host:port:user:pass:label:slots</code>
               </div>
               <textarea className="w-full bg-black/40 border border-white/10 rounded-md p-3 text-[11px] font-mono text-slate-300 resize-y focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" rows={5}
-                placeholder={`http://user:pass@12.34.56.78:8080:VPS_US:4\nhost:port:Router:2`}
+                placeholder={`http://user:pass@12.34.56.78:8080:VPS_US:4\n64.118.143.179:10000:usrx5B2c:passSGgM2:Router:2`}
                 value={bulkText} onChange={e => { setBulkText(e.target.value); setBulkRows(parseBulkProxies(e.target.value)); }}
               />
               <div className="flex items-center justify-between gap-3 text-xs">

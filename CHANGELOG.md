@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.45] - 2026-05-07 03:18:00
+
+### 🔧 Proxies Bulk Import — `host:port:user:pass` format support
+
+**Problem**: `ProxiesView` (D1 Cloud tab) bulk import only accepted `url:label:slots` format. Users who copied proxy lists in `host:port:user:pass` format (e.g. `64.118.143.179:10000:usrx5B2c:passSGgM2`) could not import them directly into the Cloud proxy pool.
+
+**Fix**:
+- `src/components/views/ProxiesView.tsx`
+  - Added `formatProxyUrl()` and `detectProxyType()` helpers (matching `VaultProxiesView.tsx`).
+  - Updated `parseBulkProxies()` to recognise:
+    - `url:label:slots` (with explicit protocol)
+    - `host:port:user:pass:label:slots`
+    - `host:port:user:pass` (minimal 4-colon form)
+  - Updated format hint and placeholder to document the new capability.
+
+**Result**: D1 Cloud proxy bulk import now supports the same multi-format input as the local Vault proxy manager.
+
+---
+
 ## [0.2.44] - 2026-05-07 02:50:00
 
 ### 🧹 D1 Tools UI — Filter stale inactive connections from counts and merges
