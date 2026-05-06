@@ -23,6 +23,19 @@
 
 **Result**: Tools `Managed Services` / `Connections` screens are now much closer to Gateway's live Codex view because they no longer count stale inactive D1 connection records.
 
+### 🧹 D1 Cloud — Cleanup stale active Codex connections
+
+**Problem**: Cloudflare D1 still held `13` active `codex_connections` while only `4` corresponded to `ready` managed accounts. The other `9` were stale leftovers from before the `ever_ready` sync logic.
+
+**Script**: `scripts/cleanup-d1-stale-connections.mjs`
+- Reads D1 active connections and managed accounts via local Tools API proxy.
+- Identifies stale connections:
+  - No matching managed account (orphan)
+  - Matching managed account exists but `status != 'ready'`
+- Pushes tombstones (`deleted_at = now`, `is_active = 0`) via `/sync/push`.
+
+**Result**: D1 active connections reduced from `13` → `4`, matching Gateway local and Tools UI.
+
 ---
 
 ## [0.2.43] - 2026-05-07 01:55:00
