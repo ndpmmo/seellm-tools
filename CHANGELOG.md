@@ -2,7 +2,34 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [Unreleased] - 2026-05-06 04:07:00
+## [Unreleased] - 2026-05-06 07:15:00
+
+### 🐛 Connect Flow — Browser OAuth evalJson Fix + MFA Challenge Handling
+
+**evalJson IIFE Bug Fix (Root Cause):**
+- `scripts/auto-worker.js` — `_completeBrowserOAuth()` sửa signature mismatch khi gọi `evalJson(tabId, userId, expression, {timeoutMs})`.
+  - 4th argument của `evalJson` là **options object `{timeoutMs}`**, KHÔNG PHẢI parameter cho expression.
+  - Tất cả arrow function `(email) => {...}`, `(pwd) => {...}`, `(sel) => {...}` trong `_submitLoginEmail`, `_submitLoginPassword`, `_clickConsent` trước đây evaluate thành uncalled `Function` object (serialize `null` over JSON) → logic chưa bao giờ thực sự chạy.
+  - Fix: convert sang **IIFE** `(() => { ... })()` và embed giá trị qua `JSON.stringify(emailAddr)`, `JSON.stringify(pwd)`, `JSON.stringify(CONSENT_FORM_SEL)`.
+- Sửa timeout argument cho `_getUrl` / `_getIntercepted` từ positional `4000` → options object `{ timeoutMs: 4000 }`.
+
+**Browser OAuth MFA Challenge Handling:**
+- `_completeBrowserOAuth()` nhận thêm `totpSecret` parameter.
+- Thêm nhánh `isMfa` detect: URL chứa `/mfa`, `/mfa-challenge`, `/totp`, `two-factor`.
+- Khi MFA screen: auto-generate TOTP qua `getFreshTOTP()` → gọi `fillMfa()` → wait → retry lần 2 nếu vẫn còn MFA.
+- Trả lỗi chính xác `NEED_MFA` thay vì `NEED_PHONE` khi account thiếu `twoFaSecret` hoặc TOTP không qua được.
+
+**Error Classification Accuracy:**
+- `captureAndReport()` — khi tất cả fallbacks fail, classify final state chính xác:
+  - `NEED_MFA` nếu `finalOauthState?.hasMfaInput`
+  - `NEED_PHONE` nếu `finalOauthState?.hasPhoneScreen`
+  - `OAUTH_FAILED` cho các case còn lại.
+- Tránh việc trước đây mọi fail đều bị map thành `NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại`.
+
+**loginEmailDone / loginPasswordDone Guard Fix:**
+- Chỉ set `loginEmailDone = true` khi `_submitLoginEmail()` trả về truthy (không phải `'no-input'`).
+- Chỉ set `loginPasswordDone = true` khi `_submitLoginPassword()` thành công.
+- Cho phép retry nếu submit lần đầu bị miss element.
 
 ### 🚀 Protocol-Mode Registration & Auto-Login Enhancements
 
