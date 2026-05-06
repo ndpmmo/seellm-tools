@@ -1216,7 +1216,60 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         break;
       }
       if (consentAttempts >= MAX_CONSENT_ATTEMPTS) {
-        console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), exhausting...`);
+        console.log(`[Capture] Consent bypass reached max attempts (${MAX_CONSENT_ATTEMPTS}), trying in-browser consent click...`);
+        // Tab is already on consent page — just click Continue and wait for callback
+        // This mirrors upstream _complete_oauth_in_browser
+        try {
+          let consentCode = null;
+          for (let attempt = 0; attempt < 4 && !consentCode; attempt++) {
+            // Wait for React to render
+            await new Promise(r => setTimeout(r, attempt === 0 ? 1500 : 2000));
+            // Try clicking consent button
+            const clicked = await clickBestMatchingAction(tabId, userId, {
+              exactTexts: ['continue', 'authorize', 'allow'],
+              excludeTexts: ['close', 'cancel'],
+              timeoutMs: 5000,
+            });
+            if (clicked?.ok) {
+              console.log(`[Capture] Consent clicked: ${clicked.text}`);
+              // Wait for redirect to localhost:1455
+              for (let poll = 0; poll < 20; poll++) {
+                await new Promise(r => setTimeout(r, 1000));
+                const pollUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
+                if (pollUrl.includes('code=') || pollUrl.includes('localhost:1455')) {
+                  try {
+                    const u = new URL(pollUrl);
+                    consentCode = u.searchParams.get('code') || '';
+                    if (consentCode) break;
+                  } catch (_) {}
+                }
+                const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
+                if (intercepted?.includes('code=')) {
+                  try { consentCode = new URL(intercepted).searchParams.get('code') || ''; if (consentCode) break; } catch (_) {}
+                }
+                // about:neterror means browser tried to connect to localhost:1455 — extract from URL
+                if (pollUrl.includes('about:neterror') || pollUrl.includes('about:blank')) {
+                  const intercepted2 = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
+                  if (intercepted2?.includes('code=')) {
+                    try { consentCode = new URL(intercepted2).searchParams.get('code') || ''; if (consentCode) break; } catch (_) {}
+                  }
+                }
+              }
+            } else {
+              // Reload and retry
+              console.log(`[Capture] No consent button found (attempt ${attempt + 1}), reloading...`);
+              try { await evalJson(tabId, userId, 'location.reload()', { timeoutMs: 3000 }); } catch (_) {}
+            }
+          }
+          if (consentCode) {
+            authCode = consentCode;
+            console.log(`[Capture] ✅ Code via in-browser consent click: ${authCode.slice(0, 20)}...`);
+            break;
+          }
+          console.log(`[Capture] ❌ In-browser consent click failed`);
+        } catch (consentErr) {
+          console.log(`[Capture] ❌ In-browser consent exception: ${consentErr?.message || consentErr}`);
+        }
         consentBypassExhausted = true;
         fallbackToSessionNow = true;
         break;
