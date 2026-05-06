@@ -278,7 +278,7 @@ export function AccountsView() {
 
       let nextConnections = connectionsCacheRef.current;
       if (!append || nextConnections.length === 0) {
-        const connectionsRes = await fetch('/api/d1/inspect/connections?limit=300').catch(() => null as any);
+        const connectionsRes = await fetch('/api/d1/inspect/connections?active=1&limit=300').catch(() => null as any);
         if (connectionsRes?.ok) {
           const cd = await connectionsRes.json().catch(() => ({}));
           nextConnections = Array.isArray(cd?.items) ? cd.items : [];

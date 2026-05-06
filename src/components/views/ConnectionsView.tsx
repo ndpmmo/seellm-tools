@@ -13,7 +13,7 @@ export function ConnectionsView() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/api/d1/inspect/connections');
+      const r = await fetch('/api/d1/inspect/connections?active=1');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (data.error) throw new Error(data.error);

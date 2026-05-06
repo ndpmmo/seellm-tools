@@ -2,6 +2,29 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.44] - 2026-05-07 02:50:00
+
+### 🧹 D1 Tools UI — Filter stale inactive connections from counts and merges
+
+**Problem**: Tools screens under `Cloud (D1 Edge)` were reading raw D1 connections without `active=1`, so old inactive/stale connections still appeared in the `Connections` screen and also bled into the merge cache used by `Managed Services` and `Account Vault`-style views. This made Tools counts diverge from Gateway even after the selective sync fix.
+
+**Root cause**: The worker already supports `GET /inspect/connections?active=1`, but these Tools views were calling `/api/d1/inspect/connections` without the `active` filter.
+
+**Fix**:
+- `src/components/views/ConnectionsView.tsx`
+  - Changed fetch from `/api/d1/inspect/connections` → `/api/d1/inspect/connections?active=1`
+  - The `Active Connections` count/table now matches the screen title.
+- `src/components/views/ServicesView.tsx`
+  - Changed merge cache fetch from `/api/d1/inspect/connections?limit=300` → `/api/d1/inspect/connections?active=1&limit=300`
+  - Prevents stale inactive D1 connections from distorting `Connected / Pending / Error` buckets.
+- `src/components/views/AccountsView.tsx`
+  - Changed merge cache fetch from `/api/d1/inspect/connections?limit=300` → `/api/d1/inspect/connections?active=1&limit=300`
+  - Prevents inactive connection records from bleeding into account-derived UI state.
+
+**Result**: Tools `Managed Services` / `Connections` screens are now much closer to Gateway's live Codex view because they no longer count stale inactive D1 connection records.
+
+---
+
 ## [0.2.43] - 2026-05-07 01:55:00
 
 ### 🔒 Connection Sync — Smart Filtering (ever_ready)

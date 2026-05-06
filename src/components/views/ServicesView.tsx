@@ -229,7 +229,7 @@ export function ServicesView() {
 
       let nextConns = connCacheRef.current;
       if (!append || nextConns.length === 0) {
-        const connRes = await fetch('/api/d1/inspect/connections?limit=300').catch(() => null as any);
+        const connRes = await fetch('/api/d1/inspect/connections?active=1&limit=300').catch(() => null as any);
         if (connRes?.ok) {
           const cd = await connRes.json().catch(() => ({}));
           nextConns = Array.isArray(cd?.items) ? cd.items : [];
