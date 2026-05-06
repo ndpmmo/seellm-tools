@@ -594,13 +594,20 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
         if (!target) return 'no-input';
         target.focus();
-        target.value = email;
+        // Use React-compatible native setter (mirrors upstream _fill_input_like_user)
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(target, email);
+        } else {
+          target.value = email;
+        }
         target.dispatchEvent(new Event('input', {bubbles:true}));
         target.dispatchEvent(new Event('change', {bubbles:true}));
         const form = target.closest('form');
         if (form) {
           const btn = form.querySelector('button[type="submit"], input[type="submit"]');
           if (btn) { btn.click(); return 'form-submit'; }
+          if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return 'requestSubmit'; }
         }
         target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
         return 'enter';
@@ -621,13 +628,20 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
         if (!target) return 'no-input';
         target.focus();
-        target.value = password;
+        // Use React-compatible native setter
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(target, password);
+        } else {
+          target.value = password;
+        }
         target.dispatchEvent(new Event('input', {bubbles:true}));
         target.dispatchEvent(new Event('change', {bubbles:true}));
         const form = target.closest('form');
         if (form) {
           const btn = form.querySelector('button[type="submit"], input[type="submit"]');
           if (btn) { btn.click(); return 'form-submit'; }
+          if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return 'requestSubmit'; }
         }
         target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true}));
         return 'enter';
@@ -726,9 +740,10 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
   await navigate(tabId, userId, authUrl, 20000);
   await new Promise(r => setTimeout(r, 4000));
 
-  const MAX_ROUNDS = 6;
+  const MAX_ROUNDS = 12;
   let loginEmailDone = false;
   let loginPasswordDone = false;
+  let loginCycleCount = 0; // track how many times we've reset for re-login
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const url = await _getUrl();
@@ -779,7 +794,12 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
       } else if (afterUrl.includes('/log-in')) {
         // Session expired — reset login flags so next round re-logs in
-        log(`Session expired after phone screen, resetting login state for re-login...`);
+        loginCycleCount++;
+        log(`Session expired after phone screen (cycle ${loginCycleCount}), resetting login state for re-login...`);
+        if (loginCycleCount >= 2) {
+          log(`Re-login cycle limit reached, giving up`);
+          return { error: 'Browser OAuth: session keeps expiring after phone screen' };
+        }
         loginEmailDone = false;
         loginPasswordDone = false;
       }
@@ -790,7 +810,11 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       log(`Login page detected, submitting email...`);
       const emailOk = await _submitLoginEmail(email);
       if (emailOk) loginEmailDone = true;
-      await new Promise(r => setTimeout(r, emailOk ? 5000 : 3000));
+      // Wait for redirect to password page
+      await new Promise(r => setTimeout(r, emailOk ? 6000 : 3000));
+      // Check if we actually moved to password page
+      const afterEmailUrl = await _getUrl();
+      log(`After email submit: ${(afterEmailUrl || '').slice(0, 80)}`);
       continue;
     }
 

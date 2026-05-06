@@ -1074,15 +1074,27 @@ function classifyConsentPayload({ status = 0, headers = {}, body = '', json = nu
   const location = String(headers.location || headers.Location || '').trim();
   const contentType = String(headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
   const text = `${body || ''} ${JSON.stringify(json || {})}`.toLowerCase();
-  const hasWorkspace = text.includes('workspaces') || text.includes('workspace_id');
-  const hasOrg = text.includes('organization') || text.includes('orgs') || text.includes('project_id');
-  const hasPhone = text.includes('add-phone') || text.includes('phone') || text.includes('verify');
-  const hasCallback = location.includes('code=') || text.includes('code=');
+
+  // More precise workspace detection — avoid false positives from Statsig "workspace_id" feature flags
+  // Real workspace data appears as: "workspaces":[{"id":"uuid"...}] or workspace/select in URL
+  const hasWorkspace = (
+    text.includes('"workspaces":[') ||
+    text.includes('workspace/select') ||
+    text.includes('"workspace_id":"') ||
+    /workspaces.*[0-9a-f]{8}-[0-9a-f]{4}/.test(text)
+  );
+  const hasOrg = text.includes('organization') || text.includes('"orgs":[') || text.includes('project_id":"');
+  const hasPhone = text.includes('add-phone') || text.includes('/add-phone') || text.includes('phone number required');
+  const hasCallback = location.includes('code=') || text.includes('localhost:1455');
+  const isCloudflarePage = body.includes('Just a moment') || body.includes('cf-browser-verification') || body.includes('_cf_chl');
+
   let classification = 'unknown';
-  if (hasCallback) classification = 'no_workspace_but_redirectable';
+  if (isCloudflarePage) classification = 'cloudflare_challenge';
+  else if (hasCallback) classification = 'no_workspace_but_redirectable';
   else if (hasWorkspace || hasOrg) classification = hasOrg ? 'needs_org_or_workspace_selection' : 'needs_workspace_selection';
   else if (hasPhone) classification = 'blocked_by_phone_or_policy';
   else if (status === 200) classification = 'session_not_reusable_or_empty_consent';
+
   return {
     classification,
     status,
@@ -1092,6 +1104,7 @@ function classifyConsentPayload({ status = 0, headers = {}, body = '', json = nu
     hasOrg,
     hasPhone,
     hasCallback,
+    isCloudflarePage,
     locationPreview: previewText(location, 180),
     bodyPreview: previewText(body, 240),
   };
@@ -1293,6 +1306,8 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
   });
   log(`authorize/continue status=${contRes.status}`);
   if (contRes.status !== 200) {
+    const errBody = String(contRes.body || '').slice(0, 200);
+    log(`authorize/continue error body: ${errBody}`);
     return { success: false, error: `authorize/continue failed: ${contRes.status}` };
   }
 
@@ -1369,7 +1384,9 @@ export async function acquireCodexCallbackViaProtocol({ email, password, proxyUr
     });
     log(`Password submit status=${pwdRes.status}`);
     if (pwdRes.status !== 200) {
-      return { success: false, error: `Codex login password failed: ${pwdRes.status}` };
+      const errBody = String(pwdRes.body || '').slice(0, 200);
+      log(`Password submit error body: ${errBody}`);
+      return { success: false, error: `Codex login password failed: ${pwdRes.status} — ${errBody}` };
     }
     pageType = pwdRes.json?.page?.type || '';
     log(`Password page_type=${pageType || '(empty)'}`);
@@ -1493,14 +1510,42 @@ function decodeOAuthSessionCookie(cookieValue) {
 
 function extractWorkspacesFromHtml(html) {
   if (!html || !html.includes('workspaces')) return [];
-  const ids = [...html.matchAll(/"id"(?:,|:)"([0-9a-f-]{36})"/gi)].map(m => m[1]);
+
+  // Try multiple patterns — OpenAI embeds workspace data in different formats:
+  // 1. JSON: "id":"uuid" or "id","uuid" (standard JSON)
+  // 2. Next.js __NEXT_DATA__: escaped JSON with "id\\":\\"uuid\\"
+  // 3. HTML attributes: data-workspace-id="uuid"
+  // 4. JS variable: workspaceId = "uuid"
+
+  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+  // Pattern 1: standard JSON "id":"uuid" near "workspaces"
+  const ids1 = [...html.matchAll(/"id"(?:,|:)"([0-9a-f-]{36})"/gi)].map(m => m[1]);
+
+  // Pattern 2: escaped JSON "id\":\"uuid\"
+  const ids2 = [...html.matchAll(/"id\\":\\"([0-9a-f-]{36})\\"/gi)].map(m => m[1]);
+
+  // Pattern 3: find "workspaces" context and extract nearby UUIDs
+  const ids3 = [];
+  const wsMatches = [...html.matchAll(/workspaces[^}]{0,500}/gi)];
+  for (const m of wsMatches) {
+    const uuids = [...m[0].matchAll(uuidPattern)].map(u => u[0]);
+    ids3.push(...uuids);
+  }
+
+  // Pattern 4: workspace_id or workspaceId followed by UUID
+  const ids4 = [...html.matchAll(/workspace[_-]?id["\s:=]+([0-9a-f-]{36})/gi)].map(m => m[1]);
+
+  const allIds = [...ids1, ...ids2, ...ids3, ...ids4];
   const kinds = [...html.matchAll(/"kind"(?:,|:)"([^"]+)"/gi)].map(m => m[1]);
+
   const seen = new Set();
   const workspaces = [];
-  for (let i = 0; i < ids.length; i++) {
-    if (seen.has(ids[i])) continue;
-    seen.add(ids[i]);
-    const item = { id: ids[i] };
+  for (let i = 0; i < allIds.length; i++) {
+    const id = allIds[i];
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const item = { id };
     if (i < kinds.length) item.kind = kinds[i];
     workspaces.push(item);
   }

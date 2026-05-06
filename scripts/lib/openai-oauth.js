@@ -197,9 +197,21 @@ export async function performWorkspaceConsentBypass(evalJson, tabId, userId, { t
             }
 
             if (!workspaceId) {
-                const matches = consentHtml.match(/"id"\\\\s*[:|,]\\\\s*"([0-9a-f-]{36})"/gi) || [];
-                for (const m of matches) {
-                    const idMatch = m.match(/([0-9a-f-]{36})/i);
+                // Try multiple patterns for workspace ID extraction
+                const uuidRe = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+                // Pattern 1: standard JSON "id":"uuid"
+                const p1 = consentHtml.match(/"id"\\s*[:|,]\\s*"([0-9a-f-]{36})"/gi) || [];
+                // Pattern 2: escaped JSON "id\":\"uuid\"
+                const p2 = consentHtml.match(/"id\\\\":\\\\"([0-9a-f-]{36})\\\\"/gi) || [];
+                // Pattern 3: workspaces context — find UUIDs near "workspaces"
+                const wsCtx = consentHtml.match(/workspaces[^}]{0,500}/gi) || [];
+                const p3 = wsCtx.flatMap(s => [...s.matchAll(uuidRe)].map(m => m[0]));
+                // Pattern 4: workspace_id or workspaceId
+                const p4 = consentHtml.match(/workspace[_-]?id["\\s:=]+([0-9a-f-]{36})/gi) || [];
+
+                const allMatches = [...p1, ...p2, ...p3, ...p4];
+                for (const m of allMatches) {
+                    const idMatch = m.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
                     if (idMatch && idMatch[1]) { workspaceId = idMatch[1]; break; }
                 }
             }
