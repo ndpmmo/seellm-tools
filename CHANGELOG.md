@@ -2,6 +2,39 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.41] - 2026-05-06 15:00:00
+
+### 🔧 Connect Flow — Phone Screen Fast-Fail + Consent Click + Protocol Fixes
+
+**Phone Screen — Đánh dấu sớm, tránh mất thời gian:**
+- Account bị OpenAI yêu cầu xác minh số điện thoại (`add-phone`) là **hard requirement server-side** — không thể bypass bằng browser hay API.
+- `_completeBrowserOAuth()` — sau 2 lần re-login vẫn gặp phone screen → return `NEED_PHONE` ngay lập tức thay vì `OAUTH_FAILED` chung chung.
+- `captureAndReport()` — khi `_completeBrowserOAuth` trả về `NEED_PHONE`/`NEED_MFA` → propagate ngay, không tiếp tục fallback chain.
+- Kết quả: account phone screen được đánh dấu `NEED_PHONE` trong vài giây thay vì chạy hết toàn bộ fallback chain (~2 phút).
+
+**Consent Page — Click trực tiếp trong browser (mirrors upstream `_complete_oauth_in_browser`):**
+- Rewrite toàn bộ consent handling trong `captureAndReport` — phát hiện consent page bằng URL thay vì `getState()` flags.
+- Khi ở consent page: click Continue button trực tiếp (`form.requestSubmit` → JS dispatch) thay vì `performWorkspaceConsentBypass` (fetch HTML → không có UUID → fail).
+- Poll 25s cho `localhost:1455?code=` sau khi click, retry 4 lần với reload.
+- Sau 4 lần fail → thử protocol login → session fallback.
+- Kết quả: account có workspace lấy được full tokens (access_token + refresh_token) thay vì chỉ access_token.
+
+**Protocol Flow — `invalid_auth_step` Fix:**
+- `acquireCodexCallbackViaProtocol()` — khi `authorize/continue` trả về `login_password`, follow `continue_url` trước khi submit password.
+- Trước đây fetch `/log-in/password` trực tiếp → OpenAI từ chối với `invalid_auth_step` vì flow state không đúng.
+- Log error body của password submit 400 để debug.
+
+**Workspace Extraction — Regex mở rộng:**
+- `extractWorkspacesFromHtml()` — thêm 4 patterns: standard JSON, escaped JSON, workspaces context + UUID, workspace_id prefix.
+- `performWorkspaceConsentBypass` — mở rộng regex tương tự.
+- `classifyConsentPayload()` — fix false positive từ Statsig feature flags (`workspace_id` trong feature flags ≠ workspace UUID thật), thêm `isCloudflarePage` detection.
+
+**Login Form — React-compatible input:**
+- `_submitLoginEmail()` / `_submitLoginPassword()` — dùng `HTMLInputElement.prototype.value` native setter + `form.requestSubmit()` fallback thay vì `target.value = email` (React không nhận).
+- `MAX_ROUNDS` tăng từ 6 → 12 để đủ rounds sau khi reset login state.
+
+---
+
 ## [0.2.40] - 2026-05-06 10:00:00
 
 ### 🚀 Codex OAuth — curl_cffi Chrome131 TLS Fingerprint + Protocol Flow Overhaul
