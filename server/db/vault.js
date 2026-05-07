@@ -316,7 +316,7 @@ export const vault = {
         id, provider, label, email, password, two_fa_secret, proxy_url, 
         cookies, access_token, refresh_token, workspace_id, device_id, machine_id, provider_specific_data, status, notes, tags, plan,
         is_active, quota_json, ever_ready, exported_to, exported_at, created_at, updated_at, deleted_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET
         provider      = excluded.provider,
         label         = excluded.label,

@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.47] - 2026-05-08 00:00:00
+
+### 🐛 Fix — `upsertAccount` SQLite "25 values for 26 columns" crash
+
+**Problem**: Toàn bộ luồng sync và connect bị crash với lỗi `25 values for 26 columns` mỗi khi `upsertAccount()` được gọi. Lỗi xuất hiện ở:
+- `[Sync] Loop failed: 25 values for 26 columns` — khi pull vault từ D1 về
+- `[Connect-Result] 💥 Error: 25 values for 26 columns` — khi lưu kết quả connect
+- `[Result] ❌ Exchange failed: 25 values for 26 columns` — khi exchange OAuth token
+
+**Root cause**: Câu INSERT trong `upsertAccount()` liệt kê đủ 26 cột (bao gồm `deleted_at`) nhưng phần `VALUES` chỉ có 25 dấu `?` — thiếu placeholder cho cột cuối cùng `deleted_at`.
+
+**Fix**:
+- `server/db/vault.js` — Thêm 1 dấu `?` vào `VALUES` clause của INSERT trong `upsertAccount()`: `VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)` → `VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+
+**Result**: `upsertAccount()` hoạt động bình thường. Sync pull từ D1, connect result, và token exchange không còn crash.
+
+---
+
 ## [0.2.46] - 2026-05-07 21:13:00
 
 ### 🐛 Proxy Test — Normalize `host:port:user:pass` format before curl + D1 mirror fix + timeout hardening
