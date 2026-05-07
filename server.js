@@ -1489,13 +1489,23 @@ app.prepare().then(() => {
       const d1Data = await d1Res.json();
 
       if (d1Data.ok && d1Data.id) {
+        // Normalize proxy URL for local vault (host:port:user:pass → http://user:pass@host:port)
+        let normUrl = body.url || '';
+        if (!normUrl.includes('://')) {
+          const parts = normUrl.split(':');
+          if (parts.length === 4 && !normUrl.includes('@')) {
+            normUrl = `http://${parts[2]}:${parts[3]}@${parts[0]}:${parts[1]}`;
+          } else {
+            normUrl = `http://${normUrl}`;
+          }
+        }
         vault.upsertProxy({
           id: d1Data.id,
-          url: body.url,
+          url: normUrl,
           label: body.label || '',
-          type: body.url.startsWith('socks5://') ? 'socks5' : 'http',
+          type: normUrl.startsWith('socks5://') ? 'socks5' : normUrl.startsWith('https://') ? 'https' : 'http',
         });
-        console.log(`[D1 Proxy] ✅ Mirrored New Proxy to local: ${body.url} (id=${d1Data.id})`);
+        console.log(`[D1 Proxy] ✅ Mirrored New Proxy to local: ${normUrl} (id=${d1Data.id})`);
       }
 
       res.setHeader('Content-Type', 'application/json');

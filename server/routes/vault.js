@@ -195,7 +195,21 @@ router.post('/proxies/:id/test', async (req, res) => {
 
   const start = Date.now();
   try {
-    const proxyUrlStr = proxy.url.includes('://') ? proxy.url : `http://${proxy.url}`;
+    // Normalize proxy URL: handle host:port:user:pass compact format
+    let proxyUrlStr = proxy.url || '';
+    if (proxyUrlStr.includes('://')) {
+      // Already a full URL — use as-is
+    } else {
+      // Compact format: try host:port:user:pass → http://user:pass@host:port
+      const parts = proxyUrlStr.split(':');
+      if (parts.length === 4 && !proxyUrlStr.includes('@')) {
+        proxyUrlStr = `http://${parts[2]}:${parts[3]}@${parts[0]}:${parts[1]}`;
+      } else if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+        proxyUrlStr = `http://${parts[0]}:${parts[1]}`;
+      } else {
+        proxyUrlStr = `http://${proxyUrlStr}`;
+      }
+    }
     const isLocalRelay = /^https?:\/\/(127\.|localhost|\[?::1)/i.test(proxyUrlStr);
 
     // Test proxy exit IP through multiple endpoints (some proxies hit CF challenge on ifconfig.co)

@@ -145,7 +145,7 @@ export function ProxiesView() {
 
   const addProxy = async () => {
     if (!newUrl) return; setAdding(true);
-    const d = await apiPost('/api/d1/proxies/add', { url: newUrl, label: newLabel, slotCount: parseInt(newCount, 10) || 4 });
+    const d = await apiPost('/api/d1/proxies/add', { url: formatProxyUrl(newUrl), label: newLabel, slotCount: parseInt(newCount, 10) || 4 });
     if (d.error) addToast(d.error, 'error');
     else { addToast('✅ Đã thêm proxy', 'success'); setNewUrl(''); setNewLabel(''); setNewCount('4'); await loadData(); }
     setAdding(false);
