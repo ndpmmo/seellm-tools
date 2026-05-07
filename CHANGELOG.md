@@ -4,15 +4,20 @@
 
 ## [0.2.46] - 2026-05-07 21:13:00
 
-### 🐛 Proxy Test — Normalize `host:port:user:pass` format before curl + D1 mirror fix
+### 🐛 Proxy Test — Normalize `host:port:user:pass` format before curl + D1 mirror fix + timeout hardening
 
 **Problem**: When a proxy was added via `#proxies` (D1 Cloud) using compact format `host:port:user:pass`, the URL was stored raw in the local vault DB. The vault test endpoint (`/api/vault/proxies/:id/test`) only prepended `http://` → producing invalid URLs like `http://64.118.143.179:10000:usrx5B2c:passnkvO8` instead of `http://usrx5B2c:passSGgM2@64.118.143.179:10000`. This caused curl to fail and the proxy to always show "Down" even when live.
+
+Additionally, the test endpoint used `curl -s` without explicit connect/proxy timeouts, causing the process to hang indefinitely when a proxy port was open but unresponsive (e.g. accepting TCP but not speaking HTTP proxy protocol).
 
 **Fix**:
 - `server/routes/vault.js` — test endpoint
   - Added compact format normalization before passing URL to curl.
   - `host:port:user:pass` → `http://user:pass@host:port`
   - `host:port` → `http://host:port`
+  - Added `--connect-timeout 5`, `--proxy-connect-timeout 5`, `--max-time 12` to curl.
+  - Added `execFile` timeout of 15s with `SIGKILL` fallback.
+  - Changed `-s` to `-sS` so curl reports errors on stderr for better diagnostics.
 - `src/components/views/ProxiesView.tsx` — `addProxy()`
   - Normalize URL via `formatProxyUrl()` before sending to D1 API.
   - Ensures D1 and local vault always receive full URL format.
@@ -20,7 +25,7 @@
   - Normalize compact format before saving to local vault.
   - Also fixed type detection to recognize `https://` proxies.
 
-**Result**: Proxy test now works correctly regardless of input format. New proxies added via `#proxies` are automatically normalized to full URL format in both D1 and local vault.
+**Result**: Proxy test now works correctly regardless of input format. Test no longer hangs on unresponsive proxies — fails fast with clear error. New proxies added via `#proxies` are automatically normalized to full URL format in both D1 and local vault.
 
 ---
 

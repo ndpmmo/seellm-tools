@@ -222,10 +222,23 @@ router.post('/proxies/:id/test', async (req, res) => {
       { url: 'https://ifconfig.co/json', parse: (s) => { const j = JSON.parse(s); if (!j.ip) throw new Error('no ip'); return { ip: j.ip, country: j.country_iso || null }; } },
     ];
     const probe = (url) => new Promise((resolve, reject) => {
-      execFile('curl', ['-L', '-s', '-x', proxyUrlStr, url, '--max-time', '12'], (error, stdout) => {
-        if (error) return reject(new Error(error.message));
-        resolve(stdout);
-      });
+      execFile(
+        'curl',
+        [
+          '-L',
+          '-sS',
+          '--connect-timeout', '5',
+          '--proxy-connect-timeout', '5',
+          '--max-time', '12',
+          '-x', proxyUrlStr,
+          url,
+        ],
+        { timeout: 15000, killSignal: 'SIGKILL' },
+        (error, stdout, stderr) => {
+          if (error) return reject(new Error(stderr || error.message));
+          resolve(stdout);
+        }
+      );
     });
     let info = null;
     let lastErr = null;
