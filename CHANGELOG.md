@@ -2,6 +2,28 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.46] - 2026-05-07 21:13:00
+
+### 🐛 Proxy Test — Normalize `host:port:user:pass` format before curl + D1 mirror fix
+
+**Problem**: When a proxy was added via `#proxies` (D1 Cloud) using compact format `host:port:user:pass`, the URL was stored raw in the local vault DB. The vault test endpoint (`/api/vault/proxies/:id/test`) only prepended `http://` → producing invalid URLs like `http://64.118.143.179:10000:usrx5B2c:passnkvO8` instead of `http://usrx5B2c:passSGgM2@64.118.143.179:10000`. This caused curl to fail and the proxy to always show "Down" even when live.
+
+**Fix**:
+- `server/routes/vault.js` — test endpoint
+  - Added compact format normalization before passing URL to curl.
+  - `host:port:user:pass` → `http://user:pass@host:port`
+  - `host:port` → `http://host:port`
+- `src/components/views/ProxiesView.tsx` — `addProxy()`
+  - Normalize URL via `formatProxyUrl()` before sending to D1 API.
+  - Ensures D1 and local vault always receive full URL format.
+- `server.js` — D1 mirror interceptor
+  - Normalize compact format before saving to local vault.
+  - Also fixed type detection to recognize `https://` proxies.
+
+**Result**: Proxy test now works correctly regardless of input format. New proxies added via `#proxies` are automatically normalized to full URL format in both D1 and local vault.
+
+---
+
 ## [0.2.45] - 2026-05-07 03:18:00
 
 ### 🔧 Proxies Bulk Import — `host:port:user:pass` format support
