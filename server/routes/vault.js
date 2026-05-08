@@ -672,9 +672,10 @@ router.post('/accounts/:id/webhook-delete', async (req, res) => {
     }
     // Thu hồi về kho lạnh thay vì xóa — Vault là kho độc lập
     vault.updateAccountStatus(id, 'idle');
+    vault.updateGatewayStatus(id, 'revoked'); // Đánh dấu đã bị Gateway thu hồi
     pkceStore.delete(id);
-    console.log(`[Webhook] 🔄 Gateway xóa account ${existing.email} → Thu hồi về Vault (idle)`);
-    res.json({ ok: true, reverted: id, newStatus: 'idle' });
+    console.log(`[Webhook] 🔄 Gateway xóa account ${existing.email} → Thu hồi về Vault (idle, gateway_status=revoked)`);
+    res.json({ ok: true, reverted: id, newStatus: 'idle', gateway_status: 'revoked' });
   } catch (e) {
     console.error(`[Webhook] ❌ Lỗi xử lý webhook-delete:`, e.message);
     res.status(500).json({ error: e.message });
@@ -688,7 +689,12 @@ router.post('/accounts/:id/sync', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
     console.log(`[Manual Sync] Pushing ${account.email} to D1...`);
     const result = await SyncManager.pushVault('account', account);
-    res.json({ ok: true, message: 'Synced to D1', result });
+    
+    // Get updated gateway_status after sync
+    const updatedAccount = vault.getAccountFull(req.params.id);
+    const gateway_status = updatedAccount?.gateway_status || null;
+    
+    res.json({ ok: true, message: 'Synced to D1', gateway_status, result });
   } catch (e) {
     console.error(`[Manual Sync] Failed:`, e.message);
     res.status(500).json({ error: e.message });

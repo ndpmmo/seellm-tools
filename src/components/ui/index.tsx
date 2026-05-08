@@ -87,3 +87,6 @@ export const StatBox = ({ label, value, icon: Icon, colorClass, borderClass, bgC
         </div>
     );
 };
+
+// --- Gateway Badge ---
+export { GatewayBadge } from './GatewayBadge';

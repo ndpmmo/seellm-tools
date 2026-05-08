@@ -381,6 +381,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
+      eventSource.addEventListener('gateway_status_changed', (e: MessageEvent) => {
+        try {
+          const data: { ids: string[] } = JSON.parse(e.data);
+          console.log('[SSE] Gateway status changed for accounts:', data.ids);
+          // Trigger accounts refresh to get updated gateway_status
+          refreshAccounts();
+        } catch (err) {
+          console.warn('[SSE] Failed to parse gateway_status_changed:', err);
+        }
+      });
+
       eventSource.addEventListener('profile:launched', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);

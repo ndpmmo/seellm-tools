@@ -674,6 +674,12 @@ app.prepare().then(() => {
         saveCursor(lastVaultSyncCursor); // Persist cursor để restart không cần re-pull từ đầu
         console.log('[Sync] Vault updated from cloud successfully.');
 
+        // Emit SSE event for gateway_status changes
+        if (data.gatewayStatusChanged && data.gatewayStatusChanged.length > 0) {
+          emitSSE('gateway_status_changed', { ids: data.gatewayStatusChanged });
+          console.log(`[Sync] Gateway status changed for ${data.gatewayStatusChanged.length} accounts`);
+        }
+
         // Thông báo cho UI qua Socket.io nếu cần
         emitSSE('vault:synced', { cursor: lastVaultSyncCursor });
         return true; // có data mới

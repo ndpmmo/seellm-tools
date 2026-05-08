@@ -4,12 +4,11 @@ import {
   Plus, Upload, Search, RefreshCw,
   Copy, Check, Pencil, Trash2, RotateCcw,
   Save, X, AlertCircle, ChevronDown, ChevronUp,
-  Users, CheckCircle, Clock, XCircle, Globe, Database, Key, Shield
+  Users, CheckCircle, Clock, XCircle, Globe, Database, Key, Shield, AlertTriangle
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { fmtDateTimeVN, ConfirmModal, Spinner } from '../Views';
-import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../ui';
-import { AlertTriangle } from 'lucide-react';
+import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox, GatewayBadge } from '../ui';
 
 /* ── Helpers ── */
 function parseBulk(raw: string) {
@@ -209,6 +208,7 @@ function StatusBadge({ item }: { item: any }) {
           {errorTypeLabel}
         </span>
       )}
+      <GatewayBadge gatewayStatus={item?.gateway_status || null} />
     </div>
   );
 }
@@ -229,6 +229,7 @@ export function AccountsView() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [gatewayFilter, setGatewayFilter] = useState('all');
 
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 
@@ -343,9 +344,28 @@ export function AccountsView() {
     ready: items.filter(i => getStatusBucket(i) === 'ready').length,
     pending: items.filter(i => getStatusBucket(i) === 'pending').length,
     error: items.filter(i => getStatusBucket(i) === 'error').length,
+    // Gateway status counts
+    gateway_active: items.filter(i => i.gateway_status === 'active').length,
+    gateway_revoked: items.filter(i => i.gateway_status === 'revoked').length,
+    gateway_not_deployed: items.filter(i => i.gateway_status === null || i.gateway_status === undefined).length,
   };
 
-  const filtered = items.filter(it => (statusFilter === 'all' || getStatusBucket(it) === statusFilter) && (!search || it.email.toLowerCase().includes(search.toLowerCase())));
+  const filtered = items.filter(it => {
+    // Status filter
+    const passesStatus = statusFilter === 'all' || getStatusBucket(it) === statusFilter;
+    
+    // Gateway filter
+    const passesGateway = gatewayFilter === 'all' || 
+      (gatewayFilter === 'active' && it.gateway_status === 'active') ||
+      (gatewayFilter === 'revoked' && it.gateway_status === 'revoked') ||
+      (gatewayFilter === 'pending_push' && it.gateway_status === 'pending_push') ||
+      (gatewayFilter === 'not_deployed' && (it.gateway_status === null || it.gateway_status === undefined));
+    
+    // Search filter
+    const passesSearch = !search || it.email.toLowerCase().includes(search.toLowerCase());
+    
+    return passesStatus && passesGateway && passesSearch;
+  });
 
   /* ── API ── */
   const post = async (url: string, b: object) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
@@ -495,6 +515,50 @@ export function AccountsView() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+      {/* Gateway Statistics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatBox
+          label="Trên Gateway"
+          value={cnt.gateway_active}
+          icon={Globe}
+          colorClass="text-emerald-400"
+          borderClass="border-emerald-500/20"
+          bgClass="bg-emerald-500/10"
+          active={gatewayFilter === 'active'}
+          onClick={() => setGatewayFilter(gatewayFilter === 'active' ? 'all' : 'active')}
+        />
+        <StatBox
+          label="Đã thu hồi"
+          value={cnt.gateway_revoked}
+          icon={AlertTriangle}
+          colorClass="text-amber-400"
+          borderClass="border-amber-500/20"
+          bgClass="bg-amber-500/10"
+          active={gatewayFilter === 'revoked'}
+          onClick={() => setGatewayFilter(gatewayFilter === 'revoked' ? 'all' : 'revoked')}
+        />
+        <StatBox
+          label="Chưa deploy"
+          value={cnt.gateway_not_deployed}
+          icon={Clock}
+          colorClass="text-slate-400"
+          borderClass="border-slate-500/20"
+          bgClass="bg-slate-500/10"
+          active={gatewayFilter === 'not_deployed'}
+          onClick={() => setGatewayFilter(gatewayFilter === 'not_deployed' ? 'all' : 'not_deployed')}
+        />
+        <StatBox
+          label="Tổng cộng"
+          value={cnt.total}
+          icon={Users}
+          colorClass="text-indigo-400"
+          borderClass="border-indigo-500/20"
+          bgClass="bg-indigo-500/10"
+          active={gatewayFilter === 'all'}
+          onClick={() => setGatewayFilter('all')}
+        />
+      </div>
+      
       <Card className="flex flex-col shrink-0">
         <CardHeader>
           <CardTitle><Plus size={14} className="text-indigo-400" /> Thêm Tài Khoản</CardTitle>
@@ -569,6 +633,19 @@ export function AccountsView() {
                   px-2.5 py-1 text-[11px] font-bold rounded-md transition-all uppercase tracking-wider
                   ${statusFilter === f ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}
                 `}>{f}</button>
+              ))}
+            </div>
+            <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-white/10">
+              {[
+                { key: 'all', label: 'Tất cả' },
+                { key: 'active', label: 'Gateway' },
+                { key: 'revoked', label: 'Thu hồi' },
+                { key: 'not_deployed', label: 'Chưa deploy' }
+              ].map(f => (
+                <button key={f.key} onClick={() => setGatewayFilter(f.key)} className={`
+                  px-2.5 py-1 text-[11px] font-bold rounded-md transition-all tracking-wider
+                  ${gatewayFilter === f.key ? 'bg-emerald-500/20 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}
+                `}>{f.label}</button>
               ))}
             </div>
             <Button size="icon-sm" variant="secondary" title="Tự động gán proxy từ pool" onClick={autoAssignFromPool} disabled={autoAssigning} className="w-auto px-2 border-white/10 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500/30">

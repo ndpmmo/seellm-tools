@@ -155,6 +155,23 @@ export const SyncManager = {
     const createdAt = data.created_at || data.createdAt || now;
     const updatedAt = data.updated_at || data.updatedAt || now;
 
+    // Store previous gateway_status for rollback on failure
+    let previousGatewayStatus = null;
+    if (type === 'account' && data.id) {
+      try {
+        const { vault } = await import('../db/vault.js');
+        const currentAccount = vault.db.prepare(
+          'SELECT gateway_status FROM vault_accounts WHERE id = ?'
+        ).get(data.id);
+        previousGatewayStatus = currentAccount?.gateway_status ?? null;
+        
+        // Set pending_push before making the request
+        vault.updateGatewayStatus(data.id, 'pending_push');
+      } catch (e) {
+        console.warn('[SyncManager] Could not update gateway_status to pending_push:', e.message);
+      }
+    }
+
     // Cập nhật cache trước khi thực hiện
     lastPushCache.set(cacheKey, fingerprint);
     if (type === 'account') {
@@ -352,6 +369,50 @@ export const SyncManager = {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'D1 push failed');
 
+      // Update gateway_status on successful push for accounts
+      if (type === 'account' && data.id) {
+        try {
+          const { vault } = await import('../db/vault.js');
+          // undefined = không update, null/'active'/'revoked'/'pending_push' = update
+          let newGatewayStatus = undefined;
+          
+          if (data.deleted_at) {
+            // Rule 2: Hard delete → revoked
+            newGatewayStatus = 'revoked';
+          } else if (data.status === 'idle') {
+            // Rule 3: Idle → revoked (soft-delete from Gateway)
+            newGatewayStatus = 'revoked';
+          } else if (data.status === 'ready') {
+            // Rule 4: Ready → active
+            newGatewayStatus = 'active';
+          } else if (['error', 'need_phone', 'relogin'].includes(data.status)) {
+            // Rule 5: Error status
+            if (data.ever_ready) {
+              // Keep active if was ever ready
+              newGatewayStatus = 'active';
+            } else {
+              // Set revoked if never ready
+              newGatewayStatus = 'revoked';
+            }
+          } else {
+            // Rule 6: Processing status (pending/processing/...) → rollback pending_push về previous
+            const currentAccount = vault.db.prepare(
+              'SELECT gateway_status FROM vault_accounts WHERE id = ?'
+            ).get(data.id);
+            if (currentAccount?.gateway_status === 'pending_push') {
+              vault.updateGatewayStatus(data.id, previousGatewayStatus);
+            }
+            // newGatewayStatus vẫn là undefined → không update thêm
+          }
+          
+          if (newGatewayStatus !== undefined) {
+            vault.updateGatewayStatus(data.id, newGatewayStatus);
+          }
+        } catch (e) {
+          console.warn('[SyncManager] Could not update gateway_status after successful push:', e.message);
+        }
+      }
+
       const counts = result.counts || {};
       console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections || 0}, managedAccounts=${counts.managedAccounts || 0}, vaultAccounts=${counts.vaultAccounts || 0}`);
       if (Array.isArray(result.skipped) && result.skipped.length > 0) {
@@ -369,6 +430,16 @@ export const SyncManager = {
 
       return result;
     } catch (e) {
+      // Rollback gateway_status on failure (kể cả rollback về null)
+      if (type === 'account' && data.id) {
+        try {
+          const { vault } = await import('../db/vault.js');
+          // Luôn rollback về previousGatewayStatus (có thể là null)
+          vault.updateGatewayStatus(data.id, previousGatewayStatus);
+        } catch (rollbackError) {
+          console.warn('[SyncManager] Could not rollback gateway_status:', rollbackError.message);
+        }
+      }
       console.error(`[SyncManager] ❌ Error syncing ${type}:`, e.message);
     }
   },
@@ -537,12 +608,43 @@ export const SyncManager = {
         }
       }
 
+      // Update gateway_status based on managedAccounts and emit SSE events
+      const changedIds = [];
+      if (localVault) {
+        for (const ga of gatewayAccounts) {
+          // Find corresponding vault account
+          let existing = validAccounts.find(a => a.id === ga.id);
+          if (!existing && ga.email) {
+            existing = validAccounts.find(a => a.email && a.email.toLowerCase() === ga.email.toLowerCase());
+          }
+          
+          if (existing) {
+            let newGatewayStatus = existing.gateway_status;
+            
+            if (ga.deleted_at) {
+              // Gateway revocation: set to revoked but DON'T set deleted_at on vault account
+              newGatewayStatus = 'revoked';
+            } else if (ga.status === 'ready' && !ga.deleted_at) {
+              // Active on gateway
+              newGatewayStatus = 'active';
+            }
+            
+            if (newGatewayStatus !== existing.gateway_status) {
+              localVault.updateGatewayStatus(existing.id, newGatewayStatus);
+              existing.gateway_status = newGatewayStatus;
+              changedIds.push(existing.id);
+            }
+          }
+        }
+      }
+
       return {
         cursor: data.cursor,
         accounts: validAccounts,
         proxies: data.data?.vaultProxies || [],
         keys: data.data?.vaultKeys || [],
-        emailPool: data.data?.vaultEmailPool || []
+        emailPool: data.data?.vaultEmailPool || [],
+        gatewayStatusChanged: changedIds.length > 0 ? changedIds : null
       };
     }
     return null;

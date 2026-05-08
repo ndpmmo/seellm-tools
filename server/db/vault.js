@@ -161,6 +161,29 @@ function applyMigrations() {
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN provider_specific_data TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_email_pool ADD COLUMN auth_method TEXT DEFAULT 'graph'`); } catch (e) { }
   try { db.exec(`ALTER TABLE vault_accounts ADD COLUMN ever_ready INTEGER DEFAULT 0`); } catch (e) { }
+  
+  // Add gateway_status column for account-gateway-visibility feature
+  try {
+    db.exec(`ALTER TABLE vault_accounts ADD COLUMN gateway_status TEXT DEFAULT NULL`);
+    
+    // Backfill logic: Set initial gateway_status based on (ever_ready, status)
+    db.exec(`
+      UPDATE vault_accounts 
+      SET gateway_status = CASE
+        WHEN ever_ready = 1 AND status = 'ready' THEN 'active'
+        WHEN ever_ready = 1 AND status = 'idle'  THEN 'revoked'
+        ELSE NULL
+      END
+      WHERE gateway_status IS NULL
+    `);
+    
+    console.log('[Vault] ✅ Added gateway_status column with backfill');
+  } catch (e) {
+    // Column might already exist
+    if (!e.message.includes('duplicate column name')) {
+      console.warn('[Vault] ⚠️ Gateway status migration warning:', e.message);
+    }
+  }
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -205,6 +228,7 @@ export const vault = {
       tags: safeParseJson(a.tags, []),
       cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
+      gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
     }));
   },
 
@@ -220,6 +244,7 @@ export const vault = {
       tags: safeParseJson(a.tags, []),
       cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
+      gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
     };
   },
 
@@ -239,6 +264,7 @@ export const vault = {
       tags: safeParseJson(a.tags, []),
       cookies: safeParseJson(a.cookies, []),
       provider_specific_data: safeParseJsonObject(a.provider_specific_data),
+      gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
     }));
   },
 
@@ -708,6 +734,23 @@ export const vault = {
     const now = dayjs().toISOString();
     const everReadyClause = status === 'ready' ? ', ever_ready = 1' : '';
     db.prepare(`UPDATE vault_accounts SET status = ?, notes = ?, updated_at = ?${everReadyClause} WHERE id = ?`).run(status, error || '', now, id);
+  },
+
+  /**
+   * Cập nhật gateway_status cho một account.
+   * @param {string} id - Account ID
+   * @param {'pending_push'|'active'|'revoked'|null} value
+   */
+  updateGatewayStatus: (id, value) => {
+    const VALID = new Set(['pending_push', 'active', 'revoked', null]);
+    if (!VALID.has(value)) {
+      console.warn(`[Vault] Invalid gateway_status value: ${value}`);
+      return;
+    }
+    const now = dayjs().toISOString();
+    db.prepare(
+      'UPDATE vault_accounts SET gateway_status = ?, updated_at = ? WHERE id = ?'
+    ).run(value, now, id);
   },
 
   // ─── BROWSER PROFILES (Multi Profile) ────────────────────────────────────

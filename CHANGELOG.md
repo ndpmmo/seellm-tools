@@ -2,6 +2,67 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.50] - 2026-05-09 00:00:00
+
+### ✨ Feature — Account Gateway Visibility
+
+Bổ sung lớp **Gateway Visibility** vào danh sách tài khoản, cho phép nhìn vào UI và biết ngay tài khoản nào đang hoạt động trên seellm-gateway, tài khoản nào đã bị thu hồi, và tài khoản nào chưa bao giờ được deploy.
+
+#### Database
+
+- `server/db/vault.js`
+  - Thêm migration `ALTER TABLE vault_accounts ADD COLUMN gateway_status TEXT DEFAULT NULL`
+  - Backfill tự động khi migration: `ever_ready=1 AND status='ready'` → `'active'`; `ever_ready=1 AND status='idle'` → `'revoked'`; còn lại → `NULL`
+  - Thêm helper `vault.updateGatewayStatus(id, value)` — validate giá trị (chỉ nhận `null | 'pending_push' | 'active' | 'revoked'`), log warning nếu sai
+  - `getAccounts()`, `getAccount()`, `getAccountsFull()` đều trả về `gateway_status` (dùng `?? null` để không bao giờ là `undefined`)
+
+#### SyncManager — Push Logic
+
+- `server/services/syncManager.js` — `_executePush()`
+  - **Trước khi push**: đọc `previousGatewayStatus`, set `gateway_status = 'pending_push'`
+  - **Sau khi push thành công**: cập nhật theo 6 rules:
+    - `deleted_at` set → `'revoked'`
+    - `status='idle'` → `'revoked'`
+    - `status='ready'` → `'active'`
+    - `status` ∈ `[error, need_phone, relogin]` + `ever_ready=1` → `'active'`
+    - `status` ∈ `[error, need_phone, relogin]` + `ever_ready=0` → `'revoked'`
+    - `status` ∈ `[pending, processing, ...]` → rollback `pending_push` về `previousGatewayStatus`
+  - **Khi push thất bại**: rollback `gateway_status` về `previousGatewayStatus` (kể cả rollback về `null`)
+
+#### SyncManager — Pull Logic
+
+- `server/services/syncManager.js` — `pullVault()`
+  - Sau khi merge `managedAccounts`, loop cập nhật `gateway_status`:
+    - `managedAccount.deleted_at` set → `'revoked'` (KHÔNG set `deleted_at` trên Vault — kho độc lập)
+    - `managedAccount.status='ready'` + `deleted_at=null` → `'active'`
+  - Thu thập `changedIds` — danh sách account ID có `gateway_status` thay đổi
+  - Return thêm field `gatewayStatusChanged: changedIds | null`
+
+#### API
+
+- `server/routes/vault.js`
+  - `POST /api/vault/accounts/:id/sync` — trả về `gateway_status` mới trong response: `{ ok: true, gateway_status, result }`
+  - `POST /api/vault/accounts/:id/webhook-delete` — thêm `vault.updateGatewayStatus(id, 'revoked')` khi Gateway thu hồi account
+- `server.js`
+  - `doVaultSync()` — emit SSE event `gateway_status_changed` với payload `{ ids: changedIds }` khi pull có thay đổi
+
+#### UI
+
+- `src/components/ui/GatewayBadge.tsx` *(file mới)*
+  - Component badge 4 states: `null` → "Chưa deploy" (slate), `'pending_push'` → "Đang đồng bộ" (indigo + Clock pulse), `'active'` → "Trên Gateway" (emerald + Globe), `'revoked'` → "Đã thu hồi" (amber + AlertTriangle)
+- `src/components/ui/index.tsx`
+  - Export `GatewayBadge`
+- `src/components/views/AccountsView.tsx`
+  - `StatusBadge` — thêm `<GatewayBadge>` bên dưới badge status hiện tại
+  - Thêm `gatewayFilter` state với 5 options: `all | active | revoked | pending_push | not_deployed`
+  - Filter logic: AND giữa `statusFilter` và `gatewayFilter`
+  - Thêm 4 **StatBox** clickable ở đầu trang: Trên Gateway / Đã thu hồi / Chưa deploy / Tổng cộng
+  - Thêm nhóm **filter buttons** Gateway cạnh status filter (màu emerald khi active)
+- `src/components/AppContext.tsx`
+  - Thêm SSE listener `gateway_status_changed` → gọi `refreshAccounts()` để cập nhật badge + StatBox realtime
+
+---
+
 ## [0.2.49] - 2026-05-08 22:53:00
 
 ### ✅ Validation — Make full project lint/build pass
