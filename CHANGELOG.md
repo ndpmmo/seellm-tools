@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.48] - 2026-05-08 20:45:00
+
+### 🔧 D1 Sync — Surface Worker skipped/error diagnostics
+
+**Problem**: D1 Worker `/sync/push` now returns structured `skipped` and `errors` arrays for malformed or partially-applied records, but Tools only logged aggregate counts and could hide partial sync issues.
+
+**Fix**:
+- `server/services/syncManager.js`
+  - After successful `/sync/push`, log `result.skipped` as a warning when records are skipped.
+  - Log `result.errors` as a warning when the Worker reports per-record errors.
+  - Keep existing success flow and counts logging backward compatible.
+
+**Result**: Tools operators can immediately see why a vault/account/connection record did not sync cleanly to D1 without breaking existing sync flows.
+
+---
+
 ## [0.2.47] - 2026-05-08 00:00:00
 
 ### 🐛 Fix — `upsertAccount` SQLite "25 values for 26 columns" crash

@@ -354,6 +354,12 @@ export const SyncManager = {
 
       const counts = result.counts || {};
       console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections || 0}, managedAccounts=${counts.managedAccounts || 0}, vaultAccounts=${counts.vaultAccounts || 0}`);
+      if (Array.isArray(result.skipped) && result.skipped.length > 0) {
+        console.warn('[SyncManager] ⚠️ D1 Push skipped records:', JSON.stringify(result.skipped));
+      }
+      if (Array.isArray(result.errors) && result.errors.length > 0) {
+        console.warn('[SyncManager] ⚠️ D1 Push reported errors:', JSON.stringify(result.errors));
+      }
 
       // Nếu là lệnh xóa, dọn cache
       if (data.deleted_at) {
