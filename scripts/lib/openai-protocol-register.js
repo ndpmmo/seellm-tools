@@ -1669,9 +1669,20 @@ export async function acquireCodexCallbackViaSessionSeeding({ browserCookies, pk
     return { success: false, error: 'No workspaces found in cookie or consent HTML' };
   }
 
-  // 4. Select first workspace
-  const workspaceId = String((workspaces[0] || {}).id || '').trim();
-  log(`Selecting workspace: ${workspaceId}`);
+  // 4. Select preferred workspace — personal account over enterprise/team
+  const _isPersonalWs = (ws) => {
+    if (!ws) return false;
+    const kind = String(ws.kind || ws.type || ws.workspace_type || '').toLowerCase();
+    if (kind === 'personal') return true;
+    if (kind && kind !== 'personal') return false;
+    const name = String(ws.name || ws.display_name || ws.title || '').toLowerCase();
+    if (name.includes('personal')) return true;
+    if (!ws.org_id && !ws.organization_id && !ws.team_id) return true;
+    return false;
+  };
+  const selectedWorkspace = workspaces.find(_isPersonalWs) || workspaces[0];
+  const workspaceId = String((selectedWorkspace || {}).id || '').trim();
+  log(`Workspaces available: ${workspaces.length} — selected: ${workspaceId} (${_isPersonalWs(selectedWorkspace) ? 'personal' : 'enterprise/team'})`);
 
   const wsHeaders = {
     'Accept': 'application/json',

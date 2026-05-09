@@ -2,6 +2,46 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.55] - 2026-05-09 16:00:00
+
+### 🐛 Fix — Consent Page Always Selects Personal Account Instead of Enterprise Workspace
+
+**Problem**: Khi màn hình consent Codex OAuth hiển thị danh sách workspace (ảnh: "SeeLLM Workspace" + "Personal account"), worker luôn chọn workspace đầu tiên trong danh sách — là workspace doanh nghiệp/team — thay vì "Personal account". Nguyên nhân: OpenAI sắp xếp enterprise workspace ở `workspaces[0]` trong JWT cookie `oai-client-auth-session`, và tất cả các code path đều lấy `[0]` mà không kiểm tra loại workspace.
+
+**Root cause**: `workspaces[0]` trong JWT `oai-client-auth-session` luôn là enterprise/team workspace khi account thuộc một tổ chức. Personal account nằm ở vị trí sau trong mảng.
+
+**Fix — 3 lớp bảo vệ, không phụ thuộc UI:**
+
+#### Layer 1: `scripts/lib/openai-oauth.js`
+
+- Thêm `isPersonalWorkspace(ws)` — phân loại workspace theo thứ tự ưu tiên:
+  1. `kind === 'personal'` (explicit field từ OpenAI)
+  2. `type/workspace_type === 'personal'`
+  3. `name.includes('personal')` (heuristic tên hiển thị)
+  4. Không có `org_id / organization_id / team_id` → likely personal
+- Thêm `pickPreferredWorkspace(workspaces)` — tìm personal workspace, fallback về `[0]` nếu không có.
+- Sửa `extractWorkspaceId(decoded)` — dùng `pickPreferredWorkspace()` thay vì `decoded.workspaces[0]`.
+- Sửa JS inline trong `performWorkspaceConsentBypass()` — loop qua cả 2 JWT segments, dùng `isPersonal()` helper để chọn đúng workspace từ cookie trong browser context.
+
+#### Layer 2: `scripts/lib/openai-protocol-register.js`
+
+- Sửa `acquireCodexCallbackViaSessionSeeding()` — thay `workspaces[0]` bằng `workspaces.find(_isPersonalWs) || workspaces[0]`.
+- Log rõ workspace được chọn: `selected: <id> (personal)` hoặc `(enterprise/team)`.
+
+#### Layer 3: `scripts/auto-worker.js`
+
+- Thêm `isPersonalWorkspace(ws)` và `pickPreferredWorkspace(workspaces)` helpers.
+- Thêm `extractWorkspacesFromCookieInPage(tabId, userId)` — decode JWT `oai-client-auth-session` trực tiếp trong browser tab, trả về structured workspace list (không phụ thuộc DOM scan).
+- Sửa `trySelectWorkspaceAndOrganization()` — thay vì scan UUID từ DOM/cookies không có thứ tự:
+  1. **Bước 1**: Decode JWT cookie → lấy structured workspace list → chọn personal.
+  2. **Bước 2**: Fallback về DOM UUID scan nếu cookie không có workspace data.
+  3. **Thứ tự candidates**: personal workspace → các workspace còn lại từ cookie → DOM UUIDs.
+  4. Log rõ: số workspace tìm được, ID được chọn, loại (personal/enterprise).
+
+**Result**: Worker luôn chọn "Personal account" khi có, bất kể thứ tự OpenAI trả về trong JWT. Enterprise workspace chỉ được dùng khi account không có personal workspace.
+
+---
+
 ## [0.2.52] - 2026-05-09 14:56:00
 
 ### 🏷️ Vault UI — Render `need_phone` badge on account rows

@@ -190,12 +190,82 @@ async function extractWorkspaceCandidates(tabId, userId) {
   return Array.from(out);
 }
 
-async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder }) {
-  const candidates = await extractWorkspaceCandidates(tabId, userId);
-  console.log(`[${task.email}] 🗂️ Workspace candidates: ${JSON.stringify(candidates).slice(0, 800)}`);
-  if (!candidates.length) return { ok: false, reason: 'no_workspace_candidates' };
+// ── Workspace preference helpers ──────────────────────────────────────────────
+function isPersonalWorkspace(ws) {
+  if (!ws) return false;
+  const kind = String(ws.kind || ws.type || ws.workspace_type || '').toLowerCase();
+  if (kind === 'personal') return true;
+  if (kind && kind !== 'personal') return false;
+  const name = String(ws.name || ws.display_name || ws.title || '').toLowerCase();
+  if (name.includes('personal')) return true;
+  // No org/team fields → likely personal
+  if (!ws.org_id && !ws.organization_id && !ws.team_id) return true;
+  return false;
+}
 
-  for (const workspaceId of candidates) {
+/**
+ * Decode oai-client-auth-session JWT in browser context and return workspaces array,
+ * sorted so personal account comes first.
+ */
+async function extractWorkspacesFromCookieInPage(tabId, userId) {
+  try {
+    return await evalJson(tabId, userId, `
+      (() => {
+        const getCookie = (name) => {
+          const m = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='));
+          return m ? m.slice(name.length + 1) : '';
+        };
+        const raw = getCookie('oai-client-auth-session');
+        if (!raw) return [];
+        const segments = raw.split('.');
+        for (const seg of segments.slice(0, 2)) {
+          try {
+            const pad = '='.repeat((4 - (seg.length % 4)) % 4);
+            const decoded = atob(seg.replace(/-/g, '+').replace(/_/g, '/') + pad);
+            const parsed = JSON.parse(decoded);
+            const workspaces = parsed.workspaces || [];
+            if (workspaces.length) return workspaces;
+          } catch(_) {}
+        }
+        return [];
+      })()
+    `, 5000);
+  } catch (_) { return []; }
+}
+
+/**
+ * Pick preferred workspace — personal account first, enterprise/team as fallback.
+ */
+function pickPreferredWorkspace(workspaces) {
+  if (!Array.isArray(workspaces) || !workspaces.length) return null;
+  return workspaces.find(isPersonalWorkspace) || workspaces[0];
+}
+
+async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder }) {
+  // Step 1: Try to get structured workspace list from JWT cookie (most reliable)
+  const cookieWorkspaces = await extractWorkspacesFromCookieInPage(tabId, userId);
+  const preferredWs = pickPreferredWorkspace(cookieWorkspaces);
+  const preferredId = preferredWs?.id || null;
+
+  console.log(`[${task.email}] 🗂️ Cookie workspaces: ${cookieWorkspaces.length} — preferred: ${preferredId || 'none'} (${preferredWs ? (isPersonalWorkspace(preferredWs) ? 'personal' : 'enterprise/team') : 'n/a'})`);
+
+  // Step 2: Collect UUID candidates from DOM/cookies as fallback pool
+  const domCandidates = await extractWorkspaceCandidates(tabId, userId);
+  console.log(`[${task.email}] 🗂️ DOM UUID candidates: ${domCandidates.length}`);
+
+  // Build ordered candidate list: preferred personal first, then remaining cookie workspaces, then DOM UUIDs
+  const orderedCandidates = [];
+  if (preferredId) orderedCandidates.push(preferredId);
+  for (const ws of cookieWorkspaces) {
+    if (ws.id && ws.id !== preferredId) orderedCandidates.push(ws.id);
+  }
+  for (const id of domCandidates) {
+    if (!orderedCandidates.includes(id)) orderedCandidates.push(id);
+  }
+
+  if (!orderedCandidates.length) return { ok: false, reason: 'no_workspace_candidates' };
+
+  for (const workspaceId of orderedCandidates) {
     for (const payload of [{ workspace_id: workspaceId }, { workspaceId }, { id: workspaceId }]) {
       const res = await tryFetchInPage(tabId, userId, 'https://auth.openai.com/api/accounts/workspace/select', { method: 'POST', body: JSON.stringify(payload) }, 10000);
       console.log(`[${task.email}] 🧩 workspace/select ${JSON.stringify(payload)} => ${JSON.stringify(res).slice(0, 800)}`);
@@ -214,7 +284,7 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder
       return { ok: true, workspaceId };
     }
   }
-  return { ok: false, reason: 'workspace_select_failed', candidates };
+  return { ok: false, reason: 'workspace_select_failed', candidates: orderedCandidates };
 }
 
 async function clickBestMatchingAction(tabId, userId, options = {}) {

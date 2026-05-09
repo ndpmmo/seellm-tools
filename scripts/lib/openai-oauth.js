@@ -131,7 +131,42 @@ export function decodeAuthSessionCookie(cookieValue) {
 }
 
 /**
- * Extract workspace ID from decoded cookie payload
+ * Classify a workspace entry as personal or enterprise/team.
+ * OpenAI workspace objects may carry a `kind` field ("personal" | "team" | "enterprise")
+ * or a `type` field. When absent we fall back to name heuristics.
+ * @param {object} ws - Workspace object from JWT payload
+ * @returns {boolean}
+ */
+export function isPersonalWorkspace(ws) {
+  if (!ws) return false;
+  const kind = String(ws.kind || ws.type || ws.workspace_type || '').toLowerCase();
+  if (kind === 'personal') return true;
+  if (kind && kind !== 'personal') return false; // explicit non-personal kind
+  // Heuristic: "Personal account" name (OpenAI UI label)
+  const name = String(ws.name || ws.display_name || ws.title || '').toLowerCase();
+  if (name.includes('personal')) return true;
+  // Heuristic: no org/team fields → likely personal
+  if (!ws.org_id && !ws.organization_id && !ws.team_id) return true;
+  return false;
+}
+
+/**
+ * Pick the best workspace from a list — prefer personal account.
+ * Falls back to first entry if no personal workspace found.
+ * @param {Array} workspaces - Array of workspace objects
+ * @returns {object|null} - Selected workspace or null
+ */
+export function pickPreferredWorkspace(workspaces) {
+  if (!Array.isArray(workspaces) || !workspaces.length) return null;
+  // 1. Explicit personal kind
+  const personal = workspaces.find(ws => isPersonalWorkspace(ws));
+  if (personal) return personal;
+  // 2. Fallback: first entry (OpenAI default behavior)
+  return workspaces[0];
+}
+
+/**
+ * Extract workspace ID from decoded cookie payload — prefers personal account.
  * @param {object} decoded - Decoded cookie payload
  * @returns {string|null} - Workspace ID or null
  */
@@ -139,7 +174,7 @@ export function extractWorkspaceId(decoded) {
   if (!decoded || !decoded.workspaces || !Array.isArray(decoded.workspaces)) {
     return null;
   }
-  const ws = decoded.workspaces[0];
+  const ws = pickPreferredWorkspace(decoded.workspaces);
   return (ws && ws.id) ? ws.id : null;
 }
 
@@ -187,12 +222,30 @@ export async function performWorkspaceConsentBypass(evalJson, tabId, userId, { t
             if (authSession) {
                 try {
                     const segments = authSession.split('.');
-                    const payload = segments[0];
-                    const pad = '='.repeat((4 - (payload.length % 4)) % 4);
-                    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/') + pad);
-                    const parsed = JSON.parse(decoded);
-                    const ws = (parsed.workspaces || [])[0];
-                    workspaceId = (ws && ws.id) ? ws.id : '';
+                    // Try both first two segments — workspace data may be in either
+                    for (const seg of segments.slice(0, 2)) {
+                        try {
+                            const pad = '='.repeat((4 - (seg.length % 4)) % 4);
+                            const decoded = atob(seg.replace(/-/g, '+').replace(/_/g, '/') + pad);
+                            const parsed = JSON.parse(decoded);
+                            const workspaces = parsed.workspaces || [];
+                            if (!workspaces.length) continue;
+                            // Prefer personal workspace over enterprise/team
+                            const isPersonal = (ws) => {
+                                if (!ws) return false;
+                                const kind = String(ws.kind || ws.type || ws.workspace_type || '').toLowerCase();
+                                if (kind === 'personal') return true;
+                                if (kind && kind !== 'personal') return false;
+                                const name = String(ws.name || ws.display_name || ws.title || '').toLowerCase();
+                                if (name.includes('personal')) return true;
+                                if (!ws.org_id && !ws.organization_id && !ws.team_id) return true;
+                                return false;
+                            };
+                            const ws = workspaces.find(isPersonal) || workspaces[0];
+                            workspaceId = (ws && ws.id) ? ws.id : '';
+                            if (workspaceId) break;
+                        } catch(_) {}
+                    }
                 } catch(e) { }
             }
 
