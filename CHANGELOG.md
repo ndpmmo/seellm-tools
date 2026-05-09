@@ -2,6 +2,32 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.51] - 2026-05-09 14:50:00
+
+### 🏷️ Vault Accounts — Auto `need_phone` Tag Management
+
+**Problem**: When a worker reported `NEED_PHONE` during connect/result flow, the error was only stored in `notes`, which gets wiped on `idle`/`ready` transitions. Users had no persistent way to identify which accounts were blocked by phone verification, especially after accounts were stopped (reverted to `idle`).
+
+**Fix**: Introduced automatic tag management helpers in `server/routes/vault.js`:
+
+- `maybeAddNeedPhoneTag(id, message)` — detects `NEED_PHONE` in worker error messages and appends the `"need_phone"` tag to the account's `tags` array (stored as JSON in SQLite).
+- `removeNeedPhoneTag(id)` — strips `"need_phone"` from tags when the phone issue is resolved.
+
+**Hook points**:
+
+| Endpoint / Flow | Action on `need_phone` tag |
+|---|---|
+| `POST /accounts/connect-result` error (`NEED_PHONE`) | **Add** tag |
+| `POST /accounts/result` error (`NEED_PHONE`) | **Add** tag |
+| `POST /accounts/connect-result` success (`ready`) | **Remove** tag |
+| `POST /accounts/result` success (`ready`) | **Remove** tag |
+| `POST /accounts/:id/retry` (user retries account) | **Remove** tag |
+| `POST /accounts/:id/stop` (revert to `idle`) | **Preserve** tag (no-op) |
+
+**Result**: Phone-blocked accounts retain the `"need_phone"` tag across `idle`/`ready` status cycles, making them easy to filter and track in the Vault UI. Tags are synced to D1 alongside account metadata.
+
+---
+
 ## [0.2.50] - 2026-05-09 00:00:00
 
 ### ✨ Feature — Account Gateway Visibility

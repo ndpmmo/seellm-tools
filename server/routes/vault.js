@@ -24,6 +24,31 @@ export function setSSEEmitter(emitter) {
   emitSSE = emitter;
 }
 
+/* ─── Tag helpers ──────────────────────────────────────────────────────── */
+function safeParseTags(raw) {
+  if (!raw) return [];
+  if (typeof raw === 'object') return Array.isArray(raw) ? raw : [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
+function maybeAddNeedPhoneTag(id, message) {
+  if (!message || !String(message).includes('NEED_PHONE')) return;
+  const account = vault.getAccountFull(id);
+  if (!account) return;
+  const tags = account.tags || [];
+  if (!tags.includes('need_phone')) {
+    tags.push('need_phone');
+    vault.upsertAccount({ id, tags });
+  }
+}
+
+function removeNeedPhoneTag(id) {
+  const account = vault.getAccountFull(id);
+  if (!account) return;
+  const tags = (account.tags || []).filter((t) => t !== 'need_phone');
+  vault.upsertAccount({ id, tags });
+}
+
 /* ─── PKCE Generator ─────────────────────────────────────────────────────── */
 function generateCodexOAuthUrl() {
   const codeVerifier = crypto.randomBytes(32).toString('base64url');
@@ -581,12 +606,14 @@ router.post('/accounts/result', async (req, res) => {
         }
 
         console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
+        removeNeedPhoneTag(id);
       } catch (exchangeErr) {
         console.error(`[Result] ❌ Exchange failed: ${exchangeErr.message}`);
         try {
           const logPath = path.resolve('data', 'critical_errors.log');
           fs.appendFileSync(logPath, `[${new Date().toISOString()}] exchange_failed id=${id}: ${exchangeErr.message}\n`);
         } catch (_) { }
+        maybeAddNeedPhoneTag(id, exchangeErr.message);
         vault.upsertAccount({ id, status: 'error', notes: `Exchange failed: ${exchangeErr.message}` });
         pkceStore.delete(id);
       }
@@ -602,6 +629,7 @@ router.post('/accounts/result', async (req, res) => {
         cookies: result?.cookies,
         machine_id: getConsistentMachineId(),
       });
+      removeNeedPhoneTag(id);
       pkceStore.delete(id);
 
       const fullRecord = vault.getAccountFull(id);
@@ -620,6 +648,7 @@ router.post('/accounts/result', async (req, res) => {
       // ─── Path 3: Error / other status ────────────────────────────────────
       const errorMsg = message || `Worker reported status: ${status}`;
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
+      maybeAddNeedPhoneTag(id, errorMsg);
       vault.upsertAccount({ id, status: status || 'error', notes: errorMsg });
       // Reset về pending sau một khoảng thời gian nếu là lỗi tạm thời
     }
@@ -641,6 +670,7 @@ router.post('/accounts/:id/retry', async (req, res) => {
     const account = vault.getAccountFull(req.params.id);
     if (!account) return res.status(404).json({ error: 'Not found' });
     pkceStore.delete(req.params.id); // Xóa PKCE cũ để generate lại
+    removeNeedPhoneTag(req.params.id);
     // Gọi upsertAccount thay vì updateAccountStatus để PKCE được sinh ra trong quá trình upsert
     vault.upsertAccount({ ...account, status: 'pending' });
     res.json({ ok: true });
@@ -860,9 +890,11 @@ router.post('/accounts/connect-result', async (req, res) => {
       }
 
       console.log(`[Connect-Result] ✅ Account ${fullRecord?.email || id} ready (connect flow)`);
+      removeNeedPhoneTag(id);
     } else {
       // Error hoặc trạng thái không thành công
       const errorMsg = message || `Connect worker status: ${status}`;
+      maybeAddNeedPhoneTag(id, errorMsg);
       vault.db.prepare(
         `UPDATE vault_accounts SET status='error', notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
       ).run(errorMsg, id);
