@@ -683,6 +683,9 @@ router.post('/accounts/:id/stop', async (req, res) => {
     const account = vault.getAccountFull(req.params.id);
     if (!account) return res.status(404).json({ error: 'Not found' });
     pkceStore.delete(req.params.id);
+    if (account.status === 'need_phone' || String(account.notes || '').includes('NEED_PHONE')) {
+      maybeAddNeedPhoneTag(req.params.id, 'NEED_PHONE');
+    }
     vault.updateAccountStatus(req.params.id, 'idle');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

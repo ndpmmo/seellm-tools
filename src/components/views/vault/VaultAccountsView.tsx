@@ -221,13 +221,15 @@ export function VaultAccountsView() {
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
-  const stopAccount = async (id: string, email: string) => {
+  const stopAccount = async (id: string, email: string, account?: any) => {
     try {
       const r = await fetch(`/api/vault/accounts/${id}/stop`, { method: 'POST' });
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`🛑 Đã thu hồi ${email} về trạng thái Idle`, 'info');
-      patchAccountLocal(id, { status: 'idle' });
+      const tags = Array.isArray(account?.tags) ? account.tags : (account?.tags ? JSON.parse(account.tags) : []);
+      const shouldMarkNeedPhone = account?.status === 'need_phone' || String(account?.notes || '').includes('NEED_PHONE');
+      patchAccountLocal(id, { status: 'idle', tags: shouldMarkNeedPhone && !tags.includes('need_phone') ? [...tags, 'need_phone'] : tags });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
@@ -637,7 +639,7 @@ export function VaultAccountsView() {
                           <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
                         )}
                         {(it.status !== 'idle') && isOpenAI(it.provider) && (
-                          <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email)}><X size={13} /></Button>
+                          <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email, it)}><X size={13} /></Button>
                         )}
                         {(it.status === 'error') && isOpenAI(it.provider) && (
                           <Button size="icon-sm" variant="ghost" title="Thử lại" onClick={() => deploy(it.id, it.email)}><RotateCcw size={13} /></Button>
