@@ -831,45 +831,53 @@ router.post('/accounts/connect-result', async (req, res) => {
         proxyUrl: localAccount?.proxy_url || null,
       });
 
+      const hasRefreshToken = !!(tokens.refresh_token || tokens.refreshToken);
+      const isFallbackOnly = !hasRefreshToken; // session fallback — chỉ có access_token
+
       vault.upsertAccount({
         id,
         status: 'ready',
+        ever_ready: 1, // 🔥 Fix: set ever_ready=1 ngay tại đây — upsertAccount không tự set
         notes: '',
         access_token: tokens.access_token || tokens.accessToken,
         refresh_token: tokens.refresh_token || tokens.refreshToken || '',
         email: tokens.email || localAccount?.email || '',
         plan: tokens.planType || null,
-        workspace_id: tokens.accountId || tokens.organizationId || null, // 🔥 Fix: Đồng bộ workspace_id
+        workspace_id: tokens.accountId || tokens.organizationId || null,
         device_id: providerSpecificData?.deviceId || null,
         machine_id: machineId,
         provider_specific_data: providerSpecificData,
         connect_pending: 0,
       });
 
+      // 🔥 Fix: Cũng gọi updateAccountStatus để đảm bảo ever_ready=1 được set qua SQL clause
+      vault.updateAccountStatus(id, 'ready');
+
       const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
       if (fullRecord?.email) {
-        console.log(`[Connect-Result] 🚀 Syncing to D1: ${fullRecord.email}`);
+        console.log(`[Connect-Result] 🚀 Syncing to D1: ${fullRecord.email} (fallback=${isFallbackOnly})`);
         await SyncManager.pushVault('account', fullRecord);
 
         const cfg = loadConfig();
-        // Đẩy token lên Gateway
+        // Đẩy token lên Gateway — chỉ push nếu có access_token
         if (cfg.gatewayUrl && (tokens.access_token || tokens.accessToken)) {
           try {
-            // Build compat token payload để Gateway nhận diện
+            // 🔥 Fix: Gateway import action nhận { tokens: {...} } — đúng format
             const gwPayload = {
               id: fullRecord.id,
+              provider: 'codex',
               tokens: {
-                ...tokens, // Spread raw data if available (e.g. token_type, scope, access_token)
                 access_token: tokens.access_token || tokens.accessToken,
-                refresh_token: tokens.refresh_token || tokens.refreshToken || '',
-                id_token: tokens.id_token || tokens.idToken || '', // 🔥 Gửi id_token nếu có (từ OAuth PKCE)
+                refresh_token: tokens.refresh_token || tokens.refreshToken || null,
+                id_token: tokens.id_token || tokens.idToken || null,
                 expires_in: tokens.expires_in || tokens.expiresIn || null,
                 email: fullRecord.email,
                 isActive: true,
                 providerSpecificData: providerSpecificData || undefined,
               },
             };
-            console.log(`[Connect-Result] 📦 Gateway payload: access_token=${tokens.access_token || tokens.accessToken ? 'YES' : 'NO'}, refresh_token=${tokens.refresh_token || tokens.refreshToken ? 'YES' : 'NO'}`);
+            const hasRT = !!(gwPayload.tokens.refresh_token);
+            console.log(`[Connect-Result] 📦 Gateway payload: access_token=YES, refresh_token=${hasRT ? 'YES' : 'NO (fallback)'}`);
             const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/import`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -878,9 +886,9 @@ router.post('/accounts/connect-result', async (req, res) => {
             });
             const gwData = await gwRes.json().catch(() => ({}));
             if (gwRes.ok && gwData.success) {
-              console.log(`[Connect-Result] 🌐 Gateway nhận account: ${gwData.connection?.email || fullRecord.email}`);
+              console.log(`[Connect-Result] 🌐 Gateway nhận account: ${gwData.connection?.email || fullRecord.email}${isFallbackOnly ? ' (access_token only — no refresh)' : ''}`);
             } else {
-              console.warn(`[Connect-Result] ⚠️ Gateway import: ${JSON.stringify(gwData).slice(0, 150)}`);
+              console.warn(`[Connect-Result] ⚠️ Gateway import HTTP ${gwRes.status}: ${JSON.stringify(gwData).slice(0, 200)}`);
             }
           } catch (gwErr) {
             console.warn(`[Connect-Result] ⚠️ Không kết nối Gateway: ${gwErr.message}`);

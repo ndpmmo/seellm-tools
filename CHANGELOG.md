@@ -2,6 +2,38 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.56] - 2026-05-09 17:00:00
+
+### 🐛 Fix — `connect-result` không đánh dấu account `ready` và không push lên Services
+
+**Problem**: Sau khi worker báo cáo `connect-result` success, account không được đánh dấu `ready` trong Vault và không xuất hiện trong Services/Gateway. Hai account bị ảnh hưởng theo hai cách khác nhau:
+
+1. **Account có full tokens** (`almirachadava9731`): `ever_ready` không được set = 1 vì `connect-result` gọi `upsertAccount()` thay vì `updateAccountStatus()`. Khi account sau đó bị lỗi, SyncManager Rule 5b tombstone connection vì `ever_ready=0`.
+
+2. **Account fallback session** (`sathevienthe0659`): Chỉ có `access_token`, không có `refresh_token`. Gateway nhận được nhưng connection được tạo với `refreshToken=null` → token expire không thể refresh → Gateway mark inactive.
+
+**Root causes**:
+
+| # | Vấn đề | File | Dòng |
+|---|--------|------|------|
+| 1 | `upsertAccount()` không tự set `ever_ready=1` — chỉ `updateAccountStatus()` mới set | `server/routes/vault.js` | ~840 |
+| 2 | `ever_ready` không được truyền vào `upsertAccount()` call trong `connect-result` | `server/routes/vault.js` | ~840 |
+| 3 | Gateway payload dùng `...tokens` spread — có thể ghi đè `refresh_token` với giá trị sai | `server/routes/vault.js` | ~870 |
+| 4 | Log `refresh_token=NO` nhưng không có cảnh báo rõ ràng về fallback | `server/routes/vault.js` | ~873 |
+
+**Fix** (`server/routes/vault.js`):
+
+- Thêm `ever_ready: 1` vào `upsertAccount()` call trong `connect-result` success path.
+- Gọi thêm `vault.updateAccountStatus(id, 'ready')` sau `upsertAccount()` để đảm bảo `ever_ready=1` được set qua SQL `ever_ready = 1` clause (double-safe).
+- Thêm `isFallbackOnly` flag để log rõ khi account chỉ có `access_token`.
+- Làm sạch Gateway payload: bỏ `...tokens` spread, chỉ gửi các field cần thiết, `refresh_token: ... || null` (không phải `''`).
+- Thêm `provider: 'codex'` vào Gateway payload.
+- Log HTTP status code khi Gateway import fail để dễ debug.
+
+**Result**: Account được đánh dấu `ready` + `ever_ready=1` ngay sau connect-result success. SyncManager Rule 4 push đầy đủ connection lên Gateway. Fallback-only accounts vẫn được push nhưng log rõ `(access_token only — no refresh)`.
+
+---
+
 ## [0.2.55] - 2026-05-09 16:00:00
 
 ### 🐛 Fix — Consent Page Always Selects Personal Account Instead of Enterprise Workspace
