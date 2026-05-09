@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.52] - 2026-05-09 14:56:00
+
+### 🏷️ Vault UI — Render `need_phone` badge on account rows
+
+**Problem**: The server-side `need_phone` tag was being persisted to the DB correctly, but `VaultAccountsView.tsx` only rendered badges for `auto-register` and `2FA` — users could not see which idle accounts were blocked by phone verification.
+
+**Fix**: `src/components/views/vault/VaultAccountsView.tsx`
+- Added a rose-colored `NEED PHONE` badge next to the `AUTO` badge when `tags` array contains `'need_phone'`.
+- Uses the same tag-parsing guard as the existing `auto-register` check.
+
+---
+
 ## [0.2.51] - 2026-05-09 14:50:00
 
 ### 🏷️ Vault Accounts — Auto `need_phone` Tag Management
