@@ -229,7 +229,7 @@ export function VaultAccountsView() {
       addToast(`🛑 Đã thu hồi ${email} về trạng thái Idle`, 'info');
       const tags = Array.isArray(account?.tags) ? account.tags : (account?.tags ? JSON.parse(account.tags) : []);
       const shouldMarkNeedPhone = account?.status === 'need_phone' || String(account?.notes || '').includes('NEED_PHONE');
-      patchAccountLocal(id, { status: 'idle', tags: shouldMarkNeedPhone && !tags.includes('need_phone') ? [...tags, 'need_phone'] : tags });
+      patchAccountLocal(id, { status: 'idle', gateway_status: d.gateway_status ?? 'revoked', tags: shouldMarkNeedPhone && !tags.includes('need_phone') ? [...tags, 'need_phone'] : tags });
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 

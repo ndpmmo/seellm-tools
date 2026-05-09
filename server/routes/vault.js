@@ -687,7 +687,11 @@ router.post('/accounts/:id/stop', async (req, res) => {
       maybeAddNeedPhoneTag(req.params.id, 'NEED_PHONE');
     }
     vault.updateAccountStatus(req.params.id, 'idle');
-    res.json({ ok: true });
+    const updated = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(req.params.id);
+    if (updated) {
+      await SyncManager.pushVault('account', updated);
+    }
+    res.json({ ok: true, gateway_status: updated?.gateway_status ?? null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
