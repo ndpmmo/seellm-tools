@@ -544,7 +544,22 @@ export const SyncManager = {
                 existing.status = 'idle';
                 // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
               } else {
-                existing.status = ga.status || existing.status;
+                // 🔥 [FIX STATUS OVERWRITE] Guard against Gateway ghi đè local 'ready' về 'idle'
+                // Kịch bản: account vừa connect-result thành công ở Tools, local = 'ready' + ever_ready=1.
+                // Gateway chưa kịp pull từ D1 nên trả về 'idle' → pullVault sẽ override → stuck.
+                // Rule: Nếu local=ready + ever_ready=1 + Gateway muốn set idle → GIỮ local 'ready'.
+                const localReadyPreserve =
+                  existing.status === 'ready' &&
+                  Number(existing.ever_ready) === 1 &&
+                  ga.status === 'idle';
+                // [PROTECT] Không cho Gateway ghi đè status khi user vừa khởi tạo connect flow
+                const localUserInitiatedStatus =
+                  existing.status === 'pending' ||
+                  existing.status === 'processing' ||
+                  Number(existing.connect_pending) > 0;
+                if (!localReadyPreserve && !localUserInitiatedStatus) {
+                  existing.status = ga.status || existing.status;
+                }
                 // [PROTECT] Không cho Gateway ghi đè is_active khi account đang trong flow người dùng khởi tạo
                 // (pending/processing/connect_pending>0). Gateway có thể gửi is_active=0 cho account lỗi,
                 // nhưng nếu user vừa bấm Deploy v2, is_active phải giữ nguyên 1.

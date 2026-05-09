@@ -858,44 +858,12 @@ router.post('/accounts/connect-result', async (req, res) => {
         console.log(`[Connect-Result] 🚀 Syncing to D1: ${fullRecord.email} (fallback=${isFallbackOnly})`);
         await SyncManager.pushVault('account', fullRecord);
 
+        // 🔥 Note: Gateway tự pull token từ D1 qua codexRemoteSync.pullCodexSnapshotFromRemote().
+        // Không cần Tools push trực tiếp lên /api/oauth/codex/import (endpoint đó yêu cầu UI session auth,
+        // trả về 401 khi gọi từ Tools server). D1 là source of truth — Gateway sync từ đó.
         const cfg = loadConfig();
-        // Đẩy token lên Gateway — chỉ push nếu có access_token
-        if (cfg.gatewayUrl && (tokens.access_token || tokens.accessToken)) {
-          try {
-            // 🔥 Fix: Gateway import action nhận { tokens: {...} } — đúng format
-            const gwPayload = {
-              id: fullRecord.id,
-              provider: 'codex',
-              tokens: {
-                access_token: tokens.access_token || tokens.accessToken,
-                refresh_token: tokens.refresh_token || tokens.refreshToken || null,
-                id_token: tokens.id_token || tokens.idToken || null,
-                expires_in: tokens.expires_in || tokens.expiresIn || null,
-                email: fullRecord.email,
-                isActive: true,
-                providerSpecificData: providerSpecificData || undefined,
-              },
-            };
-            const hasRT = !!(gwPayload.tokens.refresh_token);
-            console.log(`[Connect-Result] 📦 Gateway payload: access_token=YES, refresh_token=${hasRT ? 'YES' : 'NO (fallback)'}`);
-            const gwRes = await fetch(`${cfg.gatewayUrl}/api/oauth/codex/import`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(gwPayload),
-              signal: AbortSignal.timeout(15000),
-            });
-            const gwData = await gwRes.json().catch(() => ({}));
-            if (gwRes.ok && gwData.success) {
-              console.log(`[Connect-Result] 🌐 Gateway nhận account: ${gwData.connection?.email || fullRecord.email}${isFallbackOnly ? ' (access_token only — no refresh)' : ''}`);
-            } else {
-              console.warn(`[Connect-Result] ⚠️ Gateway import HTTP ${gwRes.status}: ${JSON.stringify(gwData).slice(0, 200)}`);
-            }
-          } catch (gwErr) {
-            console.warn(`[Connect-Result] ⚠️ Không kết nối Gateway: ${gwErr.message}`);
-          }
-        }
 
-        // Trigger usage refresh
+        // Trigger usage refresh (optional, best-effort)
         if (cfg.gatewayUrl) {
           const syncSecret = cfg.d1SyncSecret || '';
           fetch(`${cfg.gatewayUrl}/api/usage/${fullRecord.id}`, {

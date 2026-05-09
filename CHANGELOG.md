@@ -2,6 +2,44 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.57] - 2026-05-09 18:00:00
+
+### 🐛 Fix — `connect_pending` không được reset + Gateway import 401
+
+Hai bug song song làm account stuck ở `connect_pending=2, status=idle` dù worker đã báo cáo success:
+
+**Bug 1 — `connect_pending` không có trong schema `upsertAccount()`**:
+
+- `connect_pending` column được thêm qua `ALTER TABLE` runtime (trong route `retry-connect`) nhưng **không có trong `CREATE TABLE` schema gốc** và **không có trong INSERT statement của `upsertAccount()`**.
+- Khi `connect-result` gọi `vault.upsertAccount({ connect_pending: 0, ... })`, field này bị **bỏ qua hoàn toàn** — SQL statement không biết column này tồn tại.
+- Kết quả: DB vẫn giữ `connect_pending=2` (set bởi `connect-task` endpoint khi worker pick task), account bị polling worker pick lại vô hạn.
+
+**Fix** (`server/db/vault.js`):
+- Thêm migration `ALTER TABLE vault_accounts ADD COLUMN connect_pending INTEGER DEFAULT 0` vào `applyMigrations()` (chuyển từ route-level migration sang central migration).
+- Thêm `connect_pending` vào INSERT column list + VALUES placeholder (27/27 columns).
+- Thêm `connect_pending = COALESCE(excluded.connect_pending, vault_accounts.connect_pending)` vào ON CONFLICT UPDATE.
+- Thêm `connect_pending` vào `record` object với fallback: `data.connect_pending ?? existing.connect_pending ?? 0`.
+- Thêm `record.connect_pending` vào `stmt.run()` args.
+
+**Bug 2 — Gateway `/api/oauth/codex/import` trả về 401 Unauthorized**:
+
+- Endpoint `/api/oauth/[provider]/[action]` trong Gateway bị bảo vệ bởi `requireLogin=true` (UI session auth) — không chấp nhận Bearer token như `/api/public/worker/*`.
+- Tools server không có UI session → luôn nhận 401 khi push token trực tiếp.
+- Token vẫn được push lên D1 thành công (`SyncManager.pushVault` → `D1Push: connections=1`), và Gateway **tự pull từ D1** qua `codexRemoteSync.pullCodexSnapshotFromRemote()` — nên direct push không cần thiết.
+
+**Fix** (`server/routes/vault.js` — `connect-result` route):
+- Xóa block `fetch('/api/oauth/codex/import')` — không còn gây 401 log noise.
+- Giữ `SyncManager.pushVault('account', fullRecord)` làm source of truth → D1 → Gateway pull.
+- Giữ `fetch('/api/usage/:id')` trigger (optional, best-effort).
+
+**Result**: Account connect-result success sẽ:
+1. Set `status='ready', ever_ready=1, connect_pending=0` trong Vault local.
+2. Push lên D1 đầy đủ.
+3. Gateway tự pull từ D1 sau ~30s qua codexRemoteSync.
+4. Không còn log 401 noise, không còn account stuck `connect_pending=2`.
+
+---
+
 ## [0.2.56] - 2026-05-09 17:00:00
 
 ### 🐛 Fix — `connect-result` không đánh dấu account `ready` và không push lên Services
