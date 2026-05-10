@@ -309,6 +309,13 @@ export const vault = {
       finalStatus = 'processing';
     }
 
+    // 🔥 [FIX STATUS OVERWRITE v2] Guard trong upsertAccount khi được gọi từ pullVault (skipSync=true).
+    // Kịch bản: local account đã ready + ever_ready=1, pullVault trả về account với status='idle'.
+    // Rule: Nếu skipSync=true + local=ready+ever_ready=1 + incoming=idle → GIỮ local 'ready'.
+    if (skipSync && existing && existing.status === 'ready' && Number(existing.ever_ready) === 1 && finalStatus === 'idle') {
+      finalStatus = 'ready';
+    }
+
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data
     let authData = { notes: rawNotes || '' };
     if (data.provider === 'codex' && (finalStatus === 'pending' || finalStatus === 'relogin')) {

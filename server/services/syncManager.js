@@ -544,26 +544,42 @@ export const SyncManager = {
                 existing.status = 'idle';
                 // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
               } else {
-                // 🔥 [FIX STATUS OVERWRITE] Guard against Gateway ghi đè local 'ready' về 'idle'
-                // Kịch bản: account vừa connect-result thành công ở Tools, local = 'ready' + ever_ready=1.
-                // Gateway chưa kịp pull từ D1 nên trả về 'idle' → pullVault sẽ override → stuck.
-                // Rule: Nếu local=ready + ever_ready=1 + Gateway muốn set idle → GIỮ local 'ready'.
-                const localReadyPreserve =
-                  existing.status === 'ready' &&
-                  Number(existing.ever_ready) === 1 &&
-                  ga.status === 'idle';
-                // [PROTECT] Không cho Gateway ghi đè status khi user vừa khởi tạo connect flow
-                const localUserInitiatedStatus =
-                  existing.status === 'pending' ||
-                  existing.status === 'processing' ||
-                  Number(existing.connect_pending) > 0;
-                if (!localReadyPreserve && !localUserInitiatedStatus) {
+                // 🔥 [FIX STATUS OVERWRITE v2] Check LOCAL DB status, không phải existing (array merge)
+                // Lý do: existing là từ D1 vaultAccounts (có thể stale). Local DB mới là source of truth.
+                // Kịch bản: account vừa connect-result success ở Tools → local = 'ready' + ever_ready=1.
+                // Gateway chưa kịp pull từ D1 nên managedAccounts.status='idle' → pullVault override.
+                let localRecord = null;
+                if (localVault && existing.id) {
+                  try {
+                    localRecord = localVault.db.prepare(
+                      'SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?'
+                    ).get(existing.id);
+                  } catch (_) {}
+                }
+                const localIsReady = localRecord && localRecord.status === 'ready' && Number(localRecord.ever_ready) === 1;
+                const localUserInitiated = localRecord && (
+                  localRecord.status === 'pending' ||
+                  localRecord.status === 'processing' ||
+                  Number(localRecord.connect_pending) > 0
+                );
+                // So sánh updated_at: nếu local mới hơn Gateway → giữ local status hoàn toàn
+                const localNewer = localRecord && localRecord.updated_at &&
+                  new Date(localRecord.updated_at).getTime() >= new Date(ga.updated_at || 0).getTime() - 30000; // 30s grace
+
+                if (localIsReady && ga.status === 'idle') {
+                  // Gateway chưa kịp pull từ D1 — giữ local 'ready'
+                  existing.status = 'ready';
+                  existing.ever_ready = 1;
+                } else if (localUserInitiated) {
+                  // User vừa bấm Deploy v2 hoặc đang processing — giữ local status
+                  existing.status = localRecord.status;
+                } else if (localNewer) {
+                  // Local mới hơn Gateway — giữ local
+                  existing.status = localRecord.status;
+                } else {
                   existing.status = ga.status || existing.status;
                 }
                 // [PROTECT] Không cho Gateway ghi đè is_active khi account đang trong flow người dùng khởi tạo
-                // (pending/processing/connect_pending>0). Gateway có thể gửi is_active=0 cho account lỗi,
-                // nhưng nếu user vừa bấm Deploy v2, is_active phải giữ nguyên 1.
-                const localUserInitiated = existing.status === 'pending' || existing.status === 'processing' || Number(existing.connect_pending) > 0;
                 if (!localUserInitiated) {
                   existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
                 }

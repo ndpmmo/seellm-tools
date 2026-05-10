@@ -2,6 +2,46 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.58] - 2026-05-09 19:00:00
+
+### 🐛 Fix — pullVault status overwrite (v2) — Check LOCAL DB, không phải merge array
+
+**Problem**: Fix v1 ở commit `07ca9b4` vẫn không hoạt động. Account vẫn bị ghi đè `status='ready'` → `'idle'` ngay sau connect-result success.
+
+**Root cause v2**: Guard v1 check `existing.status` (là object từ `data.vaultAccounts` D1 pull) — **không phải** local DB. `existing` có thể stale vì:
+
+1. connect-result → Tools DB set `status='ready'` + push lên D1.
+2. D1 nhận push nhưng chưa trigger cursor update ngay.
+3. Tiếp theo `pullVault` tick chạy với `since=cursor_cũ` → pull về `vaultAccounts` **chưa có account mới** (D1 still replicating) nhưng `managedAccounts` **có record cũ với `status='idle'`**.
+4. Merge logic match `ga` (from managedAccounts, status=idle) với `existing` (null — vì vaultAccounts chưa có) → fallback tìm `localByEmail` từ local DB.
+5. `localByEmail` có `status='ready'` nhưng logic sau đó vẫn apply `existing.status = ga.status` khi có `ga.updated_at > existing.updated_at`.
+6. Guard v1 chỉ check `existing.status === 'ready'` — nhưng `existing` ở đây có thể là **bản merge từ vaultAccounts đã stale**.
+
+**Fix v2**:
+
+- `server/services/syncManager.js` — Guard mới trong `pullVault` query **local DB trực tiếp** thay vì dùng `existing`:
+  ```js
+  localRecord = localVault.db.prepare('SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?').get(existing.id);
+  const localIsReady = localRecord?.status === 'ready' && Number(localRecord.ever_ready) === 1;
+  ```
+  3 layer defense:
+  1. `localIsReady && ga.status === 'idle'` → giữ local `ready`
+  2. `localUserInitiated` (pending/processing/cp>0) → giữ local status
+  3. `localNewer` (local.updated_at ≥ ga.updated_at - 30s grace) → giữ local status
+  4. Default: fallback về `ga.status || existing.status`
+
+- `server/db/vault.js` — Thêm guard tương tự trong `upsertAccount` khi được gọi từ pullVault (`skipSync=true`):
+  ```js
+  if (skipSync && existing?.status === 'ready' && existing.ever_ready === 1 && finalStatus === 'idle') {
+    finalStatus = 'ready';  // Giữ local ready
+  }
+  ```
+  Đây là tuyến phòng thủ cuối — nếu pullVault guard fail, upsertAccount vẫn protect.
+
+**Result**: Account vừa connect-result success sẽ giữ `status='ready'` qua mọi vòng sync, kể cả khi Gateway managedAccounts còn stale ở `idle`.
+
+---
+
 ## [0.2.57] - 2026-05-09 18:00:00
 
 ### 🐛 Fix — `connect_pending` không được reset + Gateway import 401
