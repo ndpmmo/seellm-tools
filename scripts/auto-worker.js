@@ -248,6 +248,14 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder
   const preferredId = preferredWs?.id || null;
 
   console.log(`[${task.email}] 🗂️ Cookie workspaces: ${cookieWorkspaces.length} — preferred: ${preferredId || 'none'} (${preferredWs ? (isPersonalWorkspace(preferredWs) ? 'personal' : 'enterprise/team') : 'n/a'})`);
+  if (cookieWorkspaces.length > 0) {
+    cookieWorkspaces.forEach((ws, i) => {
+      const kind = isPersonalWorkspace(ws) ? 'personal' : 'enterprise/team';
+      const name = ws.name || ws.display_name || ws.title || '(no name)';
+      const marker = ws.id === preferredId ? ' ← SELECTED' : '';
+      console.log(`[${task.email}]   [${i + 1}] id=${ws.id} name="${name}" kind=${kind}${marker}`);
+    });
+  }
 
   // Step 2: Collect UUID candidates from DOM/cookies as fallback pool
   const domCandidates = await extractWorkspaceCandidates(tabId, userId);
@@ -265,25 +273,40 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder
 
   if (!orderedCandidates.length) return { ok: false, reason: 'no_workspace_candidates' };
 
+  console.log(`[${task.email}] 🗂️ Trying ${orderedCandidates.length} workspace candidate(s) in order...`);
+
   for (const workspaceId of orderedCandidates) {
+    const wsLabel = cookieWorkspaces.find(w => w.id === workspaceId)
+      ? `"${cookieWorkspaces.find(w => w.id === workspaceId)?.name || workspaceId}" (${isPersonalWorkspace(cookieWorkspaces.find(w => w.id === workspaceId)) ? 'personal' : 'enterprise/team'})`
+      : `${workspaceId} (dom-candidate)`;
+    console.log(`[${task.email}] 🧩 Trying workspace: ${wsLabel}`);
     for (const payload of [{ workspace_id: workspaceId }, { workspaceId }, { id: workspaceId }]) {
       const res = await tryFetchInPage(tabId, userId, 'https://auth.openai.com/api/accounts/workspace/select', { method: 'POST', body: JSON.stringify(payload) }, 10000);
-      console.log(`[${task.email}] 🧩 workspace/select ${JSON.stringify(payload)} => ${JSON.stringify(res).slice(0, 800)}`);
+      console.log(`[${task.email}] 🧩 workspace/select ${JSON.stringify(payload)} => HTTP ${res?.status || 'err'} ${JSON.stringify(res).slice(0, 400)}`);
       const bodyText = String(res?.body || '');
       if (!res?.ok) { if (bodyText.includes('invalid_auth_step')) continue; continue; }
+      console.log(`[${task.email}] ✅ Workspace selected: ${wsLabel}`);
       await recorder.after(1, 1, 'workspace_selected');
       const orgCandidates = parseUuidMatches(res?.body || '');
       if (orgCandidates.length) {
+        console.log(`[${task.email}] 🏢 Found ${orgCandidates.length} org candidate(s) in response, trying...`);
         for (const orgId of orgCandidates.slice(0, 5)) {
           for (const orgPayload of [{ organization_id: orgId }, { organizationId: orgId }, { id: orgId }]) {
             const orgRes = await tryFetchInPage(tabId, userId, 'https://auth.openai.com/api/accounts/organization/select', { method: 'POST', body: JSON.stringify(orgPayload) }, 10000);
-            if (orgRes?.ok) { await recorder.after(1, 2, 'organization_selected'); return { ok: true, workspaceId, orgId }; }
+            console.log(`[${task.email}] 🏢 org/select ${JSON.stringify(orgPayload)} => HTTP ${orgRes?.status || 'err'}`);
+            if (orgRes?.ok) {
+              console.log(`[${task.email}] ✅ Organization selected: ${orgId}`);
+              await recorder.after(1, 2, 'organization_selected');
+              return { ok: true, workspaceId, orgId };
+            }
           }
         }
+        console.log(`[${task.email}] ⚠️ No org selected successfully, continuing with workspace only`);
       }
       return { ok: true, workspaceId };
     }
   }
+  console.log(`[${task.email}] ❌ All workspace candidates failed`);
   return { ok: false, reason: 'workspace_select_failed', candidates: orderedCandidates };
 }
 
@@ -501,6 +524,7 @@ async function runConnectFlow(task) {
     await new Promise(r => setTimeout(r, 1500));
 
     console.log(`[Connect] [1b] Dismiss Google popup + bấm Log in...`);
+    await recorder.before(1, 2, 'before_login_click');
     const loginClick = await dismissGooglePopupAndClickLogin(tabId, USER_ID);
     console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
     // Nếu form đã visible (UI mới sau click More options), giảm wait time
@@ -519,6 +543,7 @@ async function runConnectFlow(task) {
 
     if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
       console.log(`[Connect] [1d] Fallback: authorize URL trực tiếp...`);
+      await recorder.before(1, 4, 'before_authorize_fallback');
       await navigate(tabId, USER_ID,
         'https://auth.openai.com/authorize?client_id=DRivsnm2Mu42T3KOpqdtwB3NYviHYzwD&audience=https%3A%2F%2Fapi.openai.com%2Fv1&redirect_uri=https%3A%2F%2Fchatgpt.com%2Fapi%2Fauth%2Fcallback%2Flogin-web&scope=openid+email+profile+offline_access+model.request+model.read+organization.read+organization.write&response_type=code&response_mode=query&state=login&prompt=login',
         { timeoutMs: 15000 });
@@ -532,7 +557,8 @@ async function runConnectFlow(task) {
     for (let attempt = 0; attempt < 8 && !emailDone; attempt++) {
       if (state?.looksLoggedIn || state?.hasPasswordInput) { emailDone = true; break; }
       if (state?.hasEmailInput) {
-        console.log(`[Connect] [2] Điền email...`);
+        console.log(`[Connect] [2] Điền email (attempt ${attempt + 1})...`);
+        await recorder.before(2, 1, `before_email_${attempt + 1}`);
         const r = await fillEmail(tabId, USER_ID, email);
         await new Promise(r2 => setTimeout(r2, 3000));
         await recorder.after(2, 1, `email_filled_${attempt + 1}`);
@@ -553,7 +579,8 @@ async function runConnectFlow(task) {
     for (let attempt = 0; attempt < 5 && !passDone; attempt++) {
       if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
       if (state?.hasPasswordInput) {
-        console.log(`[Connect] [3] Điền password...`);
+        console.log(`[Connect] [3] Điền password (attempt ${attempt + 1})...`);
+        await recorder.before(3, 1, `before_password_${attempt + 1}`);
         const r = await fillPassword(tabId, USER_ID, password);
         await new Promise(r2 => setTimeout(r2, 3500));
         await recorder.after(3, 1, `password_filled_${attempt + 1}`);
@@ -570,18 +597,22 @@ async function runConnectFlow(task) {
     if (!state?.looksLoggedIn && !state?.hasMfaInput && !state?.hasPhoneScreen) {
       await new Promise(r => setTimeout(r, 3000));
       state = await getState(tabId, USER_ID);
+      await recorder.checkpoint(3, 2, 'after_password_wait');
     }
 
     // MFA
     if (state?.hasMfaInput) {
       if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
       console.log(`[Connect] [4] MFA → sinh TOTP...`);
+      await recorder.before(4, 1, 'before_mfa');
       const { otp } = await getFreshTOTP(totpSecret, 8);
       await fillMfa(tabId, USER_ID, otp);
       await new Promise(r2 => setTimeout(r2, 4000));
       await recorder.after(4, 1, 'mfa_filled');
       state = await getState(tabId, USER_ID);
       if (state?.hasMfaInput) {
+        console.log(`[Connect] [4] MFA vẫn còn, thử lần 2...`);
+        await recorder.before(4, 2, 'before_mfa_retry');
         const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
         await fillMfa(tabId, USER_ID, otp2);
         await new Promise(r2 => setTimeout(r2, 4000));
@@ -595,19 +626,21 @@ async function runConnectFlow(task) {
     const finalState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 60000, intervalMs: 2000 });
     if (!finalState) {
       const currentState = await getState(tabId, USER_ID);
+      await recorder.error(5, 1, 'login_timeout');
       if (currentState?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
       if (currentState?.hasMfaInput) {
         // MFA appeared during wait - handle it now
         if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
         console.log(`[Connect] [5b] MFA xuất hiện trong wait → xử lý...`);
+        await recorder.before(5, 2, 'before_mfa_late');
         const { otp } = await getFreshTOTP(totpSecret, 8);
         await fillMfa(tabId, USER_ID, otp);
         await new Promise(r2 => setTimeout(r2, 4000));
-        await recorder.after(5, 1, 'mfa_late');
+        await recorder.after(5, 2, 'mfa_late');
         const afterMfaState = await getState(tabId, USER_ID);
         if (afterMfaState?.looksLoggedIn) {
           console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
-          await recorder.after(5, 2, 'post_login_mfa');
+          await recorder.after(5, 3, 'post_login_mfa');
           await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
           return;
         }
@@ -615,7 +648,7 @@ async function runConnectFlow(task) {
       return sendResult(task, 'error', `Timeout 60s. URL: ${currentState?.href}`);
     }
     console.log(`[Connect] ✅ Đã đăng nhập!`);
-    await recorder.after(5, 3, 'post_login');
+    await recorder.after(5, 4, 'post_login');
     await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
 
   } catch (err) {
@@ -1084,15 +1117,14 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       console.log(`[Capture] 📵 Phone screen → workspace API bypass...`);
       await recorder.before(1, 2, 'phone_bypass');
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
-      if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); break; }
+      if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); await recorder.after(1, 2, 'phone_bypass_success'); break; }
+      await recorder.error(1, 2, 'phone_bypass_failed');
 
       // Fallback 0: Navigate authUrl directly in browser tab (works for free accounts — no workspace needed)
-      // Free accounts: authUrl → direct redirect to localhost:1455?code= (no consent page)
-      // Pro/Team accounts: authUrl → consent page → click Continue → code
       console.log(`[Capture] 📵 Workspace bypass failed, trying direct authUrl navigate (free account path)...`);
+      await recorder.before(1, 3, 'direct_authurl_navigate');
       try {
         await navigate(tabId, userId, authUrl, 20000);
-        // Poll for up to 10s — free accounts redirect directly to code=
         let directCode = null;
         for (let poll = 0; poll < 10; poll++) {
           await new Promise(r => setTimeout(r, 1000));
@@ -1104,42 +1136,45 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
               if (c) { directCode = c; break; }
             } catch (_) {}
           }
-          // Also check interceptor
           const intercepted = await evalJson(tabId, userId, 'window.__oauthCallbackUrl || null', 2000) || '';
           if (intercepted && intercepted.includes('code=')) {
             try { directCode = new URL(intercepted).searchParams.get('code') || ''; if (directCode) break; } catch (_) {}
           }
-          // If redirected to consent page, stop polling and let session-seed handle it
           if (pollUrl.includes('consent') || pollUrl.includes('sign-in-with-chatgpt')) {
             console.log(`[Capture] Reached consent page after authUrl navigate — account has workspace`);
+            await recorder.checkpoint(1, 3, 'direct_authurl_consent_page');
             break;
           }
-          // If redirected back to login, session was lost
           if (pollUrl.includes('/log-in') && poll > 2) {
             console.log(`[Capture] Redirected to login after authUrl navigate (session lost)`);
+            await recorder.error(1, 3, 'direct_authurl_session_lost');
             break;
           }
         }
         if (directCode) {
           authCode = directCode;
           console.log(`[Capture] ✅ Code via direct authUrl navigate (free account): ${authCode.slice(0, 20)}...`);
+          await recorder.after(1, 3, 'direct_authurl_success');
           break;
         }
+        await recorder.error(1, 3, 'direct_authurl_no_code');
       } catch (directErr) {
         console.log(`[Capture] ❌ Direct authUrl navigate failed: ${directErr?.message || directErr}`);
+        await recorder.error(1, 3, 'direct_authurl_exception');
       }
 
-      // Fallback 1: Session seeding (seed browser cookies into HTTP session, complete consent without re-login)
+      // Fallback 1: Session seeding
       console.log(`[Capture] 📵 Workspace bypass failed, trying session-seed fallback...`);
+      await recorder.before(1, 4, 'session_seed');
       try {
         const browserCookies = {};
         try {
           const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
           const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
           for (const c of cookies) { if (c.name && c.value) browserCookies[c.name] = c.value; }
+          console.log(`[Capture] 🍪 Collected ${Object.keys(browserCookies).length} browser cookies for session-seed`);
         } catch (_) {}
         if (Object.keys(browserCookies).length > 0) {
-          // browserFetchFn: fetch via Camoufox browser tab — real TLS fingerprint, bypasses Cloudflare
           const browserFetchFn = async (url, init = {}) => {
             const result = await tryFetchInPage(tabId, userId, url, init, 20000);
             return result?.body || null;
@@ -1154,18 +1189,23 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           if (seedResult?.success && seedResult.code) {
             authCode = seedResult.code;
             console.log(`[Capture] ✅ Code via session-seed: ${authCode.slice(0, 20)}...`);
+            await recorder.after(1, 4, 'session_seed_success');
             break;
           }
           console.log(`[Capture] ❌ Session-seed failed: ${seedResult?.error}`);
+          await recorder.error(1, 4, 'session_seed_failed');
         } else {
           console.log(`[Capture] ❌ No browser cookies available for session-seed`);
+          await recorder.error(1, 4, 'session_seed_no_cookies');
         }
       } catch (seedErr) {
         console.log(`[Capture] ❌ Session-seed exception: ${seedErr?.message || seedErr}`);
+        await recorder.error(1, 4, 'session_seed_exception');
       }
 
-      // Fallback 2: Pure HTTP API Codex login (bypasses phone screen entirely)
+      // Fallback 2: Pure HTTP API Codex login
       console.log(`[Capture] 📵 Session-seed failed, trying protocol Codex login...`);
+      await recorder.before(1, 5, 'protocol_login');
       try {
         const protocolResult = await acquireCodexCallbackViaProtocol({
           email,
@@ -1178,33 +1218,40 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           console.log(`[Capture] ✅ Code via protocol Codex login: ${authCode.slice(0, 20)}...`);
           pkce.codeVerifier = protocolResult.pkce.codeVerifier;
           pkce.state = protocolResult.pkce.state;
+          await recorder.after(1, 5, 'protocol_login_success');
           break;
         }
         console.log(`[Capture] ❌ Protocol Codex login also failed: ${protocolResult?.error}`);
+        await recorder.error(1, 5, 'protocol_login_failed');
       } catch (protocolErr) {
         console.log(`[Capture] ❌ Protocol Codex login exception: ${protocolErr?.message || protocolErr}`);
+        await recorder.error(1, 5, 'protocol_login_exception');
       }
 
-      // Fallback 4: Browser-based Codex OAuth — interact with consent page in browser
+      // Fallback 3: Browser-based Codex OAuth
       console.log(`[Capture] 📵 Protocol failed, trying browser-based Codex OAuth...`);
+      await recorder.before(1, 6, 'browser_oauth');
       try {
         const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password, totpSecret);
         if (browserResult?.code) {
           authCode = browserResult.code;
           console.log(`[Capture] ✅ Code via browser OAuth: ${authCode.slice(0, 20)}...`);
+          await recorder.after(1, 6, 'browser_oauth_success');
         } else {
           const errMsg = browserResult?.error || 'no code';
           console.log(`[Capture] ❌ Browser OAuth: ${errMsg}`);
-          // Propagate NEED_PHONE/NEED_MFA immediately
+          await recorder.error(1, 6, 'browser_oauth_failed');
           if (errMsg.startsWith('NEED_PHONE')) return sendResult(task, 'error', errMsg);
           if (errMsg.startsWith('NEED_MFA')) return sendResult(task, 'error', errMsg);
         }
       } catch (browserErr) {
         console.log(`[Capture] ❌ Browser-based OAuth exception: ${browserErr?.message || browserErr}`);
+        await recorder.error(1, 6, 'browser_oauth_exception');
       }
 
       if (!authCode) {
         const finalOauthState = await getState(tabId, userId);
+        await recorder.error(1, 7, 'all_fallbacks_failed');
         if (finalOauthState?.hasMfaInput) {
           if (!totpSecret) return sendResult(task, 'error', 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret');
           return sendResult(task, 'error', 'NEED_MFA: Không thể vượt qua màn hình 2FA');
@@ -1216,18 +1263,29 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       }
     }
     if (oauthState?.hasEmailInput && !oauthLoginHandled) {
+      console.log(`[Capture] 📧 OAuth loop: điền email...`);
+      await recorder.before(1, 8, 'oauth_fill_email');
       await fillEmail(tabId, userId, email);
       await new Promise(r => setTimeout(r, 3000));
+      await recorder.after(1, 8, 'oauth_fill_email');
       oauthLoginHandled = true; continue;
     }
     if (oauthState?.hasPasswordInput) {
+      console.log(`[Capture] 🔑 OAuth loop: điền password...`);
+      await recorder.before(1, 9, 'oauth_fill_password');
       await fillPassword(tabId, userId, password);
-      await new Promise(r => setTimeout(r, 3500)); continue;
+      await new Promise(r => setTimeout(r, 3500));
+      await recorder.after(1, 9, 'oauth_fill_password');
+      continue;
     }
     if (oauthState?.hasMfaInput && totpSecret) {
+      console.log(`[Capture] 🛡️ OAuth loop: điền MFA...`);
+      await recorder.before(1, 10, 'oauth_fill_mfa');
       const { otp } = await getFreshTOTP(totpSecret, 8);
       await fillMfa(tabId, userId, otp);
-      await new Promise(r => setTimeout(r, 4000)); continue;
+      await new Promise(r => setTimeout(r, 4000));
+      await recorder.after(1, 10, 'oauth_fill_mfa');
+      continue;
     }
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
@@ -1355,23 +1413,27 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   // Exchange code → tokens
   if (authCode) {
     try {
+      console.log(`[Capture] 🔄 Exchanging code for tokens...`);
+      await recorder.before(1, 11, 'token_exchange');
       const tokenData = await exchangeCodeForTokens(authCode, pkce, effectiveProxy);
       const accessToken = tokenData.access_token || '';
       const refreshToken = tokenData.refresh_token || '';
       const idToken = tokenData.id_token || '';
       const expiresIn = tokenData.expires_in || 0;
       if (!accessToken) {
-        await recorder.error(1, 6, 'exchange_failed');
+        await recorder.error(1, 11, 'exchange_failed');
         return sendResult(task, 'error', 'Token exchange không có access_token');
       }
-      await recorder.after(1, 6, 'exchange_success');
+      await recorder.after(1, 11, 'exchange_success');
       const meta = extractAccountMeta(accessToken);
+      console.log(`[Capture] ✅ Token exchange OK — accountId=${meta.accountId || 'n/a'} plan=${meta.planType || 'n/a'} exp=${meta.expiredAt || 'n/a'}`);
       let sessionToken = '', deviceId = '';
       try {
         const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
         const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
         sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
         deviceId = cookies.find(c => c.name === 'oai-device-id')?.value || '';
+        console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
       } catch (_) {}
       console.log(`[Timing] capture.pkce_success_total=${elapsedMs()}ms`);
       return sendResult(task, 'success', 'OAuth PKCE login + token exchange thành công', null, {
@@ -1381,7 +1443,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       });
     } catch (exchangeErr) {
       console.error(`[Capture] ❌ Token exchange lỗi: ${exchangeErr.message}`);
-      await recorder.error(1, 7, 'exchange_exception');
+      await recorder.error(1, 11, 'exchange_exception');
     }
   }
 
@@ -1391,21 +1453,30 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   const fallbackStartedAt = Date.now();
   await navigate(tabId, userId, 'https://chatgpt.com', 10000);
   await new Promise(r => setTimeout(r, 2000));
+  await recorder.checkpoint(2, 2, 'session_fallback_chatgpt_loaded');
   let accessToken = '';
   for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt === 2) { await navigate(tabId, userId, 'https://chatgpt.com', 10000); await new Promise(r => setTimeout(r, 2000)); }
+    if (attempt === 2) {
+      console.log(`[Capture] 🔄 Session fallback: reload chatgpt.com (attempt ${attempt + 1})...`);
+      await navigate(tabId, userId, 'https://chatgpt.com', 10000);
+      await new Promise(r => setTimeout(r, 2000));
+      await recorder.checkpoint(2, 3, `session_fallback_reload_${attempt + 1}`);
+    }
     await new Promise(r => setTimeout(r, [1500, 2000, 3000, 4000, 5000][attempt]));
+    console.log(`[Capture] 🔄 Session fallback: fetching /api/auth/session (attempt ${attempt + 1}/5)...`);
     const sessionRes = await fetchSessionInPage(tabId, userId);
     if (sessionRes?.ok && sessionRes.body?.length > 10) {
-      try { const d = JSON.parse(sessionRes.body); accessToken = d?.accessToken || ''; if (accessToken) break; } catch (_) {}
+      try { const d = JSON.parse(sessionRes.body); accessToken = d?.accessToken || ''; if (accessToken) { console.log(`[Capture] ✅ Session fallback: accessToken found (attempt ${attempt + 1})`); break; } } catch (_) {}
+    } else {
+      console.log(`[Capture] ⚠️ Session fallback attempt ${attempt + 1}: ok=${sessionRes?.ok} bodyLen=${sessionRes?.body?.length || 0}`);
     }
   }
   await recorder.checkpoint(2, 2, 'session_fallback_attempt');
   if (!accessToken) {
-    await recorder.error(2, 3, 'session_fallback_failed');
+    await recorder.error(2, 4, 'session_fallback_failed');
     return sendResult(task, 'error', 'Cả PKCE và session fallback đều thất bại');
   }
-  await recorder.after(2, 3, 'session_fallback_success');
+  await recorder.after(2, 4, 'session_fallback_success');
   console.log(`[Timing] capture.session_fallback_done=${elapsedMs(fallbackStartedAt)}ms total=${elapsedMs()}ms`);
   const meta = extractAccountMeta(accessToken);
   let sessionToken = '', deviceId = '';
@@ -1414,7 +1485,9 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
     sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
     deviceId = cookies.find(c => c.name === 'oai-device-id')?.value || '';
+    console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
   } catch (_) {}
+  console.log(`[Capture] ✅ Session fallback OK — accountId=${meta.accountId || 'n/a'} plan=${meta.planType || 'n/a'}`);
   await sendResult(task, 'success', 'Đăng nhập thành công (fallback - chỉ access_token)', null, {
     access_token: accessToken, refresh_token: '', accessToken, refreshToken: '',
     sessionToken, deviceId, accountId: meta.accountId, userId: meta.userId,
@@ -1470,6 +1543,7 @@ async function runLoginFlow(task) {
     // Email
     console.log(`[Login] [2] Điền email: ${account.email}`);
     const emailInputSelector = 'input[name="username"], #username, input[type="email"], #email-input, input[name="email-input"], input[name="email"]';
+    await recorder.before(1, 2, 'before_email');
     await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: emailInputSelector, text: account.email });
     await recorder.after(1, 2, 'email_filled');
     await pressKey(tabId, USER_ID, 'Enter');
@@ -1479,6 +1553,7 @@ async function runLoginFlow(task) {
 
     // Password
     console.log(`[Login] [4] Điền password...`);
+    await recorder.before(1, 4, 'before_password');
     await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: 'input[type="password"], input[name="password"], #password', text: account.password });
     await recorder.after(1, 4, 'password_filled');
     await pressKey(tabId, USER_ID, 'Enter');
@@ -1511,17 +1586,22 @@ async function runLoginFlow(task) {
       console.log(`[Login] 🛡️ MFA...`);
       if (!account.twoFaSecret) {
         console.log(`[Login] ⚠️ Cần 2FA nhưng không có secret`);
+        await recorder.error(1, 6, 'mfa_no_secret');
       } else {
         const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"], input[inputmode="numeric"]';
         try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch (_) {}
+        await recorder.before(1, 6, 'before_mfa');
         const { otp, remaining } = await getFreshTOTP(account.twoFaSecret, 5);
+        console.log(`[Login] 🛡️ TOTP remaining=${remaining}s`);
         await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
         await pressKey(tabId, USER_ID, 'Enter');
         await new Promise(r => setTimeout(r, 6000));
+        await recorder.after(1, 6, 'mfa_submitted');
 
         // Check phone after OTP
         const afterSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
         if (isPhoneVerificationScreen(afterSnap.url || '', (afterSnap.snapshot || '').toLowerCase())) {
+          await recorder.error(1, 6, 'phone_after_mfa');
           const bypassUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
           if (bypassUrl) redirectUrl = bypassUrl;
           else { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return; }
@@ -1530,14 +1610,18 @@ async function runLoginFlow(task) {
         // Retry MFA if still there
         const afterText = (afterSnap.snapshot || '').toLowerCase();
         if (afterText.includes('one-time code') || afterText.includes('authenticator') || (afterSnap.url || '').includes('mfa')) {
+          console.log(`[Login] 🛡️ MFA vẫn còn, thử lần 2...`);
+          await recorder.before(1, 7, 'before_mfa_retry');
           const { otp: otp2, remaining: r2 } = await getFreshTOTP(account.twoFaSecret, 2);
+          console.log(`[Login] 🛡️ TOTP retry remaining=${r2}s`);
           try { await tripleClick(tabId, USER_ID, mfaSelector); } catch (_) {}
           await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
           await pressKey(tabId, USER_ID, 'Enter');
           await new Promise(r => setTimeout(r, 4500));
+          await recorder.after(1, 7, 'mfa_retry_submitted');
         }
       }
-      await recorder.after(1, 7, 'after_2fa');
+      await recorder.after(1, 8, 'after_2fa');
     }
 
     // Wait for redirect
@@ -1548,22 +1632,28 @@ async function runLoginFlow(task) {
       const html = (checkSnap.snapshot || '').toLowerCase();
 
       if (isPhoneVerificationScreen(curUrl, html)) {
+        await recorder.error(1, 9, `phone_screen_wait_${i + 1}`);
         redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
         if (!redirectUrl) { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return; }
         break;
       }
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
+        console.log(`[Login] 🔐 Consent page detected (wait loop ${i + 1}), clicking Continue...`);
+        await recorder.before(1, 9, `consent_wait_${i + 1}`);
         try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button:has-text("Continue"), button.btn-primary, [type="submit"]' }); } catch (_) { await pressKey(tabId, USER_ID, 'Enter'); }
         await new Promise(r => setTimeout(r, 2000));
+        await recorder.after(1, 9, `consent_clicked_${i + 1}`);
       }
       if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) { redirectUrl = curUrl; break; }
       if (i > 5 && (curUrl.includes('login') || html.includes('forgot password'))) await pressKey(tabId, USER_ID, 'Enter');
     }
-    await recorder.checkpoint(1, 8, 'flow_complete');
+    await recorder.checkpoint(1, 10, 'flow_complete');
 
     if (redirectUrl && redirectUrl.includes('code=')) {
       const urlObj = new URL(redirectUrl);
       const code = urlObj.searchParams.get('code');
+      console.log(`[Login] ✅ Code lấy được: ${code.slice(0, 20)}...`);
+      await recorder.after(1, 11, 'code_obtained');
       await sendResult(task, 'success', 'Đã lấy được code thành công', {
         code, codeVerifier: task.codeVerifier || account.codeVerifier,
         userAgent, proxyUrl: account.proxyUrl || account.proxy || undefined, finalUrl: redirectUrl,
@@ -1572,14 +1662,17 @@ async function runLoginFlow(task) {
       try {
         const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
         if (isPhoneVerificationScreen(finalSnap.url || '', (finalSnap.snapshot || '').toLowerCase())) {
+          await recorder.error(1, 11, 'phone_final');
           await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return;
         }
       } catch (_) {}
+      await recorder.error(1, 11, 'no_code_timeout');
       await sendResult(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', { finalUrl: redirectUrl || 'unknown' });
     }
   } catch (err) {
     const rawMsg = err?.message || String(err);
     const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Lỗi Worker: ${rawMsg}`;
+    if (recorder) await recorder.error(1, 12, 'exception');
     await sendResult(task, 'error', reportMsg, null);
   } finally {
     if (tabId) { try { await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`); } catch (_) {} }

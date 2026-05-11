@@ -2,6 +2,85 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.59] - 2026-05-11 00:00:00
+
+### 🔍 Auto Worker — Full Screenshot Coverage + Detailed Workspace & Token Logs
+
+Cải thiện khả năng debug và tracing cho `scripts/auto-worker.js` theo hai hướng: ảnh chụp màn hình đầy đủ tại mọi bước và logs chi tiết hơn về workspace selection, token exchange, và session fallback.
+
+#### Screenshots — Before/After/Error cho mọi action
+
+**`runConnectFlow`**:
+- Thêm `before_login_click` trước khi dismiss Google popup + click Log in.
+- Thêm `before_authorize_fallback` trước khi navigate authorize URL trực tiếp.
+- Thêm `before_email_N` / `email_filled_N` cho mỗi attempt điền email (loop 8 lần).
+- Thêm `before_password_N` / `password_filled_N` cho mỗi attempt điền password (loop 5 lần).
+- Thêm `after_password_wait` checkpoint sau safety re-check chờ redirect chậm.
+- Thêm `before_mfa` / `mfa_filled` và `before_mfa_retry` / `mfa_retry` cho MFA 2 lần.
+- Thêm `login_timeout` error screenshot khi `waitForState` hết 60s.
+- Thêm `before_mfa_late` / `mfa_late` khi MFA xuất hiện trong wait loop.
+
+**`captureAndReport` — Phone screen fallback chain** (mỗi fallback đều có before/after/error):
+- `phone_bypass` → `phone_bypass_success` / `phone_bypass_failed`
+- `direct_authurl_navigate` → `direct_authurl_success` / `direct_authurl_no_code` / `direct_authurl_session_lost` / `direct_authurl_exception` / `direct_authurl_consent_page`
+- `session_seed` → `session_seed_success` / `session_seed_failed` / `session_seed_no_cookies` / `session_seed_exception`
+- `protocol_login` → `protocol_login_success` / `protocol_login_failed` / `protocol_login_exception`
+- `browser_oauth` → `browser_oauth_success` / `browser_oauth_failed` / `browser_oauth_exception`
+- `all_fallbacks_failed` error screenshot khi toàn bộ fallback chain thất bại.
+
+**`captureAndReport` — OAuth loop**:
+- Thêm `before/after` cho `oauth_fill_email`, `oauth_fill_password`, `oauth_fill_mfa`.
+- Thêm `token_exchange` → `exchange_success` / `exchange_failed` / `exchange_exception`.
+- Thêm `session_fallback_chatgpt_loaded`, `session_fallback_reload_N` checkpoints.
+- Thêm `session_fallback_success` / `session_fallback_failed` (phase 2).
+
+**`runLoginFlow`**:
+- Thêm `before_email` trước khi type email.
+- Thêm `before_password` trước khi type password.
+- Thêm `before_mfa` / `mfa_submitted` và `before_mfa_retry` / `mfa_retry_submitted`.
+- Thêm `mfa_no_secret` error khi không có `twoFaSecret`.
+- Thêm `phone_after_mfa` error khi phone screen xuất hiện sau MFA.
+- Thêm `consent_wait_N` / `consent_clicked_N` trong wait redirect loop.
+- Thêm `code_obtained` / `no_code_timeout` / `phone_final` / `exception` ở kết quả cuối.
+
+#### Logs — Workspace Selection Chi Tiết
+
+`trySelectWorkspaceAndOrganization()` giờ in đầy đủ:
+```
+[user@email.com] 🗂️ Cookie workspaces: 2 — preferred: uuid-xxx (personal)
+[user@email.com]   [1] id=uuid-xxx name="Personal" kind=personal ← SELECTED
+[user@email.com]   [2] id=uuid-yyy name="Acme Corp" kind=enterprise/team
+[user@email.com] 🗂️ DOM UUID candidates: 3
+[user@email.com] 🗂️ Trying 4 workspace candidate(s) in order...
+[user@email.com] 🧩 Trying workspace: "Personal" (personal)
+[user@email.com] 🧩 workspace/select {"workspace_id":"..."} => HTTP 200 {...}
+[user@email.com] ✅ Workspace selected: "Personal" (personal)
+[user@email.com] 🏢 Found 2 org candidate(s) in response, trying...
+[user@email.com] 🏢 org/select {"organization_id":"..."} => HTTP 200
+[user@email.com] ✅ Organization selected: uuid-zzz
+[user@email.com] ❌ All workspace candidates failed
+```
+
+#### Logs — Token Exchange & Session Fallback
+
+- Log `🔄 Exchanging code for tokens...` trước khi exchange.
+- Sau exchange thành công: `accountId=xxx plan=plus exp=2026-06-01`.
+- Cookie presence: `sessionToken=found deviceId=abc12345...`.
+- Session fallback per-attempt: `fetching /api/auth/session (attempt 2/5): ok=false bodyLen=0`.
+- Session fallback reload: `reload chatgpt.com (attempt 3)...`.
+- Sau session fallback thành công: `accountId=xxx plan=xxx`.
+
+#### Logs — Các cải thiện khác
+
+- **Cookie count** khi session-seed: `🍪 Collected 12 browser cookies for session-seed`.
+- **TOTP remaining time** trong `runLoginFlow`: `🛡️ TOTP remaining=25s` — tránh dùng OTP sắp hết hạn.
+- **Attempt number** trong email/password loops: `Điền email (attempt 2)...`, `Điền password (attempt 2)...`.
+- **Consent detection log** trong wait loop: `🔐 Consent page detected (wait loop 3), clicking Continue...`.
+- **Code obtained log**: `✅ Code lấy được: abc123...`.
+- `workspace/select` response log rút gọn còn 400 chars (thay vì 800) để tránh spam log.
+
+---
+
 ## [0.2.58] - 2026-05-09 19:00:00
 
 ### 🐛 Fix — pullVault status overwrite (v2) — Check LOCAL DB, không phải merge array
