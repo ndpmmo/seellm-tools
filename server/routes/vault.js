@@ -25,13 +25,18 @@ export function setSSEEmitter(emitter) {
 }
 
 /**
- * Trigger Gateway to pull latest snapshot from D1 immediately.
+ * Trigger Gateway Next.js to pull latest snapshot from D1 immediately.
  * Giảm độ trễ từ 30s (Gateway syncTick) xuống < 2s.
- * Best-effort — nếu Gateway không khả dụng hoặc không config, silently skip.
+ * Best-effort — nếu Gateway không chạy Next.js (ví dụ chỉ dùng D1 Worker),
+ * HTTP 404 là expected → silently skip.
  */
 async function triggerGatewaySync(reason = 'manual') {
   const cfg = loadConfig();
   if (!cfg.gatewayUrl || !cfg.d1SyncSecret) return;
+  // Skip nếu gatewayUrl trỏ đến D1 Worker (không có route /api/sync/trigger)
+  if (cfg.gatewayUrl.includes('workers.dev') || cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+    return; // D1 Worker không có Next.js route
+  }
   try {
     const res = await fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
       method: 'POST',
@@ -40,12 +45,12 @@ async function triggerGatewaySync(reason = 'manual') {
     });
     if (res.ok) {
       console.log(`[GatewayTrigger] ✅ Gateway pulled snapshot (reason=${reason})`);
-    } else {
+    } else if (res.status !== 404) {
       console.log(`[GatewayTrigger] ⚠️ Gateway trigger HTTP ${res.status} (reason=${reason})`);
     }
+    // 404 = Gateway không có Next.js route, silently skip
   } catch (e) {
     // Best-effort — Gateway có thể down hoặc không config
-    console.log(`[GatewayTrigger] ⚠️ Failed (reason=${reason}): ${e.message}`);
   }
 }
 

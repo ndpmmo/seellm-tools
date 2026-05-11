@@ -2,6 +2,36 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.69] - 2026-05-12 04:30:00
+
+### 🐛 Fix — Gateway trigger HTTP 404 noise khi không chạy Gateway Next.js
+
+**Problem**: v0.2.68 thêm call `POST /api/sync/trigger` đến Gateway. Nhưng config hiện tại của user có `gatewayUrl = https://gateway-db.seellm.xyz` — đây là **Cloudflare Worker** (D1 Worker proxy), **không phải** Next.js Gateway. Worker không có route `/api/sync/trigger` → trả 404 → logs đầy `[GatewayTrigger] ⚠️ HTTP 404`.
+
+**Root cause**: Route `/api/sync/trigger` chỉ tồn tại trong Next.js Gateway (`seellm-gateway` repo). Nếu user chỉ dùng D1 Worker (không deploy Next.js Gateway), endpoint này không khả dụng.
+
+**Fix** (`server.js`, `server/routes/vault.js`):
+
+Thêm URL check trước khi gọi trigger:
+```js
+if (cfg.gatewayUrl.includes('workers.dev') || cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+  return; // D1 Worker không có Next.js route
+}
+```
+
+Áp dụng cho cả 3 chỗ trigger:
+- `connect-result` (vault.js)
+- `DELETE /api/d1/accounts/:id` (server.js)
+- `PATCH /api/d1/accounts/:id` (server.js)
+
+Silent skip 404 response (không log warning).
+
+**Trade-off**: User không có Next.js Gateway sẽ không có realtime trigger. Nhưng vì họ cũng không có Gateway Next.js nào để nhận, nên thực tế **không có độ trễ**. Tools push D1 → UI đọc trực tiếp từ D1 (< 1s).
+
+**Hướng dẫn**: Nếu user muốn realtime trigger, deploy Next.js Gateway và đổi `gatewayUrl` thành URL Gateway (không phải D1 Worker).
+
+---
+
 ## [0.2.68] - 2026-05-12 04:00:00
 
 ### ⚡ Perf — Giảm độ trễ Tools → Gateway từ 30s xuống <2s qua sync trigger

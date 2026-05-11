@@ -1184,16 +1184,19 @@ app.prepare().then(() => {
 
         // Trigger Gateway pull snapshot ngay sau khi xóa — đảm bảo Gateway hard-delete
         // cả managed_account và connection trong local DB trong < 2s (thay vì đợi syncTick 30s)
-        setTimeout(() => {
-          fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
-            method: 'POST',
-            headers: { 'x-sync-secret': cfg.d1SyncSecret || '', 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(5000),
-          }).then(r => {
-            if (r.ok) console.log(`[GatewayTrigger] ✅ Gateway pulled snapshot after delete ${id}`);
-            else console.log(`[GatewayTrigger] ⚠️ HTTP ${r.status} after delete ${id}`);
-          }).catch(e => console.log(`[GatewayTrigger] ⚠️ Failed after delete: ${e.message}`));
-        }, 500); // Đợi 500ms để D1 Worker kịp commit tombstone
+        // Skip nếu gatewayUrl trỏ đến D1 Worker (không có Next.js route)
+        if (!cfg.gatewayUrl.includes('workers.dev') && !cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+          setTimeout(() => {
+            fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
+              method: 'POST',
+              headers: { 'x-sync-secret': cfg.d1SyncSecret || '', 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(5000),
+            }).then(r => {
+              if (r.ok) console.log(`[GatewayTrigger] ✅ Gateway pulled snapshot after delete ${id}`);
+              else if (r.status !== 404) console.log(`[GatewayTrigger] ⚠️ HTTP ${r.status} after delete ${id}`);
+            }).catch(() => {});
+          }, 500);
+        }
       }
       return next(); // Proxy lệnh xóa lên D1 Cloud
     } catch (e) {
@@ -1243,7 +1246,8 @@ app.prepare().then(() => {
       }
       res.setHeader('Content-Type', 'application/json');
       // Trigger Gateway pull snapshot ngay sau khi PATCH (is_active toggle, proxy change)
-      if (d1.ok && cfg.gatewayUrl) {
+      // Skip nếu gatewayUrl trỏ đến D1 Worker (không có Next.js route)
+      if (d1.ok && cfg.gatewayUrl && !cfg.gatewayUrl.includes('workers.dev') && !cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
         setTimeout(() => {
           fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
             method: 'POST',
