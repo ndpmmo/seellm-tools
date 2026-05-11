@@ -1894,9 +1894,18 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
 // ═══════════════════════════════════════════════════════════════
 let activeThreads = 0;
 const processingIds = new Set();
+const completedCooldown = new Map(); // id -> timestamp
+const COOLDOWN_MS = 30000; // 30 giây không chạy lại account vừa hoàn tất
 
 async function fetchAnyTask() {
   const excludeParam = processingIds.size > 0 ? `?exclude=${[...processingIds].join(',')}` : '';
+  const now = Date.now();
+
+  // Helper: kiểm tra xem ID có trong cooldown không
+  const isCoolingDown = (id) => {
+    const ts = completedCooldown.get(id);
+    return ts && (now - ts) < COOLDOWN_MS;
+  };
 
   // 1. Connect tasks (ưu tiên cao — nhanh hơn, trực tiếp)
   if (currentMode === 'auto' || currentMode === 'direct-login') {
@@ -1931,7 +1940,13 @@ async function fetchAnyTask() {
       });
       if (res.status === 200) {
         const data = await res.json();
-        if (data.task) { data.task._flow = 'login'; data.task.source = 'gateway'; return data.task; }
+        if (data.task) {
+          if (processingIds.has(data.task.id) || isCoolingDown(data.task.id)) {
+            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Gateway task ${data.task.id} skipped (cooldown/processing)`);
+          } else {
+            data.task._flow = 'login'; data.task.source = 'gateway'; return data.task;
+          }
+        }
       }
     } catch (_) {}
 
@@ -1945,7 +1960,12 @@ async function fetchAnyTask() {
         });
         if (d1Res.ok) {
           const d1Data = await d1Res.json();
-          const pending = (d1Data.items || []).find(a => !a.deleted_at && (a.status === 'pending' || a.status === 'relogin'));
+          const pending = (d1Data.items || []).find(a =>
+            !a.deleted_at &&
+            (a.status === 'pending' || a.status === 'relogin') &&
+            !processingIds.has(a.id) &&
+            !isCoolingDown(a.id)
+          );
           if (pending) { pending._flow = 'login'; pending.source = 'd1'; return pending; }
         }
       }
@@ -1973,12 +1993,14 @@ async function pollTasks() {
     runner(task)
       .then(() => {
         activeThreads = Math.max(0, activeThreads - 1);
+        completedCooldown.set(task.id, Date.now()); // Đánh dấu cooldown để không bị double-run
         processingIds.delete(task.id);
         console.log(`[Worker] ✅ Hoàn tất ${task.email}. Còn trống: ${MAX_THREADS - activeThreads}`);
         if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 1000);
       })
       .catch(err => {
         activeThreads = Math.max(0, activeThreads - 1);
+        completedCooldown.set(task.id, Date.now());
         processingIds.delete(task.id);
         console.error(`[Worker] ❌ Lỗi ${task.email}:`, err.message);
       });
