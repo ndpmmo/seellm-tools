@@ -539,9 +539,35 @@ export const SyncManager = {
               // Vault là kho ĐỘC LẬP — xóa ở Gateway = thu hồi về kho lạnh (idle)
               if (ga.deleted_at && !existing.deleted_at) {
                 // Gateway đã xóa account này khỏi D1 managed_accounts.
-                // [FIX] TUYỆT ĐỐI KHÔNG set deleted_at vào Vault local.
-                // Chỉ đão status về 'idle' để nời cho biết account đã được thu hồi.
-                existing.status = 'idle';
+                // [FIX v3] Check local DB trước khi set idle — nếu local đang ready+ever_ready=1,
+                // nghĩa là account vừa connect thành công nhưng D1 chưa kịp update cursor.
+                // Giữ local ready thay vì ghi đè idle.
+                let localRecordForDelete = null;
+                if (localVault && existing.id) {
+                  try {
+                    localRecordForDelete = localVault.db.prepare(
+                      'SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?'
+                    ).get(existing.id);
+                  } catch (_) {}
+                }
+                const localStillReady = localRecordForDelete &&
+                  localRecordForDelete.status === 'ready' &&
+                  Number(localRecordForDelete.ever_ready) === 1;
+                const localStillProcessing = localRecordForDelete && (
+                  localRecordForDelete.status === 'pending' ||
+                  localRecordForDelete.status === 'processing' ||
+                  Number(localRecordForDelete.connect_pending) > 0
+                );
+
+                if (localStillReady || localStillProcessing) {
+                  // Local đang ready hoặc processing — KHÔNG ghi đè idle
+                  // Gateway có deleted_at vì push cũ (khi account còn idle), D1 chưa kịp nhận push mới
+                  existing.status = localRecordForDelete.status;
+                  if (localStillReady) existing.ever_ready = 1;
+                } else {
+                  // Local cũng idle/error — an toàn để set idle
+                  existing.status = 'idle';
+                }
                 // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
               } else {
                 // 🔥 [FIX STATUS OVERWRITE v2] Check LOCAL DB status, không phải existing (array merge)

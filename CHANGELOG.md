@@ -2,6 +2,67 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.64] - 2026-05-11 18:00:00
+
+### 🐛 Fix — pullVault ghi đè `ready` → `idle` khi Gateway managedAccounts có `deleted_at` (v3)
+
+**Problem**: Account vừa connect thành công (`status=ready`, `ever_ready=1`, có tokens) bị `pullVault` ghi đè về `idle` → `gateway_status=revoked` → biến mất khỏi Services. Đây là bug lặp lại từ v0.2.58 nhưng ở một code path khác.
+
+**Root cause (khác v0.2.58)**:
+
+Trong `pullVault()`, khi merge `managedAccounts` từ Gateway, có 2 nhánh:
+```js
+if (ga.deleted_at && !existing.deleted_at) {
+  existing.status = 'idle';  // ← LUÔN SET IDLE, KHÔNG CHECK LOCAL DB!
+} else {
+  // Guard v2 logic (check localIsReady, localNewer, etc.) — ĐÚNG
+}
+```
+
+Guard v2 (fix v0.2.58) chỉ nằm trong `else` block. Khi `ga.deleted_at` set, code đi vào `if` block và **bỏ qua toàn bộ guard logic**.
+
+**Flow gây lỗi**:
+1. Account ban đầu `idle` → push lên D1 → `managedAccounts.deleted_at = now` (Rule 3: idle → tombstone)
+2. User bấm Deploy → worker chạy → `connect-result` success → local `ready` + push `ready` lên D1
+3. `pullVault` chạy → D1 trả về `managedAccounts` **vẫn có record cũ với `deleted_at` set** (cursor chưa advance đến push mới)
+4. Guard check: `ga.deleted_at && !existing.deleted_at` → **TRUE**
+5. → `existing.status = 'idle'` → **GHI ĐÈ READY!**
+6. `upsertAccount(existing, skipSync=true)` → local DB bị set `idle`
+7. Tiếp theo `_executePush` chạy với `status='idle'` → Rule 3 → `gateway_status='revoked'`
+
+**Fix** (`server/services/syncManager.js` — `pullVault` merge logic):
+
+Thêm check local DB **trước** khi set idle trong `ga.deleted_at` block:
+```js
+if (ga.deleted_at && !existing.deleted_at) {
+  // Check local DB — nếu local đang ready hoặc processing, KHÔNG ghi đè
+  const localRecordForDelete = localVault.db.prepare(
+    'SELECT status, ever_ready, connect_pending FROM vault_accounts WHERE id = ?'
+  ).get(existing.id);
+  
+  const localStillReady = localRecord?.status === 'ready' && ever_ready === 1;
+  const localStillProcessing = localRecord?.status in ['pending','processing'] || cp > 0;
+  
+  if (localStillReady || localStillProcessing) {
+    existing.status = localRecord.status;  // Giữ local
+  } else {
+    existing.status = 'idle';  // An toàn để set idle
+  }
+}
+```
+
+**Data repair** (`scripts/repair-gateway-status.mjs`):
+- 3 accounts `ready` + `gateway_status=revoked` → force re-push → `gateway_status='active'`
+- 1 account `idle` + `ever_ready=1` + có tokens (bị overwrite) → restore `ready` + re-push
+
+**Kết quả**:
+- `sathevienthe0659@hotmail.com` → active ✅
+- `kelseybellamymaris8671@hotmail.com` → active ✅
+- `iphigeniadulciegrace8925@hotmail.com` → active ✅
+- `almirachadava9731@outlook.com` → restored ready + active ✅
+
+---
+
 ## [0.2.63] - 2026-05-11 17:00:00
 
 ### 🐛 Fix — Cookie name, workspace logs trong BrowserOAuth path, Services không auto-reload
