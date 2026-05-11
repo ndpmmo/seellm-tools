@@ -2,6 +2,40 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.61] - 2026-05-11 01:00:00
+
+### 🔍 Fix — Workspace selection logs không hiển thị trong flow thực tế
+
+**Root cause**: `trySelectWorkspaceAndOrganization()` được định nghĩa trong `auto-worker.js` với đầy đủ logs nhưng **không bao giờ được gọi**. Workspace selection thực sự xảy ra ở 2 nơi khác:
+
+1. **`performWorkspaceConsentBypass()`** (`lib/openai-oauth.js`) — chạy JS inline trong browser tab, chọn personal workspace từ JWT cookie, nhưng chỉ log `[Bypass] Result: {ok, hasCode, workspaceId}` — không log tên/loại workspace.
+2. **Consent click trực tiếp** trong `captureAndReport` — không có workspace log nào trước khi click Continue.
+
+**Fix**:
+
+- `scripts/lib/openai-oauth.js` — `performWorkspaceConsentBypass()`:
+  - Thêm log sau khi bypass hoàn tất:
+    ```
+    [Bypass] 🗂️ Workspace selected: uuid-xxx — source: oai-client-auth-session JWT (personal preferred)
+    [Bypass] ❌ No workspace selected — No workspace found in cookie or HTML
+    ```
+
+- `scripts/auto-worker.js` — consent click path trong `captureAndReport`:
+  - Trước khi click Continue, decode JWT cookie và log đầy đủ workspace list:
+    ```
+    [Capture] 🗂️ Consent for 2 workspace(s) — active: "Personal" (personal)
+    [Capture]   [1] id=uuid-xxx name="Personal" kind=personal ← ACTIVE
+    [Capture]   [2] id=uuid-yyy name="Acme Corp" kind=enterprise/team
+    [Capture] 🗂️ Consent: no workspace data in cookie (free account or cookie not set)
+    ```
+
+**Kết quả**: Với flow thực tế (consent click), logs giờ sẽ hiển thị rõ:
+- Có bao nhiêu workspace trong account
+- Workspace nào đang active (được OpenAI consent cho)
+- Loại workspace: personal hay enterprise/team
+
+---
+
 ## [0.2.60] - 2026-05-11 00:30:00
 
 ### 🐛 Fix — `deviceId=missing` + Step numbering conflict trong `captureAndReport`

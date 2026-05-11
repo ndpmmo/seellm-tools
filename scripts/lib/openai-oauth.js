@@ -371,5 +371,13 @@ export async function performWorkspaceConsentBypass(evalJson, tabId, userId, { t
     error: codeResult?.error || null,
   };
   console.log(`[Bypass] Result:`, JSON.stringify(safeLog));
+
+  // Log workspace selection detail
+  if (codeResult?.workspaceId) {
+    console.log(`[Bypass] 🗂️ Workspace selected: ${codeResult.workspaceId} — source: oai-client-auth-session JWT (personal preferred)`);
+  } else if (!codeResult?.ok) {
+    console.log(`[Bypass] ❌ No workspace selected — ${codeResult?.error || 'unknown error'}`);
+  }
+
   return codeResult || { ok: false, error: 'Unknown bypass error' };
 }

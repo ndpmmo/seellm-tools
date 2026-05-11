@@ -1314,6 +1314,24 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         consentAttempts++;
         console.log(`[Capture] Consent page detected (attempt ${consentAttempts}), clicking Continue...`);
         await recorder.before(1, ++captureStep, `consent_attempt_${consentAttempts}`);
+        const consentStep = captureStep;
+
+        // Log workspace info từ cookie trước khi click — để biết đang consent cho workspace nào
+        try {
+          const consentWorkspaces = await extractWorkspacesFromCookieInPage(tabId, userId);
+          if (consentWorkspaces.length > 0) {
+            const preferred = pickPreferredWorkspace(consentWorkspaces);
+            console.log(`[Capture] 🗂️ Consent for ${consentWorkspaces.length} workspace(s) — active: "${preferred?.name || preferred?.id || 'n/a'}" (${isPersonalWorkspace(preferred) ? 'personal' : 'enterprise/team'})`);
+            consentWorkspaces.forEach((ws, i) => {
+              const kind = isPersonalWorkspace(ws) ? 'personal' : 'enterprise/team';
+              const name = ws.name || ws.display_name || ws.title || '(no name)';
+              const marker = ws.id === preferred?.id ? ' ← ACTIVE' : '';
+              console.log(`[Capture]   [${i + 1}] id=${ws.id} name="${name}" kind=${kind}${marker}`);
+            });
+          } else {
+            console.log(`[Capture] 🗂️ Consent: no workspace data in cookie (free account or cookie not set)`);
+          }
+        } catch (_) {}
 
         // Wait for React to render
         await new Promise(r => setTimeout(r, 1500));
