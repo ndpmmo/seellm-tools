@@ -114,8 +114,6 @@ Hai bug song song làm account stuck ở `connect_pending=2, status=idle` dù wo
 
 ## [0.2.55] - 2026-05-09 16:00:00
 
-### 🐛 Fix — Consent Page Always Selects Personal Account Instead of Enterprise Workspace
-
 **Problem**: Khi màn hình consent Codex OAuth hiển thị danh sách workspace (ảnh: "SeeLLM Workspace" + "Personal account"), worker luôn chọn workspace đầu tiên trong danh sách — là workspace doanh nghiệp/team — thay vì "Personal account". Nguyên nhân: OpenAI sắp xếp enterprise workspace ở `workspaces[0]` trong JWT cookie `oai-client-auth-session`, và tất cả các code path đều lấy `[0]` mà không kiểm tra loại workspace.
 
 **Root cause**: `workspaces[0]` trong JWT `oai-client-auth-session` luôn là enterprise/team workspace khi account thuộc một tổ chức. Personal account nằm ở vị trí sau trong mảng.
@@ -149,6 +147,34 @@ Hai bug song song làm account stuck ở `connect_pending=2, status=idle` dù wo
   4. Log rõ: số workspace tìm được, ID được chọn, loại (personal/enterprise).
 
 **Result**: Worker luôn chọn "Personal account" khi có, bất kể thứ tự OpenAI trả về trong JWT. Enterprise workspace chỉ được dùng khi account không có personal workspace.
+
+---
+
+## [0.2.54] - 2026-05-09 15:02:00
+
+### 🔌 Fix — Revoke Connected Accounts Immediately on Stop
+
+**Problem**: Stopping a `ready` account only updated local status to `idle` but did not immediately push the tombstone to D1/Gateway. The managed account and connection records remained active on Gateway until the next scheduled sync loop (up to 15 minutes).
+
+**Fix** (`server/routes/vault.js` — stop endpoint, `src/components/views/vault/VaultAccountsView.tsx`):
+- After setting local status to `idle`, immediately call `SyncManager.pushVault('account', updatedRecord)` so D1 receives the tombstone (Rule 3: idle → `deleted_at=now, is_active=0`) without waiting for the next sync tick.
+- UI patches `gateway_status` from the stop response immediately so the row shows `revoked` badge without reload.
+
+**Result**: Stopping an account now revokes it from Gateway within seconds instead of up to 15 minutes.
+
+---
+
+## [0.2.53] - 2026-05-09 14:59:00
+
+### 🏷️ Fix — Preserve `need_phone` Badge When Stopping Accounts
+
+**Problem**: When an account already had `need_phone` status and the user clicked Stop, the route switched status to `idle` before the auto-tag hook had a chance to create the `need_phone` tag. The badge disappeared after stop.
+
+**Fix** (`server/routes/vault.js` — stop endpoint, `src/components/views/vault/VaultAccountsView.tsx`):
+- Call `maybeAddNeedPhoneTag(id, existing.notes)` **before** switching status to `idle`, so the tag is written while the old notes (containing `NEED_PHONE`) are still present.
+- UI patches local `tags` array immediately from the stop response so the `NEED PHONE` badge appears without reload.
+
+**Result**: Accounts that were phone-blocked retain the `NEED PHONE` badge after being stopped.
 
 ---
 
