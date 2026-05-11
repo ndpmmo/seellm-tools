@@ -988,6 +988,34 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
         }
       } catch (_) {}
 
+      // ── Chọn Personal workspace trước khi click Continue (BrowserOAuth path) ──
+      try {
+        const selectResult = await evalJson(tabId, userId, `(() => {
+          const items = document.querySelectorAll('[role="radio"], [role="option"], [data-testid*="workspace"], label, li, div[class*="workspace"], div[class*="account"]');
+          let personalEl = null;
+          let personalText = '';
+          for (const el of items) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').toLowerCase().trim();
+            if (text.includes('personal')) { personalEl = el; personalText = text.slice(0, 50); break; }
+          }
+          if (!personalEl) {
+            const listItems = document.querySelectorAll('[role="radiogroup"] > *, form [class*="list"] > *');
+            if (listItems.length >= 2) { personalEl = listItems[1]; personalText = (personalEl.textContent || '').slice(0, 50).toLowerCase(); }
+          }
+          if (!personalEl) return { ok: false, reason: 'no-personal-option' };
+          personalEl.click();
+          try { personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch (_) {}
+          return { ok: true, text: personalText };
+        })()`, { timeoutMs: 5000 });
+        if (selectResult?.ok) {
+          log(`🗂️ Selected personal workspace: "${selectResult.text}"`);
+          await new Promise(r => setTimeout(r, 1000));
+        } else {
+          log(`⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'}`);
+        }
+      } catch (_) {}
+
       // Handle "Try again" error page — click it and reload
       try {
         const tryAgainResult = await evalJson(tabId, userId, `(() => {
@@ -1353,6 +1381,65 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
 
         // Wait for React to render
         await new Promise(r => setTimeout(r, 1500));
+
+        // ── Chọn Personal workspace trước khi click Continue ──────────────────
+        // OpenAI mặc định chọn enterprise workspace đầu tiên trong danh sách.
+        // Cần click vào "Personal account" option trước khi submit form.
+        try {
+          const selectResult = await evalJson(tabId, userId, `(() => {
+            // Tìm tất cả workspace options trong consent form
+            const items = document.querySelectorAll('[role="radio"], [role="option"], [data-testid*="workspace"], label, li, div[class*="workspace"], div[class*="account"]');
+            let personalEl = null;
+            let personalText = '';
+            
+            for (const el of items) {
+              if (el.offsetParent === null) continue;
+              const text = (el.textContent || '').toLowerCase().trim();
+              // Match "personal account", "personal workspace", hoặc tên không chứa "workspace"/"team"/"enterprise"
+              if (text.includes('personal')) {
+                personalEl = el;
+                personalText = text.slice(0, 50);
+                break;
+              }
+            }
+            
+            if (!personalEl) {
+              // Fallback: tìm item thứ 2 trong danh sách (thường là personal)
+              const listItems = document.querySelectorAll('[role="radiogroup"] > *, [class*="workspace-list"] > *, form [class*="list"] > *');
+              if (listItems.length >= 2) {
+                personalEl = listItems[1]; // Item thứ 2 thường là Personal
+                personalText = (personalEl.textContent || '').slice(0, 50).toLowerCase();
+              }
+            }
+            
+            if (!personalEl) return { ok: false, reason: 'no-personal-option' };
+            
+            // Click vào personal option
+            personalEl.click();
+            // Dispatch events cho React
+            try {
+              personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+              personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            } catch (_) {}
+            
+            // Verify: check if aria-checked or selected state changed
+            const isSelected = personalEl.getAttribute('aria-checked') === 'true' || 
+                              personalEl.classList.contains('selected') ||
+                              personalEl.querySelector('[aria-checked="true"]') !== null;
+            
+            return { ok: true, text: personalText, verified: isSelected };
+          })()`, { timeoutMs: 5000 });
+          
+          if (selectResult?.ok) {
+            console.log(`[Capture] 🗂️ Selected personal workspace: "${selectResult.text}" (verified=${selectResult.verified})`);
+            await new Promise(r => setTimeout(r, 1000)); // Wait for UI to update
+          } else {
+            console.log(`[Capture] ⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'}`);
+          }
+        } catch (selectErr) {
+          console.log(`[Capture] ⚠️ Workspace selection error: ${selectErr?.message || selectErr}`);
+        }
 
         // Use _clickConsent strategies (same as _completeBrowserOAuth)
         const CONSENT_FORM_SEL = 'form[action*="/sign-in-with-chatgpt/codex/consent"],form[action*="/sign-in-with-chatgpt"],form[action*="consent"]';

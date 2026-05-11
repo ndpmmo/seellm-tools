@@ -2,6 +2,43 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.66] - 2026-05-12 02:00:00
+
+### 🐛 Fix — Consent page không chọn Personal workspace trước khi click Continue
+
+**Problem**: Khi consent page hiển thị danh sách workspace ("SeeLLM Workspace" ✓ + "Personal account"), code chỉ click "Continue" mà **không chọn Personal account trước**. OpenAI mặc định chọn enterprise workspace đầu tiên → token exchange trả về `accountId` của enterprise workspace thay vì personal.
+
+**Bằng chứng từ logs**:
+```
+[Capture] 🗂️ Consent for 2 workspace(s) — active: "1ef6d510-..." (personal)  ← cookie nói personal
+[Capture] ✅ Token exchange OK — accountId=228d918c-...  ← nhưng token là enterprise!
+```
+
+Logs chỉ **log** workspace nào nên chọn (từ JWT cookie), nhưng **không thực sự click** vào Personal option trên UI.
+
+**Root cause**: Consent page có radio/list UI cho workspace selection. OpenAI pre-select enterprise workspace (đầu tiên trong danh sách). Code v0.2.55 đã fix workspace selection cho `performWorkspaceConsentBypass` (API path) và `acquireCodexCallbackViaSessionSeeding` (HTTP path), nhưng **consent click path** (browser UI) chưa bao giờ có logic chọn workspace — chỉ click Continue.
+
+**Fix** (`scripts/auto-worker.js` — 2 consent click paths):
+
+1. **`captureAndReport` consent click** — thêm logic trước khi click Continue:
+   - Tìm element chứa text "personal" (radio, option, label, li, div)
+   - Click vào element đó để chọn Personal workspace
+   - Dispatch mousedown/mouseup/click events cho React
+   - Wait 1s cho UI update
+   - Fallback: nếu không tìm thấy "personal", thử click item thứ 2 trong danh sách
+
+2. **`_completeBrowserOAuth` consent click** — thêm logic tương tự trước "Try again" handler
+
+**Log mới**:
+```
+[Capture] 🗂️ Selected personal workspace: "personal account" (verified=true)
+[Capture] ⚠️ Could not select personal workspace: no-personal-option
+```
+
+**Kết quả**: Token exchange giờ sẽ trả về `accountId` của Personal workspace thay vì enterprise. Account sử dụng quota cá nhân thay vì quota team.
+
+---
+
 ## [0.2.65] - 2026-05-11 19:00:00
 
 ### 🔧 Sync Robustness — Self-heal gateway_status + Event Bus handler + D1 connection tombstone
