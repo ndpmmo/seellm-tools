@@ -2,6 +2,46 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.72] - 2026-05-12 05:20:00
+
+### 🐛 Fix — Race condition: worker chạy LOGIN flow đè lên CONNECT flow ngay sau khi hoàn tất
+
+**Problem**: Sau khi CONNECT flow chọn đúng personal workspace và báo `connect-result HTTP 200`, cùng account bị worker chạy tiếp LOGIN flow sau 1 giây. LOGIN flow lấy token khác (không chọn workspace) → đè `plan=team` + `workspace_id=team_org` → UI hiển thị sai "Team/Business".
+
+**Root cause** (`scripts/auto-worker.js`):
+1. `fetchAnyTask` kiểm tra `processingIds` cho local endpoints (`connect-task`, `task`) nhưng **KHÔNG** kiểm tra cho Gateway/D1 sources.
+2. Sau CONNECT flow xong, `processingIds.delete(id)` ngay lập tức → account "rảnh".
+3. Poll tiếp theo (1s sau) fetch D1 → D1 chưa sync kịp, vẫn `status='pending'` → worker chạy LOGIN flow cho cùng account.
+
+**Fix** (`scripts/auto-worker.js`):
+- Thêm `completedCooldown` Map (30 giây) để track account vừa hoàn tất
+- Gateway tasks: skip nếu ID đang `processingIds` HOẶC trong `completedCooldown`
+- D1 tasks: skip nếu ID đang `processingIds` HOẶC trong `completedCooldown`
+- `pollTasks`: ghi `completedCooldown` khi flow hoàn tất (cả success lẫn error)
+
+---
+
+## [0.2.71] - 2026-05-12 04:10:00
+
+### 🐛 Fix — parseCodexIdToken tự động override workspace personal → team
+
+**Problem**: UI hiển thị "Team/Business" label dù auto-worker đã chọn đúng personal workspace trong consent page. Token exchange trả về đúng `accountId` của personal, nhưng vault lưu `plan='team'`.
+
+**Root cause** (`server/services/codexMetadata.js`):
+- `parseCodexIdToken` có logic: nếu `chatgpt_plan_type = 'free'` và user có team org → tự động override `workspaceId = teamOrg.id` và `workspacePlanType = 'team'`.
+- Login flow (`/accounts/result`) dùng `parseCodexIdToken` để lấy `plan` và `workspace_id` → ghi đè sai.
+
+**Fix**:
+- `server/services/codexMetadata.js`: Xóa logic auto-override. Giờ trả về đúng giá trị từ JWT (`chatgpt_account_id`, `chatgpt_plan_type`).
+- `server/routes/vault.js`: Result endpoint giờ dùng `extractAccountMeta(access_token)` — đọc `accountId` và `planType` trực tiếp từ access_token JWT (giống connect-result endpoint), thay vì chỉ dựa `parseCodexIdToken(id_token)`.
+
+**Các fix khác trong cùng commit**:
+- `server/db/vault.js`: `upsertAccount` giữ `status` hiện có trên partial update (không default về `'idle'`)
+- `src/components/AppContext.tsx`: Fix `refreshAccounts` parsing `res.items`
+- `src/components/views/vault/VaultAccountsView.tsx`: Thêm SSE listener `seellm:vault-update` để UI refresh ngay sau connect-result
+
+---
+
 ## [0.2.70] - 2026-05-12 05:00:00
 
 ### 🎯 Fix — Triệt để: Vault là kho độc lập, remote KHÔNG BAO GIỜ ghi đè local status
