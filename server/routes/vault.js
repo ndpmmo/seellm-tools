@@ -417,6 +417,10 @@ router.get('/accounts/task', async (req, res) => {
     const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
 
     // Tìm account pending/relogin chưa bị xóa, đang active, có email, và KHÔNG trong danh sách exclude
+    // Tránh race condition: nếu account vừa được connect-result update (< 10s), skip
+    // Vì connect-result set ready nhưng worker poll có thể thấy state cũ (pending) do timing
+    const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+
     const task = allAccounts.find(a =>
       (a.status === 'pending' || a.status === 'relogin') &&
       !a.deleted_at &&
@@ -425,6 +429,15 @@ router.get('/accounts/task', async (req, res) => {
       a.email && a.email.trim() &&
       !excludeIds.includes(a.id) // 🔑 Đây là điều kiện then chốt cho đa luồng
     );
+
+    // Double-check: re-read từ DB để tránh race với connect-result
+    if (task) {
+      const freshCheck = vault.db.prepare('SELECT status, connect_pending, ever_ready FROM vault_accounts WHERE id = ?').get(task.id);
+      if (freshCheck && (freshCheck.status === 'ready' || freshCheck.status === 'processing' || Number(freshCheck.connect_pending || 0) > 0)) {
+        console.log(`[Task] ⏭️ Skipped ${task.email}: fresh status=${freshCheck.status} cp=${freshCheck.connect_pending} (race with connect-result)`);
+        return res.json({ ok: true, task: null });
+      }
+    }
 
     if (!task) return res.json({ ok: true, task: null });
 

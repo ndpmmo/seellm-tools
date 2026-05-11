@@ -1883,6 +1883,18 @@ async function runLoginFlow(task) {
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
         console.log(`[Login] 🔐 Consent page detected (wait loop ${i + 1}), clicking Continue...`);
         await recorder.before(1, 9, `consent_wait_${i + 1}`);
+
+        // ── Chọn Personal workspace trước khi click Continue ──
+        const selectResult = await selectPersonalWorkspaceInConsentUI({
+          tabId, userId: USER_ID, timeoutMs: 5000, logPrefix: '[Login]'
+        });
+        if (selectResult?.ok && selectResult?.changed) {
+          console.log(`[Login] ✅ Personal workspace selected successfully`);
+          await new Promise(r => setTimeout(r, 1500));
+        } else {
+          console.log(`[Login] ⚠️ Personal workspace selection: ${selectResult?.reason || 'unknown'}`);
+        }
+
         try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button:has-text("Continue"), button.btn-primary, [type="submit"]' }); } catch (_) { await pressKey(tabId, USER_ID, 'Enter'); }
         await new Promise(r => setTimeout(r, 2000));
         await recorder.after(1, 9, `consent_clicked_${i + 1}`);
@@ -1984,17 +1996,25 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
 // ═══════════════════════════════════════════════════════════════
 let activeThreads = 0;
 const processingIds = new Set();
+const processingEmails = new Set(); // Track email đang xử lý để tránh double-run cross-endpoint
 const completedCooldown = new Map(); // id -> timestamp
+const completedEmailCooldown = new Map(); // email -> timestamp
 const COOLDOWN_MS = 30000; // 30 giây không chạy lại account vừa hoàn tất
 
 async function fetchAnyTask() {
   const excludeParam = processingIds.size > 0 ? `?exclude=${[...processingIds].join(',')}` : '';
   const now = Date.now();
 
-  // Helper: kiểm tra xem ID có trong cooldown không
-  const isCoolingDown = (id) => {
+  // Helper: kiểm tra xem ID hoặc email có trong cooldown không
+  const isCoolingDown = (id, email = null) => {
     const ts = completedCooldown.get(id);
-    return ts && (now - ts) < COOLDOWN_MS;
+    if (ts && (now - ts) < COOLDOWN_MS) return true;
+    if (email) {
+      const emailTs = completedEmailCooldown.get(email.toLowerCase());
+      if (emailTs && (now - emailTs) < COOLDOWN_MS) return true;
+      if (processingEmails.has(email.toLowerCase())) return true;
+    }
+    return false;
   };
 
   // 1. Connect tasks (ưu tiên cao — nhanh hơn, trực tiếp)
@@ -2003,7 +2023,13 @@ async function fetchAnyTask() {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/connect-task${excludeParam}`, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         const d = await res.json();
-        if (d?.task) { d.task._flow = 'connect'; d.task.source = d.task.source || 'tools'; return d.task; }
+        if (d?.task) {
+          if (isCoolingDown(d.task.id, d.task.email)) {
+            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Connect task ${d.task.id} skipped (cooldown)`);
+          } else {
+            d.task._flow = 'connect'; d.task.source = d.task.source || 'tools'; return d.task;
+          }
+        }
       } else {
         if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] connect-task HTTP ${res.status}`);
       }
@@ -2018,7 +2044,13 @@ async function fetchAnyTask() {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/task${excludeParam}`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
         const data = await res.json();
-        if (data.task) { data.task._flow = 'login'; data.task.source = 'tools'; return data.task; }
+        if (data.task) {
+          if (isCoolingDown(data.task.id, data.task.email)) {
+            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Local login task ${data.task.id} skipped (cooldown)`);
+          } else {
+            data.task._flow = 'login'; data.task.source = 'tools'; return data.task;
+          }
+        }
       }
     } catch (_) {}
 
@@ -2031,7 +2063,7 @@ async function fetchAnyTask() {
       if (res.status === 200) {
         const data = await res.json();
         if (data.task) {
-          if (processingIds.has(data.task.id) || isCoolingDown(data.task.id)) {
+          if (processingIds.has(data.task.id) || isCoolingDown(data.task.id, data.task.email)) {
             if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Gateway task ${data.task.id} skipped (cooldown/processing)`);
           } else {
             data.task._flow = 'login'; data.task.source = 'gateway'; return data.task;
@@ -2054,7 +2086,7 @@ async function fetchAnyTask() {
             !a.deleted_at &&
             (a.status === 'pending' || a.status === 'relogin') &&
             !processingIds.has(a.id) &&
-            !isCoolingDown(a.id)
+            !isCoolingDown(a.id, a.email)
           );
           if (pending) { pending._flow = 'login'; pending.source = 'd1'; return pending; }
         }
@@ -2073,6 +2105,7 @@ async function pollTasks() {
     if (processingIds.has(task.id)) return;
 
     processingIds.add(task.id);
+    if (task.email) processingEmails.add(task.email.toLowerCase());
     activeThreads++;
 
     // Auto-select flow: connect nếu có password, login nếu chỉ có codeVerifier
@@ -2084,14 +2117,18 @@ async function pollTasks() {
       .then(() => {
         activeThreads = Math.max(0, activeThreads - 1);
         completedCooldown.set(task.id, Date.now()); // Đánh dấu cooldown để không bị double-run
+        if (task.email) completedEmailCooldown.set(task.email.toLowerCase(), Date.now());
         processingIds.delete(task.id);
+        if (task.email) processingEmails.delete(task.email.toLowerCase());
         console.log(`[Worker] ✅ Hoàn tất ${task.email}. Còn trống: ${MAX_THREADS - activeThreads}`);
         if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 1000);
       })
       .catch(err => {
         activeThreads = Math.max(0, activeThreads - 1);
         completedCooldown.set(task.id, Date.now());
+        if (task.email) completedEmailCooldown.set(task.email.toLowerCase(), Date.now());
         processingIds.delete(task.id);
+        if (task.email) processingEmails.delete(task.email.toLowerCase());
         console.error(`[Worker] ❌ Lỗi ${task.email}:`, err.message);
       });
 

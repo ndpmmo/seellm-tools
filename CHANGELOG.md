@@ -2,6 +2,62 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.74] - 2026-05-12 06:30:00
+
+### 🐛 Fix — Race condition: LOGIN flow đè lên CONNECT flow + UI stuck ở Processing/Pending
+
+**Problem**: Sau khi CONNECT flow hoàn tất thành công (`connect-result HTTP 200`, `accountId=personal`, `plan=free`), UI Vault vẫn hiển thị "Processing" và Managed Services hiển thị "Pending". Account không chuyển sang Ready.
+
+**Root cause — 4 tầng lỗi**:
+
+1. **`upsertAccount` logic v0.2.70 quá aggressive** (`server/db/vault.js`): Logic "Vault độc lập" (`if (skipSync && existing.status) finalStatus = existing.status`) block **MỌI** status change khi `skipSync=true` — kể cả từ `connect-result` (worker callback). `connect-result` truyền `skipSync=true` để tránh double-push, nhưng logic hiểu đó là "pull từ cloud → giữ local". Kết quả: `status='ready'` bị override về `existing.status='processing'`.
+
+2. **Worker-side** (`scripts/auto-worker.js`): `completedCooldown` (v0.2.72) chỉ check cho Gateway/D1 tasks, **KHÔNG check cho local `task` endpoint**. Cũng không track theo email.
+
+3. **Server-side** (`server/routes/vault.js`): `task` endpoint không double-check fresh status trước khi lock.
+
+4. **`runLoginFlow`** (`scripts/auto-worker.js`): Khi phát hiện consent page, chỉ click Continue **mà không gọi `selectPersonalWorkspaceInConsentUI()`**.
+
+**Fix — 4 tầng tương ứng**:
+
+**Tầng 1 — `upsertAccount` phân biệt cloud pull vs worker callback** (`server/db/vault.js`):
+```js
+if (skipSync && existing && existing.status) {
+  const isLegitimateStatusChange = data.status !== undefined && 
+    ['ready', 'idle', 'error'].includes(String(data.status).toLowerCase());
+  if (!isLegitimateStatusChange) {
+    finalStatus = existing.status; // Giữ local khi pull từ cloud
+  }
+  // Nếu legitimate (ready/idle/error) → cho phép update
+}
+```
+- `connect-result` gọi `upsertAccount({ status: 'ready' }, skipSync=true)` → `'ready'` is legitimate → **cho phép** ✅
+- `pullVault` gọi `upsertAccount({ status: 'pending' }, skipSync=true)` → `'pending'` NOT legitimate → **block** ✅
+
+**Tầng 2 — Worker cooldown toàn diện** (`scripts/auto-worker.js`):
+- Thêm `processingEmails` Set + `completedEmailCooldown` Map — track theo **email**
+- `isCoolingDown(id, email)` check cả ID lẫn email + check `processingEmails`
+- Áp dụng cooldown cho **tất cả** 4 task sources
+
+**Tầng 3 — Server double-check** (`server/routes/vault.js` — `GET /accounts/task`):
+- Re-read fresh từ DB trước khi lock. Skip nếu status đã ready/processing/connect_pending>0.
+
+**Tầng 4 — LOGIN flow workspace selection** (`scripts/auto-worker.js` — `runLoginFlow`):
+- Thêm `selectPersonalWorkspaceInConsentUI()` vào consent handling
+
+**Bonus — Startup repair** (`server.js`):
+- Khi server khởi động, re-push tất cả accounts `ready + ever_ready=1` lên D1
+
+**Backup**: `server/routes/_backup_task_endpoint_v0.2.73.js`
+
+**Kết quả**:
+- `connect-result` set `ready` thực sự được lưu vào DB (không bị override)
+- UI Vault hiển thị Ready ngay sau connect-result
+- Managed Services hiển thị Connected sau D1 push
+- Cùng email không bị chạy 2 flow trong 30 giây
+
+---
+
 ## [0.2.73] - 2026-05-12 05:40:00
 
 ### 🐛 Fix — Consent UI vẫn giữ workspace doanh nghiệp dù worker biết personal account

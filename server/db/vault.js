@@ -317,8 +317,16 @@ export const vault = {
     // Khi skipSync=true (từ pullVault), KHÔNG BAO GIỜ ghi đè local status từ remote.
     // Local status chỉ thay đổi qua user action (Vault UI: Deploy/Stop) hoặc worker callback (connect-result).
     // Điều này giải quyết race condition: user xóa → Deploy lại → tombstone cũ trong D1 không còn phá local.
+    // 
+    // EXCEPTION: Nếu data.status được truyền explicit VÀ là 'ready' hoặc 'idle' (worker callback hoặc user action),
+    // cho phép update — vì đây là legitimate status change, không phải cloud overwrite.
     if (skipSync && existing && existing.status) {
-      finalStatus = existing.status; // Luôn giữ local status khi pull từ cloud
+      const isLegitimateStatusChange = data.status !== undefined && data.status !== null && 
+        ['ready', 'idle', 'error'].includes(String(data.status).toLowerCase());
+      if (!isLegitimateStatusChange) {
+        finalStatus = existing.status; // Giữ local status khi pull từ cloud
+      }
+      // Nếu isLegitimateStatusChange=true, giữ finalStatus = data.status (đã set ở trên)
     }
 
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data

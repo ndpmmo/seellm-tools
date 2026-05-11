@@ -706,6 +706,31 @@ app.prepare().then(() => {
   const D1_SELF_HEAL_MS = Math.max(60 * 60 * 1000, Number(process.env.SEELLM_TOOLS_D1_SELF_HEAL_MS || 12 * 60 * 60 * 1000));
 
   startupSync();
+
+  // ── Startup Repair: force re-push accounts local=ready nhưng có thể bị stuck trên D1 ──
+  // Xảy ra khi task endpoint race với connect-result → D1 nhận push processing SAU push ready
+  setTimeout(async () => {
+    try {
+      const readyAccounts = vault.db.prepare(
+        `SELECT * FROM vault_accounts WHERE status='ready' AND ever_ready=1 AND deleted_at IS NULL AND (provider='codex' OR provider='openai')`
+      ).all();
+      if (readyAccounts.length > 0) {
+        let repaired = 0;
+        for (const acc of readyAccounts) {
+          try {
+            await SyncManager.pushVault('account', acc);
+            repaired++;
+          } catch (_) {}
+        }
+        if (repaired > 0) {
+          console.log(`[Sync] 🩺 Startup repair: re-pushed ${repaired} ready account(s) to D1`);
+        }
+      }
+    } catch (e) {
+      console.error(`[Sync] 🩺 Startup repair failed:`, e.message);
+    }
+  }, 5000); // Chạy sau 5s để đảm bảo startup sync xong
+
   setInterval(doVaultSync, D1_PULL_INTERVAL_MS);
 
   // ── D1 Event Bus Poller (Zero-Config Realtime Sync) ──
