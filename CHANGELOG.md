@@ -2,6 +2,36 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.62] - 2026-05-11 02:00:00
+
+### 🐛 Fix — Account không hiển thị ready + Services không cập nhật sau connect-result
+
+Ba bugs song song làm account không chuyển sang `ready` và UI không refresh sau khi worker báo cáo thành công.
+
+**Bug 1 — UI không refresh sau connect-result (Services vẫn stale)**
+
+- **Root cause**: `connect-result` route không emit SSE event sau khi lưu thành công. UI chỉ refresh khi `doVaultSync()` pull từ D1 về — interval mặc định **15 phút**. Người dùng phải đợi hoặc reload tay.
+- **Fix** (`server/routes/vault.js`): Thêm `if (emitSSE) emitSSE('vault:update', { reason: 'connect-result', id, email })` ngay sau `pushVault` thành công. `AppContext.tsx` đã có listener cho `vault:update` → gọi `refreshAccounts()` ngay lập tức.
+
+**Bug 2 — Triple D1 push cho cùng 1 account**
+
+- **Root cause**: `connect-result` success path gọi `pushVault` 3 lần:
+  1. `vault.upsertAccount(...)` → internal `SyncManager.pushVault()` (vì `skipSync=false` mặc định)
+  2. `vault.updateAccountStatus(id, 'ready')` → thay đổi `updated_at` → fingerprint mới → push lại
+  3. Explicit `await SyncManager.pushVault('account', fullRecord)` ở cuối
+- **Fix**: Truyền `skipSync=true` vào `upsertAccount()` để tắt internal push. Xóa `vault.updateAccountStatus()` thừa (ever_ready=1 đã được set trong `upsertAccount` qua `data.ever_ready`). Chỉ còn 1 explicit push duy nhất với `fullRecord` đầy đủ.
+
+**Bug 3 — `connect_pending=2` stuck mãi mãi khi worker crash**
+
+- **Root cause**: `connect-task` route set `connect_pending=2` (processing lock) khi giao task cho worker. Nếu worker crash/timeout mà không gọi `connect-result`, account bị stuck ở `cp=2` vĩnh viễn — không có timeout/recovery. Worker poll tiếp theo bỏ qua vì chỉ pick `cp=1`.
+- **Fix** (`server/routes/vault.js` — `GET /accounts/connect-task`): Thêm auto-recovery ở đầu route — scan accounts có `cp=2` và `updated_at < 10 phút trước`, reset về `cp=1` để worker có thể retry. Log rõ: `[connect-task] ♻️ Auto-recovery: reset cp=2→1 for email@... (stuck since ...)`.
+
+**Bonus — `ioreg: command not found` (minor)**
+
+- `node-machine-id` dùng `ioreg` trên macOS để lấy hardware UUID. Trong một số môi trường bị giới hạn (sandbox, Docker), `ioreg` không có trong PATH → lỗi nhưng đã có fallback `os.hostname()|platform|arch` trong `getConsistentMachineId()`. Không cần fix thêm — fallback hoạt động đúng.
+
+---
+
 ## [0.2.61] - 2026-05-11 01:00:00
 
 ### 🔍 Fix — Workspace selection logs không hiển thị trong flow thực tế

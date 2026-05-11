@@ -750,9 +750,26 @@ router.get('/accounts/connect-task', (req, res) => {
     ).all();
     const excludeIds = (req.query.exclude || '').split(',').filter(Boolean);
 
+    // ── Auto-recovery: reset cp=2 (processing) → cp=1 (queued) nếu stuck > 10 phút ──
+    // Xảy ra khi worker crash/timeout mà không gọi connect-result
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const stuckAccounts = allAccounts.filter(a =>
+      Number(a.connect_pending) === 2 &&
+      !a.deleted_at &&
+      a.updated_at < tenMinutesAgo
+    );
+    if (stuckAccounts.length > 0) {
+      for (const stuck of stuckAccounts) {
+        vault.db.prepare(
+          `UPDATE vault_accounts SET connect_pending=1, updated_at=datetime('now') WHERE id=?`
+        ).run(stuck.id);
+        console.log(`[connect-task] ♻️ Auto-recovery: reset cp=2→1 for ${stuck.email?.slice(0, 30)} (stuck since ${stuck.updated_at})`);
+      }
+      // Reload sau khi reset để task mới được pick up ngay
+      return res.json({ ok: true, task: null, recovered: stuckAccounts.length });
+    }
+
     // Tìm account có connect_pending = 1 (đã bấm Deploy v2)
-    // Note: SQLite may return connect_pending as string '1' or integer 1
-    // Note: Không kiểm tra is_active vì connect_pending=1 là hành động explicit từ user
     const task = allAccounts.find(a =>
       Number(a.connect_pending) === 1 &&
       !a.deleted_at &&
@@ -766,7 +783,7 @@ router.get('/accounts/connect-task', (req, res) => {
       const pending = allAccounts.filter(a => Number(a.connect_pending) > 0);
       if (pending.length && !connectTaskLogThrottle) {
         connectTaskLogThrottle = true;
-        setTimeout(() => { connectTaskLogThrottle = false; }, 60000); // 1 phút giữa các log
+        setTimeout(() => { connectTaskLogThrottle = false; }, 60000);
         console.log(`[connect-task] ${pending.length} accounts stuck with connect_pending>0 (cp=2=processing, cp=1=queued). First 3:`, pending.slice(0, 3).map(a => ({
           id: a.id, email: a.email?.slice(0, 20), cp: a.connect_pending,
           deleted: !!a.deleted_at, active: a.is_active, hasPwd: !!a.password?.trim(), status: a.status,
@@ -834,10 +851,11 @@ router.post('/accounts/connect-result', async (req, res) => {
       const hasRefreshToken = !!(tokens.refresh_token || tokens.refreshToken);
       const isFallbackOnly = !hasRefreshToken; // session fallback — chỉ có access_token
 
+      // skipSync=true: tránh double-push từ upsertAccount internal — chỉ push 1 lần explicit bên dưới
       vault.upsertAccount({
         id,
         status: 'ready',
-        ever_ready: 1, // 🔥 Fix: set ever_ready=1 ngay tại đây — upsertAccount không tự set
+        ever_ready: 1,
         notes: '',
         access_token: tokens.access_token || tokens.accessToken,
         refresh_token: tokens.refresh_token || tokens.refreshToken || '',
@@ -848,19 +866,17 @@ router.post('/accounts/connect-result', async (req, res) => {
         machine_id: machineId,
         provider_specific_data: providerSpecificData,
         connect_pending: 0,
-      });
-
-      // 🔥 Fix: Cũng gọi updateAccountStatus để đảm bảo ever_ready=1 được set qua SQL clause
-      vault.updateAccountStatus(id, 'ready');
+      }, /* skipSync= */ true);
 
       const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
       if (fullRecord?.email) {
         console.log(`[Connect-Result] 🚀 Syncing to D1: ${fullRecord.email} (fallback=${isFallbackOnly})`);
         await SyncManager.pushVault('account', fullRecord);
 
-        // 🔥 Note: Gateway tự pull token từ D1 qua codexRemoteSync.pullCodexSnapshotFromRemote().
-        // Không cần Tools push trực tiếp lên /api/oauth/codex/import (endpoint đó yêu cầu UI session auth,
-        // trả về 401 khi gọi từ Tools server). D1 là source of truth — Gateway sync từ đó.
+        // Notify UI ngay lập tức — không cần đợi D1 pull cycle (15 phút)
+        if (emitSSE) emitSSE('vault:update', { reason: 'connect-result', id, email: fullRecord.email });
+
+        // Note: Gateway tự pull token từ D1 qua codexRemoteSync.pullCodexSnapshotFromRemote().
         const cfg = loadConfig();
 
         // Trigger usage refresh (optional, best-effort)
