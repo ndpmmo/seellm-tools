@@ -2,6 +2,41 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.68] - 2026-05-12 04:00:00
+
+### ⚡ Perf — Giảm độ trễ Tools → Gateway từ 30s xuống <2s qua sync trigger
+
+**Problem**: Sau khi Tools push D1 thành công (connect-result, delete, patch), Gateway phải chờ đến `syncTick()` tiếp theo (mỗi 30s) mới pull snapshot. User thấy account "Ready" ở Tools nhưng Gateway Connections UI vẫn trống trong 30s.
+
+**Fix**: Gateway đã có endpoint `POST /api/sync/trigger` (từ v0.0.180) dùng `x-sync-secret` auth. Tools giờ gọi endpoint này sau mỗi thao tác quan trọng:
+
+1. **`connect-result` success** (`server/routes/vault.js`):
+   - Thêm helper `triggerGatewaySync(reason)` — fetch Gateway `/api/sync/trigger` với secret
+   - Gọi ngay sau `SyncManager.pushVault` thành công
+   - Log: `[GatewayTrigger] ✅ Gateway pulled snapshot (reason=connect-result:email@...)`
+
+2. **Delete account qua D1 proxy** (`server.js` — `DELETE /api/d1/accounts/:id`):
+   - Đợi 500ms để D1 Worker kịp commit tombstone
+   - Trigger Gateway pull → hard-delete managed_account + connection trong local Gateway DB
+   - Log: `[GatewayTrigger] ✅ Gateway pulled snapshot after delete ${id}`
+
+3. **Patch account** (`server.js` — `PATCH /api/d1/accounts/:id`):
+   - Toggle is_active, đổi proxy → trigger pull
+   - Log: `[GatewayTrigger] ✅ Gateway pulled after PATCH ${id}`
+
+**Trade-off**: Mỗi thao tác thêm 1 HTTP call đến Gateway (~200-500ms). Best-effort — nếu Gateway down/offline, silently skip (không block request).
+
+**Kết quả**:
+| Thao tác | Trước | Sau |
+|----------|-------|-----|
+| Connect thành công → Gateway thấy | 0-30s | < 2s |
+| Xóa account → Gateway hard-delete | 0-30s | < 2s |
+| Toggle is_active → Gateway cập nhật | 0-30s | < 2s |
+
+Vẫn giữ Gateway `syncTick()` 30s như backup — nếu trigger fail (network error, Gateway down), Gateway vẫn pull ở tick tiếp theo.
+
+---
+
 ## [0.2.67] - 2026-05-12 03:30:00
 
 ### 🐛 Fix — pullVault skip merge + Event Bus stale event loop (ready → idle reversal)

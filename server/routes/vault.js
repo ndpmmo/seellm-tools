@@ -24,6 +24,31 @@ export function setSSEEmitter(emitter) {
   emitSSE = emitter;
 }
 
+/**
+ * Trigger Gateway to pull latest snapshot from D1 immediately.
+ * Giảm độ trễ từ 30s (Gateway syncTick) xuống < 2s.
+ * Best-effort — nếu Gateway không khả dụng hoặc không config, silently skip.
+ */
+async function triggerGatewaySync(reason = 'manual') {
+  const cfg = loadConfig();
+  if (!cfg.gatewayUrl || !cfg.d1SyncSecret) return;
+  try {
+    const res = await fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
+      method: 'POST',
+      headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      console.log(`[GatewayTrigger] ✅ Gateway pulled snapshot (reason=${reason})`);
+    } else {
+      console.log(`[GatewayTrigger] ⚠️ Gateway trigger HTTP ${res.status} (reason=${reason})`);
+    }
+  } catch (e) {
+    // Best-effort — Gateway có thể down hoặc không config
+    console.log(`[GatewayTrigger] ⚠️ Failed (reason=${reason}): ${e.message}`);
+  }
+}
+
 /* ─── Tag helpers ──────────────────────────────────────────────────────── */
 function safeParseTags(raw) {
   if (!raw) return [];
@@ -875,6 +900,9 @@ router.post('/accounts/connect-result', async (req, res) => {
 
         // Notify UI ngay lập tức — không cần đợi D1 pull cycle (15 phút)
         if (emitSSE) emitSSE('vault:update', { reason: 'connect-result', id, email: fullRecord.email });
+
+        // Trigger Gateway pull ngay — giảm độ trễ Tools→Gateway từ 30s xuống <2s
+        triggerGatewaySync(`connect-result:${fullRecord.email}`).catch(() => {});
 
         // Note: Gateway tự pull token từ D1 qua codexRemoteSync.pullCodexSnapshotFromRemote().
         const cfg = loadConfig();
