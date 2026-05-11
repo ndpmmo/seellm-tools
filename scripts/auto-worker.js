@@ -991,26 +991,32 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       // ── Chọn Personal workspace trước khi click Continue (BrowserOAuth path) ──
       try {
         const selectResult = await evalJson(tabId, userId, `(() => {
-          const items = document.querySelectorAll('[role="radio"], [role="option"], [data-testid*="workspace"], label, li, div[class*="workspace"], div[class*="account"]');
+          const clickables = document.querySelectorAll('button, [role="radio"], [role="option"], [role="listbox"] > *, [role="radiogroup"] > *, label, li, a');
           let personalEl = null;
           let personalText = '';
-          for (const el of items) {
+          for (const el of clickables) {
             if (el.offsetParent === null) continue;
-            const text = (el.textContent || '').toLowerCase().trim();
-            if (text.includes('personal')) { personalEl = el; personalText = text.slice(0, 50); break; }
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text.includes('personal') && text.length < 100) { personalEl = el; personalText = text.slice(0, 60); break; }
           }
           if (!personalEl) {
-            const listItems = document.querySelectorAll('[role="radiogroup"] > *, form [class*="list"] > *');
-            if (listItems.length >= 2) { personalEl = listItems[1]; personalText = (personalEl.textContent || '').slice(0, 50).toLowerCase(); }
+            const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
+            if (form) {
+              const allItems = form.querySelectorAll('[class*="item"], [class*="option"], [class*="radio"], [class*="workspace"]');
+              const visibleItems = Array.from(allItems).filter(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
+              if (visibleItems.length >= 2) { personalEl = visibleItems[visibleItems.length - 1]; personalText = (personalEl.textContent || '').trim().slice(0, 60).toLowerCase(); }
+            }
           }
           if (!personalEl) return { ok: false, reason: 'no-personal-option' };
+          personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+          personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
           personalEl.click();
-          try { personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch (_) {}
           return { ok: true, text: personalText };
         })()`, { timeoutMs: 5000 });
         if (selectResult?.ok) {
           log(`🗂️ Selected personal workspace: "${selectResult.text}"`);
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1500));
         } else {
           log(`⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'}`);
         }
@@ -1383,59 +1389,64 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         await new Promise(r => setTimeout(r, 1500));
 
         // ── Chọn Personal workspace trước khi click Continue ──────────────────
-        // OpenAI mặc định chọn enterprise workspace đầu tiên trong danh sách.
-        // Cần click vào "Personal account" option trước khi submit form.
+        // OpenAI consent page hiển thị danh sách workspace dạng clickable items.
+        // Mặc định enterprise workspace được pre-select. Cần click vào Personal option.
         try {
           const selectResult = await evalJson(tabId, userId, `(() => {
-            // Tìm tất cả workspace options trong consent form
-            const items = document.querySelectorAll('[role="radio"], [role="option"], [data-testid*="workspace"], label, li, div[class*="workspace"], div[class*="account"]');
+            // Strategy 1: Tìm clickable element nhỏ nhất chứa text "personal"
+            // Ưu tiên: button, [role=radio], [role=option], label — KHÔNG match div container
+            const clickables = document.querySelectorAll('button, [role="radio"], [role="option"], [role="listbox"] > *, [role="radiogroup"] > *, label, li, a');
             let personalEl = null;
             let personalText = '';
             
-            for (const el of items) {
+            for (const el of clickables) {
               if (el.offsetParent === null) continue;
-              const text = (el.textContent || '').toLowerCase().trim();
-              // Match "personal account", "personal workspace", hoặc tên không chứa "workspace"/"team"/"enterprise"
-              if (text.includes('personal')) {
+              const text = (el.textContent || '').trim().toLowerCase();
+              // Phải chứa "personal" VÀ không quá dài (tránh match container)
+              if (text.includes('personal') && text.length < 100) {
                 personalEl = el;
-                personalText = text.slice(0, 50);
+                personalText = text.slice(0, 60);
                 break;
               }
             }
             
+            // Strategy 2: Tìm trong form consent — item thứ 2 trong list
             if (!personalEl) {
-              // Fallback: tìm item thứ 2 trong danh sách (thường là personal)
-              const listItems = document.querySelectorAll('[role="radiogroup"] > *, [class*="workspace-list"] > *, form [class*="list"] > *');
-              if (listItems.length >= 2) {
-                personalEl = listItems[1]; // Item thứ 2 thường là Personal
-                personalText = (personalEl.textContent || '').slice(0, 50).toLowerCase();
+              const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
+              if (form) {
+                // Tìm tất cả items trong form có cùng structure (siblings)
+                const allItems = form.querySelectorAll('[class*="item"], [class*="option"], [class*="radio"], [class*="workspace"]');
+                const visibleItems = Array.from(allItems).filter(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
+                if (visibleItems.length >= 2) {
+                  // Item cuối thường là Personal (OpenAI đặt enterprise trước)
+                  personalEl = visibleItems[visibleItems.length - 1];
+                  personalText = (personalEl.textContent || '').trim().slice(0, 60).toLowerCase();
+                }
               }
             }
             
-            if (!personalEl) return { ok: false, reason: 'no-personal-option' };
+            if (!personalEl) return { ok: false, reason: 'no-personal-option', debug: document.querySelector('form')?.innerHTML?.slice(0, 200) || '' };
             
-            // Click vào personal option
+            // Click vào personal option — dùng full event sequence cho React
+            personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+            personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+            personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
             personalEl.click();
-            // Dispatch events cho React
-            try {
-              personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-              personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-              personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            } catch (_) {}
             
-            // Verify: check if aria-checked or selected state changed
-            const isSelected = personalEl.getAttribute('aria-checked') === 'true' || 
-                              personalEl.classList.contains('selected') ||
-                              personalEl.querySelector('[aria-checked="true"]') !== null;
+            // Verify: check visual state
+            const rect = personalEl.getBoundingClientRect();
+            const afterStyles = window.getComputedStyle(personalEl);
+            const hasCheckmark = personalEl.querySelector('svg, [class*="check"], [aria-checked="true"]') !== null;
+            const parentHasCheck = personalEl.parentElement?.querySelector('[aria-checked="true"]') !== null;
             
-            return { ok: true, text: personalText, verified: isSelected };
+            return { ok: true, text: personalText, verified: hasCheckmark || parentHasCheck, rect: { w: Math.round(rect.width), h: Math.round(rect.height) } };
           })()`, { timeoutMs: 5000 });
           
           if (selectResult?.ok) {
-            console.log(`[Capture] 🗂️ Selected personal workspace: "${selectResult.text}" (verified=${selectResult.verified})`);
-            await new Promise(r => setTimeout(r, 1000)); // Wait for UI to update
+            console.log(`[Capture] 🗂️ Selected personal workspace: "${selectResult.text}" (verified=${selectResult.verified}, size=${selectResult.rect?.w}x${selectResult.rect?.h})`);
+            await new Promise(r => setTimeout(r, 1500)); // Wait for UI to update after selection
           } else {
-            console.log(`[Capture] ⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'}`);
+            console.log(`[Capture] ⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'} debug=${(selectResult?.debug || '').slice(0, 100)}`);
           }
         } catch (selectErr) {
           console.log(`[Capture] ⚠️ Workspace selection error: ${selectErr?.message || selectErr}`);
