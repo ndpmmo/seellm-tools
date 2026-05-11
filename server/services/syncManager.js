@@ -568,9 +568,11 @@ export const SyncManager = {
                   // Gateway có deleted_at vì push cũ (khi account còn idle), D1 chưa kịp nhận push mới
                   existing.status = localRecordForDelete.status;
                   if (localStillReady) existing.ever_ready = 1;
+                  console.log(`[pullVault] 🛡️ Guard v3: giữ local status=${localRecordForDelete.status} cho ${existing.email} (bỏ qua ga.deleted_at=${ga.deleted_at})`);
                 } else {
                   // Local cũng idle/error — an toàn để set idle
                   existing.status = 'idle';
+                  console.log(`[pullVault] ⚠️ Set idle cho ${existing.email} (local.status=${localRecordForDelete?.status || 'none'}, ga.deleted_at=${ga.deleted_at})`);
                 }
                 // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
               } else {
