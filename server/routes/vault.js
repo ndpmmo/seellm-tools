@@ -11,6 +11,7 @@ import {
   buildStableDeviceId,
   mergeCodexProviderData,
 } from '../services/codexMetadata.js';
+import { extractAccountMeta } from '../../scripts/lib/openai-auth.js';
 
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
@@ -420,6 +421,7 @@ router.get('/accounts/task', async (req, res) => {
       (a.status === 'pending' || a.status === 'relogin') &&
       !a.deleted_at &&
       a.is_active !== 0 &&
+      Number(a.connect_pending || 0) === 0 &&
       a.email && a.email.trim() &&
       !excludeIds.includes(a.id) // 🔑 Đây là điều kiện then chốt cho đa luồng
     );
@@ -546,6 +548,7 @@ router.post('/accounts/result', async (req, res) => {
         }
 
         const tokenMeta = tokens.id_token ? parseCodexIdToken(tokens.id_token) : null;
+        const accessMeta = extractAccountMeta(tokens.access_token || '');
         const machineId = getConsistentMachineId();
         let existingProviderData = null;
         if (localAccount?.provider_specific_data && typeof localAccount.provider_specific_data === 'string') {
@@ -558,8 +561,8 @@ router.post('/accounts/result', async (req, res) => {
           existingProviderData = localAccount.provider_specific_data;
         }
         const providerSpecificData = mergeCodexProviderData(existingProviderData, {
-          workspaceId: tokenMeta?.workspaceId || null,
-          workspacePlanType: tokenMeta?.workspacePlanType || null,
+          workspaceId: accessMeta?.accountId || tokenMeta?.workspaceId || null,
+          workspacePlanType: accessMeta?.planType || tokenMeta?.workspacePlanType || null,
           chatgptUserId: tokenMeta?.chatgptUserId || null,
           organizations: tokenMeta?.organizations || null,
           machineId,
@@ -574,8 +577,8 @@ router.post('/accounts/result', async (req, res) => {
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
           email: targetEmail || undefined,
-          plan: tokenMeta?.workspacePlanType || null,
-          workspace_id: providerSpecificData?.workspaceId || null,
+          plan: accessMeta?.planType || tokenMeta?.workspacePlanType || null,
+          workspace_id: accessMeta?.accountId || tokenMeta?.workspaceId || null,
           device_id: providerSpecificData?.deviceId || null,
           machine_id: providerSpecificData?.machineId || machineId,
           provider_specific_data: providerSpecificData,

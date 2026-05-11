@@ -41,12 +41,11 @@ export function parseCodexIdToken(idToken) {
       );
     });
 
-    if (!(workspacePlanType.includes('team') || workspacePlanType.includes('chatgptteam'))) {
-      if (teamOrg && (workspacePlanType === 'free' || workspacePlanType === '')) {
-        workspaceId = teamOrg.id || workspaceId;
-        workspacePlanType = 'team';
-      }
-    }
+    // 🔧 FIX: Đã xóa logic tự động đè workspaceId/workspacePlanType thành team org.
+    // Logic cũ gây bug: khi user chọn personal workspace nhưng có team org,
+    // parseCodexIdToken vẫn trả về team workspaceId và "team" planType.
+    // Giờ đây nó trả về đúng giá trị từ JWT (chatgpt_account_id / chatgpt_plan_type).
+    // Nếu caller cần ưu tiên team, họ tự quyết định.
 
     return {
       email,

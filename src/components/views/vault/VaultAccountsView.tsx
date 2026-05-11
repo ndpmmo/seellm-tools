@@ -162,6 +162,14 @@ export function VaultAccountsView() {
 
   useEffect(() => { void Promise.all([loadAccounts(), loadProxies()]); }, [loadAccounts, loadProxies]);
 
+  useEffect(() => {
+    const handleVaultUpdate = () => {
+      loadAccounts();
+    };
+    window.addEventListener('seellm:vault-update', handleVaultUpdate);
+    return () => window.removeEventListener('seellm:vault-update', handleVaultUpdate);
+  }, [loadAccounts]);
+
   const patchAccountLocal = useCallback((id: string, patchData: Record<string, any>) => {
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
   }, []);

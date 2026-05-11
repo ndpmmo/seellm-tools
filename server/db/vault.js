@@ -302,7 +302,11 @@ export const vault = {
       (data.last_error !== undefined ? data.last_error :
         (data.lastError !== undefined ? data.lastError : (existing ? existing.notes : '')));
 
-    let finalStatus = (data.status || 'idle').toLowerCase();
+    let finalStatus = (
+      data.status !== undefined && data.status !== null && String(data.status).trim() !== ''
+        ? String(data.status)
+        : (existing?.status || 'idle')
+    ).toLowerCase();
 
     // [Protective Logic] Nếu local đang processing, không cho cloud ghi đè về pending
     if (existing && existing.status === 'processing' && finalStatus === 'pending') {

@@ -236,7 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshAccounts = useCallback(async () => {
     const res = await fetch('/api/vault/accounts').then(r => r.json());
-    setAccounts(res.data || []);
+    setAccounts(res.items || []);
   }, []);
 
   // SSE (Server-Sent Events) - primary realtime transport
