@@ -376,6 +376,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           // Trigger vault refresh when cloud sync updates
           refreshAccounts();
+          // Notify views that read from D1 directly (ServicesView, AccountsView D1 tab)
+          // to reload their D1-backed data
+          window.dispatchEvent(new CustomEvent('seellm:vault-update', { detail: e.data }));
         } catch (err) {
           console.warn('[SSE] Failed to parse vault:update:', err);
         }

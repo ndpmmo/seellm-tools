@@ -2,6 +2,50 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.63] - 2026-05-11 17:00:00
+
+### 🐛 Fix — Cookie name, workspace logs trong BrowserOAuth path, Services không auto-reload
+
+Ba vấn đề phát hiện từ logs thực tế sau v0.2.62.
+
+**Bug 1 — `deviceId=missing` vẫn xuất hiện (cookie name sai)**
+
+- **Root cause**: Code tìm cookie `oai-device-id` nhưng OpenAI thực tế set cookie tên `oai-did` (device ID). Kết quả: `deviceId` luôn rỗng mặc dù cookie có tồn tại trong tab.
+- **Bằng chứng từ logs CodexProtocol**: `Cookies after authorize: [..., oai-did, ...]` — cookie đúng là `oai-did`.
+- **Fix** (`scripts/auto-worker.js`): Thay toàn bộ `c.name === 'oai-device-id'` bằng `c.name === 'oai-did'` ở 3 chỗ:
+  - Pre-cache cookies trước khi navigate authUrl
+  - Merge fresh cookies sau token exchange
+  - Fallback session capture
+
+**Bug 2 — Không có workspace logs khi đi qua BrowserOAuth path**
+
+- **Root cause**: v0.2.61 chỉ thêm workspace logs vào 2 path:
+  - `performWorkspaceConsentBypass()` trong `openai-oauth.js`
+  - Consent click trong `captureAndReport` (khi phát hiện consent URL trực tiếp)
+
+  Nhưng trong thực tế khi phone-bypass → session-seed → protocol login đều fail, flow rơi vào fallback cuối `_completeBrowserOAuth()` — path này **không có workspace log**.
+- **Fix** (`scripts/auto-worker.js` — `_completeBrowserOAuth`): Thêm log chi tiết khi phát hiện consent/workspace page:
+  ```
+  [BrowserOAuth] 🗂️ Consent for 2 workspace(s) — active: "Personal" (personal)
+  [BrowserOAuth]   [1] id=uuid-xxx name="Personal" kind=personal ← ACTIVE
+  [BrowserOAuth]   [2] id=uuid-yyy name="SeeLLM Workspace" kind=enterprise/team
+  [BrowserOAuth] 🗂️ Consent: no workspace data in cookie (free account or cookie not set)
+  ```
+
+**Bug 3 — Services/#services không auto-reload sau connect-result**
+
+- **Root cause**: v0.2.62 đã thêm `emitSSE('vault:update')` sau connect-result success, nhưng `AppContext` chỉ gọi `refreshAccounts()` (refresh `/api/vault/accounts` — local SQLite). `ServicesView` lại đọc từ D1 (`/api/d1/inspect/accounts`) → không có trigger reload.
+- **Fix** (`src/components/AppContext.tsx`, `src/components/views/ServicesView.tsx`):
+  - `AppContext`: sau khi nhận SSE `vault:update`, dispatch thêm `CustomEvent('seellm:vault-update')` lên `window` để các view đọc D1 có thể listen.
+  - `ServicesView`: thêm `useEffect` listen `seellm:vault-update` → clear connection cache và gọi `load()` lại từ D1.
+
+**Kết quả**:
+- Account sẽ xuất hiện ngay ở `#services` sau connect-result success (không cần F5).
+- `deviceId` giờ được ghi vào connection đầy đủ → Gateway dùng được trong request sau này.
+- Logs browser OAuth path giờ hiển thị rõ workspace nào đang active.
+
+---
+
 ## [0.2.62] - 2026-05-11 02:00:00
 
 ### 🐛 Fix — Account không hiển thị ready + Services không cập nhật sau connect-result

@@ -287,6 +287,19 @@ export function ServicesView() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadProxies(); }, [loadProxies]);
 
+  // Auto-reload when vault:update SSE event fires (e.g., after connect-result)
+  // ServicesView reads from D1 (/api/d1/inspect/accounts) — AppContext's vault:update
+  // listener only refreshes /api/vault/accounts, so we need our own reload trigger
+  useEffect(() => {
+    const handleVaultUpdate = () => {
+      // Clear connection cache to force refetch
+      connCacheRef.current = [];
+      load();
+    };
+    window.addEventListener('seellm:vault-update', handleVaultUpdate);
+    return () => window.removeEventListener('seellm:vault-update', handleVaultUpdate);
+  }, [load]);
+
   // Derived stats per provider
   const providerCounts = Object.keys(PROVIDERS).reduce((acc, k) => {
     acc[k] = items.filter(i => normalizeProvider(i.provider) === k).length;

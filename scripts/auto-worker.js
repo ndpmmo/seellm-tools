@@ -971,6 +971,23 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       // Wait for React to render before clicking
       await new Promise(r => setTimeout(r, 1500));
 
+      // Log workspace info từ cookie — để biết đang consent cho workspace nào
+      try {
+        const wsList = await extractWorkspacesFromCookieInPage(tabId, userId);
+        if (wsList.length > 0) {
+          const preferred = pickPreferredWorkspace(wsList);
+          log(`🗂️ Consent for ${wsList.length} workspace(s) — active: "${preferred?.name || preferred?.id || 'n/a'}" (${isPersonalWorkspace(preferred) ? 'personal' : 'enterprise/team'})`);
+          wsList.forEach((ws, i) => {
+            const kind = isPersonalWorkspace(ws) ? 'personal' : 'enterprise/team';
+            const name = ws.name || ws.display_name || ws.title || '(no name)';
+            const marker = ws.id === preferred?.id ? ' ← ACTIVE' : '';
+            log(`  [${i + 1}] id=${ws.id} name="${name}" kind=${kind}${marker}`);
+          });
+        } else {
+          log(`🗂️ Consent: no workspace data in cookie (free account or cookie not set)`);
+        }
+      } catch (_) {}
+
       // Handle "Try again" error page — click it and reload
       try {
         const tryAgainResult = await evalJson(tabId, userId, `(() => {
@@ -1038,14 +1055,15 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   // ── Cache cookies TRƯỚC khi navigate authUrl ──────────────────────────────
   // Sau khi browser redirect đến localhost:1455 (không có server), tab crash về
   // about:neterror → không lấy được cookies nữa. Cache sớm để đảm bảo có
-  // oai-device-id và session-token dù tab ở trạng thái nào sau đó.
+  // oai-did (device ID) và session-token dù tab ở trạng thái nào sau đó.
+  // Note: Cookie thật tên là 'oai-did', không phải 'oai-device-id'.
   let cachedSessionToken = '';
   let cachedDeviceId = '';
   try {
     const ckEarly = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
     const cookiesEarly = Array.isArray(ckEarly?.cookies) ? ckEarly.cookies : (Array.isArray(ckEarly) ? ckEarly : []);
     cachedSessionToken = cookiesEarly.find(c => c.name?.includes('session-token'))?.value || '';
-    cachedDeviceId = cookiesEarly.find(c => c.name === 'oai-device-id')?.value || '';
+    cachedDeviceId = cookiesEarly.find(c => c.name === 'oai-did')?.value || '';
     console.log(`[Capture] 🍪 Pre-cache: sessionToken=${cachedSessionToken ? 'found' : 'missing'} deviceId=${cachedDeviceId ? cachedDeviceId.slice(0, 8) + '...' : 'missing'}`);
   } catch (_) {}
 
@@ -1469,7 +1487,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
         const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
         sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || cachedSessionToken;
-        deviceId = cookies.find(c => c.name === 'oai-device-id')?.value || cachedDeviceId;
+        deviceId = cookies.find(c => c.name === 'oai-did')?.value || cachedDeviceId;
       } catch (_) {}
       console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
       console.log(`[Timing] capture.pkce_success_total=${elapsedMs()}ms`);
@@ -1521,7 +1539,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, 6000);
     const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
     sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
-    deviceId = cookies.find(c => c.name === 'oai-device-id')?.value || '';
+    deviceId = cookies.find(c => c.name === 'oai-did')?.value || '';
     console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
   } catch (_) {}
   console.log(`[Capture] ✅ Session fallback OK — accountId=${meta.accountId || 'n/a'} plan=${meta.planType || 'n/a'}`);
