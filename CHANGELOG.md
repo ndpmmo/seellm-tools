@@ -83,34 +83,16 @@ Silent skip 404 response (không log warning).
 
 ### ⚡ Perf — Giảm độ trễ Tools → Gateway từ 30s xuống <2s qua sync trigger
 
-**Problem**: Sau khi Tools push D1 thành công (connect-result, delete, patch), Gateway phải chờ đến `syncTick()` tiếp theo (mỗi 30s) mới pull snapshot. User thấy account "Ready" ở Tools nhưng Gateway Connections UI vẫn trống trong 30s.
+> **Note**: Tính năng này chỉ có hiệu lực khi `gatewayUrl` trỏ đến **Next.js Gateway** (seellm-gateway). Nếu `gatewayUrl` là D1 Worker (workers.dev), trigger bị skip tự động (v0.2.69 fix).
 
-**Fix**: Gateway đã có endpoint `POST /api/sync/trigger` (từ v0.0.180) dùng `x-sync-secret` auth. Tools giờ gọi endpoint này sau mỗi thao tác quan trọng:
+**Problem**: Sau khi Tools push D1 thành công, Gateway phải chờ `syncTick()` tiếp theo (30s) mới pull.
 
-1. **`connect-result` success** (`server/routes/vault.js`):
-   - Thêm helper `triggerGatewaySync(reason)` — fetch Gateway `/api/sync/trigger` với secret
-   - Gọi ngay sau `SyncManager.pushVault` thành công
-   - Log: `[GatewayTrigger] ✅ Gateway pulled snapshot (reason=connect-result:email@...)`
+**Fix**: Gọi `POST {gatewayUrl}/api/sync/trigger` sau mỗi thao tác quan trọng:
+- `connect-result` success → trigger ngay sau push D1
+- `DELETE /api/d1/accounts/:id` → trigger sau 500ms (đợi D1 commit tombstone)
+- `PATCH /api/d1/accounts/:id` → trigger sau 500ms
 
-2. **Delete account qua D1 proxy** (`server.js` — `DELETE /api/d1/accounts/:id`):
-   - Đợi 500ms để D1 Worker kịp commit tombstone
-   - Trigger Gateway pull → hard-delete managed_account + connection trong local Gateway DB
-   - Log: `[GatewayTrigger] ✅ Gateway pulled snapshot after delete ${id}`
-
-3. **Patch account** (`server.js` — `PATCH /api/d1/accounts/:id`):
-   - Toggle is_active, đổi proxy → trigger pull
-   - Log: `[GatewayTrigger] ✅ Gateway pulled after PATCH ${id}`
-
-**Trade-off**: Mỗi thao tác thêm 1 HTTP call đến Gateway (~200-500ms). Best-effort — nếu Gateway down/offline, silently skip (không block request).
-
-**Kết quả**:
-| Thao tác | Trước | Sau |
-|----------|-------|-----|
-| Connect thành công → Gateway thấy | 0-30s | < 2s |
-| Xóa account → Gateway hard-delete | 0-30s | < 2s |
-| Toggle is_active → Gateway cập nhật | 0-30s | < 2s |
-
-Vẫn giữ Gateway `syncTick()` 30s như backup — nếu trigger fail (network error, Gateway down), Gateway vẫn pull ở tick tiếp theo.
+**Kết quả** (khi có Next.js Gateway): Tools→Gateway latency giảm từ 0-30s xuống <2s.
 
 ---
 
@@ -118,40 +100,21 @@ Vẫn giữ Gateway `syncTick()` 30s như backup — nếu trigger fail (network
 
 ### 🐛 Fix — pullVault skip merge + Event Bus stale event loop (ready → idle reversal)
 
-**Problem**: Account vừa connect thành công (status=ready, ever_ready=1, có tokens) bị set về `idle` + `gateway_status=revoked` sau vài phút. `updated_at` cho thấy account bị thay đổi **sau** khi connect-result hoàn tất.
+> **Note**: Fix này đã được supersede bởi v0.2.70 (approach triệt để hơn). v0.2.67 vẫn có giá trị lịch sử để hiểu quá trình debug.
 
-**Timeline bug**:
-1. User xóa account từ Services UI → D1 Worker emit `ACCOUNT_DELETED`, tombstone managed_account
-2. User bấm Deploy lại → connect-result success → local `ready`, push D1 OK với `gw=active`
-3. Event Bus poll tiếp → **nhận lại event `ACCOUNT_DELETED` cũ** (ack=1 không hoạt động đúng hoặc event được emit lại)
-4. Handler set `gateway_status='revoked'` UNCONDITIONALLY (không check timestamp)
-5. pullVault chạy → `ga.updated_at < existing.updated_at` (vì D1 managedAccounts vẫn có tombstone cũ) → **SKIP toàn bộ merge logic**
-6. Nhưng `existing.status='idle'` (từ stale vaultAccounts D1 pull) → `upsertAccount(existing, skipSync=true)` với status=idle
-7. Guard v3 trong pullVault merge block không chạy (bị skip) → guard duy nhất là vault.js `upsertAccount` guard
-8. Kết quả: `status=idle`, `gw=revoked`
+**Problem**: Account vừa connect thành công bị set về `idle` + `gateway_status=revoked` sau vài phút.
 
-**Fix 1 — Event Bus stale event guard** (`server.js`):
+**Timeline bug phát hiện**:
+1. User xóa account → D1 emit `ACCOUNT_DELETED` event
+2. User Deploy lại → connect-result success → local `ready`
+3. Event Bus poll lại event cũ → set `gw=revoked` unconditionally
+4. pullVault skip merge khi `ga.updated_at < existing.updated_at` → stale `status=idle` từ vaultAccounts D1 bypass guard
 
-Thêm timestamp check vào `ACCOUNT_DELETED` handler. Nếu `local.updated_at > event_ts` → **bỏ qua event** (account đã được cập nhật sau khi xóa):
-```js
-const isStaleEvent = eventMs > 0 && localUpdatedMs > eventMs;
-if (isStaleEvent) {
-  console.log(`[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event...`);
-  continue;
-}
-```
+**Fix tạm thời** (superseded by v0.2.70):
+- Event Bus: thêm timestamp guard để skip stale events
+- pullVault: bỏ `updated_at` comparison, luôn chạy merge
 
-**Fix 2 — pullVault luôn chạy merge logic** (`server/services/syncManager.js`):
-
-Xóa điều kiện `if (ga.updated_at > existing.updated_at)` — luôn chạy merge để guard v3 có cơ hội kiểm tra local DB. Guard sẽ tự quyết định có ghi đè hay không dựa trên **LOCAL DB status**, không phải trên `existing.updated_at` (stale từ vaultAccounts).
-
-**Log mới**:
-```
-[EventBus] ℹ️ Gateway đã xóa email khỏi D1 (event_ts=2026-05-11T...)
-[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event cho email — local.updated_at=... > event_ts=...
-```
-
-**Kết quả**: Sau khi Deploy lại account đã xóa, Event Bus không còn phá trạng thái `ready` → `idle` do event cũ được poll lại. pullVault giờ luôn chạy guard v3 cho mọi managed account.
+**Tại sao không đủ**: Vẫn còn edge case khi guard v3 fail. v0.2.70 giải quyết triệt để bằng cách không cho remote ghi đè local status.
 
 ---
 
