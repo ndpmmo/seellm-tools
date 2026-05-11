@@ -2,6 +2,39 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.60] - 2026-05-11 00:30:00
+
+### 🐛 Fix — `deviceId=missing` + Step numbering conflict trong `captureAndReport`
+
+Hai bug phát hiện từ logs thực tế sau v0.2.59:
+
+**Bug 1 — `deviceId=missing` sau token exchange**
+
+- **Root cause**: Sau khi browser redirect đến `localhost:1455?code=...` (không có server lắng nghe), tab crash về `about:neterror`. Tại thời điểm đó `camofoxGet('/tabs/:id/cookies')` không trả về cookies nữa vì tab đang ở error page.
+- **Fix**: Cache cookies (`oai-device-id`, `session-token`) **trước** khi navigate authUrl — ngay sau khi tab đã login thành công vào chatgpt.com. Sau token exchange, merge fresh cookies với cached: ưu tiên fresh nếu tab vẫn accessible, fallback về cached nếu tab đã crash.
+- **Log mới**: `[Capture] 🍪 Pre-cache: sessionToken=found deviceId=abc12345...` xuất hiện trước khi navigate authUrl.
+
+**Bug 2 — Step numbering conflict trong screenshots**
+
+- **Root cause**: Nhiều nhánh trong `captureAndReport` hardcode cùng step number (ví dụ: `direct_authurl_navigate` dùng `step 3`, `consent_attempt` cũng dùng `step 3`). Khi cả hai nhánh chạy, `createStepRecorder` dedup bỏ qua screenshot thứ hai vì key trùng.
+- **Fix**: Thêm `captureStep` counter tăng dần (`let captureStep = 1`) — mỗi lần chụp ảnh dùng `++captureStep` thay vì hardcode số. Đảm bảo mọi screenshot trong một run đều có step number duy nhất, không bị dedup nhầm.
+- **Kết quả**: Screenshots giờ được đánh số theo thứ tự thực tế của flow, ví dụ:
+  ```
+  01_phase01_step02_oauth_fill_email_before.png
+  01_phase01_step02_oauth_fill_email_after.png
+  01_phase01_step03_oauth_fill_password_before.png
+  01_phase01_step03_oauth_fill_password_after.png
+  01_phase01_step04_oauth_fill_mfa_before.png
+  01_phase01_step04_oauth_fill_mfa_after.png
+  01_phase01_step05_consent_attempt_1_before.png
+  01_phase01_step05_consent_clicked_1_after.png
+  01_phase01_step06_oauth_loop_exit_checkpoint.png
+  01_phase01_step07_token_exchange_before.png
+  01_phase01_step07_exchange_success_after.png
+  ```
+
+---
+
 ## [0.2.59] - 2026-05-11 00:00:00
 
 ### 🔍 Auto Worker — Full Screenshot Coverage + Detailed Workspace & Token Logs
