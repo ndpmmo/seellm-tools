@@ -2,6 +2,38 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.75] - 2026-05-12 07:00:00
+
+### 🐛 Fix — Phone screen: báo NEED_PHONE ngay thay vì chạy 5 fallback vô nghĩa rồi báo OAUTH_FAILED
+
+**Problem**: Khi account cần xác minh số điện thoại (`/add-phone`), worker phát hiện phone screen nhưng vẫn chạy tiếp **5 fallback** (workspace API bypass → direct authUrl → session-seed → protocol login → browser OAuth 12 rounds). Tất cả đều fail vì session đã bị invalidate. Cuối cùng báo `OAUTH_FAILED` thay vì `NEED_PHONE`. Tổng thời gian: ~2 phút cho 1 account mà kết quả đã biết trước.
+
+**Root cause** (`scripts/auto-worker.js` — `captureAndReport`):
+1. Khi phone screen detected, code cố bypass bằng workspace API. Nếu fail (free account, no workspace), tiếp tục thử 4 fallback khác.
+2. Sau direct authUrl navigate, session bị lost (redirect to `/log-in`) — signal rõ ràng rằng phone verification đã invalidate session. Nhưng code vẫn tiếp tục session-seed, protocol login, browser OAuth.
+3. Error message cuối check `finalOauthState?.hasPhoneScreen` — nhưng lúc đó browser đã ở `/log-in` (không còn phone screen) → rơi vào `OAUTH_FAILED` generic.
+
+**Fix** (`scripts/auto-worker.js`):
+
+1. **`phoneScreenDetected` flag**: Track rằng phone screen đã xuất hiện trong flow. Dùng cho error message cuối — không phụ thuộc current page state.
+
+2. **Early exit sau direct authUrl navigate**: Nếu session lost (redirect to `/log-in` hoặc `/add-phone`) VÀ phone đã detected → return `NEED_PHONE` ngay, skip toàn bộ session-seed + protocol + browser OAuth.
+   ```js
+   if (afterDirectUrl.includes('/log-in') || afterDirectUrl.includes('/add-phone')) {
+     return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+   }
+   ```
+
+3. **Error message cuối**: Dùng `phoneScreenDetected || finalOauthState?.hasPhoneScreen` thay vì chỉ check current state.
+
+**Kết quả**:
+- Account cần phone: ~30s (thay vì ~2 phút)
+- Error message đúng: `NEED_PHONE` (thay vì `OAUTH_FAILED`)
+- Flow: Phone detected → workspace bypass fail → direct authUrl → session lost → **NEED_PHONE** (stop)
+- Không còn chạy session-seed, protocol login, browser OAuth 12 rounds vô nghĩa
+
+---
+
 ## [0.2.74] - 2026-05-12 06:30:00
 
 ### 🐛 Fix — Race condition: LOGIN flow đè lên CONNECT flow + UI stuck ở Processing/Pending

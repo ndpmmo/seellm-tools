@@ -1291,6 +1291,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   const { password } = task;
   const totpSecret = task.twoFaSecret || task.two_fa_secret || null;
   let oauthLoginHandled = false;
+  let phoneScreenDetected = false; // Track nếu phone screen đã xuất hiện — dùng cho error message cuối
   let consentAttempts = 0;
   const MAX_CONSENT_ATTEMPTS = 2;
   let consentBypassExhausted = false;
@@ -1326,6 +1327,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     const oauthState = await getState(tabId, userId);
 
     if (oauthState?.hasPhoneScreen) {
+      phoneScreenDetected = true;
       console.log(`[Capture] 📵 Phone screen → workspace API bypass...`);
       await recorder.before(1, ++captureStep, 'phone_bypass');
       const codeResult = await performWorkspaceConsentBypass(evalJson, tabId, userId, { timeoutMs: 15000 });
@@ -1370,6 +1372,14 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           break;
         }
         await recorder.error(1, captureStep, 'direct_authurl_no_code');
+
+        // Early exit: nếu session lost (redirect to /log-in) sau phone screen → account thực sự cần phone
+        // Không cần thử thêm session-seed, protocol, browser OAuth — tất cả sẽ fail
+        const afterDirectUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
+        if (afterDirectUrl.includes('/log-in') || afterDirectUrl.includes('/add-phone')) {
+          console.log(`[Capture] 📵 Session invalidated by phone requirement — skipping remaining fallbacks`);
+          return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+        }
       } catch (directErr) {
         console.log(`[Capture] ❌ Direct authUrl navigate failed: ${directErr?.message || directErr}`);
         await recorder.error(1, captureStep, 'direct_authurl_exception');
@@ -1468,7 +1478,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
           if (!totpSecret) return sendResult(task, 'error', 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret');
           return sendResult(task, 'error', 'NEED_MFA: Không thể vượt qua màn hình 2FA');
         }
-        if (finalOauthState?.hasPhoneScreen) {
+        if (phoneScreenDetected || finalOauthState?.hasPhoneScreen) {
           return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
         }
         return sendResult(task, 'error', `OAUTH_FAILED: Không lấy được code callback. URL: ${finalOauthState?.href || 'unknown'}`);
