@@ -2,6 +2,47 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.67] - 2026-05-12 03:30:00
+
+### 🐛 Fix — pullVault skip merge + Event Bus stale event loop (ready → idle reversal)
+
+**Problem**: Account vừa connect thành công (status=ready, ever_ready=1, có tokens) bị set về `idle` + `gateway_status=revoked` sau vài phút. `updated_at` cho thấy account bị thay đổi **sau** khi connect-result hoàn tất.
+
+**Timeline bug**:
+1. User xóa account từ Services UI → D1 Worker emit `ACCOUNT_DELETED`, tombstone managed_account
+2. User bấm Deploy lại → connect-result success → local `ready`, push D1 OK với `gw=active`
+3. Event Bus poll tiếp → **nhận lại event `ACCOUNT_DELETED` cũ** (ack=1 không hoạt động đúng hoặc event được emit lại)
+4. Handler set `gateway_status='revoked'` UNCONDITIONALLY (không check timestamp)
+5. pullVault chạy → `ga.updated_at < existing.updated_at` (vì D1 managedAccounts vẫn có tombstone cũ) → **SKIP toàn bộ merge logic**
+6. Nhưng `existing.status='idle'` (từ stale vaultAccounts D1 pull) → `upsertAccount(existing, skipSync=true)` với status=idle
+7. Guard v3 trong pullVault merge block không chạy (bị skip) → guard duy nhất là vault.js `upsertAccount` guard
+8. Kết quả: `status=idle`, `gw=revoked`
+
+**Fix 1 — Event Bus stale event guard** (`server.js`):
+
+Thêm timestamp check vào `ACCOUNT_DELETED` handler. Nếu `local.updated_at > event_ts` → **bỏ qua event** (account đã được cập nhật sau khi xóa):
+```js
+const isStaleEvent = eventMs > 0 && localUpdatedMs > eventMs;
+if (isStaleEvent) {
+  console.log(`[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event...`);
+  continue;
+}
+```
+
+**Fix 2 — pullVault luôn chạy merge logic** (`server/services/syncManager.js`):
+
+Xóa điều kiện `if (ga.updated_at > existing.updated_at)` — luôn chạy merge để guard v3 có cơ hội kiểm tra local DB. Guard sẽ tự quyết định có ghi đè hay không dựa trên **LOCAL DB status**, không phải trên `existing.updated_at` (stale từ vaultAccounts).
+
+**Log mới**:
+```
+[EventBus] ℹ️ Gateway đã xóa email khỏi D1 (event_ts=2026-05-11T...)
+[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event cho email — local.updated_at=... > event_ts=...
+```
+
+**Kết quả**: Sau khi Deploy lại account đã xóa, Event Bus không còn phá trạng thái `ready` → `idle` do event cũ được poll lại. pullVault giờ luôn chạy guard v3 cho mọi managed account.
+
+---
+
 ## [0.2.66] - 2026-05-12 02:00:00
 
 ### 🐛 Fix — Consent page không chọn Personal workspace trước khi click Continue

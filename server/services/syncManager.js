@@ -534,7 +534,11 @@ export const SyncManager = {
           }
         } else {
           try {
-            if (ga.updated_at && (!existing.updated_at || new Date(ga.updated_at) > new Date(existing.updated_at))) {
+            // [FIX v4] Luôn chạy merge logic — không skip dựa trên updated_at comparison.
+            // Lý do: existing có thể là bản stale từ vaultAccounts D1 pull, trong khi local DB
+            // đã có bản mới hơn. Guard logic ở dưới sẽ tự quyết định có ghi đè hay không
+            // dựa trên LOCAL DB, không phải trên existing.updated_at.
+            if (true) {
               // Khi Gateway gửi deleted_at (xóa account), chuyển về idle thay vì bỏ qua
               // Vault là kho ĐỘC LẬP — xóa ở Gateway = thu hồi về kho lạnh (idle)
               if (ga.deleted_at && !existing.deleted_at) {

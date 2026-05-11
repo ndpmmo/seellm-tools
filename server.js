@@ -731,12 +731,24 @@ app.prepare().then(() => {
             const payload = JSON.parse(event.payload);
             const accountId = payload.accountId || payload.id;
             const email = payload.email || '';
-            console.log(`[EventBus] ℹ️ Gateway đã xóa ${email || accountId} khỏi D1`);
+            const eventTs = event.created_at || event.timestamp || null;
+            console.log(`[EventBus] ℹ️ Gateway đã xóa ${email || accountId} khỏi D1 (event_ts=${eventTs || 'unknown'})`);
 
-            // Update local gateway_status → revoked (nếu account tồn tại local)
+            // Update local gateway_status → revoked (nếu account tồn tại local VÀ event mới hơn local)
             if (accountId) {
-              const local = vault.db.prepare('SELECT id, status, ever_ready FROM vault_accounts WHERE id = ?').get(accountId);
+              const local = vault.db.prepare('SELECT id, status, ever_ready, updated_at FROM vault_accounts WHERE id = ?').get(accountId);
               if (local) {
+                // [Stale event guard] Nếu local.updated_at mới hơn event timestamp → account đã được cập nhật sau khi xóa
+                // (user đã Deploy lại). BỎ QUA event cũ để tránh set revoked → ready → revoked loop.
+                const localUpdatedMs = local.updated_at ? new Date(local.updated_at).getTime() : 0;
+                const eventMs = eventTs ? new Date(eventTs).getTime() : 0;
+                const isStaleEvent = eventMs > 0 && localUpdatedMs > 0 && localUpdatedMs > eventMs;
+
+                if (isStaleEvent) {
+                  console.log(`[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event cho ${email} — local.updated_at=${local.updated_at} > event_ts=${eventTs}`);
+                  continue;
+                }
+
                 vault.updateGatewayStatus(accountId, 'revoked');
                 // Chỉ set idle nếu local KHÔNG đang ready+ever_ready (tránh overwrite)
                 if (local.status !== 'ready' || !local.ever_ready) {
