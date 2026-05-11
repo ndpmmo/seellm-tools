@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.73] - 2026-05-12 05:40:00
+
+### 🐛 Fix — Consent UI vẫn giữ workspace doanh nghiệp dù worker biết personal account
+
+**Problem**: `auto-worker` đã biết personal workspace từ cookie `oai-client-auth-session`, nhưng ở màn hình consent OpenAI UI vẫn đang pre-select `SeeLLM Workspace`. Worker click `Continue` khi selection chưa đổi thật, nên OAuth callback vẫn phát hành token cho workspace doanh nghiệp và UI/Gateway tiếp tục hiển thị `Business`.
+
+**Root cause** (`scripts/auto-worker.js`):
+- Hai code path consent (`_completeBrowserOAuth()` và `captureAndReport()`) dùng heuristic click thẳng vào element có text chứa `personal`.
+- Log cũ chỉ phản ánh candidate hoặc click attempt, **không kiểm tra selected state thật trước/sau click**.
+- Vì vậy worker có thể click nhầm text/container không bind event, rồi vẫn tiếp tục `Continue` dù UI chưa đổi selection.
+
+**Fix** (`scripts/auto-worker.js`):
+- Thêm helper dùng chung `selectPersonalWorkspaceInConsentUI()` cho cả Browser OAuth và Capture flow.
+- Trước khi click: đọc workspace đang selected thật từ DOM (`aria-selected`, `aria-checked`, input checked, selected/active state).
+- Khi chọn personal: thử tìm đúng clickable control cho `Personal account` thay vì chỉ log theo cookie.
+- Sau khi click: đọc lại selected state và chỉ coi là thành công khi selection thực sự đổi sang personal.
+- Log mới rõ ràng hơn: `Selected BEFORE`, `Clicked personal element`, `Selected AFTER`, và `selection-unchanged` để debug chính xác khi OpenAI UI không đổi selection.
+
+---
+
 ## [0.2.72] - 2026-05-12 05:20:00
 
 ### 🐛 Fix — Race condition: worker chạy LOGIN flow đè lên CONNECT flow ngay sau khi hoàn tất

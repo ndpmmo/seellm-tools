@@ -310,6 +310,174 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder
   return { ok: false, reason: 'workspace_select_failed', candidates: orderedCandidates };
 }
 
+// ── Consent UI Workspace Selection Helper ─────────────────────────────────────
+/**
+ * Select personal workspace in OpenAI consent page UI
+ * Reads selected state before/after click to verify selection changed
+ * @param {object} params - { tabId, userId, timeoutMs = 5000, logPrefix = '' }
+ * @returns {Promise<object>} - { ok, selectedBefore, selectedAfter, changed, reason }
+ */
+async function selectPersonalWorkspaceInConsentUI({ tabId, userId, timeoutMs = 5000, logPrefix = '' }) {
+  const log = (...args) => console.log(`${logPrefix}`, ...args);
+
+  try {
+    // Step 1: Read current selected workspace BEFORE clicking
+    const beforeState = await evalJson(tabId, userId, `(() => {
+      // Strategy: Find selected element by visual indicators (checkmark, aria-checked, selected class)
+      const selected = Array.from(document.querySelectorAll(
+        '[aria-selected="true"], [aria-checked="true"], [class*="selected"], [class*="active"]'
+      )).find(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
+      
+      if (selected) {
+        return { 
+          found: true, 
+          text: (selected.textContent || '').trim().slice(0, 80),
+          ariaChecked: selected.getAttribute('aria-checked'),
+          ariaSelected: selected.getAttribute('aria-selected'),
+          classList: Array.from(selected.classList || []).filter(c => c.includes('selected') || c.includes('active'))
+        };
+      }
+      
+      // Fallback: Try to find form and read checked radio/checkbox
+      const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
+      if (form) {
+        const checked = form.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
+        if (checked) {
+          const label = form.querySelector(\`label[for="\${checked.id}"]\`) || checked.closest('label');
+          if (label) {
+            return { 
+              found: true, 
+              text: (label.textContent || '').trim().slice(0, 80),
+              inputId: checked.id,
+              inputName: checked.name
+            };
+          }
+        }
+      }
+      
+      return { found: false, text: 'unknown' };
+    })()`, { timeoutMs: 3000 });
+
+    const selectedBefore = beforeState?.text || 'unknown';
+    log(`📋 Selected BEFORE: "${selectedBefore}" (found=${beforeState?.found})`);
+
+    // Step 2: Find and click personal workspace element
+    const clickResult = await evalJson(tabId, userId, `(() => {
+      // Strategy A: Find clickable element with "personal" text
+      const clickables = document.querySelectorAll('button, [role="radio"], [role="option"], [role="listbox"] > *, [role="radiogroup"] > *, label, li, a');
+      let personalEl = null;
+      let personalText = '';
+      
+      for (const el of clickables) {
+        if (el.offsetParent === null) continue;
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (text.includes('personal') && text.length < 100) {
+          personalEl = el;
+          personalText = text.slice(0, 60);
+          break;
+        }
+      }
+      
+      // Strategy B: Find in form - last visible item (OpenAI usually puts personal last)
+      if (!personalEl) {
+        const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
+        if (form) {
+          const allItems = form.querySelectorAll('[class*="item"], [class*="option"], [class*="radio"], [class*="workspace"]');
+          const visibleItems = Array.from(allItems).filter(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
+          if (visibleItems.length >= 2) {
+            personalEl = visibleItems[visibleItems.length - 1];
+            personalText = (personalEl.textContent || '').trim().slice(0, 60).toLowerCase();
+          }
+        }
+      }
+      
+      // Strategy C: Try to find radio/checkbox with "personal" label
+      if (!personalEl) {
+        const labels = document.querySelectorAll('label');
+        for (const label of labels) {
+          if (label.offsetParent === null) continue;
+          const text = (label.textContent || '').trim().toLowerCase();
+          if (text.includes('personal') && text.length < 100) {
+            const input = label.querySelector('input[type="radio"], input[type="checkbox"]');
+            if (input) {
+              personalEl = input;
+              personalText = text.slice(0, 60);
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!personalEl) return { ok: false, reason: 'no-personal-option' };
+      
+      // Click with full event sequence
+      personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      personalEl.click();
+      
+      return { ok: true, text: personalText, tagName: personalEl.tagName };
+    })()`, { timeoutMs: 5000 });
+
+    if (!clickResult?.ok) {
+      log(`❌ Could not find personal element: ${clickResult?.reason || 'unknown'}`);
+      return { ok: false, selectedBefore, selectedAfter: selectedBefore, changed: false, reason: clickResult?.reason || 'no-personal-option' };
+    }
+
+    log(`🖱️ Clicked personal element: "${clickResult.text}" (${clickResult.tagName})`);
+    await new Promise(r => setTimeout(r, 2000)); // Wait for UI update
+
+    // Step 3: Read selected workspace AFTER clicking
+    const afterState = await evalJson(tabId, userId, `(() => {
+      const selected = Array.from(document.querySelectorAll(
+        '[aria-selected="true"], [aria-checked="true"], [class*="selected"], [class*="active"]'
+      )).find(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
+      
+      if (selected) {
+        return { 
+          found: true, 
+          text: (selected.textContent || '').trim().slice(0, 80),
+          ariaChecked: selected.getAttribute('aria-checked'),
+          ariaSelected: selected.getAttribute('aria-selected')
+        };
+      }
+      
+      const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
+      if (form) {
+        const checked = form.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
+        if (checked) {
+          const label = form.querySelector(\`label[for="\${checked.id}"]\`) || checked.closest('label');
+          if (label) {
+            return { 
+              found: true, 
+              text: (label.textContent || '').trim().slice(0, 80),
+              inputId: checked.id
+            };
+          }
+        }
+      }
+      
+      return { found: false, text: 'unknown' };
+    })()`, { timeoutMs: 3000 });
+
+    const selectedAfter = afterState?.text || 'unknown';
+    log(`📋 Selected AFTER: "${selectedAfter}" (found=${afterState?.found})`);
+
+    // Step 4: Verify selection changed
+    const changed = selectedBefore !== selectedAfter && selectedAfter.toLowerCase().includes('personal');
+    if (changed) {
+      log(`✅ Selection changed: "${selectedBefore}" → "${selectedAfter}"`);
+      return { ok: true, selectedBefore, selectedAfter, changed, reason: 'success' };
+    } else {
+      log(`⚠️ Selection NOT changed or not personal: "${selectedBefore}" → "${selectedAfter}"`);
+      return { ok: false, selectedBefore, selectedAfter, changed, reason: 'selection-unchanged' };
+    }
+  } catch (err) {
+    log(`❌ Exception: ${err.message}`);
+    return { ok: false, selectedBefore: 'error', selectedAfter: 'error', changed: false, reason: err.message };
+  }
+}
+
 async function clickBestMatchingAction(tabId, userId, options = {}) {
   const { exactTexts = [], includesTexts = [], excludeTexts = [], timeoutMs = 4000 } = options;
   try {
@@ -989,38 +1157,14 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       } catch (_) {}
 
       // ── Chọn Personal workspace trước khi click Continue (BrowserOAuth path) ──
-      try {
-        const selectResult = await evalJson(tabId, userId, `(() => {
-          const clickables = document.querySelectorAll('button, [role="radio"], [role="option"], [role="listbox"] > *, [role="radiogroup"] > *, label, li, a');
-          let personalEl = null;
-          let personalText = '';
-          for (const el of clickables) {
-            if (el.offsetParent === null) continue;
-            const text = (el.textContent || '').trim().toLowerCase();
-            if (text.includes('personal') && text.length < 100) { personalEl = el; personalText = text.slice(0, 60); break; }
-          }
-          if (!personalEl) {
-            const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
-            if (form) {
-              const allItems = form.querySelectorAll('[class*="item"], [class*="option"], [class*="radio"], [class*="workspace"]');
-              const visibleItems = Array.from(allItems).filter(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
-              if (visibleItems.length >= 2) { personalEl = visibleItems[visibleItems.length - 1]; personalText = (personalEl.textContent || '').trim().slice(0, 60).toLowerCase(); }
-            }
-          }
-          if (!personalEl) return { ok: false, reason: 'no-personal-option' };
-          personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-          personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-          personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          personalEl.click();
-          return { ok: true, text: personalText };
-        })()`, { timeoutMs: 5000 });
-        if (selectResult?.ok) {
-          log(`🗂️ Selected personal workspace: "${selectResult.text}"`);
-          await new Promise(r => setTimeout(r, 1500));
-        } else {
-          log(`⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'}`);
-        }
-      } catch (_) {}
+      const selectResult = await selectPersonalWorkspaceInConsentUI({
+        tabId, userId, timeoutMs: 5000, logPrefix: '[BrowserOAuth]'
+      });
+      if (selectResult?.ok && selectResult?.changed) {
+        log(`✅ Personal workspace selected successfully`);
+      } else {
+        log(`⚠️ Personal workspace selection failed: ${selectResult?.reason || 'unknown'}`);
+      }
 
       // Handle "Try again" error page — click it and reload
       try {
@@ -1388,68 +1532,14 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         // Wait for React to render
         await new Promise(r => setTimeout(r, 1500));
 
-        // ── Chọn Personal workspace trước khi click Continue ──────────────────
-        // OpenAI consent page hiển thị danh sách workspace dạng clickable items.
-        // Mặc định enterprise workspace được pre-select. Cần click vào Personal option.
-        try {
-          const selectResult = await evalJson(tabId, userId, `(() => {
-            // Strategy 1: Tìm clickable element nhỏ nhất chứa text "personal"
-            // Ưu tiên: button, [role=radio], [role=option], label — KHÔNG match div container
-            const clickables = document.querySelectorAll('button, [role="radio"], [role="option"], [role="listbox"] > *, [role="radiogroup"] > *, label, li, a');
-            let personalEl = null;
-            let personalText = '';
-            
-            for (const el of clickables) {
-              if (el.offsetParent === null) continue;
-              const text = (el.textContent || '').trim().toLowerCase();
-              // Phải chứa "personal" VÀ không quá dài (tránh match container)
-              if (text.includes('personal') && text.length < 100) {
-                personalEl = el;
-                personalText = text.slice(0, 60);
-                break;
-              }
-            }
-            
-            // Strategy 2: Tìm trong form consent — item thứ 2 trong list
-            if (!personalEl) {
-              const form = document.querySelector('form[action*="consent"], form[action*="sign-in-with-chatgpt"]');
-              if (form) {
-                // Tìm tất cả items trong form có cùng structure (siblings)
-                const allItems = form.querySelectorAll('[class*="item"], [class*="option"], [class*="radio"], [class*="workspace"]');
-                const visibleItems = Array.from(allItems).filter(el => el.offsetParent !== null && (el.textContent || '').trim().length < 100);
-                if (visibleItems.length >= 2) {
-                  // Item cuối thường là Personal (OpenAI đặt enterprise trước)
-                  personalEl = visibleItems[visibleItems.length - 1];
-                  personalText = (personalEl.textContent || '').trim().slice(0, 60).toLowerCase();
-                }
-              }
-            }
-            
-            if (!personalEl) return { ok: false, reason: 'no-personal-option', debug: document.querySelector('form')?.innerHTML?.slice(0, 200) || '' };
-            
-            // Click vào personal option — dùng full event sequence cho React
-            personalEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-            personalEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-            personalEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            personalEl.click();
-            
-            // Verify: check visual state
-            const rect = personalEl.getBoundingClientRect();
-            const afterStyles = window.getComputedStyle(personalEl);
-            const hasCheckmark = personalEl.querySelector('svg, [class*="check"], [aria-checked="true"]') !== null;
-            const parentHasCheck = personalEl.parentElement?.querySelector('[aria-checked="true"]') !== null;
-            
-            return { ok: true, text: personalText, verified: hasCheckmark || parentHasCheck, rect: { w: Math.round(rect.width), h: Math.round(rect.height) } };
-          })()`, { timeoutMs: 5000 });
-          
-          if (selectResult?.ok) {
-            console.log(`[Capture] 🗂️ Selected personal workspace: "${selectResult.text}" (verified=${selectResult.verified}, size=${selectResult.rect?.w}x${selectResult.rect?.h})`);
-            await new Promise(r => setTimeout(r, 1500)); // Wait for UI to update after selection
-          } else {
-            console.log(`[Capture] ⚠️ Could not select personal workspace: ${selectResult?.reason || 'unknown'} debug=${(selectResult?.debug || '').slice(0, 100)}`);
-          }
-        } catch (selectErr) {
-          console.log(`[Capture] ⚠️ Workspace selection error: ${selectErr?.message || selectErr}`);
+        const selectResult = await selectPersonalWorkspaceInConsentUI({
+          tabId, userId, timeoutMs: 5000, logPrefix: '[Capture]'
+        });
+        if (selectResult?.ok && selectResult?.changed) {
+          console.log(`[Capture] ✅ Personal workspace selected successfully`);
+          await new Promise(r => setTimeout(r, 1500));
+        } else {
+          console.log(`[Capture] ⚠️ Personal workspace selection failed: ${selectResult?.reason || 'unknown'}`);
         }
 
         // Use _clickConsent strategies (same as _completeBrowserOAuth)
