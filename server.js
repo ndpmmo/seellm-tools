@@ -727,17 +727,32 @@ app.prepare().then(() => {
       let hasChanges = false;
       for (const event of data.events) {
         if (event.event_type === 'ACCOUNT_DELETED') {
-          // Chỉ log để biết Gateway đã xóa. #accounts tự cập nhật khi reload
-          // vì nó đọc thẳng từ D1 — không cần chạm vào Vault local
           try {
             const payload = JSON.parse(event.payload);
-            console.log(`[EventBus] ℹ️ Gateway đã xóa ${payload.email || payload.accountId} khỏi D1`);
-          } catch (err) { }
+            const accountId = payload.accountId || payload.id;
+            const email = payload.email || '';
+            console.log(`[EventBus] ℹ️ Gateway đã xóa ${email || accountId} khỏi D1`);
+
+            // Update local gateway_status → revoked (nếu account tồn tại local)
+            if (accountId) {
+              const local = vault.db.prepare('SELECT id, status, ever_ready FROM vault_accounts WHERE id = ?').get(accountId);
+              if (local) {
+                vault.updateGatewayStatus(accountId, 'revoked');
+                // Chỉ set idle nếu local KHÔNG đang ready+ever_ready (tránh overwrite)
+                if (local.status !== 'ready' || !local.ever_ready) {
+                  vault.db.prepare("UPDATE vault_accounts SET status='idle', updated_at=datetime('now') WHERE id=?").run(accountId);
+                }
+                hasChanges = true;
+              }
+            }
+          } catch (err) {
+            console.warn('[EventBus] Failed to parse ACCOUNT_DELETED:', err.message);
+          }
         }
       }
 
       if (hasChanges) {
-        emitSSE('vault:update', {});
+        emitSSE('vault:update', { reason: 'event-bus' });
       }
       // Trừ lùi 5 giây để tránh mất event do chênh lệch mili-giây hoặc clock drift giữa VPS/Local/Cloud
       lastEventCheck = new Date(Date.now() - 5000).toISOString();
@@ -769,6 +784,25 @@ app.prepare().then(() => {
           }
         });
         console.log(`[Sync] 🩺 Self-Healing hoàn tất. Sửa lỗi: ${accountsRepaired} account, ${proxiesRepaired} proxy.`);
+
+        // Self-heal gateway_status mismatch: ready nhưng gw≠active, hoặc idle nhưng gw=active
+        let gwRepaired = 0;
+        const mismatch = vault.db.prepare(`
+          SELECT id, email, status, ever_ready, gateway_status FROM vault_accounts
+          WHERE deleted_at IS NULL AND (
+            (status = 'ready' AND ever_ready = 1 AND (gateway_status IS NULL OR gateway_status != 'active'))
+            OR (status = 'idle' AND gateway_status = 'active')
+          )
+        `).all();
+        for (const m of mismatch) {
+          const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(m.id);
+          if (fullRecord) {
+            console.log(`[Sync] 🩺 gateway_status mismatch: ${m.email} status=${m.status} gw=${m.gateway_status} → re-push`);
+            await SyncManager.pushVault('account', fullRecord, true);
+            gwRepaired++;
+          }
+        }
+        if (gwRepaired) console.log(`[Sync] 🩺 gateway_status repaired: ${gwRepaired} accounts`);
       }
     } catch (e) {
       console.error(`[Sync] 🩺 Self-Healing thất bại:`, e.message);

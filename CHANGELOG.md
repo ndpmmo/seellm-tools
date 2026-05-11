@@ -2,6 +2,40 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.65] - 2026-05-11 19:00:00
+
+### 🔧 Sync Robustness — Self-heal gateway_status + Event Bus handler + D1 connection tombstone
+
+Ba cải thiện để đảm bảo đồng bộ hoạt động mượt mà và tự sửa lỗi.
+
+**1. Self-heal `gateway_status` mismatch** (`server.js` — self-healing loop)
+
+- **Vấn đề**: Nếu vì bất kỳ lý do gì (network error, race condition, bug cũ) mà `status=ready` nhưng `gateway_status≠active`, không có gì tự sửa — account "vô hình" trên Services mãi mãi.
+- **Fix**: Thêm check vào self-healing loop (chạy mỗi 12h):
+  - Tìm accounts `ready + ever_ready=1` nhưng `gateway_status ≠ active` → force re-push
+  - Tìm accounts `idle` nhưng `gateway_status = active` → force re-push (sẽ set revoked)
+  - Log: `[Sync] 🩺 gateway_status mismatch: email status=ready gw=revoked → re-push`
+
+**2. Event Bus `ACCOUNT_DELETED` handler** (`server.js` — D1 Event Bus poller)
+
+- **Vấn đề**: Khi user xóa account từ Services UI, D1 Worker emit `ACCOUNT_DELETED` event. Tools chỉ log mà không update local state → `gateway_status` vẫn `active` cho đến lần pullVault tiếp theo (15 phút).
+- **Fix**: Khi nhận `ACCOUNT_DELETED`:
+  - Update local `gateway_status = 'revoked'`
+  - Set `status = 'idle'` (chỉ khi local KHÔNG đang `ready+ever_ready` — tránh overwrite)
+  - Emit `vault:update` SSE → UI refresh ngay lập tức
+  - Log: `[EventBus] ℹ️ Gateway đã xóa email khỏi D1`
+
+**3. D1 Worker: tombstone `codex_connections` khi delete account** (`worker/src/index.ts`)
+
+- **Vấn đề**: `DELETE /accounts/:id` chỉ tombstone `codex_managed_accounts`, KHÔNG xóa `codex_connections`. Gateway có thể vẫn dùng connection cũ (vì nó query connections riêng).
+- **Fix**: Khi delete account, cũng tombstone connections:
+  - Tìm email từ managed account
+  - `UPDATE codex_connections SET deleted_at=now, is_active=0 WHERE email=? AND deleted_at IS NULL`
+  - Cũng try by id: `WHERE id=? AND deleted_at IS NULL`
+  - Đảm bảo Gateway không dùng connection cũ sau khi account bị xóa
+
+---
+
 ## [0.2.64] - 2026-05-11 18:00:00
 
 ### 🐛 Fix — pullVault ghi đè `ready` → `idle` khi Gateway managedAccounts có `deleted_at` (v3)
