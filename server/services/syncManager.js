@@ -534,97 +534,51 @@ export const SyncManager = {
           }
         } else {
           try {
-            // [FIX v4] Luôn chạy merge logic — không skip dựa trên updated_at comparison.
-            // Lý do: existing có thể là bản stale từ vaultAccounts D1 pull, trong khi local DB
-            // đã có bản mới hơn. Guard logic ở dưới sẽ tự quyết định có ghi đè hay không
-            // dựa trên LOCAL DB, không phải trên existing.updated_at.
+            // [FIX v5 — triệt để] Vault là kho ĐỘC LẬP.
+            // Gateway tombstone CHỈ ảnh hưởng gateway_status (revoked), KHÔNG set local status.
+            // User muốn thay đổi local status → bấm Stop/Deploy trong Vault UI.
+            //
+            // Trước đây logic này gây race condition:
+            // 1. User xóa account (D1 tombstone)
+            // 2. User Deploy lại (local = ready)
+            // 3. pullVault nhận tombstone cũ → ghi đè ready thành idle
+            //
+            // Giải pháp: local.status chỉ thay đổi qua user action (Vault UI) hoặc worker callback (connect-result).
+            // pullVault chỉ merge các field metadata không ảnh hưởng trạng thái flow (quota, proxy, notes).
             if (true) {
-              // Khi Gateway gửi deleted_at (xóa account), chuyển về idle thay vì bỏ qua
-              // Vault là kho ĐỘC LẬP — xóa ở Gateway = thu hồi về kho lạnh (idle)
-              if (ga.deleted_at && !existing.deleted_at) {
-                // Gateway đã xóa account này khỏi D1 managed_accounts.
-                // [FIX v3] Check local DB trước khi set idle — nếu local đang ready+ever_ready=1,
-                // nghĩa là account vừa connect thành công nhưng D1 chưa kịp update cursor.
-                // Giữ local ready thay vì ghi đè idle.
-                let localRecordForDelete = null;
-                if (localVault && existing.id) {
-                  try {
-                    localRecordForDelete = localVault.db.prepare(
-                      'SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?'
-                    ).get(existing.id);
-                  } catch (_) {}
-                }
-                const localStillReady = localRecordForDelete &&
-                  localRecordForDelete.status === 'ready' &&
-                  Number(localRecordForDelete.ever_ready) === 1;
-                const localStillProcessing = localRecordForDelete && (
-                  localRecordForDelete.status === 'pending' ||
-                  localRecordForDelete.status === 'processing' ||
-                  Number(localRecordForDelete.connect_pending) > 0
-                );
-
-                if (localStillReady || localStillProcessing) {
-                  // Local đang ready hoặc processing — KHÔNG ghi đè idle
-                  // Gateway có deleted_at vì push cũ (khi account còn idle), D1 chưa kịp nhận push mới
-                  existing.status = localRecordForDelete.status;
-                  if (localStillReady) existing.ever_ready = 1;
-                  console.log(`[pullVault] 🛡️ Guard v3: giữ local status=${localRecordForDelete.status} cho ${existing.email} (bỏ qua ga.deleted_at=${ga.deleted_at})`);
-                } else {
-                  // Local cũng idle/error — an toàn để set idle
-                  existing.status = 'idle';
-                  console.log(`[pullVault] ⚠️ Set idle cho ${existing.email} (local.status=${localRecordForDelete?.status || 'none'}, ga.deleted_at=${ga.deleted_at})`);
-                }
-                // KHÔNG set existing.deleted_at = ga.deleted_at ← đây là nguyên nhân gây mất dữ liệu
-              } else {
-                // 🔥 [FIX STATUS OVERWRITE v2] Check LOCAL DB status, không phải existing (array merge)
-                // Lý do: existing là từ D1 vaultAccounts (có thể stale). Local DB mới là source of truth.
-                // Kịch bản: account vừa connect-result success ở Tools → local = 'ready' + ever_ready=1.
-                // Gateway chưa kịp pull từ D1 nên managedAccounts.status='idle' → pullVault override.
-                let localRecord = null;
-                if (localVault && existing.id) {
-                  try {
-                    localRecord = localVault.db.prepare(
-                      'SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?'
-                    ).get(existing.id);
-                  } catch (_) {}
-                }
-                const localIsReady = localRecord && localRecord.status === 'ready' && Number(localRecord.ever_ready) === 1;
-                const localUserInitiated = localRecord && (
-                  localRecord.status === 'pending' ||
-                  localRecord.status === 'processing' ||
-                  Number(localRecord.connect_pending) > 0
-                );
-                // So sánh updated_at: nếu local mới hơn Gateway → giữ local status hoàn toàn
-                const localNewer = localRecord && localRecord.updated_at &&
-                  new Date(localRecord.updated_at).getTime() >= new Date(ga.updated_at || 0).getTime() - 30000; // 30s grace
-
-                if (localIsReady && ga.status === 'idle') {
-                  // Gateway chưa kịp pull từ D1 — giữ local 'ready'
-                  existing.status = 'ready';
-                  existing.ever_ready = 1;
-                } else if (localUserInitiated) {
-                  // User vừa bấm Deploy v2 hoặc đang processing — giữ local status
-                  existing.status = localRecord.status;
-                } else if (localNewer) {
-                  // Local mới hơn Gateway — giữ local
-                  existing.status = localRecord.status;
-                } else {
-                  existing.status = ga.status || existing.status;
-                }
-                // [PROTECT] Không cho Gateway ghi đè is_active khi account đang trong flow người dùng khởi tạo
-                if (!localUserInitiated) {
-                  existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
-                }
-                existing.quota_json = ga.quota_json || existing.quota_json;
-                existing.notes = ga.last_error || existing.notes;
-                // [FIX] Chỉ lan truyền deleted_at từ Gateway nếu local đã có deleted_at trước rồi (nhất quán)
-                // Nếu local chưa có deleted_at, giữ nguyên null
-                if (ga.deleted_at && existing.deleted_at) {
-                  existing.deleted_at = ga.deleted_at;
-                }
+              // Check local DB để có quyết định chính xác cho mọi field merge
+              let localRecord = null;
+              if (localVault && existing.id) {
+                try {
+                  localRecord = localVault.db.prepare(
+                    'SELECT status, ever_ready, connect_pending, updated_at FROM vault_accounts WHERE id = ?'
+                  ).get(existing.id);
+                } catch (_) {}
               }
+
+              // KHÔNG ghi đè status. Chỉ áp dụng ga.status nếu local hoàn toàn chưa có (new account từ Gateway)
+              if (!localRecord) {
+                existing.status = ga.status || existing.status;
+              }
+              // Ngược lại: giữ nguyên existing.status (sẽ được overridden bởi local DB trong upsertAccount guard)
+
+              // [PROTECT] Không cho Gateway ghi đè is_active khi account đang trong flow người dùng khởi tạo
+              const localUserInitiated = localRecord && (
+                localRecord.status === 'pending' ||
+                localRecord.status === 'processing' ||
+                Number(localRecord.connect_pending) > 0
+              );
+              if (!localUserInitiated) {
+                existing.is_active = ga.is_active !== undefined ? ga.is_active : existing.is_active;
+              }
+
+              // Merge metadata fields (không ảnh hưởng trạng thái flow)
+              existing.quota_json = ga.quota_json || existing.quota_json;
+              existing.notes = ga.last_error || existing.notes;
+
+              // KHÔNG set existing.deleted_at từ Gateway — Vault độc lập, chỉ xóa khi user explicit
+              existing.updated_at = ga.updated_at || existing.updated_at;
               if (!existing.created_at && ga.created_at) existing.created_at = ga.created_at;
-              existing.updated_at = ga.updated_at;
             }
           } catch (e) { }
         }

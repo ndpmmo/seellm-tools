@@ -309,11 +309,12 @@ export const vault = {
       finalStatus = 'processing';
     }
 
-    // 🔥 [FIX STATUS OVERWRITE v2] Guard trong upsertAccount khi được gọi từ pullVault (skipSync=true).
-    // Kịch bản: local account đã ready + ever_ready=1, pullVault trả về account với status='idle'.
-    // Rule: Nếu skipSync=true + local=ready+ever_ready=1 + incoming=idle → GIỮ local 'ready'.
-    if (skipSync && existing && existing.status === 'ready' && Number(existing.ever_ready) === 1 && finalStatus === 'idle') {
-      finalStatus = 'ready';
+    // [FIX v5 — TRIỆT ĐỂ] Vault là kho ĐỘC LẬP.
+    // Khi skipSync=true (từ pullVault), KHÔNG BAO GIỜ ghi đè local status từ remote.
+    // Local status chỉ thay đổi qua user action (Vault UI: Deploy/Stop) hoặc worker callback (connect-result).
+    // Điều này giải quyết race condition: user xóa → Deploy lại → tombstone cũ trong D1 không còn phá local.
+    if (skipSync && existing && existing.status) {
+      finalStatus = existing.status; // Luôn giữ local status khi pull từ cloud
     }
 
     // Auto-generate OAuth URL for Codex if it's a new account or missing auth data

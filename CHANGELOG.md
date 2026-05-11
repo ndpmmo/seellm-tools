@@ -2,6 +2,53 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.70] - 2026-05-12 05:00:00
+
+### 🎯 Fix — Triệt để: Vault là kho độc lập, remote KHÔNG BAO GIỜ ghi đè local status
+
+**Root cause cuối cùng**: Commit `8c6ce80` (Apr 9) introduce logic "Gateway tombstone → set local status=idle". Mọi patch sau đó (v1, v2, v3, v4) chỉ cố gắng "vá" race condition trong logic sai này. Nhiều lớp guard nhưng vẫn có edge case.
+
+**Triết lý được xác định rõ**: "Vault là kho ĐỘC LẬP". Local status chỉ thay đổi qua:
+1. **User action** trong Vault UI (Deploy/Stop)
+2. **Worker callback** (connect-result success/error)
+
+Remote cloud (D1/Gateway) **KHÔNG** có quyền thay đổi local status. Remote chỉ update `gateway_status` (revoked/active) để hiển thị trạng thái trên Services.
+
+**Fix triệt để — 3 tầng phòng thủ**:
+
+**Tầng 1** (`server/db/vault.js` — `upsertAccount`):
+```js
+// Khi skipSync=true (từ pullVault), LUÔN giữ local status
+if (skipSync && existing && existing.status) {
+  finalStatus = existing.status;
+}
+```
+Thay vì check `status=ready + ever_ready=1 + finalStatus=idle` phức tạp, giờ đơn giản: **khi pull từ cloud, giữ nguyên local status**, bất kể là gì.
+
+**Tầng 2** (`server/services/syncManager.js` — `pullVault` merge):
+- Xóa toàn bộ logic `if (ga.deleted_at) existing.status = 'idle'`
+- Xóa toàn bộ logic `existing.status = ga.status` khi local đã tồn tại
+- Chỉ apply `ga.status` khi local chưa có record (new account)
+- Merge metadata (quota, proxy, notes, is_active) — KHÔNG merge status
+
+**Tầng 3** (`server.js` — Event Bus `ACCOUNT_DELETED` handler):
+- Xóa logic `SET status='idle' WHERE id=?`
+- Chỉ update `gateway_status='revoked'`
+- Bỏ stale event timestamp guard (không cần vì không còn set status)
+
+**Kết quả**:
+- User xóa account → Deploy lại → **KHÔNG BAO GIỜ** bị revert về idle
+- Race condition không thể xảy ra vì remote không thể ghi đè local status
+- Code đơn giản hơn, dễ hiểu, dễ maintain
+- `gateway_status` vẫn hiển thị đúng (revoked/active) để user biết trạng thái trên Services
+
+**Hệ quả phụ — User behavior**:
+- Khi xóa account từ Services UI, local vẫn giữ `status=ready` với `gateway_status=revoked`
+- Để chuyển về idle, user phải bấm Stop trong Vault UI
+- Đây là **hành vi mong đợi** theo triết lý "Vault độc lập"
+
+---
+
 ## [0.2.69] - 2026-05-12 04:30:00
 
 ### 🐛 Fix — Gateway trigger HTTP 404 noise khi không chạy Gateway Next.js

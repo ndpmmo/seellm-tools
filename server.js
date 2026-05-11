@@ -731,29 +731,14 @@ app.prepare().then(() => {
             const payload = JSON.parse(event.payload);
             const accountId = payload.accountId || payload.id;
             const email = payload.email || '';
-            const eventTs = event.created_at || event.timestamp || null;
-            console.log(`[EventBus] ℹ️ Gateway đã xóa ${email || accountId} khỏi D1 (event_ts=${eventTs || 'unknown'})`);
+            console.log(`[EventBus] ℹ️ Gateway đã xóa ${email || accountId} khỏi D1`);
 
-            // Update local gateway_status → revoked (nếu account tồn tại local VÀ event mới hơn local)
+            // [FIX v5] Vault là kho ĐỘC LẬP — chỉ update gateway_status, KHÔNG set local status.
+            // User muốn thay đổi local status → bấm Stop trong Vault UI.
             if (accountId) {
-              const local = vault.db.prepare('SELECT id, status, ever_ready, updated_at FROM vault_accounts WHERE id = ?').get(accountId);
+              const local = vault.db.prepare('SELECT id FROM vault_accounts WHERE id = ?').get(accountId);
               if (local) {
-                // [Stale event guard] Nếu local.updated_at mới hơn event timestamp → account đã được cập nhật sau khi xóa
-                // (user đã Deploy lại). BỎ QUA event cũ để tránh set revoked → ready → revoked loop.
-                const localUpdatedMs = local.updated_at ? new Date(local.updated_at).getTime() : 0;
-                const eventMs = eventTs ? new Date(eventTs).getTime() : 0;
-                const isStaleEvent = eventMs > 0 && localUpdatedMs > 0 && localUpdatedMs > eventMs;
-
-                if (isStaleEvent) {
-                  console.log(`[EventBus] ⏭️ Bỏ qua stale ACCOUNT_DELETED event cho ${email} — local.updated_at=${local.updated_at} > event_ts=${eventTs}`);
-                  continue;
-                }
-
                 vault.updateGatewayStatus(accountId, 'revoked');
-                // Chỉ set idle nếu local KHÔNG đang ready+ever_ready (tránh overwrite)
-                if (local.status !== 'ready' || !local.ever_ready) {
-                  vault.db.prepare("UPDATE vault_accounts SET status='idle', updated_at=datetime('now') WHERE id=?").run(accountId);
-                }
                 hasChanges = true;
               }
             }
