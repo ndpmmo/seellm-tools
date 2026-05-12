@@ -942,12 +942,35 @@ router.post('/accounts/connect-result', async (req, res) => {
     } else {
       // Error hoặc trạng thái không thành công
       const errorMsg = message || `Connect worker status: ${status}`;
+      const isNeedPhone = String(errorMsg).includes('NEED_PHONE');
       maybeAddNeedPhoneTag(id, errorMsg);
+
+      // NEED_PHONE: set idle + tag — account chỉ hiển thị ở Vault local, không push Services
+      // Other errors: set error + push D1
+      const targetStatus = isNeedPhone ? 'idle' : 'error';
       vault.db.prepare(
-        `UPDATE vault_accounts SET status='error', notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
-      ).run(errorMsg, id);
-      const errRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
-      if (errRecord) SyncManager.pushVault('account', errRecord).catch(() => { });
+        `UPDATE vault_accounts SET status=?, notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
+      ).run(targetStatus, errorMsg, id);
+
+      // Chỉ push lên D1 nếu KHÔNG phải NEED_PHONE — tránh làm rối Services
+      // Account cần phone chỉ hiển thị ở Vault local với nhãn NEED_PHONE
+      if (!isNeedPhone) {
+        const errRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+        if (errRecord) SyncManager.pushVault('account', errRecord).catch(() => { });
+      } else {
+        // Tombstone trên D1 để account biến mất khỏi Services
+        console.log(`[Connect-Result] ⏭️ NEED_PHONE — tombstone trên D1, giữ local với nhãn`);
+        try {
+          const cfg = loadConfig();
+          if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+            await fetch(`${cfg.d1WorkerUrl}/accounts/${id}`, {
+              method: 'DELETE',
+              headers: { 'x-sync-secret': cfg.d1SyncSecret },
+              signal: AbortSignal.timeout(5000),
+            });
+          }
+        } catch (_) {}
+      }
     }
 
     res.json({ ok: true });

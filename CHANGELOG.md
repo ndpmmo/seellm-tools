@@ -2,6 +2,29 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.76] - 2026-05-12 07:30:00
+
+### 🔧 Fix — Account NEED_PHONE không push lên Services, chỉ giữ local với nhãn
+
+**Problem**: Khi account bị NEED_PHONE, `connect-result` error path vẫn push account lên D1 với `status=error` → account xuất hiện ở Managed Services với status "Pending"/"Error", làm rối danh sách. Account cần phone verification không nên hiển thị ở Services vì không thể sử dụng.
+
+**Fix** (`server/routes/vault.js` — `connect-result` error path):
+
+1. **Phân biệt NEED_PHONE vs other errors**:
+   - `NEED_PHONE`: set `status='idle'` + tag `NEED_PHONE` + **KHÔNG push D1** + tombstone nếu đã có trên D1
+   - Other errors: set `status='error'` + push D1 như cũ
+
+2. **Tombstone trên D1**: Khi NEED_PHONE, gọi `DELETE /accounts/:id` trên D1 Worker để account biến mất khỏi Services (nếu đã được push lên trước đó khi Deploy).
+
+3. **Status = idle**: Account NEED_PHONE giữ `status='idle'` local (không phải `error`) — tránh bị worker retry. Nhãn `NEED_PHONE` hiển thị rõ trong Vault UI.
+
+**Kết quả**:
+- Account NEED_PHONE: chỉ hiển thị ở Vault local với nhãn đỏ "NEED PHONE"
+- Managed Services: sạch — chỉ hiển thị accounts đang hoạt động hoặc có lỗi khác
+- Worker không retry account NEED_PHONE (status=idle, không phải pending/relogin)
+
+---
+
 ## [0.2.75] - 2026-05-12 07:00:00
 
 ### 🐛 Fix — Phone screen: báo NEED_PHONE ngay thay vì chạy 5 fallback vô nghĩa rồi báo OAUTH_FAILED
