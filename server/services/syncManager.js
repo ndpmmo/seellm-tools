@@ -252,6 +252,9 @@ export const SyncManager = {
           provider: data.provider || 'openai',
           email: data.email,
           name: data.email ? data.email.split('@')[0] : data.id,
+          // COALESCE-safe: send tokens when available (status=ready means tokens exist).
+          // D1 Worker uses COALESCE so null = "keep existing", but on INSERT null = null.
+          // Always include tokens for ready accounts to handle re-creation after DELETE.
           access_token: data.access_token || null,
           refresh_token: data.refresh_token || null,
           proxy_url: data.proxy_url || null,

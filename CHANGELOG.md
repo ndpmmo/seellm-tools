@@ -2,6 +2,37 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.78] - 2026-05-14 19:00:00
+
+### 🐛 Fix — D1 Worker deploy + COALESCE token protection
+
+**Problem**: D1 Worker cũ **không lưu tokens** khi nhận push từ Tools → Gateway pull connections không có tokens → "0 connections" / "auth failed". Root cause: Worker code cũ có bug trong upsert logic (tokens bị drop silently).
+
+**Fix**:
+
+1. **D1 Worker redeployed** (seellm-gateway `worker/src/index.ts`):
+   - `refresh_token`/`access_token`: `COALESCE(excluded, existing)` — null push = giữ token hiện tại
+   - Error fields: `CASE WHEN test_status IN ('active','success','ready') THEN NULL ELSE COALESCE(...)` — auto-clear on recovery
+   - Verified via E2E test: tokens stored, COALESCE works, error propagates, recovery clears
+
+2. **SyncManager** (`server/services/syncManager.js`):
+   - Connections payload cho status=ready **luôn include tokens** (vì ready = có tokens trong vault)
+   - D1 COALESCE bảo vệ: nếu Gateway đã refresh token mới hơn (version cao hơn), Tools push sẽ bị reject bởi version guard
+   - Comment giải thích COALESCE-safe pattern
+
+**D1 Worker URLs** (cùng 1 worker + database):
+- Direct: `https://seellm-gateway-worker.clicktechlimited.workers.dev`
+- Custom domain: `https://gateway-db.seellm.xyz`
+
+**E2E test results** (verified after deploy):
+- ✅ Tokens stored on push
+- ✅ COALESCE: null push doesn't overwrite existing tokens
+- ✅ Error state propagates (test_status, error_code, last_error_type)
+- ✅ Recovery clears error fields
+- ✅ Soft delete works
+
+---
+
 ## [0.2.77] - 2026-05-14 12:00:00
 
 ### ✨ Feature — Action Hint + Health Sync trên ServicesView (Managed Services)
