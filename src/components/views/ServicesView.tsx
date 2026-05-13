@@ -134,9 +134,30 @@ function getStatusPresentation(it: any) {
   return { label: 'Error', colorClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/20', errorType };
 }
 
+function getActionHint(item: any, errorType: string | null): string | null {
+  if (!errorType) return null;
+  if (['upstream_auth_error', 'token_refresh_failed', 'token_expired'].includes(errorType)) {
+    const isActive = item?.is_active !== 0 && item?.isActive !== false;
+    if (!isActive && errorType === 'token_expired') return '⚠️ Token bị thu hồi — cần tạo kết nối mới';
+    return '🔑 Cần re-login';
+  }
+  if (errorType === 'upstream_rate_limited') {
+    const until = item?.rate_limited_until;
+    if (until && new Date(until).getTime() > Date.now()) {
+      const diff = Math.ceil((new Date(until).getTime() - Date.now()) / 60000);
+      return `⏳ Chờ ~${diff} phút`;
+    }
+    return '⏳ Rate limited — chờ hết cooldown';
+  }
+  if (errorType === 'network_error') return '🌐 Kiểm tra proxy/network';
+  if (errorType === 'upstream_unavailable') return '🔌 Upstream không khả dụng';
+  return null;
+}
+
 function StatusBadge({ item }: { item: any }) {
   const p = getStatusPresentation(item);
   const errLabel = p.errorType ? (ERROR_TYPE_LABELS[p.errorType] || p.errorType) : null;
+  const actionHint = getActionHint(item, p.errorType);
   return (
     <div className="flex flex-col gap-1.5 items-start">
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide border ${p.bgClass} ${p.colorClass} ${p.borderClass}`}>
@@ -145,6 +166,11 @@ function StatusBadge({ item }: { item: any }) {
       {errLabel && item?.is_active !== 0 && (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-slate-400 border border-white/10 uppercase tracking-wider">
           {errLabel}
+        </span>
+      )}
+      {actionHint && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-amber-500/10 border border-amber-500/20">
+          {actionHint}
         </span>
       )}
     </div>

@@ -2,6 +2,45 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.77] - 2026-05-14 12:00:00
+
+### ✨ Feature — Action Hint + Health Sync trên ServicesView (Managed Services)
+
+**Problem**: Khi account bị lỗi trên gateway (auth failed, token invalidated, rate limited), ServicesView chỉ hiển thị "Disabled" mà không cho biết **tại sao** và **cần làm gì**. Root cause: D1 Worker không lưu health fields (`test_status`, `error_code`, `last_error_type`, `rate_limited_until`) — chỉ lưu `is_active` và `last_error` (nhưng `last_error` là vault notes, không phải gateway error).
+
+**Fix — 2 repos:**
+
+**seellm-gateway** (`worker/` + `src/lib/codexRemoteSync.ts`):
+1. **Migration 0012**: Thêm cột `test_status`, `error_code`, `last_error_type`, `last_error`, `rate_limited_until`, `last_health_check_at` vào `codex_connections` + `codex_managed_accounts`
+2. **`upsertConnection`**: Lưu health fields khi nhận push từ gateway
+3. **`upsertManagedAccount`**: Lưu health fields
+4. **`/inspect/connections`**: Trả về health fields trong response
+5. **`/inspect/accounts`**: Trả về health fields trong response
+6. **`codexRemoteSync.ts`**: `serializeProviderConnectionForRemote()` bao gồm `test_status`, `error_code`, `last_error_type`, `last_error`, `rate_limited_until`, `last_health_check_at`
+
+**seellm-tools** (`src/components/views/ServicesView.tsx`):
+- Thêm `getActionHint()` — hiển thị nhãn gợi ý hành động dưới status badge:
+
+| Error Type | Action Hint |
+|---|---|
+| `upstream_auth_error`, `token_refresh_failed` | 🔑 Cần re-login |
+| `token_expired` + `is_active=false` | ⚠️ Token bị thu hồi — cần tạo kết nối mới |
+| `upstream_rate_limited` | ⏳ Chờ ~X phút (countdown) |
+| `network_error` | 🌐 Kiểm tra proxy/network |
+| `upstream_unavailable` | 🔌 Upstream không khả dụng |
+
+**Kết quả** (sau khi deploy D1 Worker + gateway sync lại):
+- ServicesView hiển thị "Auth Failed" + "🔑 Cần re-login" thay vì chỉ "Disabled"
+- Nhìn vào UI biết ngay cần làm gì mà không cần mở gateway
+- Health data tự động sync từ gateway → D1 → Tools mỗi chu kỳ sync
+
+**Deploy steps**:
+1. Deploy D1 Worker mới (migration 0012 sẽ tự chạy)
+2. Restart gateway (để codexRemoteSync push health fields)
+3. Chờ 1 chu kỳ sync (~2-5 phút) → ServicesView hiển thị action hints
+
+---
+
 ## [0.2.76] - 2026-05-12 07:30:00
 
 ### 🔧 Fix — Account NEED_PHONE không push lên Services, chỉ giữ local với nhãn
