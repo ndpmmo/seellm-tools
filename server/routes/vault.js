@@ -391,14 +391,100 @@ router.post('/email-pool/check', async (req, res) => {
     const record = pool.find(e => e.email === email);
     if (!record) return res.status(404).json({ error: 'Email not found in pool' });
 
-    const raw = `${record.email}|${record.password}|${record.refresh_token}|${record.client_id}`;
+    const raw = `${record.email}|${record.password || ''}|${record.auth_method || 'graph'}|${record.refresh_token || ''}|${record.client_id || ''}`;
 
-    // Trigger check-mail-worker.js via process runner logic if needed, 
-    // or just run it directly as a child process here for simplicity if not using the full process manager.
-    // However, the dashboard expects a processId to show logs.
-    // Let's assume we use the existing /api/processes/script/run pattern.
-    res.json({ ok: true, raw }); // Frontend will call /api/processes/script/run with this raw data
+    res.json({ ok: true, raw });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ─── Bulk email verification ───────────────────────────────────────────── */
+/*  POST /api/vault/email-pool/bulk-verify                                   */
+/*  Body: { emails?: string[] }  — if omitted, verify all unknown/dead       */
+/*  Runs checks concurrently (up to 5 parallel) and returns results          */
+/* ────────────────────────────────────────────────────────────────────────── */
+router.post('/email-pool/bulk-verify', async (req, res) => {
+  try {
+    const pool = vault.getEmailPoolFull();
+    let targets;
+    
+    if (Array.isArray(req.body.emails) && req.body.emails.length > 0) {
+      // Verify specific emails
+      targets = pool.filter(e => req.body.emails.includes(e.email));
+    } else {
+      // Verify all unknown/dead
+      targets = pool.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
+    }
+    
+    if (!targets.length) {
+      return res.json({ ok: true, checked: 0, results: [] });
+    }
+
+    // Dynamic import to avoid issues
+    const { getAccessToken, fetchMails } = await import('../../scripts/lib/ms-graph-email.js');
+
+    const CONCURRENCY = 5;
+    const results = [];
+
+    // Process in batches of CONCURRENCY
+    for (let i = 0; i < targets.length; i += CONCURRENCY) {
+      const batch = targets.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map(async (record) => {
+          const email = record.email;
+          const refreshToken = record.refresh_token;
+          const clientId = record.client_id;
+
+          // Skip if missing credentials
+          if (!refreshToken || refreshToken === 'null' || refreshToken === 'undefined' ||
+              !clientId || clientId === 'null' || clientId === 'undefined') {
+            const result = { email, status: 'dead', error: 'Thiếu Refresh Token hoặc Client ID' };
+            vault.upsertEmailPool({
+              email,
+              mail_status: 'dead',
+              last_checked_at: new Date().toISOString(),
+              notes: 'Lỗi: Thiếu Refresh Token hoặc Client ID',
+            });
+            if (emitSSE) emitSSE('email-pool-updated', { email });
+            return result;
+          }
+
+          try {
+            const token = await getAccessToken(refreshToken, clientId);
+            await fetchMails(token, { top: 1 });
+
+            const result = { email, status: 'active', error: null };
+            vault.upsertEmailPool({
+              email,
+              mail_status: 'active',
+              last_checked_at: new Date().toISOString(),
+              notes: `Mail OK (${new Date().toLocaleTimeString()})`,
+            });
+            if (emitSSE) emitSSE('email-pool-updated', { email });
+            return result;
+          } catch (err) {
+            const result = { email, status: 'dead', error: err.message };
+            vault.upsertEmailPool({
+              email,
+              mail_status: 'dead',
+              last_checked_at: new Date().toISOString(),
+              notes: `Lỗi: ${err.message}`,
+            });
+            if (emitSSE) emitSSE('email-pool-updated', { email });
+            return result;
+          }
+        })
+      );
+
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled') results.push(r.value);
+        else results.push({ email: '?', status: 'dead', error: r.reason?.message || 'Unknown error' });
+      }
+    }
+
+    res.json({ ok: true, checked: results.length, results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /* ══════════════════════════════════════════════════════════════════════════ */

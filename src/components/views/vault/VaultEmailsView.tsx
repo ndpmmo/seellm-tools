@@ -113,6 +113,7 @@ export function VaultEmailsView() {
         const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
         if (!lines.length) return addToast('Vui lòng nhập danh sách', 'error');
         let count = 0;
+        const importedEmails: string[] = [];
         
         for (const line of lines) {
             const parts = line.split('|');
@@ -140,17 +141,25 @@ export function VaultEmailsView() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password, refresh_token, client_id, auth_method }),
                 });
+                importedEmails.push(email);
                 count++;
-
-                // 2. Auto-trigger check-mail-worker
-                const raw = `${email}|${password || ''}|${auth_method}|${refresh_token}|${client_id}`;
-                fetch('/api/processes/script/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scriptName: 'check-mail-worker.js', args: [raw] }),
-                }).catch(() => {});
-                
             } catch (_) { }
+        }
+
+        // 2. Bulk-verify all imported emails in one call (parallel, fast)
+        if (importedEmails.length > 0) {
+            fetch('/api/vault/email-pool/bulk-verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails: importedEmails }),
+            }).then(res => res.json()).then(data => {
+                if (data.ok) {
+                    const active = data.results?.filter((r: any) => r.status === 'active').length || 0;
+                    const dead = data.results?.filter((r: any) => r.status === 'dead').length || 0;
+                    addToast(`✅ Verify xong: ${active} active, ${dead} dead`, 'success');
+                }
+                fetchPool();
+            }).catch(() => { fetchPool(); });
         }
 
         addToast(`✅ Đã import và bắt đầu kiểm tra ${count} email`, 'success');
@@ -195,16 +204,26 @@ export function VaultEmailsView() {
     });
 
     const checkStatus = async (it: any) => {
-        const raw = `${it.email}|${it.password || ''}|${it.auth_method || 'graph'}|${it.refresh_token || ''}|${it.client_id || ''}`;
         addToast(`🔍 Đang kiểm tra: ${it.email}`, 'info');
         try {
-            const res = await fetch('/api/processes/script/run', {
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scriptName: 'check-mail-worker.js', args: [raw] }),
+                body: JSON.stringify({ emails: [it.email] }),
             });
-            if (res.ok) addToast('Worker đã khởi động', 'success');
-        } catch (_) { }
+            const data = await res.json();
+            if (data.ok && data.results?.[0]) {
+                const r = data.results[0];
+                if (r.status === 'active') {
+                    addToast(`✅ ${it.email}: Mail hoạt động tốt`, 'success');
+                } else {
+                    addToast(`❌ ${it.email}: ${r.error || 'Mail không hoạt động'}`, 'error');
+                }
+            }
+            fetchPool();
+        } catch (err: any) {
+            addToast(`Lỗi kiểm tra ${it.email}: ${err.message}`, 'error');
+        }
     };
 
     const startRegistration = async (it: any) => {

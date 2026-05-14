@@ -2,6 +2,65 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.80] - 2026-05-15 06:00:00
+
+### 🐛 Fix — Bulk email verification không hoạt động (#vault-workshop)
+
+**Problem**: Chức năng verify hàng loạt email (kiểm tra mail còn live) trong Vault Workshop không hoạt động do nhiều lỗi chí mạng:
+
+1. **`runCheck()` không được `await`** — `check-mail-worker.js` gọi `runCheck(input)` mà không có `await`, Node.js thoát process trước khi async check hoàn tất → kết quả không bao giờ được ghi vào pool.
+
+2. **Thiếu `auth_method` trong format tham số** — `VaultAutoRegisterView` và route `/email-pool/check` gửi `email|password|refresh_token|client_id` (4 phần) nhưng worker kỳ vọng `email|password|auth_method|refresh_token|client_id` (5 phần) → `refreshToken` nhận giá trị `auth_method`, `clientId` nhận giá trị `refresh_token` → luôn fail "Thiếu Refresh Token hoặc Client ID".
+
+3. **Hardcoded `localhost:4000`** — Worker gọi API cập nhật status về `http://localhost:4000` mà không tôn trọng PORT env var → fail khi chạy trên port khác.
+
+4. **Không refresh pool sau verify** — UI không cập nhật trạng thái email sau khi check xong, user phải refresh thủ công.
+
+5. **Verify hàng loạt chạy tuần tự, chậm** — Mỗi email spawn 1 process riêng + delay 2s → N email = N process + 2N giây delay, không có feedback tiến trình.
+
+**Fix**:
+
+1. **`scripts/check-mail-worker.js`**:
+   - Thêm `await` cho `runCheck()` — process chờ async hoàn tất trước khi thoát.
+   - Hỗ trợ cả 3 format: 5-part (preferred), 4-part (legacy), 3-part (minimal).
+   - Kiểm tra null/undefined string cho `refreshToken` và `clientId`.
+   - Dùng `WORKER_BASE_URL` env thay vì hardcoded `localhost:4000`.
+   - Bọc update-dead-status trong try/catch để tránh crash kép.
+   - Log HTTP status nếu update pool thất bại.
+
+2. **`server/routes/vault.js`**:
+   - Sửa format tham số ở `/email-pool/check`: thêm `auth_method` vào raw string.
+   - **Thêm endpoint mới `POST /api/vault/email-pool/bulk-verify`**:
+     - Chấp nhận `{ emails?: string[] }` — nếu omit, tự verify tất cả unknown/dead.
+     - Chạy verify song song (5 concurrent) trực tiếp trên server, không spawn process.
+     - Dynamic import `ms-graph-email.js` — gọi `getAccessToken` + `fetchMails` inline.
+     - Cập nhật DB + emit SSE realtime cho mỗi email check xong.
+     - Trả về kết quả chi tiết: `{ ok, checked, results: [{ email, status, error? }] }`.
+
+3. **`VaultWorkshopView.tsx`**:
+   - `checkStatus()` chuyển sang dùng `/api/vault/email-pool/bulk-verify` — nhận kết quả ngay, feedback toast chi tiết (active/dead + lý do lỗi).
+   - `verifyAllPool()` chuyển sang bulk-verify endpoint — 1 HTTP call thay vì N process, tự refresh pool sau verify.
+   - Thêm `verifyLoading` state + spinner animation trên nút "Verify WaitList".
+
+4. **`VaultAutoRegisterView.tsx`**:
+   - Sửa format tham số `checkEmailStatus` và `startRegistration`: thêm `auth_method`.
+   - `verifyAllPool()` chuyển sang bulk-verify endpoint với loading state.
+   - Nút "Verify All Pool" hiển thị spinner khi đang verify.
+
+5. **`VaultEmailsView.tsx`**:
+   - `checkStatus()` chuyển sang bulk-verify endpoint — nhận kết quả ngay.
+   - Import email: thu thập `importedEmails[]`, bulk-verify tất cả trong 1 call thay vì spawn N process riêng.
+   - Toast feedback chi tiết sau verify: "X active, Y dead".
+
+**Kết quả**:
+- ✅ Verify từng email hoạt động — nhận kết quả active/dead ngay lập tức.
+- ✅ Verify hàng loạt hoạt động — 5 concurrent, SSE realtime update, không spawn process thừa.
+- ✅ Thông tin lỗi chi tiết — user biết tại sao email dead (thiếu token, token hết hạn, v.v.).
+- ✅ Pool tự refresh sau verify — không cần refresh thủ công.
+- ✅ Backward-compatible — worker hỗ trợ cả format cũ (4-part) và mới (5-part).
+
+---
+
 ## [0.2.79] - 2026-05-14 19:30:00
 
 ### ✨ Feature — Bulk Delete + Auto-transition to Idle (Managed Services)

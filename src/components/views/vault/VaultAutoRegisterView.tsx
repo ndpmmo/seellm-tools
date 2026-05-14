@@ -101,17 +101,23 @@ export function VaultAutoRegisterView() {
     };
 
     const checkEmailStatus = async (emailRecord: any) => {
-        const raw = `${emailRecord.email}|${emailRecord.password}|${emailRecord.refresh_token}|${emailRecord.client_id}`;
         addToast(`Đang kiểm tra: ${emailRecord.email}`, 'info');
         try {
-            const res = await fetch('/api/processes/script/run', {
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scriptName: 'check-mail-worker.js', args: [raw] }),
+                body: JSON.stringify({ emails: [emailRecord.email] }),
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            addToast('Đang chạy kiểm tra mail...', 'success');
+            if (data.ok && data.results?.[0]) {
+                const r = data.results[0];
+                if (r.status === 'active') {
+                    addToast(`✅ ${emailRecord.email}: Mail hoạt động tốt`, 'success');
+                } else {
+                    addToast(`❌ ${emailRecord.email}: ${r.error || 'Mail không hoạt động'}`, 'error');
+                }
+            }
+            fetchPool();
         } catch (err: any) {
             addToast(`Lỗi: ${err.message}`, 'error');
         }
@@ -128,21 +134,39 @@ export function VaultAutoRegisterView() {
         }
     };
 
+    const [verifyLoading, setVerifyLoading] = useState(false);
+
     const verifyAllPool = async () => {
         const unknown = emailPool.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
         if (!unknown.length) return addToast('Tất cả email đã được verify', 'info');
 
-        addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email`, 'success');
-        for (const e of unknown) {
-            await checkEmailStatus(e);
-            await new Promise(r => setTimeout(r, 2000));
+        setVerifyLoading(true);
+        addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email...`, 'info');
+        try {
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails: unknown.map(e => e.email) }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                const active = data.results?.filter((r: any) => r.status === 'active').length || 0;
+                const dead = data.results?.filter((r: any) => r.status === 'dead').length || 0;
+                addToast(`✅ Verify xong: ${active} active, ${dead} dead`, 'success');
+            } else {
+                addToast(`Lỗi verify: ${data.error}`, 'error');
+            }
+            fetchPool();
+        } catch (err: any) {
+            addToast(`Lỗi verify hàng loạt: ${err.message}`, 'error');
         }
+        setVerifyLoading(false);
     };
 
     // ── Xử lý Import Email đã được chuyển sang VaultEmailsView ──────────
     // ── Xử lý khi click bắt đầu từ Pool ───────────────────────
     const startRegistration = async (emailRecord: any) => {
-        const raw = `${emailRecord.email}|${emailRecord.password}|${emailRecord.refresh_token}|${emailRecord.client_id}`;
+        const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}`;
 
         const newTask = {
             id: Math.random().toString(36).slice(2),
@@ -407,8 +431,9 @@ export function VaultAutoRegisterView() {
                         <Button variant="primary" className="justify-start shadow-md shadow-indigo-500/20" onClick={startAllPending}>
                             <Play size={14} /> Start Pending
                         </Button>
-                        <Button variant="ghost" className="justify-start border-white/10 hover:bg-white/10" onClick={verifyAllPool}>
-                            <ShieldCheck size={14} className="text-cyan-400" /> Verify All Pool
+                        <Button variant="ghost" className="justify-start border-white/10 hover:bg-white/10" onClick={verifyAllPool} disabled={verifyLoading}>
+                            {verifyLoading ? <RefreshCw size={14} className="text-cyan-400 animate-spin" /> : <ShieldCheck size={14} className="text-cyan-400" />}
+                            {verifyLoading ? 'Verifying...' : 'Verify All Pool'}
                         </Button>
                         <Button variant="ghost" className="justify-start border-white/10 hover:bg-white/10" onClick={fetchPool}>
                             <RefreshCw size={14} className="text-slate-400" /> Refresh Pool

@@ -66,6 +66,7 @@ export function VaultWorkshopView() {
     const [inputText, setInputText] = useState('');
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [actionLoading, setActionLoading] = useState(false);
+    const [verifyLoading, setVerifyLoading] = useState(false);
     const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
     const [copied, setCopied] = useState<string | null>(null);
 
@@ -242,15 +243,26 @@ export function VaultWorkshopView() {
     };
 
     const checkStatus = async (it: any) => {
-        const raw = `${it.email}|${it.password || ''}|${it.auth_method || 'graph'}|${it.refresh_token || ''}|${it.client_id || ''}`;
         addToast(`🔍 Đang kiểm tra: ${it.email}`, 'info');
         try {
-            await fetch('/api/processes/script/run', {
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scriptName: 'check-mail-worker.js', args: [raw] }),
+                body: JSON.stringify({ emails: [it.email] }),
             });
-        } catch (_) { }
+            const data = await res.json();
+            if (data.ok && data.results?.[0]) {
+                const r = data.results[0];
+                if (r.status === 'active') {
+                    addToast(`✅ ${it.email}: Mail hoạt động tốt`, 'success');
+                } else {
+                    addToast(`❌ ${it.email}: ${r.error || 'Mail không hoạt động'}`, 'error');
+                }
+            }
+            await fetchPool();
+        } catch (err: any) {
+            addToast(`Lỗi kiểm tra ${it.email}: ${err.message}`, 'error');
+        }
     };
 
     const startRegistrationWithConnect = async (emailRecord: any, proxyUrl?: string) => {
@@ -412,11 +424,27 @@ export function VaultWorkshopView() {
         const unknown = items.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
         if (!unknown.length) return addToast('Tất cả email đã được verify', 'info');
 
-        addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email`, 'success');
-        for (const e of unknown) {
-            await checkStatus(e);
-            await new Promise(r => setTimeout(r, 2000));
+        setVerifyLoading(true);
+        addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email...`, 'info');
+        try {
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails: unknown.map(e => e.email) }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                const active = data.results?.filter((r: any) => r.status === 'active').length || 0;
+                const dead = data.results?.filter((r: any) => r.status === 'dead').length || 0;
+                addToast(`✅ Verify xong: ${active} active, ${dead} dead`, 'success');
+            } else {
+                addToast(`Lỗi verify: ${data.error}`, 'error');
+            }
+            await fetchPool();
+        } catch (err: any) {
+            addToast(`Lỗi verify hàng loạt: ${err.message}`, 'error');
         }
+        setVerifyLoading(false);
     };
 
     const clearAllTasks = () => {
@@ -592,8 +620,9 @@ export function VaultWorkshopView() {
                                                 <Trash2 size={13} /> Xóa ({selected.size})
                                             </Button>
                                         )}
-                                        <Button variant="ghost" size="sm" onClick={verifyAllPool}>
-                                            <ShieldCheck size={14} className="text-cyan-400" /> Verify WaitList
+                                        <Button variant="ghost" size="sm" onClick={verifyAllPool} disabled={verifyLoading}>
+                                            {verifyLoading ? <RefreshCw size={14} className="text-cyan-400 animate-spin" /> : <ShieldCheck size={14} className="text-cyan-400" />}
+                                            {verifyLoading ? 'Verifying...' : 'Verify WaitList'}
                                         </Button>
                                         <Button variant="primary" size="sm" onClick={startAllPending} className="shadow-indigo-500/20">
                                             <Play size={14} /> Start Pending
