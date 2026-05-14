@@ -2,6 +2,32 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.79] - 2026-05-14 19:30:00
+
+### ✨ Feature — Bulk Delete + Auto-transition to Idle (Managed Services)
+
+**Problem**: Trong màn hình ServicesView (#services), người dùng không thể xóa hàng loạt tài khoản. Ngoài ra, khi xóa một service, tài khoản đó nên được thu hồi về trạng thái "Idle" trong Vault thay vì bị bỏ rơi hoặc xóa cứng, để đảm bảo tính sẵn sàng cho việc tái sử dụng.
+
+**Fix**:
+
+1. **ServicesView.tsx**:
+   - Thêm nút **"Xóa đã chọn"** (Bulk Delete) vào thanh công cụ bulk actions.
+   - Sử dụng `selectedIds` để xử lý xóa hàng loạt qua API D1.
+   - Thêm `ConfirmModal` để xác nhận trước khi xóa, đảm bảo an toàn dữ liệu.
+
+2. **server.js (D1 Proxy Interceptor)**:
+   - Cập nhật trình chặn (interceptor) cho `DELETE /api/d1/accounts/:id`.
+   - Trước khi proxy lệnh xóa lên Cloud D1, hệ thống sẽ thực hiện cập nhật local SQLite:
+     `UPDATE vault_accounts SET status = 'idle', deleted_at = NULL WHERE id = ?`
+   - Đảm bảo tài khoản được thu hồi về trạng thái **Idle** trong #vault-accounts ngay lập tức, giúp đồng bộ hóa trạng thái giữa Local và Cloud một cách chính xác.
+
+**Kết quả**:
+- ✅ Hỗ trợ xóa hàng loạt accounts trong Managed Services.
+- ✅ Tài khoản sau khi xóa dịch vụ sẽ tự động quay về trạng thái Idle trong Vault local.
+- ✅ Quy trình đồng bộ D1 hoạt động liền mạch, không gây xung đột dữ liệu.
+
+---
+
 ## [0.2.78] - 2026-05-14 19:00:00
 
 ### 🐛 Fix — D1 Worker deploy + COALESCE token protection

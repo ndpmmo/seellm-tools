@@ -482,6 +482,36 @@ export function ServicesView() {
     }
   };
 
+  const bulkDeleteAction = async () => {
+    const accountIds = Array.from(selectedIds);
+    if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
+    
+    setConfirmModal({
+      title: 'Xóa Hàng Loạt',
+      message: `Bạn có chắc muốn xóa ${accountIds.length} tài khoản này? Thao tác này sẽ xóa toàn bộ dữ liệu trên Services và chuyển tài khoản về trạng thái Idle trong Vault.`,
+      onConfirm: async () => {
+        setBulkProxyRunning(true);
+        try {
+          let ok = 0, fail = 0;
+          for (const id of accountIds) {
+            try {
+              const r = await fetch(`/api/d1/accounts/${id}`, { method: 'DELETE' });
+              if (r.ok) ok++; else fail++;
+            } catch { fail++; }
+          }
+          addToast(`✅ Đã xoá: ${ok} thành công${fail > 0 ? `, ${fail} thất bại` : ''}`, ok > 0 ? 'success' : 'error');
+          setSelectedIds(new Set());
+          setConfirmModal(null);
+          load();
+        } catch (e: any) {
+          addToast(e.message || 'Xoá thất bại', 'error');
+        } finally {
+          setBulkProxyRunning(false);
+        }
+      }
+    });
+  };
+
   const autoAssign = async () => {
     setAutoAssigning(true);
     try {
@@ -621,6 +651,9 @@ export function ServicesView() {
             </Button>
             <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
               Gỡ đã chọn
+            </Button>
+            <Button size="sm" variant="danger" onClick={bulkDeleteAction} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10">
+              Xóa đã chọn
             </Button>
             <Button size="icon-sm" variant="ghost" onClick={() => load()} disabled={loading} className="border border-white/5 bg-white/5 hover:bg-white/10">
               <RefreshCw size={13} className={`${loading ? 'animate-spin' : ''} text-slate-300`} />

@@ -1183,6 +1183,14 @@ app.prepare().then(() => {
       const { id } = req.params;
       console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa Codex account. ID: ${id}`);
 
+      try {
+        // Thu hồi về kho lạnh (idle) trong local vault
+        vault.db.prepare(`UPDATE vault_accounts SET status = 'idle', deleted_at = NULL WHERE id = ?`).run(id);
+        console.log(`[D1 Proxy] ✅ Đã chuyển trạng thái thành 'idle' trong local vault: ${id}`);
+      } catch (err) {
+        console.error(`[D1 Proxy] Lỗi khi set idle trong local vault:`, err.message);
+      }
+
       // Thông báo Gateway xóa connection tương ứng (đồng bộ Gateway ← Tools)
       const cfg = loadConfig();
       if (id && cfg.gatewayUrl) {
