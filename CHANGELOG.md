@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.85] - 2026-05-15 18:00:00
+
+### 🔧 Fix — EADDRINUSE crash khi restart dev server
+
+**Problem**: Khi chạy `bun run dev` lần 2 (hoặc restart), server crash với `uncaughtException: EADDRINUSE` vì port 4000 còn bị process cũ chiếm. Next.js phát hiện port conflict trong `app.prepare()` và exit với thông báo lỗi khó hiểu, thay vì tự động xử lý.
+
+**Solution**: Thêm Port Conflict Guard — chạy TRƯỚC khi Next.js init, tự động phát hiện và kill process cũ chiếm port bằng `lsof` + `SIGKILL`. Nếu vẫn thất bại, EADDRINUSE handler hiện thông báo rõ ràng thay vì crash với uncaughtException.
+
+#### Chi tiết thay đổi
+
+1. **Port Conflict Guard** — Chạy trước `next()` constructor. Dùng `/usr/sbin/lsof` (macOS) hoặc `lsof` (Linux) để tìm PID chiếm port, kill bằng SIGKILL, đợi 0.5s cho OS release port.
+2. **EADDRINUSE graceful handler** — `httpServer.on('error')` bắt EADDRINUSE, hiện hướng dẫn fix (lsof + kill, hoặc đổi PORT), rồi `process.exit(1)` thay vì uncaughtException crash.
+3. **`app.prepare().then()` → `async`** — Cho phép dùng `await` trong callback nếu cần.
+
+#### Không thay đổi logic
+
+- Production mode không chạy Port Guard (chỉ `if (dev)`).
+- Process cũ bị kill bằng SIGKILL (không SIGTERM) vì cần giải phóng port ngay lập tức.
+- Tất cả API routes, SSE, sync intervals không thay đổi.
+
 ## [0.2.84] - 2026-05-15 17:30:00
 
 ### 🔥 Fix Critical — Turbopack cache bloat gây CPU 500%+ (root cause)

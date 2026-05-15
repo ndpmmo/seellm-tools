@@ -427,10 +427,38 @@ async function listLogFiles() {
 }
 
 // ─── Next.js ─────────────────────────────────────────────────────────────────
+
+// ── Port Conflict Guard ──────────────────────────────────────────────────
+// Auto-detect and kill stale process occupying the port BEFORE Next.js init.
+// Next.js detects port conflicts during app.prepare() and exits with confusing
+// error. We kill the stale process early so Next.js can bind cleanly.
+function killStaleProcessOnPort(port) {
+  try {
+    const lsof = process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof';
+    const out = execSync(`${lsof} -i :${port} -t -sTCP:LISTEN 2>/dev/null`, { encoding: 'utf8' }).trim();
+    if (!out) return false;
+    const pids = out.split('\n').filter(Boolean).map(Number).filter(pid => pid !== process.pid);
+    if (pids.length === 0) return false;
+    for (const pid of pids) {
+      console.log(`[PortGuard] ⚠️ Port ${port} occupied by PID ${pid} — killing stale process`);
+      try { process.kill(pid, 'SIGKILL'); } catch (_) {}
+    }
+    // Brief pause to let OS release the port
+    execSync('sleep 0.5', { stdio: 'ignore' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+if (dev) {
+  killStaleProcessOnPort(PORT);
+}
+
 const app = next({ dev, hostname: 'localhost', port: PORT });
 const handle = app.getRequestHandler();
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
   const ex = express();
   ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
   // Set SSE emitter for vault router
@@ -1850,6 +1878,17 @@ app.prepare().then(() => {
 
   // Watch screenshot directory for realtime updates
   watchScreenshots();
+
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n[Server] ❌ Port ${PORT} is already in use. Another SeeLLM Tools instance may be running.`);
+      console.error(`[Server] Run: lsof -i :${PORT} -t | xargs kill -9`);
+      console.error(`[Server] Or change port: PORT=4001 bun run dev\n`);
+      process.exit(1);
+    } else {
+      throw err;
+    }
+  });
 
   httpServer.listen(PORT, () => {
     console.log(`
