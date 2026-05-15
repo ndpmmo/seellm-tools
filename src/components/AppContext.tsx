@@ -264,19 +264,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           list.forEach(p => {
             if (!p) return;
             m[p.id] = p;
-            // Fetch logs via HTTP instead of socket to remove socket dependency
-            fetch(`/api/processes/${p.id}/logs`).then(r => r.json()).then(({ logs }: { logs: LogEntry[] }) => {
-              setProcesses(prev => {
-                const existing = prev[p.id] || p;
-                return { ...prev, [p.id]: { ...existing, logs: Array.isArray(logs) ? logs.slice(-5000) : existing.logs } };
-              });
-            }).catch(() => {
-              // If fetch fails, keep empty logs
-              setProcesses(prev => {
-                const existing = prev[p.id] || p;
-                return { ...prev, [p.id]: { ...existing, logs: [] } };
-              });
-            });
           });
           setProcesses(m);
           console.log('[SSE] processes:sync received');
@@ -449,30 +436,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isEventProcessed, queueRefreshSessions, refreshAccounts]);
 
-  // Initial load
+  // Initial load — single bootstrap request instead of 7 separate fetches
   useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then(setConfig).catch(console.error);
-    fetch('/api/processes').then(r => r.json()).then((list: ProcessInfo[]) => {
+    fetch('/api/bootstrap').then(r => r.json()).then((data: {
+      config: AppConfig;
+      processes: ProcessInfo[];
+      sessions: Session[];
+      logFiles: LogFile[];
+      accounts: unknown[];
+      profiles: BrowserProfile[];
+      profileOptions: ProfileOptions;
+    }) => {
+      setConfig(data.config);
       const m: Record<string, ProcessInfo> = {};
-      list.forEach(p => { if (p) m[p.id] = p; });
+      (data.processes || []).forEach(p => { if (p) m[p.id] = p; });
       setProcesses(m);
+      setSessions(data.sessions || []);
+      setLogFiles(data.logFiles || []);
+      setAccounts(data.accounts || []);
+      setProfiles(data.profiles || []);
+      setProfileOptions(data.profileOptions || null);
     }).catch(console.error);
-    fetch('/api/sessions').then(r => r.json()).then(setSessions).catch(console.error);
-    fetch('/api/logfiles').then(r => r.json()).then(setLogFiles).catch(console.error);
-    fetch('/api/vault/accounts').then(r => r.json()).then(res => setAccounts(res.data || [])).catch(console.error);
-    fetch('/api/profiles').then(r => r.json()).then(setProfiles).catch(console.error);
-    fetch('/api/profiles/options').then(r => r.json()).then(setProfileOptions).catch(console.error);
   }, []);
 
   // Fallback sync when realtime transport disconnects or misses updates.
+  // Use longer interval to avoid hammering server during initial SSE connect.
   useEffect(() => {
-    const interval = realtimeConnected ? 10000 : 3000;
+    const interval = realtimeConnected ? 15000 : 10000;
     const t = setInterval(() => {
       refreshProcesses();
-      if (!realtimeConnected) queueRefreshSessions();
     }, interval);
     return () => clearInterval(t);
-  }, [realtimeConnected, queueRefreshSessions, refreshProcesses]);
+  }, [realtimeConnected, refreshProcesses]);
 
   async function post(url: string, body?: unknown) {
     const r = await fetch(url, {

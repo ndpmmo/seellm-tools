@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.86] - 2026-05-15 18:30:00
+
+### ⚡ Performance — SSE/Bootstrap optimization: giảm 7 requests → 1, load nhanh hơn
+
+**Problem**: Khi truy cập trang, frontend gửi 7 HTTP requests riêng biệt (`/api/config`, `/api/processes`, `/api/sessions`, `/api/logfiles`, `/api/vault/accounts`, `/api/profiles`, `/api/profiles/options`). Mỗi request phải chờ Turbopack compile lần đầu → tổng thời gian 5-10s. Ngoài ra, SSE `processes:sync` trigger thêm N fetch `/api/processes/:id/logs` cho mỗi process, và fallback polling 3s khi chưa connected gây tải không cần thiết.
+
+**Solution**: Gộp 7 requests thành 1 `/api/bootstrap` (29ms), loại bỏ fetch logs thừa trong SSE, giảm polling intensity.
+
+#### Chi tiết thay đổi
+
+1. **`/api/bootstrap` endpoint** — Gộp config + processes + sessions + logFiles + accounts + profiles + profileOptions thành 1 response. Giảm từ 7 HTTP roundtrips xuống 1 (29ms thay vì 5-10s).
+2. **Loại bỏ fetch logs thừa trong SSE** — `processes:sync` đã gửi đầy đủ logs (qua `safeProc()`), không cần fetch `/api/processes/:id/logs` cho mỗi process nữa. Giảm N requests thừa.
+3. **Giảm polling intensity** — Fallback polling tăng từ 3s → 10s khi chưa connected, 10s → 15s khi đã connected. Chỉ poll processes (nhẹ nhất), không poll sessions.
+4. **Frontend dùng bootstrap** — `AppContext.tsx` thay 7 `fetch()` riêng biệt bằng 1 `fetch('/api/bootstrap')`.
+
+#### Không thay đổi logic
+
+- SSE event types giữ nguyên (processes:sync, process:log, screenshot:new, v.v.).
+- API endpoints cũ vẫn hoạt động (backward compatible).
+- Route API contract giữ nguyên.
+
 ## [0.2.85] - 2026-05-15 18:00:00
 
 ### 🔧 Fix — EADDRINUSE crash khi restart dev server

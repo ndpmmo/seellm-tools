@@ -27,6 +27,7 @@ import { vault } from './server/db/vault.js';
 import { auditLog } from './server/db/auditLog.js';
 import { SyncManager } from './server/services/syncManager.js';
 import { recoverProfilesOnStartup, closeAllProfiles } from './server/profileManager.js';
+import { FINGERPRINT_PRESETS, TIMEZONE_OPTIONS, LANGUAGE_OPTIONS, RESOLUTION_OPTIONS } from './server/fingerprintPresets.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -496,6 +497,38 @@ app.prepare().then(async () => {
         severity: 'info',
         source: 'ui',
       });
+    }
+  });
+
+  // ── Bootstrap (single-request initial data) ────────────────────────────────
+  // Combines config + processes + sessions + logFiles + accounts + profiles + profileOptions
+  // into one response to eliminate 7 separate HTTP requests on page load.
+  ex.get('/api/bootstrap', async (_, res) => {
+    try {
+      const [sessionsData, logFilesData] = await Promise.all([
+        listSessions(),
+        listLogFiles(),
+      ]);
+      res.json({
+        config: loadConfig(),
+        processes: Object.keys(processes).map(id => safeProc(id)),
+        sessions: sessionsData,
+        logFiles: logFilesData,
+        accounts: vault.getAccounts(),
+        profiles: vault.getActiveProfiles(),
+        profileOptions: {
+          presets: Object.entries(FINGERPRINT_PRESETS).map(([key, val]) => ({
+            key, label: val.label, icon: val.icon,
+          })),
+          timezones: TIMEZONE_OPTIONS,
+          languages: LANGUAGE_OPTIONS,
+          resolutions: RESOLUTION_OPTIONS,
+          proxies: vault.getProxies().map(p => ({ id: p.id, label: p.label || p.url, url: p.url })),
+        },
+      });
+    } catch (e) {
+      console.error('[Bootstrap] Error:', e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 
