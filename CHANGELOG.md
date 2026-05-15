@@ -2,6 +2,98 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.81] - 2026-05-15 16:30:00
+
+### 🛡️ Feature — Audit Log System: Giám sát toàn bộ thao tác hệ thống
+
+**Problem**: Hệ thống không có cơ chế ghi nhận và giám sát các thao tác — thêm, sửa, xóa, kết nối, khởi động, dừng, v.v. Khi có vấn đề xảy ra (account bị xóa nhầm, proxy bị thay đổi, cấu hình bị sửa), không có cách nào truy vết ai đã làm gì, khi nào, trên đối tượng nào.
+
+**Solution**: Triển khai hệ thống Audit Log toàn diện — ghi nhận mọi thao tác quan trọng trên hệ thống, cung cấp giao diện UI để xem, lọc, tìm kiếm, và thống kê.
+
+#### Backend
+
+1. **`server/db/auditLog.js`** — Module DB mới:
+   - Bảng `audit_logs` trong cùng `vault.db` (SQLite), không cần DB riêng.
+   - Các cột: `id`, `action`, `entity`, `entity_id`, `entity_label`, `details` (JSON), `severity`, `source`, `created_at`.
+   - 5 index cho filter nhanh: entity, action, severity, created_at, entity_id.
+   - API: `auditLog()`, `getAuditLogs()`, `getAuditStats()`, `purgeAuditLogs()`, `clearAuditLogs()`.
+   - Prepared statement cho insert — tối ưu performance.
+
+2. **`server/routes/auditLog.js`** — API routes mới:
+   - `GET /api/audit-logs` — List logs với filter (entity, action, severity, source, search, date range) + pagination.
+   - `GET /api/audit-logs/stats` — Thống kê tổng quan (total, 24h, by entity, by action, by severity, recent errors).
+   - `DELETE /api/audit-logs` — Purge logs cũ hơn X ngày hoặc xóa tất cả.
+   - `broadcastAudit()` — Emit SSE event `audit:new` cho realtime UI update.
+
+3. **`server/routes/vault.js`** — Hook audit vào tất cả CRUD operations:
+   - **Accounts**: create, update, delete, deploy (retry), revoke (stop), sync, connect (worker success/fail), connect-result (auto-connect flow).
+   - **Proxies**: create, update, delete, test (success + error).
+   - **API Keys**: create, update, delete.
+   - **Email Pool**: create, delete, bulk-verify.
+   - **Bulk Sync All**: sync toàn bộ.
+
+4. **`server/routes/profiles.js`** — Hook audit vào tất cả profile operations:
+   - **Profiles**: create, update, delete, clone, launch, close, navigate.
+
+5. **`server.js`** — Hook audit vào process + config:
+   - **Processes**: start (camofox, worker, connect-worker, script), stop.
+   - **Config**: phát hiện thay đổi và ghi log `config_change` với danh sách keys đã đổi.
+   - Mount audit log router tại `/api/audit-logs`.
+
+#### Frontend
+
+6. **`src/components/views/AuditLogView.tsx`** — View component mới:
+   - **Stats Row**: 4 StatBox (Tổng logs, 24h qua, Lỗi gần đây, Loại đối tượng).
+   - **Recent Errors Quick View**: Hiển thị 10 lỗi gần nhất, click để xem chi tiết.
+   - **Log Timeline**: Bảng timeline với color-coded severity badges (info=blue, success=green, warning=amber, error=red).
+   - **Filters**: Search (tìm trong entity_label, entity_id, details), filter theo entity, action, severity.
+   - **Pagination**: 50 entries/trang, prev/next buttons.
+   - **Detail Modal**: Xem chi tiết đầy đủ của mỗi entry (action, entity, label, ID, source, details JSON).
+   - **Purge**: Nút dọn dẹp logs cũ hơn 30 ngày + confirm modal.
+   - **Vietnamese labels**: Tất cả labels hiển thị bằng tiếng Việt (Tạo mới, Cập nhật, Xóa, Khởi động, v.v.).
+
+7. **`src/components/Dashboard.tsx`** — Sidebar + routing:
+   - Thêm NavItem "Audit Logs" (icon Shield) trong phần "Tổng quan", vị trí thứ 2 sau Dashboard.
+   - Thêm AuditLogView vào content router.
+   - Page meta: title + description cho audit-log view.
+
+#### Các loại action được ghi nhận (16 loại)
+
+| Action | Mô tả | Severity mặc định |
+|--------|--------|-------------------|
+| `create` | Tạo mới (account, proxy, api_key, email_pool, profile) | success |
+| `update` | Cập nhật | info |
+| `delete` | Xóa | warning |
+| `start` | Khởi động process | success |
+| `stop` | Dừng process | info |
+| `test` | Kiểm tra proxy | success/error |
+| `deploy` | Deploy account (PKCE / auto-connect) | info |
+| `revoke` | Thu hồi account | warning |
+| `connect` | Worker kết nối thành công/thất bại | success/error |
+| `sync` | Đồng bộ D1 | info |
+| `launch` | Mở profile | success |
+| `close` | Đóng profile | info |
+| `clone` | Nhân bản profile | info |
+| `navigate` | Điều hướng profile | info |
+| `bulk_verify` | Xác minh email hàng loạt | warning |
+| `config_change` | Thay đổi cấu hình | info |
+
+#### Source (nguồn thao tác)
+
+| Source | Mô tả |
+|--------|--------|
+| `ui` | Thao tác từ giao diện người dùng |
+| `worker` | Thao tác từ worker (auto-connect, login) |
+| `sync` | Thao tác từ đồng bộ cloud |
+| `system` | Thao tác từ hệ thống |
+
+#### Bug fixes trong quá trình triển khai
+
+- Sửa lỗi `fullRecord` reference trước khi khai báo trong Path 2 (direct tokens) của `/accounts/result`.
+- Sửa ID format: `uuidv4().slice(0,12)` → `uuidv4().replace(/-/g,'').slice(0,10)` cho nhất quán với pattern ID của vault.
+
+---
+
 ## [0.2.80] - 2026-05-15 06:00:00
 
 ### 🐛 Fix — Bulk email verification không hoạt động (#vault-workshop)

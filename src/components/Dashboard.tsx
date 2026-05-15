@@ -3,7 +3,7 @@ import React from 'react';
 import {
   Users, Globe, Link2, LayoutDashboard, FileImage, Terminal,
   FileText, Play, Settings, Zap, Bot, ExternalLink,
-  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon, Mail, Monitor
+  CheckCircle2, XCircle, Clock, Wifi, WifiOff, History as HistoryIcon, Mail, Monitor, Shield
 } from 'lucide-react';
 import { AppProvider, useApp } from './AppContext';
 import { ToastContainer } from './Views';
@@ -19,6 +19,7 @@ import { ConnectionsView } from './views/ConnectionsView';
 import { ChangelogView } from './views/ChangelogView';
 import { CamofoxDocsView } from './views/CamofoxDocsView';
 import { MultiProfileView } from './views/MultiProfileView';
+import { AuditLogView } from './views/AuditLogView';
 
 // --- Vault Views ---
 import { VaultAccountsView } from './views/vault/VaultAccountsView';
@@ -93,6 +94,7 @@ function Sidebar() {
       <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-[1px] scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
         <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-[1px] px-2.5 pt-3 pb-1.5 flex items-center gap-1.5 after:content-[''] after:flex-1 after:h-[1px] after:bg-white/5">Tổng quan</div>
         <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" badge={running} badgeColor="green" />
+        <NavItem id="audit-log" icon={Shield} label="Audit Logs" />
         <NavItem id="terminal" icon={Terminal} label="Terminal Logs" badge={errors} badgeColor="red" />
         <NavItem id="logfiles" icon={FileText} label="Log Files" />
         <NavItem id="screenshots" icon={FileImage} label="Screenshots" />
@@ -163,6 +165,7 @@ const PAGE_META: Record<string, { title: string; desc: string }> = {
   changelog: { title: 'Change Logs', desc: 'Lịch sử cập nhật hệ thống SeeLLM Tools' },
   'multi-profile': { title: 'Multi Profile', desc: 'Quản lý nhiều profile trình duyệt · Chạy song song · VNC điều khiển' },
   'camofox-docs': { title: 'Camofox Docs', desc: 'Tài liệu hướng dẫn custom Camofox API' },
+  'audit-log': { title: 'Audit Logs', desc: 'Giám sát toàn bộ thao tác hệ thống · Thêm · Xóa · Sửa · Kết nối' },
 };
 
 const PAGE_ICONS: Record<string, React.ElementType> = {
@@ -171,6 +174,7 @@ const PAGE_ICONS: Record<string, React.ElementType> = {
   connections: Link2, screenshots: FileImage, terminal: Terminal,
   logfiles: FileText, scripts: Play, settings: Settings,
   changelog: HistoryIcon, 'multi-profile': Monitor, 'camofox-docs': FileText,
+  'audit-log': Shield,
 };
 
 function Topbar() {
@@ -228,6 +232,7 @@ function ContentRouter() {
       {view === 'changelog' && <ChangelogView />}
       {view === 'multi-profile' && <MultiProfileView />}
       {view === 'camofox-docs' && <CamofoxDocsView />}
+      {view === 'audit-log' && <AuditLogView />}
     </>
   );
 }

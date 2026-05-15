@@ -12,6 +12,8 @@ import {
   mergeCodexProviderData,
 } from '../services/codexMetadata.js';
 import { extractAccountMeta } from '../../scripts/lib/openai-auth.js';
+import { auditLog } from '../db/auditLog.js';
+import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
 router.use(express.json()); // Bắt buộc: parse JSON body cho mọi route trong router này
@@ -23,6 +25,13 @@ let connectTaskLogThrottle = false;
 let emitSSE = null;
 export function setSSEEmitter(emitter) {
   emitSSE = emitter;
+}
+
+/** Helper: audit + broadcast realtime */
+function logAudit(opts) {
+  const entry = auditLog(opts);
+  broadcastAudit({ ...opts, id: entry.id, createdAt: entry.createdAt });
+  return entry;
 }
 
 /**
@@ -198,6 +207,17 @@ router.post('/accounts', async (req, res) => {
     const record = vault.upsertAccount(req.body, skipSync);
     res.json({ ok: true, id: record.id });
 
+    // Audit log
+    logAudit({
+      action: isNew ? 'create' : 'update',
+      entity: 'account',
+      entityId: record.id,
+      entityLabel: record.email || record.label || record.id,
+      details: { provider: record.provider, status: record.status, proxy: !!record.proxy_url },
+      severity: isNew ? 'success' : 'info',
+      source: 'ui',
+    });
+
     // New Codex account → push lên D1 managed để Worker auto-login
     if (isNew && record.provider === 'codex' && !skipSync) {
       console.log(`[Vault] 🚀 New Codex account → Sync to D1: ${record.email}`);
@@ -209,8 +229,20 @@ router.post('/accounts', async (req, res) => {
 // DELETE /api/vault/accounts/:id
 router.delete('/accounts/:id', async (req, res) => {
   try {
+    const account = vault.getAccount(req.params.id);
     vault.deleteAccount(req.params.id); // triggers SyncManager internally
     res.json({ ok: true });
+
+    // Audit log
+    logAudit({
+      action: 'delete',
+      entity: 'account',
+      entityId: req.params.id,
+      entityLabel: account?.email || account?.label || req.params.id,
+      details: { provider: account?.provider, hadProxy: !!account?.proxy_url },
+      severity: 'warning',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -233,14 +265,37 @@ router.get('/proxies/list', (req, res) => {
 
 router.post('/proxies', async (req, res) => {
   try {
+    const isNew = !req.body.id;
     const record = vault.upsertProxy(req.body);
     res.json({ ok: true, id: record.id });
+
+    logAudit({
+      action: isNew ? 'create' : 'update',
+      entity: 'proxy',
+      entityId: record.id,
+      entityLabel: record.label || record.url,
+      details: { type: record.type, country: record.country },
+      severity: isNew ? 'success' : 'info',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.delete('/proxies/:id', async (req, res) => {
-  try { vault.deleteProxy(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const proxy = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(req.params.id);
+    vault.deleteProxy(req.params.id);
+    res.json({ ok: true });
+
+    logAudit({
+      action: 'delete',
+      entity: 'proxy',
+      entityId: req.params.id,
+      entityLabel: proxy?.label || proxy?.url || req.params.id,
+      severity: 'warning',
+      source: 'ui',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/vault/proxies/:id/test — HTTP request to detect public exit IP and version
@@ -321,9 +376,29 @@ router.post('/proxies/:id/test', async (req, res) => {
     const now = new Date().toISOString();
     vault.upsertProxy({ ...proxy, is_active: 1, last_tested: now, latency_ms: latency, notes: notesStr, country: updatedCountry }, true);
     res.json({ ok: true, latency, status: 'active', exitIp: info.ip, networkType, country: updatedCountry, isLocalRelay });
+
+    logAudit({
+      action: 'test',
+      entity: 'proxy',
+      entityId: proxy.id,
+      entityLabel: proxy.label || proxy.url,
+      details: { exitIp: info.ip, networkType, latency, country: updatedCountry },
+      severity: 'success',
+      source: 'ui',
+    });
   } catch (e) {
     vault.upsertProxy({ ...proxy, is_active: 0, last_tested: new Date().toISOString(), latency_ms: null }, true);
     res.json({ ok: true, latency: null, status: 'dead', error: e.message });
+
+    logAudit({
+      action: 'test',
+      entity: 'proxy',
+      entityId: proxy.id,
+      entityLabel: proxy.label || proxy.url,
+      details: { error: e.message },
+      severity: 'error',
+      source: 'ui',
+    });
   }
 });
 
@@ -338,14 +413,37 @@ router.get('/api-keys', (req, res) => {
 
 router.post('/api-keys', async (req, res) => {
   try {
+    const isNew = !req.body.id;
     const record = vault.upsertApiKey(req.body);
     res.json({ ok: true, id: record.id });
+
+    logAudit({
+      action: isNew ? 'create' : 'update',
+      entity: 'api_key',
+      entityId: record.id,
+      entityLabel: record.label || record.provider,
+      details: { provider: record.provider },
+      severity: isNew ? 'success' : 'info',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.delete('/api-keys/:id', async (req, res) => {
-  try { vault.deleteApiKey(req.params.id); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const key = vault.getApiKey(req.params.id, true);
+    vault.deleteApiKey(req.params.id);
+    res.json({ ok: true });
+
+    logAudit({
+      action: 'delete',
+      entity: 'api_key',
+      entityId: req.params.id,
+      entityLabel: key?.label || key?.provider || req.params.id,
+      severity: 'warning',
+      source: 'ui',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -363,6 +461,16 @@ router.post('/email-pool', async (req, res) => {
     res.json({ ok: true, email: record.email });
     // Emit event for real-time UI update via SSE
     if (emitSSE) emitSSE('email-pool-updated', { email: record.email });
+
+    logAudit({
+      action: 'create',
+      entity: 'email_pool',
+      entityId: record.email,
+      entityLabel: record.email,
+      details: { mail_status: record.mail_status, auth_method: record.auth_method },
+      severity: 'success',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -371,6 +479,15 @@ router.delete('/email-pool/:email', async (req, res) => {
     vault.deleteEmailPool(req.params.email);
     res.json({ ok: true });
     if (emitSSE) emitSSE('email-pool-updated', { email: req.params.email });
+
+    logAudit({
+      action: 'delete',
+      entity: 'email_pool',
+      entityId: req.params.email,
+      entityLabel: req.params.email,
+      severity: 'warning',
+      source: 'ui',
+    });
   }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -482,6 +599,15 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
     }
 
     res.json({ ok: true, checked: results.length, results });
+
+    logAudit({
+      action: 'bulk_verify',
+      entity: 'email_pool',
+      entityLabel: `${results.length} emails`,
+      details: { checked: results.length, active: results.filter(r => r.status === 'active').length, dead: results.filter(r => r.status === 'dead').length },
+      severity: results.some(r => r.status === 'dead') ? 'warning' : 'success',
+      source: 'ui',
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -739,6 +865,16 @@ router.post('/accounts/result', async (req, res) => {
 
         console.log(`[Result] ✅ Account ${targetEmail} ready with tokens`);
         removeNeedPhoneTag(id);
+
+        logAudit({
+          action: 'connect',
+          entity: 'account',
+          entityId: targetId,
+          entityLabel: targetEmail || targetId,
+          details: { status: 'ready', provider: 'codex', hasGateway: !!cfg.gatewayUrl },
+          severity: 'success',
+          source: 'worker',
+        });
       } catch (exchangeErr) {
         console.error(`[Result] ❌ Exchange failed: ${exchangeErr.message}`);
         try {
@@ -748,6 +884,16 @@ router.post('/accounts/result', async (req, res) => {
         maybeAddNeedPhoneTag(id, exchangeErr.message);
         vault.upsertAccount({ id, status: 'error', notes: `Exchange failed: ${exchangeErr.message}` });
         pkceStore.delete(id);
+
+        logAudit({
+          action: 'connect',
+          entity: 'account',
+          entityId: id,
+          entityLabel: targetEmail || id,
+          details: { error: exchangeErr.message },
+          severity: 'error',
+          source: 'worker',
+        });
       }
 
     } else if (status === 'success') {
@@ -765,6 +911,17 @@ router.post('/accounts/result', async (req, res) => {
       pkceStore.delete(id);
 
       const fullRecord = vault.getAccountFull(id);
+
+      logAudit({
+        action: 'connect',
+        entity: 'account',
+        entityId: id,
+        entityLabel: fullRecord?.email || id,
+        details: { status: 'ready', method: 'direct' },
+        severity: 'success',
+        source: 'worker',
+      });
+
       if (fullRecord) {
         await SyncManager.pushVault('account', fullRecord);
         const cfg = loadConfig();
@@ -782,6 +939,16 @@ router.post('/accounts/result', async (req, res) => {
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
       maybeAddNeedPhoneTag(id, errorMsg);
       vault.upsertAccount({ id, status: status || 'error', notes: errorMsg });
+
+      logAudit({
+        action: 'connect',
+        entity: 'account',
+        entityId: id,
+        entityLabel: id,
+        details: { status: status || 'error', error: errorMsg },
+        severity: 'error',
+        source: 'worker',
+      });
       // Reset về pending sau một khoảng thời gian nếu là lỗi tạm thời
     }
 
@@ -806,6 +973,16 @@ router.post('/accounts/:id/retry', async (req, res) => {
     // Gọi upsertAccount thay vì updateAccountStatus để PKCE được sinh ra trong quá trình upsert
     vault.upsertAccount({ ...account, status: 'pending' });
     res.json({ ok: true });
+
+    logAudit({
+      action: 'deploy',
+      entity: 'account',
+      entityId: req.params.id,
+      entityLabel: account.email || account.label || req.params.id,
+      details: { previousStatus: account.status },
+      severity: 'info',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -824,6 +1001,16 @@ router.post('/accounts/:id/stop', async (req, res) => {
       await SyncManager.pushVault('account', updated);
     }
     res.json({ ok: true, gateway_status: updated?.gateway_status ?? null });
+
+    logAudit({
+      action: 'revoke',
+      entity: 'account',
+      entityId: req.params.id,
+      entityLabel: account.email || account.label || req.params.id,
+      details: { previousStatus: account.status, gateway_status: updated?.gateway_status },
+      severity: 'warning',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -845,6 +1032,16 @@ router.post('/accounts/:id/webhook-delete', async (req, res) => {
     pkceStore.delete(id);
     console.log(`[Webhook] 🔄 Gateway xóa account ${existing.email} → Thu hồi về Vault (idle, gateway_status=revoked)`);
     res.json({ ok: true, reverted: id, newStatus: 'idle', gateway_status: 'revoked' });
+
+    logAudit({
+      action: 'revoke',
+      entity: 'account',
+      entityId: id,
+      entityLabel: existing.email || id,
+      details: { reason: 'gateway_webhook', previousStatus: existing.status },
+      severity: 'warning',
+      source: 'sync',
+    });
   } catch (e) {
     console.error(`[Webhook] ❌ Lỗi xử lý webhook-delete:`, e.message);
     res.status(500).json({ error: e.message });
@@ -864,6 +1061,16 @@ router.post('/accounts/:id/sync', async (req, res) => {
     const gateway_status = updatedAccount?.gateway_status || null;
     
     res.json({ ok: true, message: 'Synced to D1', gateway_status, result });
+
+    logAudit({
+      action: 'sync',
+      entity: 'account',
+      entityId: req.params.id,
+      entityLabel: account.email || account.label || req.params.id,
+      details: { gateway_status },
+      severity: 'info',
+      source: 'ui',
+    });
   } catch (e) {
     console.error(`[Manual Sync] Failed:`, e.message);
     res.status(500).json({ error: e.message });
@@ -1025,6 +1232,16 @@ router.post('/accounts/connect-result', async (req, res) => {
 
       console.log(`[Connect-Result] ✅ Account ${fullRecord?.email || id} ready (connect flow)`);
       removeNeedPhoneTag(id);
+
+      logAudit({
+        action: 'connect',
+        entity: 'account',
+        entityId: id,
+        entityLabel: fullRecord?.email || id,
+        details: { status: 'ready', method: 'auto-connect', plan: tokens.planType },
+        severity: 'success',
+        source: 'worker',
+      });
     } else {
       // Error hoặc trạng thái không thành công
       const errorMsg = message || `Connect worker status: ${status}`;
@@ -1057,6 +1274,16 @@ router.post('/accounts/connect-result', async (req, res) => {
           }
         } catch (_) {}
       }
+
+      logAudit({
+        action: 'connect',
+        entity: 'account',
+        entityId: id,
+        entityLabel: id,
+        details: { status: targetStatus, error: errorMsg, isNeedPhone },
+        severity: 'error',
+        source: 'worker',
+      });
     }
 
     res.json({ ok: true });
@@ -1084,6 +1311,16 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
 
     console.log(`[Deploy v2] 🔌 Đánh dấu connect_pending cho: ${account.email}`);
     res.json({ ok: true });
+
+    logAudit({
+      action: 'deploy',
+      entity: 'account',
+      entityId: req.params.id,
+      entityLabel: account.email || account.label || req.params.id,
+      details: { method: 'auto-connect', previousStatus: account.status },
+      severity: 'info',
+      source: 'ui',
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1122,6 +1359,15 @@ router.post('/sync/all', async (req, res) => {
 
     console.log(`[Bulk Sync All] Pushed: Accounts=${results.accounts}, Pool=${results.emailPool}, Proxies=${results.proxies}, Keys=${results.keys}`);
     res.json({ ok: true, results });
+
+    logAudit({
+      action: 'sync',
+      entity: 'account',
+      entityLabel: 'Bulk Sync All',
+      details: results,
+      severity: 'info',
+      source: 'ui',
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

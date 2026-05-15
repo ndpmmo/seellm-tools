@@ -12,6 +12,8 @@ import {
   launchProfile, closeProfile, getProfileApiUrl, getProfileVncUrl, findAvailablePort
 } from '../profileManager.js';
 import { FINGERPRINT_PRESETS, TIMEZONE_OPTIONS, LANGUAGE_OPTIONS, RESOLUTION_OPTIONS } from '../fingerprintPresets.js';
+import { auditLog } from '../db/auditLog.js';
+import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
 router.use(express.json());
@@ -20,6 +22,13 @@ router.use(express.json());
 let emitSSE = null;
 export function setProfileSSEEmitter(emitter) {
   emitSSE = emitter;
+}
+
+/** Helper: audit + broadcast realtime */
+function logAudit(opts) {
+  const entry = auditLog(opts);
+  broadcastAudit({ ...opts, id: entry.id, createdAt: entry.createdAt });
+  return entry;
 }
 
 // ─── CRUD ──────────────────────────────────────────────────────────────────
@@ -84,6 +93,16 @@ router.post('/', (req, res) => {
 
   const record = vault.upsertProfile(data);
   res.json({ ok: true, profile: record });
+
+  logAudit({
+    action: 'create',
+    entity: 'profile',
+    entityId: record.id,
+    entityLabel: record.name,
+    details: { preset: data.preset, proxy: !!data.proxy_url },
+    severity: 'success',
+    source: 'ui',
+  });
 });
 
 /** Update profile */
@@ -97,6 +116,15 @@ router.put('/:id', (req, res) => {
 
   const record = vault.upsertProfile(safeData);
   res.json({ ok: true, profile: record });
+
+  logAudit({
+    action: 'update',
+    entity: 'profile',
+    entityId: req.params.id,
+    entityLabel: p.name,
+    severity: 'info',
+    source: 'ui',
+  });
 });
 
 /** Delete profile */
@@ -122,6 +150,15 @@ router.delete('/:id', async (req, res) => {
 
   vault.deleteProfile(p.id);
   res.json({ ok: true, deleted: p.id });
+
+  logAudit({
+    action: 'delete',
+    entity: 'profile',
+    entityId: p.id,
+    entityLabel: p.name,
+    severity: 'warning',
+    source: 'ui',
+  });
 });
 
 /** Clone profile */
@@ -130,6 +167,16 @@ router.post('/:id/clone', (req, res) => {
   const cloned = vault.cloneProfile(req.params.id, name);
   if (!cloned) return res.status(404).json({ error: 'Source profile not found' });
   res.json({ ok: true, profile: cloned });
+
+  logAudit({
+    action: 'clone',
+    entity: 'profile',
+    entityId: cloned.id,
+    entityLabel: cloned.name,
+    details: { sourceId: req.params.id },
+    severity: 'info',
+    source: 'ui',
+  });
 });
 
 // ─── Runtime Operations ────────────────────────────────────────────────────
@@ -143,6 +190,16 @@ router.post('/:id/launch', async (req, res) => {
   const result = await launchProfile(req.params.id, emitSSE);
   if (!result.ok) return res.status(500).json(result);
   res.json(result);
+
+  logAudit({
+    action: 'launch',
+    entity: 'profile',
+    entityId: req.params.id,
+    entityLabel: p.name,
+    details: { port: result.port, novncPort: result.novncPort },
+    severity: 'success',
+    source: 'ui',
+  });
 });
 
 /** Close profile (stop Camofox instance) */
@@ -150,6 +207,16 @@ router.post('/:id/close', async (req, res) => {
   const result = await closeProfile(req.params.id, emitSSE);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
+
+  const p = vault.getProfile(req.params.id);
+  logAudit({
+    action: 'close',
+    entity: 'profile',
+    entityId: req.params.id,
+    entityLabel: p?.name || req.params.id,
+    severity: 'info',
+    source: 'ui',
+  });
 });
 
 /** Get cookies from profile's Camofox instance */
@@ -207,6 +274,16 @@ router.post('/:id/navigate', async (req, res) => {
     });
     const data = await r.json();
     res.json({ ok: true, result: data });
+
+    logAudit({
+      action: 'navigate',
+      entity: 'profile',
+      entityId: req.params.id,
+      entityLabel: p.name,
+      details: { url },
+      severity: 'info',
+      source: 'ui',
+    });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

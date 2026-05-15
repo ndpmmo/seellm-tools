@@ -21,7 +21,9 @@ import { loadConfig, saveConfig } from './server/db/config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import vaultRouter, { setSSEEmitter } from './server/routes/vault.js';
 import profileRouter, { setProfileSSEEmitter } from './server/routes/profiles.js';
+import auditLogRouter, { setAuditSSEEmitter } from './server/routes/auditLog.js';
 import { vault } from './server/db/vault.js';
+import { auditLog } from './server/db/auditLog.js';
 import { SyncManager } from './server/services/syncManager.js';
 import { recoverProfilesOnStartup, closeAllProfiles } from './server/profileManager.js';
 
@@ -391,8 +393,10 @@ app.prepare().then(() => {
   // Set SSE emitter for vault router
   setSSEEmitter(emitSSE);
   setProfileSSEEmitter(emitSSE);
+  setAuditSSEEmitter(emitSSE);
   ex.use('/api/vault', vaultRouter);
   ex.use('/api/profiles', profileRouter);
+  ex.use('/api/audit-logs', auditLogRouter);
 
   // Recover profiles on startup (mark orphaned 'active' profiles as 'idle')
   const recoveredCount = recoverProfilesOnStartup();
@@ -405,9 +409,23 @@ app.prepare().then(() => {
   // ── Config ──────────────────────────────────────────────────────────────
   ex.get('/api/config', (_, res) => res.json(loadConfig()));
   ex.post('/api/config', (req, res) => {
-    const cfg = { ...loadConfig(), ...req.body };
+    const old = loadConfig();
+    const cfg = { ...old, ...req.body };
     saveConfig(cfg);
     res.json({ ok: true, config: cfg });
+
+    // Audit: detect which keys changed
+    const changed = Object.keys(req.body).filter(k => JSON.stringify(req.body[k]) !== JSON.stringify(old[k]));
+    if (changed.length > 0) {
+      auditLog({
+        action: 'config_change',
+        entity: 'config',
+        entityLabel: 'System Config',
+        details: { changed },
+        severity: 'info',
+        source: 'ui',
+      });
+    }
   });
 
   // ── Processes ────────────────────────────────────────────────────────────
@@ -473,6 +491,8 @@ app.prepare().then(() => {
       { CAMOFOX_PORT: String(cfg.camofoxPort) });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, command: camofoxNode, ...r });
+
+    auditLog({ action: 'start', entity: 'process', entityId: 'camofox', entityLabel: 'Camofox Browser Server', severity: 'success', source: 'ui' });
   });
 
   ex.post('/api/processes/worker/start', (req, res) => {
@@ -482,6 +502,8 @@ app.prepare().then(() => {
       { WORKER_AUTH_TOKEN: cfg.workerAuthToken });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, ...r });
+
+    auditLog({ action: 'start', entity: 'process', entityId: 'worker', entityLabel: 'Unified Auto Worker', severity: 'success', source: 'ui' });
   });
 
   ex.post('/api/processes/connect-worker/start', (req, res) => {
@@ -491,6 +513,8 @@ app.prepare().then(() => {
       { WORKER_AUTH_TOKEN: cfg.workerAuthToken });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, ...r });
+
+    auditLog({ action: 'start', entity: 'process', entityId: 'worker', entityLabel: 'Auto-Connect Worker', severity: 'success', source: 'ui' });
   });
 
   ex.post('/api/processes/script/run', (req, res) => {
@@ -504,12 +528,16 @@ app.prepare().then(() => {
       { WORKER_AUTH_TOKEN: cfg.workerAuthToken });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, id: procId, ...r });
+
+    auditLog({ action: 'start', entity: 'process', entityId: procId, entityLabel: scriptName, details: { args: extraArgs }, severity: 'info', source: 'ui' });
   });
 
   ex.post('/api/processes/:id/stop', (req, res) => {
     const r = stopProcess(req.params.id);
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true });
+
+    auditLog({ action: 'stop', entity: 'process', entityId: req.params.id, entityLabel: req.params.id, severity: 'info', source: 'ui' });
   });
 
   // ── Scripts list ─────────────────────────────────────────────────────────
