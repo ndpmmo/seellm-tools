@@ -6,7 +6,7 @@ import {
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle, Clock, Zap, List,
     LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2,
-    Inbox, MailOpen, Pencil, X, Save, FileCode, LayoutList
+    Inbox, MailOpen, Pencil, X, Save, FileCode, LayoutList, Send, Reply, CornerDownLeft, Eye, Code, Users
 } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
 import { ConfirmModal } from '../../Views';
@@ -84,6 +84,17 @@ export function VaultWorkshopView() {
     const [inboxMsgLoading, setInboxMsgLoading] = useState(false);
     const [inboxMsgContent, setInboxMsgContent] = useState<any | null>(null);
     const [inboxSearch, setInboxSearch] = useState('');
+
+    // Compose email state
+    const [composing, setComposing] = useState(false);
+    const [composeTo, setComposeTo] = useState('');
+    const [composeCc, setComposeCc] = useState('');
+    const [composeBcc, setComposeBcc] = useState('');
+    const [composeSubject, setComposeSubject] = useState('');
+    const [composeBody, setComposeBody] = useState('');
+    const [composeContentType, setComposeContentType] = useState<'html' | 'text'>('html');
+    const [composeSending, setComposeSending] = useState(false);
+    const [showCcBcc, setShowCcBcc] = useState(false);
 
     // Proxy assignment state (per email → proxy URL)
     const [proxyMap, setProxyMap] = useState<Record<string, string>>({});
@@ -696,6 +707,81 @@ export function VaultWorkshopView() {
         } catch (e: any) { addToast(`❌ ${e.message}`, 'error'); }
     };
 
+    const startCompose = (replyTo?: any) => {
+        setComposing(true);
+        if (replyTo) {
+            const isOutgoing = replyTo.direction === 'outgoing';
+            // For outgoing: reply to the original recipient; for incoming: reply to sender
+            const replyAddr = isOutgoing
+                ? (replyTo.toRecipients?.[0]?.emailAddress?.address || '')
+                : (replyTo.from?.emailAddress?.address || '');
+            const subj = replyTo.subject || '';
+            setComposeTo(replyAddr);
+            setComposeSubject(subj.startsWith('Re: ') ? subj : `Re: ${subj}`);
+            setComposeContentType('html');
+            // Quote original body
+            const origBody = replyTo.bodyPreview || replyTo.body?.content?.slice(0, 200) || '';
+            setComposeBody(`<br><br><div style="border-left:2px solid #6366f1;padding-left:12px;margin-top:16px;color:#94a3b8;">${origBody}</div>`);
+        } else {
+            setComposeTo('');
+            setComposeCc('');
+            setComposeBcc('');
+            setComposeSubject('');
+            setComposeBody('');
+            setComposeContentType('html');
+        }
+        setShowCcBcc(false);
+    };
+
+    const cancelCompose = () => {
+        setComposing(false);
+        setComposeTo('');
+        setComposeCc('');
+        setComposeBcc('');
+        setComposeSubject('');
+        setComposeBody('');
+    };
+
+    const sendComposedEmail = async () => {
+        if (!composeTo.trim()) { addToast('⚠️ Thiếu người nhận (To)', 'info'); return; }
+        if (!composeSubject.trim() && !composeBody.trim()) { addToast('⚠️ Thiếu tiêu đề hoặc nội dung', 'info'); return; }
+        if (!inboxSelectedEmail) { addToast('⚠️ Chưa chọn email gửi', 'info'); return; }
+
+        setComposeSending(true);
+        try {
+            const toList = composeTo.split(',').map(s => s.trim()).filter(Boolean);
+            const ccList = composeCc ? composeCc.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const bccList = composeBcc ? composeBcc.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+            const res = await fetch('/api/vault/inbox/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: inboxSelectedEmail,
+                    to: toList,
+                    cc: ccList,
+                    bcc: bccList,
+                    subject: composeSubject,
+                    body: composeBody,
+                    contentType: composeContentType === 'html' ? 'HTML' : 'Text',
+                    saveToSentItems: true,
+                }),
+            });
+            const text = await res.text();
+            let data;
+            try { data = JSON.parse(text); } catch { throw new Error(`Server trả về không phải JSON (HTTP ${res.status})`); }
+            if (data.ok) {
+                addToast(`✅ Đã gửi email từ ${inboxSelectedEmail}`, 'success');
+                cancelCompose();
+            } else {
+                addToast(`❌ ${data.error}`, 'error');
+            }
+        } catch (e: any) {
+            addToast(`❌ ${e.message}`, 'error');
+        }
+        setComposeSending(false);
+    };
+
     return (
         <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
             {/* Header / Tabs */}
@@ -1068,7 +1154,7 @@ export function VaultWorkshopView() {
                                     .map(it => (
                                         <div
                                             key={it.email}
-                                            onClick={() => openInbox(it)}
+                                            onClick={() => { openInbox(it); setComposing(false); }}
                                             className={`px-3 py-2.5 cursor-pointer border-b border-white/[0.04] transition-colors ${
                                                 inboxSelectedEmail === it.email
                                                     ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
@@ -1097,19 +1183,28 @@ export function VaultWorkshopView() {
                         <div className="flex flex-col border-r border-white/[0.07] min-h-0">
                             {inboxSelectedEmail ? (
                                 <>
-                                    <div className="px-4 py-2.5 border-b border-white/[0.07] bg-white/[0.02] flex items-center gap-2 shrink-0">
-                                        <Inbox size={14} className="text-indigo-400 shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-[11px] font-semibold text-slate-300 truncate">{inboxSelectedEmail}</div>
-                                            {!inboxLoading && <div className="text-[10px] text-slate-500">{inboxMessages.length} thư · {inboxMessages.filter(m => !m.isRead).length} chưa đọc</div>}
+                                    <div className="px-4 py-2.5 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <Inbox size={14} className="text-indigo-400 shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-[11px] font-semibold text-slate-300 truncate">{inboxSelectedEmail}</div>
+                                                {!inboxLoading && <div className="text-[10px] text-slate-500">{inboxMessages.length} thư · {inboxMessages.filter(m => !m.isRead).length} chưa đọc</div>}
+                                            </div>
+                                            <button
+                                                onClick={() => startCompose()}
+                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 transition-colors text-[11px] font-medium shrink-0"
+                                                title="Viết email mới"
+                                            >
+                                                <Pencil size={11} /> Viết
+                                            </button>
+                                            <button
+                                                onClick={() => openInbox(inboxSelectedEmail)}
+                                                className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-indigo-400 transition-colors"
+                                                title="Tải lại hộp thư"
+                                            >
+                                                <RefreshCw size={12} className={inboxLoading ? 'animate-spin text-indigo-400' : ''} />
+                                            </button>
                                         </div>
-                                        <button
-                                            onClick={() => openInbox(inboxSelectedEmail)}
-                                            className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-indigo-400 transition-colors"
-                                            title="Tải lại hộp thư"
-                                        >
-                                            <RefreshCw size={12} className={inboxLoading ? 'animate-spin text-indigo-400' : ''} />
-                                        </button>
                                     </div>
                                     <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                                         {inboxLoading ? (
@@ -1120,35 +1215,52 @@ export function VaultWorkshopView() {
                                             <div className="flex flex-col items-center justify-center h-32 text-slate-600 gap-2 text-sm">
                                                 <Inbox size={28} strokeWidth={1} /> Hộp thư trống
                                             </div>
-                                        ) : inboxMessages.map(msg => (
+                                        ) : inboxMessages.map(msg => {
+                                            const isOutgoing = msg.direction === 'outgoing';
+                                            const peer = isOutgoing
+                                                ? (msg.toRecipients?.[0]?.emailAddress?.address || '')
+                                                : (msg.from?.emailAddress?.address || '');
+                                            const threadCount = inboxMessages.filter(m => m.conversationId && m.conversationId === msg.conversationId).length;
+                                            const isThread = threadCount > 1;
+                                            return (
                                             <div
                                                 key={msg.id}
-                                                onClick={() => openMessage(msg)}
+                                                onClick={() => { openMessage(msg); setComposing(false); }}
                                                 className={`px-4 py-3 cursor-pointer border-b border-white/[0.04] transition-colors ${
-                                                    inboxSelectedMsg?.id === msg.id
-                                                        ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
+                                                    inboxSelectedMsg?.id === msg.id && !composing
+                                                        ? isOutgoing ? 'bg-emerald-500/10 border-l-2 border-l-emerald-500' : 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
                                                         : 'hover:bg-white/[0.025]'
                                                 }`}
                                             >
                                                 <div className="flex items-start gap-2">
-                                                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
-                                                        !msg.isRead ? 'bg-indigo-400' : 'bg-transparent'
-                                                    }`} />
+                                                    <div className="mt-0.5 shrink-0">
+                                                        {isOutgoing ? (
+                                                            <Send size={12} className="text-emerald-500" />
+                                                        ) : (
+                                                            <div className={`w-1.5 h-1.5 rounded-full mt-1 ${!msg.isRead ? 'bg-indigo-400' : 'bg-slate-600'}`} />
+                                                        )}
+                                                    </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <div className={`text-[12px] truncate ${
-                                                            !msg.isRead ? 'font-semibold text-slate-100' : 'font-normal text-slate-300'
-                                                        }`}>
-                                                            {msg.subject || '(no subject)'}
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className={`text-[12px] truncate flex-1 ${
+                                                                !msg.isRead && !isOutgoing ? 'font-semibold text-slate-100' : 'font-normal text-slate-300'
+                                                            }`}>
+                                                                {msg.subject || '(no subject)'}
+                                                            </span>
+                                                            {isThread && (
+                                                                <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">{threadCount}</span>
+                                                            )}
                                                         </div>
-                                                        <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                                                            {msg.from?.emailAddress?.address || ''}
+                                                        <div className={`text-[10px] truncate mt-0.5 ${isOutgoing ? 'text-emerald-400/70' : 'text-slate-500'}`}>
+                                                            {isOutgoing ? `→ ${peer}` : peer}
                                                         </div>
                                                         <div className="text-[10px] text-slate-600 line-clamp-1 mt-0.5">{msg.bodyPreview}</div>
                                                         <div className="text-[10px] text-slate-600 mt-1">{dayjs(msg.receivedDateTime).fromNow()}</div>
                                                     </div>
                                                 </div>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </>
                             ) : (
@@ -1159,31 +1271,239 @@ export function VaultWorkshopView() {
                             )}
                         </div>
 
-                        {/* ─── Right: Message detail ────────────────────────────────── */}
+                        {/* ─── Right: Message detail OR Compose ────────────────────── */}
                         <div className="flex flex-col min-h-0">
-                            {inboxSelectedMsg ? (
+                            {composing ? (
+                                /* ─── Compose Panel ──────────────────────────────────── */
+                                <div className="flex flex-col flex-1 min-h-0">
+                                    {/* Compose Header */}
+                                    <div className="px-5 py-3 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                                                    <Send size={14} className="text-indigo-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="text-[13px] font-semibold text-slate-100">Viết email mới</div>
+                                                    <div className="text-[10px] text-slate-500">Từ: {inboxSelectedEmail}</div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={cancelCompose}
+                                                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-slate-300 transition-colors"
+                                                title="Đóng"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Compose Fields */}
+                                    <div className="px-5 py-3 border-b border-white/[0.04] space-y-2 shrink-0">
+                                        {/* To */}
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] text-slate-500 w-8 shrink-0">To:</span>
+                                            <input
+                                                className="flex-1 h-7 bg-black/30 border border-white/10 rounded-lg text-[12px] px-3 text-slate-200 outline-none focus:border-indigo-500/50 placeholder:text-slate-600"
+                                                placeholder="email@example.com (phân cách bằng dấu phẩy)"
+                                                value={composeTo}
+                                                onChange={e => setComposeTo(e.target.value)}
+                                                autoFocus
+                                            />
+                                            <button
+                                                onClick={() => setShowCcBcc(!showCcBcc)}
+                                                className={`p-1 rounded text-[10px] transition-colors ${showCcBcc ? 'text-indigo-400 bg-indigo-500/10' : 'text-slate-500 hover:text-slate-300'}`}
+                                                title="Hiện/ẩn CC & BCC"
+                                            >
+                                                <Users size={14} />
+                                            </button>
+                                        </div>
+                                        {/* CC / BCC (collapsible) */}
+                                        {showCcBcc && (
+                                            <>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] text-slate-500 w-8 shrink-0">CC:</span>
+                                                    <input
+                                                        className="flex-1 h-7 bg-black/30 border border-white/10 rounded-lg text-[12px] px-3 text-slate-200 outline-none focus:border-indigo-500/50 placeholder:text-slate-600"
+                                                        placeholder="cc@example.com"
+                                                        value={composeCc}
+                                                        onChange={e => setComposeCc(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] text-slate-500 w-8 shrink-0">BCC:</span>
+                                                    <input
+                                                        className="flex-1 h-7 bg-black/30 border border-white/10 rounded-lg text-[12px] px-3 text-slate-200 outline-none focus:border-indigo-500/50 placeholder:text-slate-600"
+                                                        placeholder="bcc@example.com"
+                                                        value={composeBcc}
+                                                        onChange={e => setComposeBcc(e.target.value)}
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+                                        {/* Subject */}
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] text-slate-500 w-8 shrink-0">Tiêu đề:</span>
+                                            <input
+                                                className="flex-1 h-7 bg-black/30 border border-white/10 rounded-lg text-[12px] px-3 text-slate-200 outline-none focus:border-indigo-500/50 placeholder:text-slate-600"
+                                                placeholder="Tiêu đề email..."
+                                                value={composeSubject}
+                                                onChange={e => setComposeSubject(e.target.value)}
+                                            />
+                                        </div>
+                                        {/* Content type toggle */}
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] text-slate-500 w-8 shrink-0"></span>
+                                            <div className="flex bg-black/30 rounded-lg border border-white/10 p-0.5">
+                                                <button
+                                                    onClick={() => setComposeContentType('html')}
+                                                    className={`px-3 py-1 rounded-md text-[10px] font-medium transition-colors ${composeContentType === 'html' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                                                >
+                                                    <Code size={10} className="inline mr-1" />HTML
+                                                </button>
+                                                <button
+                                                    onClick={() => setComposeContentType('text')}
+                                                    className={`px-3 py-1 rounded-md text-[10px] font-medium transition-colors ${composeContentType === 'text' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                                                >
+                                                    <FileCode size={10} className="inline mr-1" />Text
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Compose Body */}
+                                    <div className="flex-1 min-h-0 flex flex-col">
+                                        {composeContentType === 'html' ? (
+                                            <textarea
+                                                className="flex-1 w-full bg-transparent text-[12px] text-slate-200 p-5 outline-none resize-none custom-scrollbar font-mono leading-relaxed placeholder:text-slate-600"
+                                                placeholder="Viết nội dung HTML ở đây...&#10;&#10;Ví dụ:&#10;<h2>Xin chào</h2>&#10;<p>Nội dung email...</p>"
+                                                value={composeBody}
+                                                onChange={e => setComposeBody(e.target.value)}
+                                            />
+                                        ) : (
+                                            <textarea
+                                                className="flex-1 w-full bg-transparent text-[12px] text-slate-200 p-5 outline-none resize-none custom-scrollbar leading-relaxed placeholder:text-slate-600"
+                                                placeholder="Viết nội dung email ở đây..."
+                                                value={composeBody}
+                                                onChange={e => setComposeBody(e.target.value)}
+                                            />
+                                        )}
+                                    </div>
+
+                                    {/* Compose Footer / Actions */}
+                                    <div className="px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] shrink-0">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="text-[10px] text-slate-600">
+                                                {composeContentType === 'html' ? 'HTML mode — hỗ trợ thẻ HTML' : 'Text mode — văn bản thuần'}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={cancelCompose}
+                                                    className="px-4 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20 transition-colors text-[12px] font-medium"
+                                                >
+                                                    Hủy
+                                                </button>
+                                                <button
+                                                    onClick={sendComposedEmail}
+                                                    disabled={composeSending || !composeTo.trim()}
+                                                    className="flex items-center gap-1.5 px-5 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors text-[12px] font-semibold"
+                                                >
+                                                    {composeSending ? (
+                                                        <><RefreshCw size={12} className="animate-spin" /> Đang gửi...</>
+                                                    ) : (
+                                                        <><Send size={12} /> Gửi</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : inboxSelectedMsg ? (
+                                /* ─── Message Detail ──────────────────────────────────── */
                                 <>
                                     <div className="px-5 py-3 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-[14px] font-semibold text-slate-100 leading-tight">
-                                                    {(inboxMsgContent || inboxSelectedMsg)?.subject || '(no subject)'}
+                                                <div className="flex items-center gap-2">
+                                                    <div className="text-[14px] font-semibold text-slate-100 leading-tight">
+                                                        {(inboxMsgContent || inboxSelectedMsg)?.subject || '(no subject)'}
+                                                    </div>
+                                                    {(inboxMsgContent || inboxSelectedMsg)?.direction === 'outgoing' && (
+                                                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">ĐÃ GỬI</span>
+                                                    )}
                                                 </div>
-                                                <div className="text-[11px] text-slate-500 mt-1">
-                                                    From: {(inboxMsgContent || inboxSelectedMsg)?.from?.emailAddress?.address || '—'}
-                                                </div>
+                                                {(inboxMsgContent || inboxSelectedMsg)?.direction === 'outgoing' ? (
+                                                    <>
+                                                        <div className="text-[11px] text-emerald-400/70 mt-1">
+                                                            Đến: {(inboxMsgContent || inboxSelectedMsg)?.toRecipients?.map((r: any) => r.emailAddress?.address).join(', ') || '—'}
+                                                        </div>
+                                                        {(inboxMsgContent || inboxSelectedMsg)?.ccRecipients?.length > 0 && (
+                                                            <div className="text-[11px] text-slate-500 mt-0.5">
+                                                                CC: {(inboxMsgContent || inboxSelectedMsg).ccRecipients.map((r: any) => r.emailAddress?.address).join(', ')}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="text-[11px] text-slate-500 mt-1">
+                                                        Từ: {(inboxMsgContent || inboxSelectedMsg)?.from?.emailAddress?.address || '—'}
+                                                    </div>
+                                                )}
                                                 <div className="text-[11px] text-slate-600 mt-0.5">
                                                     {dayjs((inboxMsgContent || inboxSelectedMsg)?.receivedDateTime).format('DD/MM/YYYY HH:mm')}
                                                 </div>
                                             </div>
-                                            <button
-                                                onClick={() => deleteInboxMessage((inboxMsgContent || inboxSelectedMsg).id)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors text-[12px] font-medium shrink-0"
-                                                title="Xóa email này"
-                                            >
-                                                <Trash2 size={12} /> Xóa
-                                            </button>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <button
+                                                    onClick={() => startCompose(inboxMsgContent || inboxSelectedMsg)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 transition-colors text-[12px] font-medium"
+                                                    title="Trả lời email này"
+                                                >
+                                                    <Reply size={12} /> Trả lời
+                                                </button>
+                                                <button
+                                                    onClick={() => deleteInboxMessage((inboxMsgContent || inboxSelectedMsg).id)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors text-[12px] font-medium"
+                                                    title="Xóa email này"
+                                                >
+                                                    <Trash2 size={12} /> Xóa
+                                                </button>
+                                            </div>
                                         </div>
+                                        {/* Thread summary */}
+                                        {(() => {
+                                            const convId = (inboxMsgContent || inboxSelectedMsg)?.conversationId;
+                                            if (!convId) return null;
+                                            const threadMsgs = inboxMessages.filter(m => m.conversationId === convId);
+                                            if (threadMsgs.length <= 1) return null;
+                                            return (
+                                                <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                                                    <div className="text-[10px] text-slate-500 font-medium">
+                                                        💬 Chuỗi hội thoại ({threadMsgs.length} thư)
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {threadMsgs
+                                                            .sort((a: any, b: any) => new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime())
+                                                            .map(tm => (
+                                                                <button
+                                                                    key={tm.id}
+                                                                    onClick={() => { if (tm.id !== inboxSelectedMsg?.id) openMessage(tm); }}
+                                                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] transition-colors ${
+                                                                        tm.id === inboxSelectedMsg?.id
+                                                                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                                                            : tm.direction === 'outgoing'
+                                                                                ? 'bg-emerald-500/5 text-emerald-400/60 border border-emerald-500/10 hover:bg-emerald-500/10'
+                                                                                : 'bg-white/[0.03] text-slate-500 border border-white/[0.05] hover:bg-white/[0.06]'
+                                                                    }`}
+                                                                >
+                                                                    {tm.direction === 'outgoing' ? <Send size={8} /> : <Mail size={8} />}
+                                                                    {dayjs(tm.receivedDateTime).format('HH:mm')}
+                                                                </button>
+                                                            ))
+                                                        }
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                                         {inboxMsgLoading ? (

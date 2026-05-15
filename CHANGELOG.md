@@ -2,6 +2,68 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.99] - 2026-05-16 01:48:00
+
+### 📧 Vault Workshop Inbox — Gửi Email + Chuỗi Hội Thoại + Phân Biệt Thư Gửi/Nhận
+
+**Problem**: Inbox chỉ hỗ trợ đọc email, không thể gửi hoặc trả lời. Không phân biệt được thư gửi đi và thư nhận, không có khái niệm chuỗi hội thoại (thread), reply không thông minh (không biết trả lời ai khi reply thư đã gửi).
+
+**Solution**: Thêm tính năng gửi email hoàn chỉnh qua Microsoft Graph API, merge Inbox + Sent Items thành unified view với `direction` tag, nhóm theo `conversationId` thành thread, và reply thông minh tùy theo direction.
+
+#### Chi tiết thay đổi — `server/routes/vault.js`
+
+1. **Route mới `POST /api/vault/inbox/send` (dòng 1661-1707)** — Gửi email qua MS Graph API `/me/sendMail`. Nhận `email` (sender), `to`/`cc`/`bcc` (arrays), `subject`, `body`, `contentType` (HTML/Text), `saveToSentItems`. Validate sender có trong pool + có `refresh_token`/`client_id`. Parse recipients thành Graph API format. Trả về `{ ok: true }` khi gửi thành công (HTTP 202).
+
+2. **Route `GET /api/vault/inbox/:email` cập nhật (dòng 1586-1619)** — Fetch cả **Inbox** (`/mailFolders/inbox/messages`) và **Sent Items** (`/mailFolders/sentitems/messages`), merge lại. Mỗi message thêm field `direction`: `'incoming'` (nhận) hoặc `'outgoing'` (gửi). Thêm `conversationId` vào `$select` để hỗ trợ thread grouping. Sort tất cả theo `receivedDateTime desc`.
+
+3. **Route `POST /api/vault/inbox/message` cập nhật (dòng 1629-1630)** — Thêm `conversationId` vào `$select` để message detail cũng có conversation context.
+
+4. **Debug log** — Thêm `console.log` trong `/inbox/send` để trace `req.body` type và keys.
+
+#### Chi tiết thay đổi — `src/components/views/vault/VaultWorkshopView.tsx`
+
+1. **Compose state mới (dòng 88-97)** — `composing`, `composeTo`, `composeCc`, `composeBcc`, `composeSubject`, `composeBody`, `composeContentType` (html/text), `composeSending`, `showCcBcc`.
+
+2. **`startCompose(replyTo?)` function (dòng 710-734)** — Mở compose panel. Nếu có `replyTo`: tự điền To dựa trên direction (incoming → reply to sender, outgoing → reply to original recipient), thêm `Re:` prefix cho subject, quote body gốc. Nếu không: reset tất cả fields.
+
+3. **`cancelCompose()` function (dòng 736-743)** — Đóng compose panel, reset tất cả compose state.
+
+4. **`sendComposedEmail()` function (dòng 745-781)** — Validate To/Subject/Body, parse comma-separated recipients thành arrays, gọi `POST /api/vault/inbox/send`. Sử dụng `res.text()` + `JSON.parse()` thay vì `res.json()` để handle non-JSON responses tốt hơn. Toast success/error.
+
+5. **Nút "Viết" trong message list header (dòng 1187-1193)** — Mở compose panel cho email mới.
+
+6. **Nút "Trả lời" trong message detail header (dòng 1451-1458)** — Mở compose panel với reply context.
+
+7. **Compose Panel UI (dòng 1253-1416)** — Thay thế cột phải khi composing:
+   - Header: icon Send + "Viết email mới" + sender email + nút Đóng
+   - To field + nút Users icon toggle CC/BCC
+   - CC/BCC fields (collapsible)
+   - Subject field
+   - HTML/Text toggle (Code/FileCode icons)
+   - Body textarea (full-height, font-mono cho HTML mode)
+   - Footer: mode hint + nút Hủy + nút Gửi (với loading state)
+
+8. **Message list — phân biệt gửi/nhận (dòng 1214-1259)**:
+   - **Thư gửi (outgoing)**: icon `Send` màu emerald, highlight emerald khi selected, hiện `→ người_nhận`
+   - **Thư nhận (incoming)**: chấm tròn indigo (chưa đọc) / slate (đã đọc), hiện `người_gửi`
+   - **Thread badge**: số đếm trong badge indigo nếu cùng `conversationId` có >1 thư
+
+9. **Message detail — gửi/nhận + thread (dòng 1417-1530)**:
+   - **Thư gửi**: tag `ĐÃ GỬI` màu emerald, hiện `Đến:` + recipients, CC nếu có
+   - **Thư nhận**: hiện `Từ:` + sender
+   - **Chuỗi hội thoại**: timeline các thư trong cùng `conversationId` — click để chuyển thư nhanh. Thư gửi = icon Send emerald, thư nhận = icon Mail slate, thư đang xem = highlight indigo
+
+10. **Import mới** — `Send`, `Reply`, `CornerDownLeft`, `Eye`, `Code`, `Users` từ lucide-react.
+
+11. **Click behavior** — Click email/thư khác tự động `setComposing(false)` để đóng compose panel.
+
+#### Xác minh
+
+- ✅ TypeScript compile: no errors
+- ✅ Inbox API: trả về 21 messages (incoming + outgoing) với `direction` + `conversationId`
+- ✅ Send API: gửi thành công HTTP 202 qua `POST /api/vault/inbox/send`
+- ✅ Frontend: compose panel, reply, thread timeline hoạt động đúng
+
 ## [0.2.98] - 2026-05-16 00:55:00
 
 ### 🧠 Vault Workshop Raw Edit — Auto-detect Auth Method

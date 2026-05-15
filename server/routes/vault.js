@@ -1583,22 +1583,38 @@ async function _getGraphToken(pool) {
   return d.access_token;
 }
 
-// GET /api/vault/inbox/:email — list inbox messages
+// GET /api/vault/inbox/:email — list inbox + sent messages, merged & sorted
 router.get('/inbox/:email', async (req, res) => {
   try {
-    const email = decodeURIComponent(req.params.email);
-    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    const pool = vault.getEmailPoolFull().find(e => e.email.toLowerCase() === email);
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
     if (!pool.refresh_token || !pool.client_id)
       return res.status(400).json({ error: 'Missing MS Graph credentials (refresh_token / client_id)' });
     const token = await _getGraphToken(pool);
     const top = Math.min(parseInt(req.query.top) || 50, 100);
-    const url = `${_GRAPH_ME}/messages?$top=${top}&$orderby=receivedDateTime desc` +
-      `&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead`;
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
-    res.json({ ok: true, messages: d.value || [] });
+    const selectFields = 'id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId';
+
+    // Fetch Inbox
+    const inboxUrl = `${_GRAPH_ME}/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
+    const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
+    const inboxData = await inboxRes.json();
+    if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Graph inbox error ${inboxRes.status}`);
+
+    // Fetch Sent Items
+    const sentUrl = `${_GRAPH_ME}/mailFolders/sentitems/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
+    const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
+    const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+
+    // Tag direction
+    const inboxMsgs = (inboxData.value || []).map(m => ({ ...m, direction: 'incoming' }));
+    const sentMsgs = (sentData.value || []).map(m => ({ ...m, direction: 'outgoing' }));
+
+    // Merge & sort by receivedDateTime desc
+    const all = [...inboxMsgs, ...sentMsgs]
+      .sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+
+    res.json({ ok: true, messages: all });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1611,7 +1627,7 @@ router.post('/inbox/message', async (req, res) => {
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
     const token = await _getGraphToken(pool);
     const url = `${_GRAPH_ME}/messages/${messageId}` +
-      `?$select=id,subject,body,bodyPreview,from,toRecipients,receivedDateTime,isRead`;
+      `?$select=id,subject,body,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId`;
     const r = await fetch(url, {
       headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="html"' },
     });
@@ -1653,6 +1669,55 @@ router.post('/inbox/delete', async (req, res) => {
     if (!r.ok && r.status !== 204) {
       const d = await r.json().catch(() => ({}));
       throw new Error(d.error?.message || `Delete failed: ${r.status}`);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/vault/inbox/send — send an email via Microsoft Graph API
+router.post('/inbox/send', async (req, res) => {
+  try {
+    console.log(`[Inbox-Send] req.body type=${typeof req.body}, keys=${Object.keys(req.body || {}).join(',')}`);
+    const { email, to, cc, bcc, subject, body, contentType, saveToSentItems } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Missing sender email' });
+    if (!to || !Array.isArray(to) || to.length === 0) return res.status(400).json({ error: 'Missing recipient(s)' });
+    if (!subject && !body) return res.status(400).json({ error: 'Missing subject or body' });
+
+    const pool = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!pool) return res.status(404).json({ error: 'Email not in pool' });
+    if (!pool.refresh_token || !pool.client_id)
+      return res.status(400).json({ error: 'Missing MS Graph credentials (refresh_token / client_id)' });
+
+    const token = await _getGraphToken(pool);
+
+    const parseRecipients = (list) =>
+      (list || []).filter(addr => addr && addr.trim()).map(addr => ({
+        emailAddress: { address: addr.trim() }
+      }));
+
+    const payload = {
+      message: {
+        subject: subject || '(no subject)',
+        body: {
+          contentType: contentType || 'HTML',
+          content: body || '',
+        },
+        toRecipients: parseRecipients(to),
+        ccRecipients: parseRecipients(cc),
+        bccRecipients: parseRecipients(bcc),
+      },
+      saveToSentItems: saveToSentItems !== false,
+    };
+
+    const r = await fetch(`${_GRAPH_ME}/sendMail`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!r.ok && r.status !== 202) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error?.message || `Send failed: ${r.status}`);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
