@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.91] - 2026-05-15 21:00:00
+
+### 🏷️ Vault — Sync Dead Tags: đồng bộ nhãn email_dead cho dữ liệu cũ
+
+**Problem**: Dữ liệu vault-accounts hiện có không có nhãn `email_dead` dù email pool đã dead từ trước. Cần cơ chế retroactive để gán nhãn cho toàn bộ dữ liệu cũ.
+
+**Solution**: Thêm API `sync-dead-tags` quét toàn bộ email pool dead, gán tag cho accounts tương ứng, và gỡ tag cho accounts có email đã active. Nút "Sync Dead Tags" trong VaultAccountsView UI.
+
+#### Chi tiết thay đổi
+
+1. **`POST /api/vault/email-pool/sync-dead-tags`** — Bulk scan toàn bộ email pool dead, propagate tag `email_dead` cho matching accounts. Đồng thời gỡ tag cho accounts có email đã active lại.
+2. **Nút "Sync Dead Tags"** — Trong VaultAccountsView toolbar, click để chạy bulk sync. Hiển thị kết quả: số account được gán/gỡ nhãn.
+3. **`checkStatus` dead email** — Click verify email dead → gọi `propagate-dead-tag` → gán tag cho account → sync D1.
+
 ## [0.2.90] - 2026-05-15 20:00:00
 
 ### 🔗 Vault — Đồng bộ email dead sang vault-accounts & D1

@@ -685,6 +685,61 @@ router.post('/email-pool/propagate-dead-tag', async (req, res) => {
   }
 });
 
+/* ─── Bulk propagate all dead email tags ─────────────────────────────────── */
+/*  POST /api/vault/email-pool/sync-dead-tags                                */
+/*  Scans all dead emails in pool, tags matching vault-accounts              */
+/* ────────────────────────────────────────────────────────────────────────── */
+router.post('/email-pool/sync-dead-tags', async (req, res) => {
+  try {
+    const pool = vault.getEmailPoolFull();
+    const deadEmails = pool.filter(e => e.mail_status === 'dead');
+    let taggedAccounts = 0;
+    let taggedEmails = 0;
+
+    for (const deadEmail of deadEmails) {
+      const accountsBefore = vault.getAccounts().filter(a => a.email === deadEmail.email);
+      const alreadyTagged = accountsBefore.filter(a => {
+        const tags = safeParseTags(a.tags);
+        return tags.includes('email_dead');
+      });
+
+      if (alreadyTagged.length === accountsBefore.length && accountsBefore.length > 0) {
+        // All matching accounts already tagged, skip
+        continue;
+      }
+
+      propagateEmailDeadTag(deadEmail.email);
+      const accountsAfter = vault.getAccounts().filter(a => a.email === deadEmail.email);
+      const newlyTagged = accountsAfter.filter(a => {
+        const tags = safeParseTags(a.tags);
+        return tags.includes('email_dead');
+      }).length;
+      if (newlyTagged > 0) {
+        taggedAccounts += newlyTagged;
+        taggedEmails++;
+      }
+    }
+
+    // Also clean up: remove email_dead tag from accounts whose email is now active
+    const allAccounts = vault.getAccounts();
+    let cleanedAccounts = 0;
+    for (const account of allAccounts) {
+      const tags = safeParseTags(account.tags);
+      if (!tags.includes('email_dead')) continue;
+      const poolRecord = pool.find(e => e.email === account.email);
+      if (!poolRecord || poolRecord.mail_status !== 'dead') {
+        const updatedTags = tags.filter(t => t !== 'email_dead');
+        vault.upsertAccount({ id: account.id, tags: updatedTags });
+        cleanedAccounts++;
+      }
+    }
+
+    res.json({ ok: true, deadEmails: deadEmails.length, taggedEmails, taggedAccounts, cleanedAccounts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  TASK ENDPOINT  (Worker poll)                                              */
 /*  Worker gọi GET /api/vault/accounts/task mỗi 15 giây để lấy task         */

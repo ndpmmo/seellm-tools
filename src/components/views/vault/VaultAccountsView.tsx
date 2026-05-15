@@ -114,6 +114,7 @@ export function VaultAccountsView() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkProxyId, setBulkProxyId] = useState('');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
+  const [syncingDeadTags, setSyncingDeadTags] = useState(false);
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -275,6 +276,24 @@ export function VaultAccountsView() {
     loadAccounts();
   };
 
+  const syncDeadTags = async () => {
+    setSyncingDeadTags(true);
+    try {
+      const r = await fetch('/api/vault/email-pool/sync-dead-tags', { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      const { deadEmails, taggedEmails, taggedAccounts, cleanedAccounts } = d;
+      let msg = `🏷️ Đồng bộ xong: ${taggedAccounts} account được gán EMAIL DEAD`;
+      if (cleanedAccounts > 0) msg += `, ${cleanedAccounts} account được gỡ nhãn`;
+      if (taggedAccounts === 0 && cleanedAccounts === 0) msg = `✅ Tất cả nhãn đã đồng bộ, không cần thay đổi`;
+      addToast(msg, taggedAccounts > 0 ? 'success' : 'info');
+      loadAccounts();
+    } catch (e: any) {
+      addToast(`Lỗi đồng bộ dead tags: ${e.message}`, 'error');
+    }
+    setSyncingDeadTags(false);
+  };
+
   const assignFromPool = async (id: string, proxyId?: string) => {
     setAssigningId(id);
     try {
@@ -416,6 +435,9 @@ export function VaultAccountsView() {
           <Input className="pl-9" placeholder="Tìm trong Vault (Email, Label...)" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-2">
+          <Button variant="ghost" onClick={syncDeadTags} disabled={syncingDeadTags}>
+            {syncingDeadTags ? <RefreshCw size={16} className="animate-spin" /> : <Tag size={16} />} {syncingDeadTags ? 'Đang đồng bộ...' : 'Sync Dead Tags'}
+          </Button>
           <Button variant="ghost" onClick={() => setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null }))}>
             {uiState.isBulk ? <X size={16} /> : <FileUp size={16} />} Nhập hàng loạt
           </Button>
