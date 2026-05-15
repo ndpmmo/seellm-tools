@@ -89,6 +89,50 @@ function removeNeedPhoneTag(id) {
   vault.upsertAccount({ id, tags });
 }
 
+/** Tag vault-accounts with 'email_dead' when their email is dead in the pool */
+function propagateEmailDeadTag(email) {
+  const accounts = vault.getAccounts();
+  const matched = accounts.filter(a => a.email === email);
+  for (const account of matched) {
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('email_dead')) {
+      tags.push('email_dead');
+      vault.upsertAccount({ id: account.id, tags });
+      logAudit({
+        action: 'tag',
+        entity: 'account',
+        entityId: account.id,
+        entityLabel: email,
+        details: { tag: 'email_dead', reason: 'Email pool verification failed' },
+        severity: 'warning',
+        source: 'system',
+      });
+    }
+  }
+}
+
+/** Remove 'email_dead' tag from vault-accounts when their email becomes active again */
+function removeEmailDeadTag(email) {
+  const accounts = vault.getAccounts();
+  const matched = accounts.filter(a => a.email === email);
+  for (const account of matched) {
+    const tags = safeParseTags(account.tags);
+    if (tags.includes('email_dead')) {
+      const updatedTags = tags.filter(t => t !== 'email_dead');
+      vault.upsertAccount({ id: account.id, tags: updatedTags });
+      logAudit({
+        action: 'untag',
+        entity: 'account',
+        entityId: account.id,
+        entityLabel: email,
+        details: { tag: 'email_dead', reason: 'Email pool verification passed' },
+        severity: 'success',
+        source: 'system',
+      });
+    }
+  }
+}
+
 /* ─── PKCE Generator ─────────────────────────────────────────────────────── */
 function generateCodexOAuthUrl() {
   const codeVerifier = crypto.randomBytes(32).toString('base64url');
@@ -562,6 +606,7 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
               notes: 'Lỗi: Thiếu Refresh Token hoặc Client ID',
             });
             if (emitSSE) emitSSE('email-pool-updated', { email });
+            propagateEmailDeadTag(email);
             return result;
           }
 
@@ -577,6 +622,7 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
               notes: `Mail OK (${new Date().toLocaleTimeString()})`,
             });
             if (emitSSE) emitSSE('email-pool-updated', { email });
+            removeEmailDeadTag(email);
             return result;
           } catch (err) {
             const result = { email, status: 'dead', error: err.message };
@@ -587,6 +633,7 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
               notes: `Lỗi: ${err.message}`,
             });
             if (emitSSE) emitSSE('email-pool-updated', { email });
+            propagateEmailDeadTag(email);
             return result;
           }
         })

@@ -607,6 +607,9 @@ export function VaultAccountsView() {
                         {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('need_phone') && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">NEED PHONE</span>
                         )}
+                        {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('email_dead') && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-500/20 animate-pulse">EMAIL DEAD</span>
+                        )}
                         {it.two_fa_secret && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">2FA</span>
                         )}

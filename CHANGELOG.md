@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.90] - 2026-05-15 20:00:00
+
+### 🔗 Vault — Đồng bộ email dead sang vault-accounts & D1
+
+**Problem**: Khi email bị dead trong vault-workshop (email pool), vault-accounts không biết email đó đã die. Không có cách nhận biết account nào có email không hoạt động. Dữ liệu dead status không được sync lên D1.
+
+**Solution**: Khi bulk-verify đánh dấu email dead, tự động gán tag `email_dead` cho vault-accounts có cùng email. Khi email active lại, tự động gỡ tag. Tag được sync lên D1 qua SyncManager. UI hiển thị badge `EMAIL DEAD` (pulsing) trong VaultAccountsView.
+
+#### Chi tiết thay đổi
+
+1. **`propagateEmailDeadTag(email)`** — Tìm vault-accounts có cùng email, thêm tag `email_dead` nếu chưa có. Ghi audit log.
+2. **`removeEmailDeadTag(email)`** — Khi email active lại, gỡ tag `email_dead` khỏi vault-accounts. Ghi audit log.
+3. **Bulk-verify hook** — Gọi `propagateEmailDeadTag` khi email dead, gọi `removeEmailDeadTag` khi email active.
+4. **D1 sync tự động** — Tag `email_dead` nằm trong `tags` JSON của account, được SyncManager push lên D1 qua `upsertVaultAccount`.
+5. **VaultAccountsView UI** — Hiển thị badge `EMAIL DEAD` (rose, pulsing) cho accounts có tag `email_dead`.
+
 ## [0.2.89] - 2026-05-15 19:14:00
 
 ### 🛡️ Vault Workshop — Bộ lọc mặc định & bỏ qua email die
