@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.97] - 2026-05-15 22:30:00
+
+### ✏️ Vault Workshop Edit — Dual mode: Form + Raw text
+
+**Problem**: Edit modal chỉ có form từng trường riêng lẻ, không tiện khi muốn paste nguyên dòng dữ liệu thô giống lúc import (email|pass|token|client_id).
+
+**Solution**: Thêm toggle Form/Raw trong header modal. Form mode giữ nguyên như cũ. Raw mode hiển thị textarea với format `email|password|refresh_token|client_id` (4 fields, GraphAPI) hoặc `email|refresh_token|client_id` (3 fields, OAuth2), tự detect format khi lưu. Chuyển mode tự động sync dữ liệu giữa 2 dạng.
+
+#### Chi tiết thay đổi — `src/components/views/vault/VaultWorkshopView.tsx`
+
+1. **`editMode` state mới** — `'form' | 'raw'`, default `'form'`.
+2. **`editRaw` state mới** — String chứa dữ liệu thô dạng `email|pass|token|client_id`.
+3. **`formToRaw(f, email)` helper** — Convert editForm → raw string. OAuth2: 3 fields, GraphAPI: 4 fields.
+4. **`rawToForm(raw, currentForm)` helper** — Parse raw string → editForm. Detect 3-field (oauth2) vs 4-field (graph) format.
+5. **`switchEditMode(mode)` function** — Khi chuyển sang raw: generate raw từ form hiện tại. Khi chuyển sang form: giữ nguyên (raw chỉ parse lúc save).
+6. **Mode toggle UI** — 2 nút trong modal header: "Form" (LayoutList icon) + "Raw" (FileCode icon). Active = bg-white/10.
+7. **Raw mode content** — Textarea hiển thị raw string, hint text detect format (3 fields = OAuth2, 4+ fields = GraphAPI, else = invalid). Auth Method, Mail Status, Notes vẫn editable riêng.
+8. **Save from raw mode** — `saveEdit()` parse raw → form trước khi gửi PUT.
+9. **Import changes** — Thêm `FileCode`, `LayoutList` từ lucide-react.
+
 ## [0.2.96] - 2026-05-15 22:00:00
 
 ### ✏️ Vault Workshop — Chỉnh sửa Email Pool (Edit Modal)

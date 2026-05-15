@@ -6,7 +6,7 @@ import {
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle, Clock, Zap, List,
     LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2,
-    Inbox, MailOpen, Pencil, X, Save
+    Inbox, MailOpen, Pencil, X, Save, FileCode, LayoutList
 } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
 import { ConfirmModal } from '../../Views';
@@ -92,6 +92,8 @@ export function VaultWorkshopView() {
     // Edit state
     const [editingEmail, setEditingEmail] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({ password: '', refresh_token: '', client_id: '', auth_method: 'graph', mail_status: 'unknown', notes: '' });
+    const [editMode, setEditMode] = useState<'form' | 'raw'>('form');
+    const [editRaw, setEditRaw] = useState('');
     const [editLoading, setEditLoading] = useState(false);
     const [editFetching, setEditFetching] = useState(false);
 
@@ -525,22 +527,50 @@ export function VaultWorkshopView() {
     };
 
     // ── Edit helpers ────────────────────────────────────────────────────────
+    const formToRaw = (f: typeof editForm, email: string) => {
+        if (f.auth_method === 'oauth2') return `${email}|${f.refresh_token}|${f.client_id}`;
+        return `${email}|${f.password}|${f.refresh_token}|${f.client_id}`;
+    };
+
+    const rawToForm = (raw: string, currentForm: typeof editForm): typeof editForm => {
+        const parts = raw.split('|').map(s => s.trim());
+        if (parts.length === 3) {
+            // email|refresh_token|client_id → oauth2 format
+            return { ...currentForm, password: '', refresh_token: parts[1] || '', client_id: parts[2] || '', auth_method: 'oauth2' };
+        }
+        if (parts.length >= 4) {
+            // email|password|refresh_token|client_id → graph format
+            return { ...currentForm, password: parts[1] || '', refresh_token: parts[2] || '', client_id: parts[3] || '', auth_method: 'graph' };
+        }
+        return currentForm; // can't parse, keep as-is
+    };
+
+    const switchEditMode = (mode: 'form' | 'raw') => {
+        if (mode === 'raw' && editingEmail) {
+            setEditRaw(formToRaw(editForm, editingEmail));
+        }
+        setEditMode(mode);
+    };
+
     const startEdit = async (it: any) => {
         setEditingEmail(it.email);
         setEditFetching(true);
+        setEditMode('form');
         setEditForm({ password: '', refresh_token: '', client_id: '', auth_method: it.auth_method || 'graph', mail_status: it.mail_status || 'unknown', notes: it.notes || '' });
         try {
             const res = await fetch(`/api/vault/email-pool/${encodeURIComponent(it.email)}`);
             const data = await res.json();
             if (data.ok && data.item) {
-                setEditForm({
+                const form = {
                     password: data.item.password || '',
                     refresh_token: data.item.refresh_token || '',
                     client_id: data.item.client_id || '',
                     auth_method: data.item.auth_method || 'graph',
                     mail_status: data.item.mail_status || 'unknown',
                     notes: data.item.notes || '',
-                });
+                };
+                setEditForm(form);
+                setEditRaw(formToRaw(form, it.email));
             }
         } catch (_) { }
         setEditFetching(false);
@@ -548,12 +578,14 @@ export function VaultWorkshopView() {
 
     const saveEdit = async () => {
         if (!editingEmail) return;
+        // If in raw mode, parse raw → form first
+        const formToSave = editMode === 'raw' ? rawToForm(editRaw, editForm) : editForm;
         setEditLoading(true);
         try {
             const res = await fetch(`/api/vault/email-pool/${encodeURIComponent(editingEmail)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editForm),
+                body: JSON.stringify(formToSave),
             });
             const data = await res.json();
             if (data.ok) {
@@ -1182,16 +1214,88 @@ export function VaultWorkshopView() {
                                     <div className="text-[11px] text-slate-500 font-mono">{editingEmail}</div>
                                 </div>
                             </div>
-                            <button onClick={cancelEdit} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-slate-300 transition-colors">
-                                <X size={16} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {/* Mode toggle */}
+                                <div className="flex bg-black/30 p-0.5 rounded-lg border border-white/5">
+                                    <button
+                                        onClick={() => switchEditMode('form')}
+                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${editMode === 'form' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                                    >
+                                        <LayoutList size={11} /> Form
+                                    </button>
+                                    <button
+                                        onClick={() => switchEditMode('raw')}
+                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${editMode === 'raw' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                                    >
+                                        <FileCode size={11} /> Raw
+                                    </button>
+                                </div>
+                                <button onClick={cancelEdit} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-slate-300 transition-colors">
+                                    <X size={16} />
+                                </button>
+                            </div>
                         </div>
 
                         {editFetching ? (
                             <div className="flex items-center justify-center py-16 gap-2 text-slate-500">
                                 <RefreshCw size={16} className="animate-spin" /> Đang tải dữ liệu...
                             </div>
+                        ) : editMode === 'raw' ? (
+                            /* ── Raw mode ── */
+                            <div className="px-6 py-5 space-y-3">
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                                        Dữ liệu thô <span className="text-slate-600 font-normal">(email|password|refresh_token|client_id hoặc email|refresh_token|client_id)</span>
+                                    </label>
+                                    <textarea
+                                        className="w-full h-40 bg-black/40 border border-white/10 rounded-lg p-3 text-[11px] text-slate-200 font-mono outline-none focus:border-amber-500/50 resize-none"
+                                        value={editRaw}
+                                        onChange={e => setEditRaw(e.target.value)}
+                                        placeholder="email|password|refresh_token|client_id"
+                                    />
+                                </div>
+                                <div className="text-[10px] text-slate-600">
+                                    {editRaw.split('|').length >= 4 ? 'GraphAPI format (4+ fields)' : editRaw.split('|').length === 3 ? 'OAuth2 format (3 fields)' : 'Format không hợp lệ — cần 3 hoặc 4 phần cách nhau bằng |'}
+                                </div>
+                                {/* Auth Method + Mail Status still editable in raw mode */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Auth Method</label>
+                                        <select
+                                            className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 cursor-pointer"
+                                            value={editForm.auth_method}
+                                            onChange={e => setEditForm(f => ({ ...f, auth_method: e.target.value }))}
+                                        >
+                                            <option value="graph" className="bg-[#0f172a]">GraphAPI</option>
+                                            <option value="oauth2" className="bg-[#0f172a]">OAuth2</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Mail Status</label>
+                                        <select
+                                            className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 cursor-pointer"
+                                            value={editForm.mail_status}
+                                            onChange={e => setEditForm(f => ({ ...f, mail_status: e.target.value }))}
+                                        >
+                                            <option value="active" className="bg-[#0f172a]">Active</option>
+                                            <option value="unknown" className="bg-[#0f172a]">Unknown</option>
+                                            <option value="dead" className="bg-[#0f172a]">Dead</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                {/* Notes */}
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Ghi chú</label>
+                                    <textarea
+                                        className="w-full h-16 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 resize-none"
+                                        value={editForm.notes}
+                                        onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                                        placeholder="Ghi chú..."
+                                    />
+                                </div>
+                            </div>
                         ) : (
+                            /* ── Form mode ── */
                             <div className="px-6 py-5 space-y-4">
                                 {/* Password */}
                                 <div>
