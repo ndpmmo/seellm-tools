@@ -2,68 +2,53 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [0.2.92] - 2026-05-15 22:30:00
+## [0.2.93] - 2026-05-15 23:00:00
 
-### 🔍 Vault Workshop — Verify mode selector + gọn feedback
+### 🛡️ Vault Workshop — Bộ lọc mặc định, email dead handling, verify mode, D1 sync
 
-**Problem**: Nút "Verify WaitList" chỉ kiểm tra email unknown, không rõ ràng đang làm gì. Không thể chọn verify email active/dead. Feedback spam toast từng email.
+**Problem**:
+1. Mặc định hiển thị tất cả email (live + dead) trong Pool và Inbox. Click verify/inbox email dead → hiển thị lỗi không cần thiết.
+2. Inbox view không scroll được do thiếu `min-h-0` trong flex layout.
+3. Khi email dead trong vault-workshop, vault-accounts không biết — không có cách nhận biết account nào có email dead. Dữ liệu không sync lên D1.
+4. Dữ liệu vault-accounts cũ đã có email dead nhưng chưa gán nhãn — không có cơ chế retroactive.
+5. Nút "Verify WaitList" chỉ kiểm tra email unknown, không thể chọn verify active/dead. Feedback spam toast từng email.
 
-**Solution**: Thêm dropdown chọn mode verify (Active/Unknown/Dead/All). Mặc định "Active". Feedback chỉ hiện số lượng gọn gàng.
+**Solution**: Gộp 5 vấn đề thành 1 release. Mặc định filter active, skip dead email, propagate tag `email_dead` sang vault-accounts + D1, thêm nút Sync Dead Tags, verify mode selector với feedback gọn.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server/routes/vault.js`
 
-1. **Verify mode selector** — Dropdown bên cạnh nút Verify: Active (mặc định), Unknown, Dead (re-check), Tất cả.
-2. **`verifyAllPool` dùng mode** — Filter email theo mode được chọn: active/unknown/dead/all.
-3. **Feedback gọn gàng** — Chỉ 2 toast: bắt đầu verify + kết quả tổng (`✅ Verify xong: X active, Y dead / Z email`).
+1. **`propagateEmailDeadTag(email)`** (line ~92) — Hàm mới. Tìm `vault.getAccounts()` có cùng email, parse `safeParseTags(account.tags)`, nếu chưa có `email_dead` thì push + `vault.upsertAccount({id, tags})`. Ghi audit log: action=`tag`, entity=`account`, severity=`warning`, source=`system`.
+2. **`removeEmailDeadTag(email)`** (line ~115) — Hàm mới. Tương tự nhưng filter bỏ `email_dead` khỏi tags. Ghi audit log: action=`untag`, severity=`success`.
+3. **`POST /email-pool/bulk-verify` hook** — 3 chỗ gọi hàm mới:
+   - Thiếu refresh_token/client_id → dead → `propagateEmailDeadTag(email)` (line ~609)
+   - Verify thành công → active → `removeEmailDeadTag(email)` (line ~622)
+   - Verify lỗi → dead → `propagateEmailDeadTag(email)` (line ~633)
+4. **`POST /api/vault/email-pool/propagate-dead-tag`** (line ~668) — Route mới. Body: `{email}`. Kiểm tra `vault.getEmailPoolFull()` xác nhận email dead, gọi `propagateEmailDeadTag(email)`. Return `{ok, tagged, email}`. Lightweight — chỉ gán tag, không verify lại.
+5. **`POST /api/vault/email-pool/sync-dead-tags`** (line ~688) — Route mới. Bulk scan toàn bộ `vault.getEmailPoolFull()` filter `mail_status === 'dead'`. Cho mỗi dead email: kiểm tra accounts đã tag chưa → nếu chưa thì gọi `propagateEmailDeadTag()`. Sau đó cleanup: duyệt `vault.getAccounts()`, nếu account có tag `email_dead` nhưng email trong pool không dead → gỡ tag. Return `{ok, deadEmails, taggedEmails, taggedAccounts, cleanedAccounts}`.
 
-## [0.2.91] - 2026-05-15 21:00:00
+#### Chi tiết thay đổi — `src/components/views/vault/VaultWorkshopView.tsx`
 
-### 🏷️ Vault — Sync Dead Tags: đồng bộ nhãn email_dead cho dữ liệu cũ
+6. **`statusFilter` default** (line 64) — Đổi từ `'all'` sang `'active'`. Pool mặc định chỉ hiển thị email live. User chuyển qua StatBox.
+7. **`verifyMode` state** (line 70) — State mới: `'active' | 'unknown' | 'dead' | 'all'`, default `'active'`.
+8. **`checkStatus(it)`** (line 245) — Nếu `it.mail_status === 'dead'`: gọi `POST /api/vault/email-pool/propagate-dead-tag` → toast "Đã gán nhãn EMAIL DEAD cho X account" hoặc "không có account tương ứng". Không verify lại. Nếu unknown/active: verify bình thường qua `bulk-verify`.
+9. **`openInbox(emailOrItem)`** (line 498) — Đổi signature từ `(email: string)` sang `(emailOrItem: string | any)`. Parse email + mailStatus. Nếu `mailStatus === 'dead'` → toast cảnh báo, return. Không load inbox.
+10. **`verifyAllPool()`** (line 444) — Đổi logic: filter theo `verifyMode` (active/unknown/dead/all) thay vì chỉ unknown. Feedback chỉ 2 toast: bắt đầu + tổng kết (`✅ Verify xong: X active, Y dead / Z email`).
+11. **Verify UI** (line 668) — Nút Verify hiện label theo mode: `Verify (Active)` / `Verify (Dead)`. Thêm `<select>` dropdown 4 option: Active (mặc định), Unknown, Dead (re-check), Tất cả.
+12. **Inbox sidebar filter** (line 918) — Thêm `e.mail_status !== 'dead'` vào filter. Email dead ẩn khỏi danh sách inbox.
+13. **Inbox scroll fix** (line 904, 917, 969, 1043) — Thêm `min-h-0` cho 3 flex columns (left email list, middle message list, right message detail) + container div. Fix scroll không hoạt động trong grid layout.
+14. **`openInbox(it)` call sites** (line 772, 923) — Đổi từ `openInbox(it.email)` sang `openInbox(it)` để truyền object, cho phép check `mail_status`.
+15. **`verifyAllPool` dead filter** (line 444) — Đổi từ `items.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead')` sang chỉ filter theo `verifyMode`.
 
-**Problem**: Dữ liệu vault-accounts hiện có không có nhãn `email_dead` dù email pool đã dead từ trước. Cần cơ chế retroactive để gán nhãn cho toàn bộ dữ liệu cũ.
+#### Chi tiết thay đổi — `src/components/views/vault/VaultAccountsView.tsx`
 
-**Solution**: Thêm API `sync-dead-tags` quét toàn bộ email pool dead, gán tag cho accounts tương ứng, và gỡ tag cho accounts có email đã active. Nút "Sync Dead Tags" trong VaultAccountsView UI.
+16. **`syncingDeadTags` state** (line 116) — State mới cho loading.
+17. **`syncDeadTags()`** (line 278) — Hàm mới. Gọi `POST /api/vault/email-pool/sync-dead-tags`. Toast kết quả: "Đồng bộ xong: X account được gán EMAIL DEAD, Y account được gỡ nhãn" hoặc "Tất cả nhãn đã đồng bộ".
+18. **"Sync Dead Tags" button** (line 437) — Nút mới trong toolbar. Icon `Tag`, loading state `RefreshCw animate-spin`.
+19. **EMAIL DEAD badge** (line 610) — Hiển thị `<span>` với class `bg-rose-500/10 text-rose-300 border-rose-500/20 animate-pulse` cho accounts có tag `email_dead`. Nằm sau badge NEED PHONE.
 
-#### Chi tiết thay đổi
+#### D1 Sync (tự động, không cần thay đổi code)
 
-1. **`POST /api/vault/email-pool/sync-dead-tags`** — Bulk scan toàn bộ email pool dead, propagate tag `email_dead` cho matching accounts. Đồng thời gỡ tag cho accounts có email đã active lại.
-2. **Nút "Sync Dead Tags"** — Trong VaultAccountsView toolbar, click để chạy bulk sync. Hiển thị kết quả: số account được gán/gỡ nhãn.
-3. **`checkStatus` dead email** — Click verify email dead → gọi `propagate-dead-tag` → gán tag cho account → sync D1.
-
-## [0.2.90] - 2026-05-15 20:00:00
-
-### 🔗 Vault — Đồng bộ email dead sang vault-accounts & D1
-
-**Problem**: Khi email bị dead trong vault-workshop (email pool), vault-accounts không biết email đó đã die. Không có cách nhận biết account nào có email không hoạt động. Dữ liệu dead status không được sync lên D1.
-
-**Solution**: Khi bulk-verify đánh dấu email dead, tự động gán tag `email_dead` cho vault-accounts có cùng email. Khi email active lại, tự động gỡ tag. Tag được sync lên D1 qua SyncManager. UI hiển thị badge `EMAIL DEAD` (pulsing) trong VaultAccountsView. Click verify email dead sẽ gán tag mà không cần verify lại.
-
-#### Chi tiết thay đổi
-
-1. **`propagateEmailDeadTag(email)`** — Tìm vault-accounts có cùng email, thêm tag `email_dead` nếu chưa có. Ghi audit log.
-2. **`removeEmailDeadTag(email)`** — Khi email active lại, gỡ tag `email_dead` khỏi vault-accounts. Ghi audit log.
-3. **Bulk-verify hook** — Gọi `propagateEmailDeadTag` khi email dead, gọi `removeEmailDeadTag` khi email active.
-4. **`POST /api/vault/email-pool/propagate-dead-tag`** — API lightweight chỉ gán tag không verify lại. Frontend gọi khi click verify email đã dead.
-5. **`checkStatus` frontend** — Email dead: gọi `propagate-dead-tag` + toast kết quả, không verify lại. Email unknown/active: verify bình thường.
-6. **D1 sync tự động** — Tag `email_dead` nằm trong `tags` JSON của account, được SyncManager push lên D1 qua `upsertVaultAccount`.
-7. **VaultAccountsView UI** — Hiển thị badge `EMAIL DEAD` (rose, pulsing) cho accounts có tag `email_dead`.
-
-## [0.2.89] - 2026-05-15 19:14:00
-
-### 🛡️ Vault Workshop — Bộ lọc mặc định & bỏ qua email die
-
-**Problem**: Mặc định hiển thị tất cả email (live + dead) trong Pool và Inbox. Khi click verify hoặc xem inbox của email đã die, hiển thị lỗi không cần thiết. Thanh danh sách email trong inbox view không scroll được.
-
-**Solution**: Mặc định filter `active` (chỉ hiển thị email live). Skip verify và inbox cho email dead — hiển thị toast cảnh báo thay vì lỗi. Fix scroll bằng `min-h-0` trong flex layout.
-
-#### Chi tiết thay đổi
-
-1. **Default filter `active`** — Pool mặc định chỉ hiển thị email `mail_status === 'active'`. Có thể chuyển sang `all`/`done`/`dead` qua StatBox.
-2. **Skip verify email dead** — `checkStatus()` kiểm tra `mail_status === 'dead'` → toast cảnh báo, không gửi API verify.
-3. **Skip inbox email dead** — `openInbox()` nhận object email, kiểm tra `mail_status === 'dead'` → toast cảnh báo, không load inbox.
-4. **Bulk verify bỏ qua dead** — `verifyAllPool()` chỉ filter `mail_status === 'unknown'`, không gửi dead emails đi verify hàng loạt.
-5. **Inbox sidebar ẩn email dead** — Filter `e.mail_status !== 'dead'` trong danh sách email inbox sidebar.
-6. **Fix scroll inbox view** — Thêm `min-h-0` cho tất cả flex columns và scrollable divs trong inbox (left/middle/right), đảm bảo scroll hoạt động.
+20. **Tag `email_dead` sync tự động** — Khi `vault.upsertAccount({id, tags})` được gọi (trong `propagateEmailDeadTag`/`removeEmailDeadTag`), `SyncManager.pushVault('account', record)` tự động push lên D1 Worker qua `POST /sync/push`. Worker gọi `upsertVaultAccount()` lưu tags JSON vào bảng `vault_accounts`. Không cần migration hay code mới ở seellm-gateway.
 
 ## [0.2.88] - 2026-05-15 17:30:00
 
