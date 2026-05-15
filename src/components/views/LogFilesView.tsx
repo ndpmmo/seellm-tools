@@ -1,12 +1,13 @@
 'use client';
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useApp, LogFile } from '../AppContext';
 import { fmtBytes, fmtDateTimeVN, ConfirmModal, Spinner } from '../Views';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, StatBox } from '../ui';
 import {
   FileText, RefreshCw, Trash2, Download, Eye, Search, CheckSquare, Square, X,
   HardDrive, Clock, AlertTriangle, ChevronDown, ChevronRight, ArrowUpDown,
-  FileCode, File, Copy, Maximize2, Minimize2, WrapText
+  FileCode, File, Copy, Maximize2, Minimize2, WrapText,
+  XCircle, CheckCircle, Info, Zap
 } from 'lucide-react';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -14,10 +15,37 @@ import {
 type SortField = 'name' | 'size' | 'mtime';
 type SortDir = 'asc' | 'desc';
 type SizeFilter = 'all' | 'small' | 'medium' | 'large';
+type LogLevel = 'error' | 'warn' | 'success' | 'info' | 'system' | 'debug';
 
 const toSizeFilter = (v: string): SizeFilter => {
   if (v === 'small' || v === 'medium' || v === 'large') return v;
   return 'all';
+};
+
+/* ─── Log level detection (shared with TerminalView) ──────────────────── */
+
+const LOG_PATTERNS: { level: LogLevel; re: RegExp }[] = [
+  { level: 'error',   re: /❌|THẤT BẠI|fatal|uncaught|unhandled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|crash|panic|abort|SIGTERM|SIGKILL|exit code [1-9]|non-zero|ERROR|Error:|ERR_|FAILED|Failed/i },
+  { level: 'warn',    re: /⚠|WARNING|WARN|deprecated|slow|retry|timeout|rate.limit|429/i },
+  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|OK$/i },
+  { level: 'system',  re: /^\[.*?\]|^#{1,3}\s|^\s*[━─═]{3,}|^={3,}|^─{3,}/ },
+  { level: 'debug',   re: /debug|trace|verbose|dump|inspect/i },
+];
+
+function detectLogLevel(line: string): LogLevel {
+  for (const p of LOG_PATTERNS) {
+    if (p.re.test(line)) return p.level;
+  }
+  return 'info';
+}
+
+const LEVEL_STYLES: Record<LogLevel, { text: string; bg: string; gutter: string; icon: any }> = {
+  error:   { text: 'text-rose-300',   bg: 'bg-rose-500/[0.06]',  gutter: 'bg-rose-500/30', icon: XCircle },
+  warn:    { text: 'text-amber-300',  bg: 'bg-amber-500/[0.04]', gutter: 'bg-amber-500/30', icon: AlertTriangle },
+  success: { text: 'text-emerald-300',bg: 'bg-emerald-500/[0.04]',gutter: 'bg-emerald-500/30',icon: CheckCircle },
+  info:    { text: 'text-slate-300',  bg: '',                     gutter: '',                 icon: Info },
+  system:  { text: 'text-indigo-300', bg: 'bg-indigo-500/[0.04]', gutter: 'bg-indigo-500/30', icon: Zap },
+  debug:   { text: 'text-cyan-300',   bg: '',                     gutter: 'bg-cyan-500/30',   icon: Info },
 };
 
 /* ─── Log Viewer Panel ───────────────────────────────────────────────────── */
@@ -30,7 +58,26 @@ function LogViewer({ filename, content, loading, onClose }: {
   const [wordWrap, setWordWrap] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [currentMatch, setCurrentMatch] = useState(0);
+  const [filterLevel, setFilterLevel] = useState<LogLevel | 'all'>('all');
   const textRef = useRef<HTMLPreElement>(null);
+
+  const lines = useMemo(() => content.split('\n'), [content]);
+
+  // Per-line level detection
+  const lineLevels = useMemo(() => lines.map(l => detectLogLevel(l)), [lines]);
+
+  // Level counts
+  const levelCounts = useMemo(() => {
+    const c: Record<string, number> = { error: 0, warn: 0, success: 0, info: 0, system: 0, debug: 0 };
+    lineLevels.forEach(lv => { c[lv]++; });
+    return c as Record<LogLevel, number>;
+  }, [lineLevels]);
+
+  // Filtered line indices
+  const filteredIndices = useMemo(() => {
+    if (filterLevel === 'all') return lines.map((_, i) => i);
+    return lines.map((_, i) => i).filter(i => lineLevels[i] === filterLevel);
+  }, [lines, lineLevels, filterLevel]);
 
   const matches = useMemo(() => {
     if (!searchTerm.trim()) return [];
@@ -41,7 +88,7 @@ function LogViewer({ filename, content, loading, onClose }: {
       let m;
       while ((m = re.exec(content)) !== null) {
         results.push(m.index);
-        if (results.length > 5000) break; // safety cap
+        if (results.length > 5000) break;
       }
       return results;
     } catch { return []; }
@@ -54,35 +101,55 @@ function LogViewer({ filename, content, loading, onClose }: {
     }
   }, [currentMatch, matches.length]);
 
-  const highlightContent = useMemo(() => {
-    if (!searchTerm.trim() || matches.length === 0) return null;
+  // Highlight a single line's text for search matches
+  const highlightLine = useCallback((text: string, globalOffset: number): React.ReactNode[] => {
+    if (!searchTerm.trim() || matches.length === 0) return [text];
     const parts: React.ReactNode[] = [];
     let lastIdx = 0;
     const flags = caseSensitive ? 'g' : 'gi';
     try {
       const re = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
       let m;
-      let matchIdx = 0;
-      while ((m = re.exec(content)) !== null) {
-        if (m.index > lastIdx) parts.push(content.slice(lastIdx, m.index));
-        const idx = matchIdx;
+      while ((m = re.exec(text)) !== null) {
+        const absIdx = globalOffset + m.index;
+        // Find if this match is in our matches array
+        const matchIdx = matches.indexOf(absIdx);
+        if (matchIdx === -1) continue;
+        if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
         parts.push(
           <mark
-            key={idx}
-            data-match-idx={idx}
-            className={`px-0.5 rounded-sm ${idx === currentMatch ? 'bg-amber-400/40 text-amber-200 ring-1 ring-amber-400/60' : 'bg-indigo-500/30 text-indigo-200'}`}
+            key={matchIdx}
+            data-match-idx={matchIdx}
+            className={`px-0.5 rounded-sm ${matchIdx === currentMatch ? 'bg-amber-400/40 text-amber-200 ring-1 ring-amber-400/60' : 'bg-indigo-500/30 text-indigo-200'}`}
           >
             {m[0]}
           </mark>
         );
         lastIdx = m.index + m[0].length;
-        matchIdx++;
-        if (matchIdx > 5000) break;
       }
-      if (lastIdx < content.length) parts.push(content.slice(lastIdx));
-    } catch { return null; }
-    return parts;
-  }, [content, searchTerm, caseSensitive, currentMatch]);
+      if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+    } catch { return [text]; }
+    return parts.length > 1 ? parts : [text];
+  }, [searchTerm, caseSensitive, matches, currentMatch]);
+
+  // Build colorized + filtered + highlighted lines
+  const colorizedLines = useMemo(() => {
+    // Calculate global offsets for each line
+    const offsets: number[] = [];
+    let off = 0;
+    for (const line of lines) {
+      offsets.push(off);
+      off += line.length + 1; // +1 for the \n
+    }
+
+    return filteredIndices.map(i => {
+      const level = lineLevels[i];
+      const style = LEVEL_STYLES[level];
+      const Icon = style.icon;
+      const highlighted = highlightLine(lines[i], offsets[i]);
+      return { i, level, style, Icon, highlighted };
+    });
+  }, [filteredIndices, lineLevels, lines, highlightLine]);
 
   const copyContent = () => {
     navigator.clipboard.writeText(content);
@@ -96,7 +163,7 @@ function LogViewer({ filename, content, loading, onClose }: {
     URL.revokeObjectURL(url);
   };
 
-  const lineCount = content.split('\n').length;
+  const lineCount = lines.length;
 
   return (
     <div className={`flex flex-col bg-[#0a0e1a] border border-white/10 rounded-xl overflow-hidden ${fullscreen ? 'fixed inset-4 z-50' : 'h-full'}`}>
@@ -105,8 +172,32 @@ function LogViewer({ filename, content, loading, onClose }: {
         <FileCode size={15} className="text-indigo-400 shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-semibold text-slate-200 truncate">{filename}</div>
-          <div className="text-[10.5px] text-slate-500 mt-0.5">{lineCount} dòng · {fmtBytes(content.length)}</div>
+          <div className="text-[10.5px] text-slate-500 mt-0.5">{filteredIndices.length}/{lineCount} dòng · {fmtBytes(content.length)}</div>
         </div>
+
+        {/* Level filter buttons */}
+        <div className="flex items-center gap-1">
+          {([
+            { level: 'all' as const, label: 'Tất cả', Icon: null },
+            ...(Object.entries(levelCounts) as [LogLevel, number][])
+              .filter(([, c]) => c > 0)
+              .map(([level, c]) => ({ level, label: `${c}`, Icon: LEVEL_STYLES[level].icon }))
+          ]).map(({ level, label, Icon }) => (
+            <button
+              key={level}
+              onClick={() => setFilterLevel(level)}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border transition-all ${filterLevel === level
+                ? (level === 'all' ? 'bg-white/10 text-white border-white/20' : `${LEVEL_STYLES[level as LogLevel]?.gutter || ''} ${LEVEL_STYLES[level as LogLevel]?.text || ''} border-white/10`)
+                : 'bg-white/5 text-slate-500 border-white/5 hover:bg-white/10 hover:text-slate-300'
+              }`}
+            >
+              {Icon && <Icon size={9} />}
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-white/10" />
 
         {/* Search within content */}
         <div className="relative flex items-center">
@@ -172,8 +263,15 @@ function LogViewer({ filename, content, loading, onClose }: {
             <Spinner /> Đang tải...
           </div>
         ) : (
-          <pre ref={textRef} className={`text-[12px] leading-[1.6] text-slate-300 p-4 font-mono ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}>
-            {highlightContent || content}
+          <pre ref={textRef} className={`text-[12px] leading-[1.6] p-4 font-mono ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}>
+            {colorizedLines.map(({ i, level, style, Icon, highlighted }) => (
+              <div key={i} className={`flex ${style.bg} ${style.bg ? 'rounded-sm px-1 -mx-1' : ''}`}>
+                <span className={`shrink-0 w-[22px] flex items-center justify-center opacity-50 select-none ${style.text}`} title={level.toUpperCase()}>
+                  <Icon size={9} />
+                </span>
+                <span className={style.text}>{highlighted}</span>
+              </div>
+            ))}
           </pre>
         )}
       </div>
@@ -230,8 +328,6 @@ function FileRow({ file, selected, onToggleSelect, onOpen, onDelete }: {
 }
 
 /* ─── Main View ──────────────────────────────────────────────────────────── */
-
-import { useRef, useEffect } from 'react';
 
 export function LogFilesView() {
   const { logFiles, refreshLogFiles, addToast } = useApp();

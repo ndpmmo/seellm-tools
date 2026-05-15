@@ -1,9 +1,37 @@
 'use client';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useApp, ProcessInfo } from '../AppContext';
 import { fmtTime } from '../Views';
 import { Card, CardHeader, CardTitle, CardContent, Button } from '../ui';
-import { Terminal as TerminalIcon, ShieldAlert, CheckCircle2, AlertCircle, Info, Lock, Unlock } from 'lucide-react';
+import { Terminal as TerminalIcon, ShieldAlert, CheckCircle2, AlertCircle, Info, Lock, Unlock, AlertTriangle, XCircle, CheckCircle, Zap } from 'lucide-react';
+
+/* ── Log level detection ── */
+type LogLevel = 'error' | 'warn' | 'success' | 'info' | 'system' | 'debug';
+
+const LOG_PATTERNS: { level: LogLevel; re: RegExp; icon: any; label: string }[] = [
+  { level: 'error',   re: /❌|THẤT BẠI|fatal|uncaught|unhandled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|crash|panic|abort|SIGTERM|SIGKILL|exit code [1-9]|non-zero|ERROR|Error:|ERR_|FAILED|Failed/i, icon: XCircle, label: 'ERR' },
+  { level: 'warn',    re: /⚠|WARNING|WARN|deprecated|slow|retry|timeout|rate.limit|429/i, icon: AlertTriangle, label: 'WRN' },
+  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|OK$/i, icon: CheckCircle, label: 'OK' },
+  { level: 'system',  re: /^\[.*?\]|^#{1,3}\s|^\s*[━─═]{3,}|^={3,}|^─{3,}/, icon: Zap, label: 'SYS' },
+  { level: 'debug',   re: /debug|trace|verbose|dump|inspect/i, icon: Info, label: 'DBG' },
+];
+
+function detectLogLevel(text: string, type: string): LogLevel {
+  if (type === 'stderr') return 'error';
+  for (const p of LOG_PATTERNS) {
+    if (p.re.test(text)) return p.level;
+  }
+  return 'info';
+}
+
+const LEVEL_STYLES: Record<LogLevel, { text: string; bg: string; badge: string; icon: any }> = {
+  error:   { text: 'text-rose-300',   bg: 'bg-rose-500/[0.06] hover:bg-rose-500/10',   badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30',   icon: XCircle },
+  warn:    { text: 'text-amber-300',  bg: 'bg-amber-500/[0.04] hover:bg-amber-500/8',  badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle },
+  success: { text: 'text-emerald-300',bg: 'bg-emerald-500/[0.04] hover:bg-emerald-500/8',badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',icon: CheckCircle },
+  info:    { text: 'text-slate-300',  bg: 'hover:bg-white/5',                            badge: 'bg-slate-500/20 text-slate-400 border-slate-500/30', icon: Info },
+  system:  { text: 'text-indigo-300', bg: 'bg-indigo-500/[0.04] hover:bg-indigo-500/8', badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', icon: Zap },
+  debug:   { text: 'text-cyan-300',   bg: 'hover:bg-white/5',                            badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',   icon: Info },
+};
 
 function StatusBadge({ status }: { status: string }) {
   const isRunning = status === 'running';
@@ -20,18 +48,23 @@ function StatusBadge({ status }: { status: string }) {
 function Terminal({ proc }: { proc: ProcessInfo }) {
   const ref = useRef<HTMLDivElement>(null);
   const [auto, setAuto] = useState(true);
+  const [filterLevel, setFilterLevel] = useState<LogLevel | 'all'>('all');
 
   useEffect(() => {
     if (auto) ref.current?.scrollIntoView({ behavior: 'smooth' });
   }, [proc.logs.length, auto]);
 
-  const cls = (text: string) => {
-    if (/✅|THÀNH CÔNG|SUCCESS|Hoàn tất/i.test(text)) return 'text-emerald-400 font-medium';
-    if (/❌|THẤT BẠI|error|lỗi/i.test(text)) return 'text-rose-400 font-medium';
-    if (/⚠|WARNING|warn/i.test(text)) return 'text-amber-400';
-    if (/\[.*?\]/.test(text)) return 'text-indigo-300';
-    return 'text-slate-300';
-  };
+  // Count log levels
+  const levelCounts = useMemo(() => {
+    const counts: Record<string, number> = { error: 0, warn: 0, success: 0, info: 0, system: 0, debug: 0 };
+    proc.logs.forEach(l => { counts[detectLogLevel(l.text, l.type)]++; });
+    return counts as Record<LogLevel, number>;
+  }, [proc.logs]);
+
+  const filteredLogs = useMemo(() => {
+    if (filterLevel === 'all') return proc.logs;
+    return proc.logs.filter(l => detectLogLevel(l.text, l.type) === filterLevel);
+  }, [proc.logs, filterLevel]);
 
   return (
     <div className="flex flex-col h-full bg-[#050810] overflow-hidden">
@@ -44,23 +77,53 @@ function Terminal({ proc }: { proc: ProcessInfo }) {
           </div>
           <div className="flex items-center gap-3 ml-2 border-l border-white/10 pl-4">
             <div className="text-[13px] font-mono text-slate-200 font-semibold tracking-wide">{proc.name}</div>
-            <div className="text-[11px] font-mono text-indigo-300/70 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">{proc.logs.length} lines</div>
+            <div className="text-[11px] font-mono text-indigo-300/70 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">{filteredLogs.length}/{proc.logs.length} lines</div>
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 text-[11.5px] px-3 font-semibold border border-transparent hover:border-white/10 bg-white/5" onClick={() => setAuto(!auto)}>
-          {auto ? <><Lock size={12} className="mr-1.5 text-indigo-400" /> Auto-scroll</> : <><Unlock size={12} className="mr-1.5 text-slate-500" /> Manual</>}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {/* Level filter buttons */}
+          {([
+            { level: 'all' as const, label: 'Tất cả', Icon: null },
+            ...(Object.entries(levelCounts) as [LogLevel, number][])
+              .filter(([, c]) => c > 0)
+              .map(([level, c]) => ({ level, label: `${c}`, Icon: LEVEL_STYLES[level].icon }))
+          ]).map(({ level, label, Icon }) => (
+            <button
+              key={level}
+              onClick={() => setFilterLevel(level)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold border transition-all ${filterLevel === level
+                ? (level === 'all' ? 'bg-white/10 text-white border-white/20' : `${LEVEL_STYLES[level as LogLevel]?.badge || ''}`)
+                : 'bg-white/5 text-slate-500 border-white/5 hover:bg-white/10 hover:text-slate-300'
+              }`}
+            >
+              {Icon && <Icon size={10} />}
+              {label}
+            </button>
+          ))}
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <Button variant="ghost" size="sm" className="h-7 text-[11.5px] px-3 font-semibold border border-transparent hover:border-white/10 bg-white/5" onClick={() => setAuto(!auto)}>
+            {auto ? <><Lock size={12} className="mr-1.5 text-indigo-400" /> Auto-scroll</> : <><Unlock size={12} className="mr-1.5 text-slate-500" /> Manual</>}
+          </Button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 font-mono text-[12.5px] leading-relaxed break-all custom-scrollbar">
-        {proc.logs.length === 0 && (
+        {filteredLogs.length === 0 && (
           <span className="text-slate-500 italic">Chưa có dòng log nào được ghi...</span>
         )}
-        {proc.logs.map((l, i) => (
-          <div key={i} className="flex gap-4 mb-1 hover:bg-white/5 px-2 py-0.5 -mx-2 rounded transition-colors group">
-            <span className="text-slate-600 shrink-0 select-none whitespace-nowrap opacity-50 group-hover:opacity-100 transition-opacity min-w-[65px] text-right">{fmtTime(l.ts)}</span>
-            <span className={`flex-1 ${cls(l.text)} ${l.type === 'stderr' ? 'text-rose-400' : ''}`}>{l.text}</span>
-          </div>
-        ))}
+        {filteredLogs.map((l, i) => {
+          const level = detectLogLevel(l.text, l.type);
+          const style = LEVEL_STYLES[level];
+          const Icon = style.icon;
+          return (
+            <div key={i} className={`flex gap-3 mb-0.5 px-2 py-0.5 -mx-2 rounded transition-colors group ${style.bg}`}>
+              <span className="text-slate-600 shrink-0 select-none whitespace-nowrap opacity-40 group-hover:opacity-100 transition-opacity min-w-[65px] text-right">{fmtTime(l.ts)}</span>
+              <span className={`shrink-0 w-[30px] flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity`} title={level.toUpperCase()}>
+                <Icon size={11} className={style.text} />
+              </span>
+              <span className={`flex-1 ${style.text}`}>{l.text}</span>
+            </div>
+          );
+        })}
         <div ref={ref} className="h-4" />
       </div>
     </div>
