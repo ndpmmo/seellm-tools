@@ -13,7 +13,7 @@
 #### Chi tiết thay đổi — `src/components/views/TerminalView.tsx`
 
 1. **`LogLevel` type mới** (line ~9) — Union type: `'error' | 'warn' | 'success' | 'info' | 'system' | 'debug'`.
-2. **`LOG_PATTERNS` constant mới** (line ~11) — 5 pattern groups cho log level detection: error (❌, THẤT BẠI, fatal, ECONNREFUSED, Error:, ERR_, FAILED...), warn (⚠, WARNING, WARN, deprecated, timeout, 429...), success (✅, THÀNH CÔNG, SUCCESS, connected, ready, deployed...), system (`[...]`, `###`, separators), debug (debug, trace, verbose, dump, inspect).
+2. **`LOG_PATTERNS` constant mới** (line ~11) — 5 pattern groups cho log level detection: error (❌, THẤT BẠI, fatal, ECONNREFUSED, Error:, ERR_, FAILED...), warn (⚠, WARNING, WARN, deprecated, timeout, 429...), success (✅, THÀNH CÔNG, SUCCESS, connected, ready, deployed, \bOK\b...), system (`[...]`, `###`, separators), debug (debug, trace, verbose, dump, inspect). Removed unused `icon`/`label` fields after refactor.
 3. **`detectLogLevel(text, type)` function mới** (line ~19) — Detect log level từ text content. Nếu `type === 'stderr'` → luôn 'error'. Priority: error → warn → success → system → debug → default 'info'.
 4. **`LEVEL_STYLES` constant mới** (line ~27) — Map level → style: `text` color, `bg` background, `badge` filter button style, `icon` component. Error=rose, warn=amber, success=emerald, info=slate, system=indigo, debug=cyan.
 5. **`filterLevel` state mới** (line ~51) — Track active log level filter. Default `'all'`.
@@ -25,14 +25,14 @@
 
 #### Chi tiết thay đổi — `src/components/views/LogFilesView.tsx`
 
-1. **`LogLevel` type + `LOG_PATTERNS` + `detectLogLevel`** (line ~20-40) — Shared log level detection logic (same patterns as TerminalView).
+1. **`LogLevel` type + `LOG_PATTERNS` + `detectLogLevel`** (line ~20-40) — Shared log level detection logic (same patterns as TerminalView). Bug fix: `OK$` regex changed to `\bOK\b` — `$` only matches end of entire string, not end of line.
 2. **`LEVEL_STYLES` constant mới** (line ~42) — Map level → style: `text`, `bg`, `gutter` (filter badge bg), `icon`. Same color scheme as TerminalView.
 3. **`filterLevel` state mới** (line ~70) — Track active log level filter for log file viewer.
 4. **`lineLevels` useMemo mới** (line ~78) — Detect log level cho mỗi line trong content.
 5. **`levelCounts` useMemo mới** (line ~82) — Count lines per log level.
 6. **`filteredIndices` useMemo mới** (line ~88) — Line indices matching active filterLevel.
-7. **`highlightLine()` callback mới** (line ~100) — Apply search highlight within a single line, preserving global match indices for navigation.
-8. **`colorizedLines` useMemo mới** (line ~125) — Build per-line render data: level, style, icon, highlighted text. Calculates global offsets for search match tracking.
+7. **`highlightLine()` callback mới** (line ~100) — Apply search highlight within a single line, preserving global match indices for navigation. Uses `matchSet` (Set) for O(1) lookup instead of O(n) indexOf.
+8. **`colorizedLines` useMemo mới** (line ~130) — Build per-line render data: level, style, icon, highlighted text. Calculates global offsets for search match tracking.
 9. **Level filter buttons** (line ~178) — Toolbar buttons: "Tất cả" + per-level buttons (icon + count). Same pattern as TerminalView.
 10. **Line rendering** (line ~246) — Mỗi dòng: level icon (22px, opacity-50) + text (level-colored). Error/warn/success/system lines có tinted background + rounded-sm.
 11. **Import changes** — Thêm `useRef`, `useEffect` vào top import (xóa duplicate import ở line 234). Thêm `XCircle`, `CheckCircle`, `Info`, `Zap`. Xóa `useRef, useEffect` import riêng.

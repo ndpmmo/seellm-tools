@@ -3,17 +3,17 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useApp, ProcessInfo } from '../AppContext';
 import { fmtTime } from '../Views';
 import { Card, CardHeader, CardTitle, CardContent, Button } from '../ui';
-import { Terminal as TerminalIcon, ShieldAlert, CheckCircle2, AlertCircle, Info, Lock, Unlock, AlertTriangle, XCircle, CheckCircle, Zap } from 'lucide-react';
+import { Terminal as TerminalIcon, ShieldAlert, Info, Lock, Unlock, AlertTriangle, XCircle, CheckCircle, Zap } from 'lucide-react';
 
 /* ── Log level detection ── */
 type LogLevel = 'error' | 'warn' | 'success' | 'info' | 'system' | 'debug';
 
-const LOG_PATTERNS: { level: LogLevel; re: RegExp; icon: any; label: string }[] = [
-  { level: 'error',   re: /❌|THẤT BẠI|fatal|uncaught|unhandled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|crash|panic|abort|SIGTERM|SIGKILL|exit code [1-9]|non-zero|ERROR|Error:|ERR_|FAILED|Failed/i, icon: XCircle, label: 'ERR' },
-  { level: 'warn',    re: /⚠|WARNING|WARN|deprecated|slow|retry|timeout|rate.limit|429/i, icon: AlertTriangle, label: 'WRN' },
-  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|OK$/i, icon: CheckCircle, label: 'OK' },
-  { level: 'system',  re: /^\[.*?\]|^#{1,3}\s|^\s*[━─═]{3,}|^={3,}|^─{3,}/, icon: Zap, label: 'SYS' },
-  { level: 'debug',   re: /debug|trace|verbose|dump|inspect/i, icon: Info, label: 'DBG' },
+const LOG_PATTERNS: { level: LogLevel; re: RegExp }[] = [
+  { level: 'error',   re: /❌|THẤT BẠI|fatal|uncaught|unhandled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|crash|panic|abort|SIGTERM|SIGKILL|exit code [1-9]|non-zero|ERROR|Error:|ERR_|FAILED|Failed/i },
+  { level: 'warn',    re: /⚠|WARNING|WARN|deprecated|slow|retry|timeout|rate.limit|429/i },
+  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|\bOK\b/i },
+  { level: 'system',  re: /^\[.*?\]|^#{1,3}\s|^\s*[━─═]{3,}|^={3,}|^─{3,}/ },
+  { level: 'debug',   re: /debug|trace|verbose|dump|inspect/i },
 ];
 
 function detectLogLevel(text: string, type: string): LogLevel {

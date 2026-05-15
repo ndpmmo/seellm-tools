@@ -27,7 +27,7 @@ const toSizeFilter = (v: string): SizeFilter => {
 const LOG_PATTERNS: { level: LogLevel; re: RegExp }[] = [
   { level: 'error',   re: /❌|THẤT BẠI|fatal|uncaught|unhandled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|crash|panic|abort|SIGTERM|SIGKILL|exit code [1-9]|non-zero|ERROR|Error:|ERR_|FAILED|Failed/i },
   { level: 'warn',    re: /⚠|WARNING|WARN|deprecated|slow|retry|timeout|rate.limit|429/i },
-  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|OK$/i },
+  { level: 'success', re: /✅|THÀNH CÔNG|SUCCESS|Hoàn tất|connected|ready|online|started|deployed|synced|\bOK\b/i },
   { level: 'system',  re: /^\[.*?\]|^#{1,3}\s|^\s*[━─═]{3,}|^={3,}|^─{3,}/ },
   { level: 'debug',   re: /debug|trace|verbose|dump|inspect/i },
 ];
@@ -102,8 +102,9 @@ function LogViewer({ filename, content, loading, onClose }: {
   }, [currentMatch, matches.length]);
 
   // Highlight a single line's text for search matches
+  const matchSet = useMemo(() => new Set(matches), [matches]);
   const highlightLine = useCallback((text: string, globalOffset: number): React.ReactNode[] => {
-    if (!searchTerm.trim() || matches.length === 0) return [text];
+    if (!searchTerm.trim() || matchSet.size === 0) return [text];
     const parts: React.ReactNode[] = [];
     let lastIdx = 0;
     const flags = caseSensitive ? 'g' : 'gi';
@@ -112,9 +113,8 @@ function LogViewer({ filename, content, loading, onClose }: {
       let m;
       while ((m = re.exec(text)) !== null) {
         const absIdx = globalOffset + m.index;
-        // Find if this match is in our matches array
+        if (!matchSet.has(absIdx)) continue;
         const matchIdx = matches.indexOf(absIdx);
-        if (matchIdx === -1) continue;
         if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
         parts.push(
           <mark
@@ -130,7 +130,7 @@ function LogViewer({ filename, content, loading, onClose }: {
       if (lastIdx < text.length) parts.push(text.slice(lastIdx));
     } catch { return [text]; }
     return parts.length > 1 ? parts : [text];
-  }, [searchTerm, caseSensitive, matches, currentMatch]);
+  }, [searchTerm, caseSensitive, matches, matchSet, currentMatch]);
 
   // Build colorized + filtered + highlighted lines
   const colorizedLines = useMemo(() => {
