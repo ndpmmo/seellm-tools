@@ -660,6 +660,31 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
   }
 });
 
+/* ─── Propagate email_dead tag without re-verifying ──────────────────────── */
+/*  POST /api/vault/email-pool/propagate-dead-tag                             */
+/*  Body: { email: string }                                                  */
+/*  Lightweight: just tags vault-accounts, no actual mail check              */
+/* ────────────────────────────────────────────────────────────────────────── */
+router.post('/email-pool/propagate-dead-tag', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Missing email' });
+
+    // Verify the email is actually dead in the pool
+    const poolRecord = vault.getEmailPoolFull().find(e => e.email === email);
+    if (!poolRecord) return res.status(404).json({ error: 'Email not found in pool' });
+    if (poolRecord.mail_status !== 'dead') {
+      return res.json({ ok: true, tagged: 0, message: 'Email is not dead, skip tagging' });
+    }
+
+    propagateEmailDeadTag(email);
+    const accounts = vault.getAccounts().filter(a => a.email === email);
+    res.json({ ok: true, tagged: accounts.length, email });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ══════════════════════════════════════════════════════════════════════════ */
 /*  TASK ENDPOINT  (Worker poll)                                              */
 /*  Worker gọi GET /api/vault/accounts/task mỗi 15 giây để lấy task         */

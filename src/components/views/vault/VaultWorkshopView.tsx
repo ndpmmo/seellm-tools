@@ -243,9 +243,24 @@ export function VaultWorkshopView() {
     };
 
     const checkStatus = async (it: any) => {
-        // Skip verification for dead emails to avoid showing error status
+        // Skip re-verification for dead emails, but propagate tag to vault-accounts
         if (it.mail_status === 'dead') {
-            addToast(`⚠️ ${it.email}: Email đã được đánh dấu là DEAD, bỏ qua kiểm tra`, 'info');
+            addToast(`⚠️ ${it.email}: Email đã DEAD, đang gán nhãn cho account...`, 'info');
+            try {
+                const res = await fetch('/api/vault/email-pool/propagate-dead-tag', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: it.email }),
+                });
+                const data = await res.json();
+                if (data.ok && data.tagged > 0) {
+                    addToast(`🏷️ ${it.email}: Đã gán nhãn EMAIL DEAD cho ${data.tagged} account`, 'success');
+                } else if (data.ok) {
+                    addToast(`⚠️ ${it.email}: Email DEAD nhưng không có account tương ứng`, 'info');
+                }
+            } catch (_: any) {
+                addToast(`⚠️ ${it.email}: Email DEAD, không thể gán nhãn`, 'info');
+            }
             return;
         }
         addToast(`🔍 Đang kiểm tra: ${it.email}`, 'info');
