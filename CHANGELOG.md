@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.98] - 2026-05-16 00:55:00
+
+### 🧠 Vault Workshop Raw Edit — Auto-detect Auth Method
+
+**Problem**: Khi chỉnh sửa Email Pool ở chế độ Raw, Auth Method dropdown không tự cập nhật theo format dữ liệu nhập vào. User có thể vô tình chọn sai Auth Method (ví dụ nhập 3 fields OAuth2 nhưng dropdown vẫn đang GraphAPI), dẫn đến lưu sai dữ liệu.
+
+**Solution**: Thêm auto-detect auth_method realtime khi gõ raw + auto-verify trước khi lưu. Dropdown Auth Method tự cập nhật theo số lượng fields. Nếu user sửa sai Auth Method thủ công, bước cuối trước khi save sẽ tự kiểm tra và sửa lại theo raw format.
+
+#### Chi tiết thay đổi — `src/components/views/vault/VaultWorkshopView.tsx`
+
+1. **`useEffect` auto-detect (dòng 548-558)** — Theo dõi `editRaw` và `editMode`. Khi user gõ raw: 3 phần (`email|refresh_token|client_id`) → tự set `oauth2`; 4+ phần (`email|password|refresh_token|client_id`) → tự set `graph`. Chỉ update khi giá trị khác hiện tại để tránh re-render loop. Dropdown Auth Method cập nhật realtime theo raw input.
+2. **Auto-verify trước khi save (dòng 595-603)** — Trong `saveEdit()`, parse raw format lần nữa. Nếu `auth_method` từ dropdown khác với format thực tế → tự override + toast cảnh báo `⚠️ Auth Method tự sửa: OAuth2/GraphAPI (theo raw format)`.
+3. **Toast success chi tiết hơn (dòng 614)** — Hiển thị auth_method đã dùng trong toast: `Đã cập nhật: email (OAuth2/GraphAPI)` để user xác nhận kết quả.
+
 ## [0.2.97] - 2026-05-15 22:30:00
 
 ### ✏️ Vault Workshop Edit — Dual mode: Form + Raw text

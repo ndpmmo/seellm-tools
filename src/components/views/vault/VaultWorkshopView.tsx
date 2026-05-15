@@ -545,6 +545,18 @@ export function VaultWorkshopView() {
         return currentForm; // can't parse, keep as-is
     };
 
+    // Auto-detect auth_method from raw input as user types
+    useEffect(() => {
+        if (editMode !== 'raw' || !editRaw) return;
+        const parts = editRaw.split('|').map(s => s.trim());
+        let detected: 'graph' | 'oauth2' | null = null;
+        if (parts.length === 3) detected = 'oauth2';
+        else if (parts.length >= 4) detected = 'graph';
+        if (detected && detected !== editForm.auth_method) {
+            setEditForm(f => ({ ...f, auth_method: detected }));
+        }
+    }, [editRaw, editMode]);
+
     const switchEditMode = (mode: 'form' | 'raw') => {
         if (mode === 'raw' && editingEmail) {
             setEditRaw(formToRaw(editForm, editingEmail));
@@ -578,8 +590,18 @@ export function VaultWorkshopView() {
 
     const saveEdit = async () => {
         if (!editingEmail) return;
-        // If in raw mode, parse raw → form first
-        const formToSave = editMode === 'raw' ? rawToForm(editRaw, editForm) : editForm;
+        let formToSave = editMode === 'raw' ? rawToForm(editRaw, editForm) : editForm;
+
+        // Auto-verify auth_method from raw format before saving
+        if (editMode === 'raw') {
+            const parts = editRaw.split('|').map(s => s.trim());
+            const detected = parts.length === 3 ? 'oauth2' : parts.length >= 4 ? 'graph' : null;
+            if (detected && detected !== formToSave.auth_method) {
+                formToSave = { ...formToSave, auth_method: detected };
+                addToast(`⚠️ Auth Method tự sửa: ${formToSave.auth_method === 'oauth2' ? 'OAuth2' : 'GraphAPI'} (theo raw format)`, 'info');
+            }
+        }
+
         setEditLoading(true);
         try {
             const res = await fetch(`/api/vault/email-pool/${encodeURIComponent(editingEmail)}`, {
@@ -589,7 +611,7 @@ export function VaultWorkshopView() {
             });
             const data = await res.json();
             if (data.ok) {
-                addToast(`Đã cập nhật: ${editingEmail}`, 'success');
+                addToast(`Đã cập nhật: ${editingEmail} (${formToSave.auth_method === 'oauth2' ? 'OAuth2' : 'GraphAPI'})`, 'success');
                 setEditingEmail(null);
                 await fetchPool();
             } else {
