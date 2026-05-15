@@ -2,6 +2,63 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.82] - 2026-05-15 16:50:00
+
+### 🎨 Redesign — Screenshots View & LogFiles View: UI/UX toàn diện
+
+**Problem**: Hai view Screenshots và LogFiles có UI cơ bản, thiếu tính năng, khó sử dụng khi dữ liệu nhiều. ScreenshotsView chỉ có 1 chế độ hiển thị, LogFilesView có viewer đơn giản không hỗ trợ tìm kiếm trong file.
+
+**Solution**: Redesign hoàn toàn cả hai view với UI/UX hiện đại, đầy đủ tính năng, linh hoạt và phù hợp với hệ thống.
+
+#### ScreenshotsView — Redesign
+
+1. **Stats Bar** — 4 ô thống kê phía trên: Sessions, Tổng ảnh, Đang Live, Đã chọn.
+2. **Grid/List Toggle** — Chuyển đổi giữa 2 chế độ hiển thị:
+   - **Grid Mode**: Session cards dạng thumbnail với aspect-video preview, badge số ảnh, nút Xem/Xóa.
+   - **List Mode**: Session rows với thumbnail nhỏ, expand để xem grid ảnh bên trong.
+3. **Advanced Viewer cải tiến**:
+   - Zoom controls (25%–400%) + phím tắt (+/-/0).
+   - Xoay ảnh 90° (phím R).
+   - Info panel (phím I) hiển thị metadata chi tiết.
+   - Copy URL, nút xóa ảnh trực tiếp từ viewer.
+   - Filmstrip cải tiến với scroll-snap, active item highlight.
+   - Ctrl+scroll để zoom bằng chuột.
+4. **Filters & Sort**:
+   - Tìm kiếm theo session ID, email, filename.
+   - Sắp xếp: Mới nhất / Cũ nhất / Nhiều ảnh nhất.
+   - Lọc: Chỉ session có ảnh.
+5. **Live Channels** — Grid bản xem trực tiếp với badge LIVE, nút dismiss riêng, nút "Dọn dẹp tất cả".
+6. **Bulk Operations** — Chọn tất cả / Bỏ chọn, xóa nhiều session cùng lúc với confirm modal.
+7. **Empty State** — Hiển thị thân thiện khi chưa có screenshots hoặc không có kết quả filter.
+
+#### LogFilesView — Redesign
+
+1. **Stats Bar** — 4 ô thống kê: Tổng files, Dung lượng, Đang xem, Đã chọn.
+2. **Split Panel Layout** — Khi mở file, danh sách thu nhỏ bên trái (45%), viewer chiếm phần còn lại. Không còn chuyển đổi toàn màn hình.
+3. **Log Viewer nâng cấp**:
+   - **Tìm kiếm trong file** với highlight matches (tối đa 5000 matches).
+   - Navigate giữa các matches (‹ › buttons + counter).
+   - **Case-sensitive toggle** (Aa).
+   - **Word wrap toggle**.
+   - **Copy nội dung** clipboard.
+   - **Download file** về máy.
+   - **Fullscreen toggle** (phóng to viewer).
+   - Line count + dung lượng hiển thị.
+4. **File List cải tiến**:
+   - Icon phân biệt loại file (JSON = amber, LOG = cyan, khác = neutral).
+   - Size badge màu theo kích thước (lớn = amber, vừa = cyan, nhỏ = neutral).
+   - **Sortable columns** — Click header để sort theo Tên/Kích thước/Thời gian, toggle asc/desc.
+   - Hover actions (Xem, Xóa) với transition mượt.
+5. **Filters** — Tìm theo tên, lọc theo kích thước (Nhỏ/Vừa/Lớn).
+6. **Bulk Operations** — Chọn tất cả, xóa nhiều file.
+7. **Auto-close viewer** khi file đang xem bị xóa.
+
+#### Files Changed
+
+- `src/components/views/ScreenshotsView.tsx` — Rewrite toàn bộ (635 lines)
+- `src/components/views/LogFilesView.tsx` — Rewrite toàn bộ (478 lines)
+- `package.json` — Version 0.2.81 → 0.2.82
+
 ## [0.2.81] - 2026-05-15 16:30:00
 
 ### 🛡️ Feature — Audit Log System: Giám sát toàn bộ thao tác hệ thống
