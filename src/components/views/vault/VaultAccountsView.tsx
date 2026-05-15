@@ -2,8 +2,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
-  AlertCircle, ChevronDown, ChevronUp, Users, Tag,
-  Database, Shield, Globe, Key, FileText, Layout, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare
+  ChevronRight, Users, Tag,
+  Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
+  Bot, PhoneOff, Skull, Lock, HelpCircle
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN } from '../../Views';
@@ -84,6 +85,80 @@ function CopyBadge({ text, label, icon: Icon, colorClass = 'text-slate-400', hov
   );
 }
 
+/* ── Tag Helpers ── */
+function safeParseTags(raw: any): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
+// Tag → icon + color mapping. Each tag renders as a small icon-only badge with tooltip.
+const TAG_META: Record<string, { icon: any; color: string; bg: string; border: string; tip: string }> = {
+  'auto-register': { icon: Bot, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', tip: 'Auto-registered — tạo tự động qua worker' },
+  'need_phone':    { icon: PhoneOff, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Cần số điện thoại — yêu cầu xác thực SMS' },
+  'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
+};
+
+function TagIcons({ tags, twoFa }: { tags: string[]; twoFa?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {tags.map(t => {
+        const meta = TAG_META[t];
+        if (!meta) return null;
+        const Icon = meta.icon;
+        const isDead = t === 'email_dead';
+        return (
+          <span key={t} title={meta.tip} className={`inline-flex items-center justify-center w-[22px] h-[22px] rounded-md ${meta.bg} ${meta.color} border ${meta.border} cursor-help`}>
+            <Icon size={12} className={isDead ? 'animate-pulse' : ''} />
+          </span>
+        );
+      })}
+      {twoFa && (
+        <span title="Có 2FA — xác thực hai yếu tố đã bật" className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help">
+          <Lock size={12} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function TagLegend({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-[#0d111c] border border-white/10 rounded-xl shadow-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[12px] font-bold text-slate-200">Giải thích biểu tượng</span>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300"><X size={14} /></button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {Object.entries(TAG_META).map(([key, meta]) => {
+          const Icon = meta.icon;
+          return (
+            <div key={key} className="flex items-center gap-2.5">
+              <span className={`inline-flex items-center justify-center w-[22px] h-[22px] rounded-md ${meta.bg} ${meta.color} border ${meta.border} shrink-0`}>
+                <Icon size={12} />
+              </span>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-200">{key}</div>
+                <div className="text-[10px] text-slate-500">{meta.tip}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+            <Lock size={12} />
+          </span>
+          <div>
+            <div className="text-[11px] font-semibold text-slate-200">2FA</div>
+            <div className="text-[10px] text-slate-500">Có 2FA — xác thực hai yếu tố đã bật</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PROVIDERS = [
   { id: 'openai', name: 'ChatGPT | Codex', color: '#10a37f' },
   { id: 'anthropic', name: 'Anthropic', color: '#da7756' },
@@ -115,6 +190,8 @@ export function VaultAccountsView() {
   const [bulkProxyId, setBulkProxyId] = useState('');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
   const [syncingDeadTags, setSyncingDeadTags] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [legendOpen, setLegendOpen] = useState(false);
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -236,7 +313,7 @@ export function VaultAccountsView() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       addToast(`🛑 Đã thu hồi ${email} về trạng thái Idle`, 'info');
-      const tags = Array.isArray(account?.tags) ? account.tags : (account?.tags ? JSON.parse(account.tags) : []);
+      const tags = safeParseTags(account?.tags);
       const shouldMarkNeedPhone = account?.status === 'need_phone' || String(account?.notes || '').includes('NEED_PHONE');
       patchAccountLocal(id, { status: 'idle', gateway_status: d.gateway_status ?? 'revoked', tags: shouldMarkNeedPhone && !tags.includes('need_phone') ? [...tags, 'need_phone'] : tags });
     } catch (e: any) { addToast(e.message, 'error'); }
@@ -419,7 +496,7 @@ export function VaultAccountsView() {
       password: it.password || '',
       twoFaSecret: it.two_fa_secret || '',
       proxy: it.proxy_url || '',
-      tags: Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : []),
+      tags: safeParseTags(it.tags),
       notes: it.notes || '',
     }));
     // Scroll to form
@@ -578,10 +655,10 @@ export function VaultAccountsView() {
         </CardHeader>
 
         <div className="flex-1 min-h-0 overflow-auto custom-scrollbar">
-          <table className="w-full min-w-[1100px] border-collapse text-left">
+          <table className="w-full border-collapse text-left">
             <thead>
-              <tr className="bg-white/5 border-b border-white/5">
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
+              <tr className="bg-white/5 border-b border-white/5 sticky top-0 z-10">
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
                   <button
                     onClick={() => {
                       if (selectedIds.size === filtered.length && filtered.length > 0) setSelectedIds(new Set());
@@ -593,106 +670,162 @@ export function VaultAccountsView() {
                     {selectedIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tài khoản / Label</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Provider</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Thời gian</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Exported</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Thao tác</th>
+                <th className="px-2 py-2.5 w-7" />
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tài khoản</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-28">Trạng thái</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-12">
+                  <div className="flex items-center gap-1">
+                    <span>Nhãn</span>
+                    <div className="relative">
+                      <button onClick={() => setLegendOpen(v => !v)} className="text-slate-500 hover:text-slate-300 transition-colors" title="Giải thích biểu tượng">
+                        <HelpCircle size={12} />
+                      </button>
+                      <TagLegend open={legendOpen} onClose={() => setLegendOpen(false)} />
+                    </div>
+                  </div>
+                </th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right w-36">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.map(it => {
                 const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
+                const tags = safeParseTags(it.tags);
+                const isExpanded = expandedId === it.id;
                 return (
-                  <tr key={it.id} className="hover:bg-white/[0.02] transition-colors group">
-                    <td className="px-5 py-3.5">
-                      <button
-                        onClick={() => setSelectedIds(prev => {
-                          const n = new Set(prev);
-                          if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
-                          return n;
-                        })}
-                        className="text-slate-400 hover:text-indigo-400"
-                        title="Chọn dòng"
-                      >
-                        {selectedIds.has(it.id) ? <CheckSquare size={14} /> : <Square size={14} />}
-                      </button>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className="font-semibold text-[13px] text-slate-200">{it.email || 'No email'}</div>
-                        <PlanBadge plan={it.plan} />
-                        {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('auto-register') && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">AUTO</span>
-                        )}
-                        {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('need_phone') && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">NEED PHONE</span>
-                        )}
-                        {(Array.isArray(it.tags) ? it.tags : (it.tags ? JSON.parse(it.tags) : [])).includes('email_dead') && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-500/20 animate-pulse">EMAIL DEAD</span>
-                        )}
-                        {it.two_fa_secret && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">2FA</span>
-                        )}
-                      </div>
-                      <div className="flex gap-1.5 flex-wrap">
-                        <CopyBadge text={it.password} icon={Key} colorClass="text-amber-400" hoverBorderClass="hover:border-amber-400/50" />
-                        <CopyBadge text={it.two_fa_secret} icon={Shield} colorClass="text-emerald-400" hoverBorderClass="hover:border-emerald-400/50" />
-                        {it.label && <span className="inline-flex items-center px-2 py-0.5 bg-indigo-500/10 text-indigo-300 rounded-md border border-indigo-500/20 text-[11px]">{it.label}</span>}
-                        {it.proxy_url && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/5 text-slate-400 rounded-md border border-white/10 text-[11px]"><Globe size={10} /> <span className="max-w-[120px] truncate">{it.proxy_url}</span></span>}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full" style={{ background: isOpenAI(it.provider) ? '#10a37f' : (PROVIDERS.find(p => p.id === it.provider)?.color || '#999') }} />
-                        <span className="text-[12.5px] text-slate-300">{getProviderName(it.provider)}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5"><StatusBadge status={it.status} notes={it.notes} /></td>
-                    <td className="px-5 py-3.5 text-[11px] text-slate-400 whitespace-nowrap">
-                      <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
-                      <div className="mt-0.5">Cập: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {it.exported_to ? (
-                        <div>
-                          <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold mb-0.5">
-                            <Database size={10} /> {it.exported_to.toUpperCase()}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {fmtDateTimeVN(it.exported_at)}
-                          </div>
+                  <React.Fragment key={it.id}>
+                    {/* ── Compact Row ── */}
+                    <tr
+                      className={`hover:bg-white/[0.02] transition-colors group cursor-pointer ${isExpanded ? 'bg-white/[0.02]' : ''}`}
+                      onClick={() => setExpandedId(isExpanded ? null : it.id)}
+                    >
+                      <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedIds(prev => {
+                            const n = new Set(prev);
+                            if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
+                            return n;
+                          })}
+                          className="text-slate-400 hover:text-indigo-400"
+                          title="Chọn dòng"
+                        >
+                          {selectedIds.has(it.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                        </button>
+                      </td>
+                      <td className="px-2 py-2.5">
+                        <ChevronRight size={13} className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: isOpenAI(it.provider) ? '#10a37f' : (PROVIDERS.find(p => p.id === it.provider)?.color || '#999') }} />
+                          <span className="font-semibold text-[13px] text-slate-200 truncate max-w-[280px]">{it.email || 'No email'}</span>
+                          <PlanBadge plan={it.plan} />
+                          {it.label && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 border border-white/5 truncate max-w-[80px]">{it.label}</span>}
                         </div>
-                      ) : <span className="text-slate-500 text-[11px] italic">Chưa export</span>}
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        {allowDeploy && (
-                          <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
-                        )}
-                        {(it.status !== 'idle') && isOpenAI(it.provider) && (
-                          <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email, it)}><X size={13} /></Button>
-                        )}
-                        {(it.status === 'error') && isOpenAI(it.provider) && (
-                          <Button size="icon-sm" variant="ghost" title="Thử lại" onClick={() => deploy(it.id, it.email)}><RotateCcw size={13} /></Button>
-                        )}
-                        {isOpenAI(it.provider) && (
-                          <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>
-                        )}
-                        {isOpenAI(it.provider) && it.proxy_url && (
-                          <Button size="icon-sm" variant="ghost" title="Gỡ proxy" onClick={() => unassignProxy(it.id)} disabled={assigningId === it.id} className="!text-amber-400"><X size={13} /></Button>
-                        )}
-                        <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
-                        <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
-                        <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} /></td>
+                      <td className="px-4 py-2.5"><TagIcons tags={tags} twoFa={it.two_fa_secret} /></td>
+                      <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                          {allowDeploy && (
+                            <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
+                          )}
+                          {(it.status !== 'idle') && isOpenAI(it.provider) && (
+                            <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email, it)}><X size={13} /></Button>
+                          )}
+                          {(it.status === 'error') && isOpenAI(it.provider) && (
+                            <Button size="icon-sm" variant="ghost" title="Thử lại" onClick={() => deploy(it.id, it.email)}><RotateCcw size={13} /></Button>
+                          )}
+                          {isOpenAI(it.provider) && (
+                            <Button size="icon-sm" variant="ghost" title="Gán proxy từ pool" onClick={() => assignFromPool(it.id)} disabled={assigningId === it.id} className="!text-cyan-400"><Globe size={13} /></Button>
+                          )}
+                          {isOpenAI(it.provider) && it.proxy_url && (
+                            <Button size="icon-sm" variant="ghost" title="Gỡ proxy" onClick={() => unassignProxy(it.id)} disabled={assigningId === it.id} className="!text-amber-400"><X size={13} /></Button>
+                          )}
+                          <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
+                          <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
+                          <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* ── Expanded Detail Row ── */}
+                    {isExpanded && (
+                      <tr className="bg-white/[0.015]">
+                        <td colSpan={6} className="px-4 py-3">
+                          <div className="grid grid-cols-4 gap-x-6 gap-y-2 ml-7">
+                            {/* Provider */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Provider</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full" style={{ background: isOpenAI(it.provider) ? '#10a37f' : (PROVIDERS.find(p => p.id === it.provider)?.color || '#999') }} />
+                                <span className="text-[12px] text-slate-300">{getProviderName(it.provider)}</span>
+                              </div>
+                            </div>
+                            {/* Proxy */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Proxy</div>
+                              {it.proxy_url ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400"><Globe size={10} /> <span className="font-mono truncate max-w-[180px]">{it.proxy_url}</span></span>
+                              ) : <span className="text-[11px] text-slate-600 italic">Không có</span>}
+                            </div>
+                            {/* Exported */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Exported</div>
+                              {it.exported_to ? (
+                                <div>
+                                  <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold"><Database size={10} /> {it.exported_to.toUpperCase()}</span>
+                                  <span className="text-[10px] text-slate-500">{fmtDateTimeVN(it.exported_at)}</span>
+                                </div>
+                              ) : <span className="text-[11px] text-slate-600 italic">Chưa export</span>}
+                            </div>
+                            {/* Time */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Thời gian</div>
+                              <div className="text-[11px] text-slate-400">
+                                <div>Tạo: {fmtDateTimeVN(it.created_at || it.createdAt || it.updated_at)}</div>
+                                <div>Cập: {fmtDateTimeVN(it.updated_at || it.updatedAt)}</div>
+                              </div>
+                            </div>
+                            {/* Password */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Mật khẩu</div>
+                              <CopyBadge text={it.password} icon={Key} colorClass="text-amber-400" hoverBorderClass="hover:border-amber-400/50" />
+                            </div>
+                            {/* 2FA */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">2FA Secret</div>
+                              <CopyBadge text={it.two_fa_secret} icon={Shield} colorClass="text-emerald-400" hoverBorderClass="hover:border-emerald-400/50" />
+                            </div>
+                            {/* Tags detail */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Tags</div>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {tags.length === 0 && !it.two_fa_secret && <span className="text-[11px] text-slate-600 italic">Không có</span>}
+                                {tags.map(t => {
+                                  const meta = TAG_META[t];
+                                  if (meta) {
+                                    const Icon = meta.icon;
+                                    return <span key={t} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${meta.bg} ${meta.color} border ${meta.border}`}><Icon size={10} /> {t}</span>;
+                                  }
+                                  return <span key={t} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/5 text-slate-400 border border-white/10">{t}</span>;
+                                })}
+                              </div>
+                            </div>
+                            {/* Notes */}
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Ghi chú</div>
+                              <span className="text-[11px] text-slate-400 max-w-[200px] truncate block">{it.notes || <span className="italic text-slate-600">Không có</span>}</span>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={7} className="py-16 text-center text-slate-500 text-[13px]">Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
+                <tr><td colSpan={6} className="py-16 text-center text-slate-500 text-[13px]">Vault trống hoặc không khớp từ khóa tìm kiếm.</td></tr>
               )}
             </tbody>
           </table>

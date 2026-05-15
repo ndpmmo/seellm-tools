@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.94] - 2026-05-15 20:30:00
+
+### 🎨 UI — Vault Accounts: Compact row + expand detail, icon-based tags, aligned columns
+
+**Problem**: Bảng Vault Accounts cũ hiển thị quá nhiều thông tin trên 1 hàng (7 cột: Account/Label, Provider, Status, Time, Exported, Actions). Tags dạng text badge dài (AUTO, NEED PHONE, EMAIL DEAD, 2FA) chiếm nhiều diện tích ngang, không đồng bộ thẳng hàng. CopyBadge (password, 2FA) nằm lẫn trong cột Account. Khi nhiều account, bảng rất rộng và khó scan nhanh.
+
+**Solution**: Redesign bảng thành compact row + expand detail. Tags hiển thị dưới dạng icon-only badge 22×22px có tooltip. Click hàng để mở rộng xem chi tiết. Thêm Tag Legend popover giải thích ý nghĩa icon.
+
+#### Chi tiết thay đổi — `src/components/views/vault/VaultAccountsView.tsx`
+
+1. **`safeParseTags(raw)` helper mới** (line ~87) — Hàm parse tags an toàn: nếu `Array` thì return trực tiếp, nếu string thì `JSON.parse`, nếu null/undefined thì `[]`. Thay thế 3 chỗ parse inline cũ (dòng 316, 499, và table row).
+2. **`TAG_META` constant mới** (line ~92) — Map tag → icon + color + tooltip. 3 tags: `auto-register` → `Bot` icon (indigo), `need_phone` → `PhoneOff` icon (rose), `email_dead` → `Skull` icon (rose, animate-pulse). Mỗi entry có `icon`, `color`, `bg`, `border`, `tip`.
+3. **`TagIcons({ tags, twoFa })` component mới** (line ~104) — Render icon-only badges 22×22px cho mỗi tag + 2FA (`Lock` icon, emerald). Mỗi badge có `title` tooltip giải thích. `email_dead` badge có `animate-pulse`.
+4. **`TagLegend({ open, onClose })` component mới** (line ~120) — Popover hiển thị khi click nút `?` ở header cột "Nhãn". Liệt kê tất cả TAG_META entries + 2FA với icon + tên tag + mô tả chi tiết. Nút `X` đóng.
+5. **`expandedId` state mới** (line ~193) — Track account đang mở rộng. Click hàng → toggle expand/collapse.
+6. **`legendOpen` state mới** (line ~194) — Track Tag Legend popover.
+7. **Table header redesign** (line ~660) — 6 cột thay vì 7: Checkbox (w-8) | Expand (w-7) | Tài khoản | Trạng thái (w-28) | Nhãn + Legend button (w-12) | Thao tác (w-36). Header sticky (`sticky top-0 z-10`).
+8. **Compact row** (line ~698) — 1 dòng/account: checkbox + chevron expand + email/plan/label (provider dot tích hợp) + status badge + tag icons + action buttons. Click hàng toggle expand. ChevronRight xoay 90° khi expanded.
+9. **Expanded detail row** (line ~753) — `colSpan={6}`, grid 4 cột hiển thị: Provider, Proxy, Exported, Thời gian, Mật khẩu (CopyBadge), 2FA Secret (CopyBadge), Tags (full badge với icon + text), Ghi chú. Mỗi field có label header 10px uppercase.
+10. **Import cleanup** — Thêm `ChevronRight`, `Bot`, `PhoneOff`, `Skull`, `Lock`, `HelpCircle`. Xóa `AlertCircle`, `ChevronDown`, `ChevronUp`, `FileText`, `Layout`, `Info` (không dùng).
+
 ## [0.2.93] - 2026-05-15 23:00:00
 
 ### 🛡️ Vault Workshop — Bộ lọc mặc định, email dead handling, verify mode, D1 sync
