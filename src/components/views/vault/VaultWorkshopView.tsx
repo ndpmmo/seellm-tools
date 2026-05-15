@@ -67,6 +67,7 @@ export function VaultWorkshopView() {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [actionLoading, setActionLoading] = useState(false);
     const [verifyLoading, setVerifyLoading] = useState(false);
+    const [verifyMode, setVerifyMode] = useState<'active' | 'unknown' | 'dead' | 'all'>('active');
     const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
     const [copied, setCopied] = useState<string | null>(null);
 
@@ -441,22 +442,37 @@ export function VaultWorkshopView() {
     };
 
     const verifyAllPool = async () => {
-        const unknown = items.filter(e => e.mail_status === 'unknown');
-        if (!unknown.length) return addToast('Tất cả email đã được verify', 'info');
+        const modeFilter: Record<string, (e: any) => boolean> = {
+            active: (e) => e.mail_status === 'active',
+            unknown: (e) => e.mail_status === 'unknown',
+            dead: (e) => e.mail_status === 'dead',
+            all: (e) => e.mail_status === 'unknown' || e.mail_status === 'dead' || e.mail_status === 'active',
+        };
+        const targets = items.filter(modeFilter[verifyMode] || modeFilter.active);
+        if (!targets.length) return addToast(`Không có email nào ở trạng thái "${verifyMode}" để kiểm tra`, 'info');
 
         setVerifyLoading(true);
-        addToast(`Bắt đầu verify hàng loạt cho ${unknown.length} email...`, 'info');
+        const modeLabel: Record<string, string> = { active: 'Active', unknown: 'Unknown', dead: 'Dead', all: 'Tất cả' };
+        addToast(`🔍 Bắt đầu verify ${targets.length} email (${modeLabel[verifyMode]})...`, 'info');
         try {
             const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ emails: unknown.map(e => e.email) }),
+                body: JSON.stringify({ emails: targets.map(e => e.email) }),
             });
             const data = await res.json();
             if (data.ok) {
                 const active = data.results?.filter((r: any) => r.status === 'active').length || 0;
                 const dead = data.results?.filter((r: any) => r.status === 'dead').length || 0;
-                addToast(`✅ Verify xong: ${active} active, ${dead} dead`, 'success');
+                // Show per-email results
+                for (const r of (data.results || [])) {
+                    if (r.status === 'active') {
+                        addToast(`✅ ${r.email}: Mail hoạt động tốt`, 'success');
+                    } else {
+                        addToast(`❌ ${r.email}: ${r.error || 'Mail không hoạt động'}`, 'error');
+                    }
+                }
+                addToast(`📊 Tổng kết: ${active} active, ${dead} dead (trong ${data.results?.length || 0} email)`, active > 0 ? 'success' : 'warning');
             } else {
                 addToast(`Lỗi verify: ${data.error}`, 'error');
             }
@@ -651,8 +667,19 @@ export function VaultWorkshopView() {
                                         )}
                                         <Button variant="ghost" size="sm" onClick={verifyAllPool} disabled={verifyLoading}>
                                             {verifyLoading ? <RefreshCw size={14} className="text-cyan-400 animate-spin" /> : <ShieldCheck size={14} className="text-cyan-400" />}
-                                            {verifyLoading ? 'Verifying...' : 'Verify WaitList'}
+                                            {verifyLoading ? 'Verifying...' : `Verify (${verifyMode === 'active' ? 'Active' : verifyMode === 'unknown' ? 'Unknown' : verifyMode === 'dead' ? 'Dead' : 'All'})`}
                                         </Button>
+                                        <select
+                                            className="h-8 bg-white/5 border border-white/10 rounded-md px-2 text-[11px] text-slate-300 outline-none focus:border-cyan-500/50 cursor-pointer"
+                                            value={verifyMode}
+                                            onChange={e => setVerifyMode(e.target.value as any)}
+                                            disabled={verifyLoading}
+                                        >
+                                            <option value="active" className="bg-[#0f172a]">Active (mặc định)</option>
+                                            <option value="unknown" className="bg-[#0f172a]">Unknown</option>
+                                            <option value="dead" className="bg-[#0f172a]">Dead (re-check)</option>
+                                            <option value="all" className="bg-[#0f172a]">Tất cả</option>
+                                        </select>
                                         <Button variant="primary" size="sm" onClick={startAllPending} className="shadow-indigo-500/20">
                                             <Play size={14} /> Start Pending
                                         </Button>
