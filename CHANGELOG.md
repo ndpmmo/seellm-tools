@@ -2,6 +2,29 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.83] - 2026-05-15 17:05:00
+
+### ⚡ Performance — Giảm CPU usage khi chạy dev server
+
+**Problem**: Khi khởi động `bun run dev` (hoặc `node server.js`), CPU bị chiếm dụng rất nhiều trên macOS. Nguyên nhân chính là `fs.watch(SCREENSHOTS_DIR, { recursive: true })` sử dụng kqueue — tạo watcher riêng cho từng thư mục con (142 thư mục, 1097 file), cộng thêm Turbopack cũng watch source code. Ngoài ra, `readdirSync`/`statSync` block event loop khi quét screenshots/logs.
+
+**Solution**: Thay `fs.watch` bằng `chokidar` (dùng native FSEvents trên macOS, gần 0 CPU) và chuyển các synchronous I/O sang async.
+
+#### Chi tiết thay đổi
+
+1. **chokidar thay fs.watch** — `watchScreenshots()` dùng `chokidar.watch()` với `useFsEvents: true` (native macOS FSEvents API), `ignoreInitial: true`, `awaitWriteFinish` để tránh storm events. Giảm CPU từ hàng chục % xuống gần 0.
+2. **async listSessions()** — Chuyển `readdirSync`/`statSync` sang `readdir`/`stat` từ `fs/promises`, không block event loop khi quét 142 thư mục + 1097 file screenshots.
+3. **async listLogFiles()** — Tương tự, chuyển sang async I/O cho log files listing.
+4. **async /api/scripts** — Chuyển `readdirSync` sang `readdir` async.
+5. **async route handlers** — Các route `/api/sessions`, `/api/sessions/:id`, `/api/logfiles` chuyển sang `async` để await các hàm async mới.
+
+#### Không thay đổi logic
+
+- SSE broadcast logic giữ nguyên (debounce 100ms per session, email lookup, cache invalidation).
+- Cache TTL giữ nguyên (5 giây cho sessions và log files).
+- Route API contract giữ nguyên (request/response format không đổi).
+- Tất cả process management, sync intervals, profile manager không ảnh hưởng.
+
 ## [0.2.82] - 2026-05-15 16:50:00
 
 ### 🎨 Redesign — Screenshots View & LogFiles View: UI/UX toàn diện

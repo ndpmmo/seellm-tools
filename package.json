@@ -1,6 +1,6 @@
 {
   "name": "seellm-tools",
-  "version": "0.2.82",
+  "version": "0.2.83",
   "description": "SeeLLM Development Tools",
   "private": true,
   "type": "module",
@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
+    "chokidar": "^5.0.0",
     "cryptlib": "^1.0.3",
     "dayjs": "^1.11.20",
     "express": "^5.2.1",
+    "fsevents": "^2.3.3",
     "lucide-react": "^1.7.0",
     "next": "16.2.2",
     "node-machine-id": "^1.1.12",

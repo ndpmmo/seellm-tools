@@ -11,10 +11,11 @@ import express from 'express';
 import { spawn } from 'child_process';
 import {
   existsSync, readFileSync, writeFileSync,
-  readdirSync, statSync, mkdirSync, createWriteStream,
+  mkdirSync, createWriteStream,
   unlinkSync, rmSync,
-  watch,
 } from 'fs';
+import { readdir, stat } from 'fs/promises';
+import chokidar from 'chokidar';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig, saveConfig } from './server/db/config.js';
@@ -268,37 +269,39 @@ let sessionsCache = null;
 let sessionsCacheTime = 0;
 const SESSIONS_CACHE_TTL = 5000; // 5 seconds
 
-function listSessions() {
+async function listSessions() {
   const now = Date.now();
   if (sessionsCache && (now - sessionsCacheTime < SESSIONS_CACHE_TTL)) {
     return sessionsCache;
   }
 
   try {
-    const sessions = readdirSync(SCREENSHOTS_DIR)
-      .filter(d => {
-        try { return statSync(path.join(SCREENSHOTS_DIR, d)).isDirectory(); } catch { return false; }
-      })
-      .map(d => {
-        const dir = path.join(SCREENSHOTS_DIR, d);
-        let images = [];
-        try {
-          images = readdirSync(dir)
-            .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
-            .sort()
-            .map(f => ({ filename: f, url: `/data/screenshots/${d}/${f}` }));
-        } catch { }
-        const stat = statSync(dir);
-        return {
-          id: d,
-          dir: d,
-          imageCount: images.length,
-          images,
-          createdAt: stat.birthtime,
-          mtime: stat.mtime,
-        };
-      })
-      .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+    const entries = await readdir(SCREENSHOTS_DIR);
+    const sessions = [];
+    for (const d of entries) {
+      const dirPath = path.join(SCREENSHOTS_DIR, d);
+      let s;
+      try { s = await stat(dirPath); } catch { continue; }
+      if (!s.isDirectory()) continue;
+
+      let images = [];
+      try {
+        const files = await readdir(dirPath);
+        images = files
+          .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
+          .sort()
+          .map(f => ({ filename: f, url: `/data/screenshots/${d}/${f}` }));
+      } catch { }
+      sessions.push({
+        id: d,
+        dir: d,
+        imageCount: images.length,
+        images,
+        createdAt: s.birthtime,
+        mtime: s.mtime,
+      });
+    }
+    sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
 
     sessionsCache = sessions;
     sessionsCacheTime = now;
@@ -311,9 +314,20 @@ const screenshotEventQueue = new Map(); // sessionId -> { lastEvent: timestamp, 
 
 function watchScreenshots() {
   try {
-    watch(SCREENSHOTS_DIR, { recursive: true }, (evt, filename) => {
-      if (filename && /\.(png|jpg|jpeg|webp)$/i.test(filename)) {
-        const parts = filename.split(path.sep);
+    const watcher = chokidar.watch(SCREENSHOTS_DIR, {
+      ignored: /(^|[/\\])\../, // ignore dotfiles
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 50,
+      },
+      useFsEvents: true, // Use native FSEvents on macOS (near-zero CPU)
+    });
+
+    watcher.on('add', (filePath) => {
+      if (/\.(png|jpg|jpeg|webp)$/i.test(filePath)) {
+        const relative = path.relative(SCREENSHOTS_DIR, filePath);
+        const parts = relative.split(path.sep);
         const sessionId = parts[0];
         const imgFile = parts[parts.length - 1];
 
@@ -351,6 +365,10 @@ function watchScreenshots() {
         });
       }
     });
+
+    watcher.on('error', (err) => {
+      console.error('[Screenshots] Watch error:', err.message);
+    });
   } catch (e) {
     console.error('[Screenshots] Watch failed:', e.message);
   }
@@ -362,20 +380,22 @@ let logFilesCache = null;
 let logFilesCacheTime = 0;
 const LOGFILES_CACHE_TTL = 5000; // 5 seconds
 
-function listLogFiles() {
+async function listLogFiles() {
   const now = Date.now();
   if (logFilesCache && (now - logFilesCacheTime < LOGFILES_CACHE_TTL)) {
     return logFilesCache;
   }
 
   try {
-    const logFiles = readdirSync(LOGS_DIR)
-      .filter(f => f.endsWith('.log'))
-      .sort().reverse()
-      .map(f => {
-        const s = statSync(path.join(LOGS_DIR, f));
-        return { filename: f, size: s.size, createdAt: s.birthtime, mtime: s.mtime };
-      });
+    const entries = await readdir(LOGS_DIR);
+    const logFiles = [];
+    for (const f of entries) {
+      if (!f.endsWith('.log')) continue;
+      let s;
+      try { s = await stat(path.join(LOGS_DIR, f)); } catch { continue; }
+      logFiles.push({ filename: f, size: s.size, createdAt: s.birthtime, mtime: s.mtime });
+    }
+    logFiles.sort((a, b) => b.filename.localeCompare(a.filename));
 
     logFilesCache = logFiles;
     logFilesCacheTime = now;
@@ -541,21 +561,26 @@ app.prepare().then(() => {
   });
 
   // ── Scripts list ─────────────────────────────────────────────────────────
-  ex.get('/api/scripts', (_, res) => {
+  ex.get('/api/scripts', async (_, res) => {
     try {
-      res.json(readdirSync(SCRIPTS_DIR)
+      const entries = await readdir(SCRIPTS_DIR);
+      res.json(entries
         .filter(f => (f.endsWith('.js') || f.endsWith('.mjs')) && f !== 'config.js')
         .sort());
     } catch { res.json([]); }
   });
 
   // ── Sessions (screenshots) ───────────────────────────────────────────────
-  ex.get('/api/sessions', (_, res) => res.json(listSessions()));
-  ex.get('/api/sessions/:id', (req, res) => {
-    const sessions = listSessions();
-    const s = sessions.find(x => x.id === req.params.id);
-    if (!s) return res.status(404).json({ error: 'Not found' });
-    res.json(s);
+  ex.get('/api/sessions', async (_, res) => {
+    try { res.json(await listSessions()); } catch { res.json([]); }
+  });
+  ex.get('/api/sessions/:id', async (req, res) => {
+    try {
+      const sessions = await listSessions();
+      const s = sessions.find(x => x.id === req.params.id);
+      if (!s) return res.status(404).json({ error: 'Not found' });
+      res.json(s);
+    } catch { res.status(500).json({ error: 'Failed to list sessions' }); }
   });
   ex.delete('/api/sessions/:id', (req, res) => {
     const safeId = path.basename(req.params.id);
@@ -582,7 +607,9 @@ app.prepare().then(() => {
   });
 
   // ── Log files ────────────────────────────────────────────────────────────
-  ex.get('/api/logfiles', (_, res) => res.json(listLogFiles()));
+  ex.get('/api/logfiles', async (_, res) => {
+    try { res.json(await listLogFiles()); } catch { res.json([]); }
+  });
   ex.delete('/api/logfiles', (req, res) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
     if (!files.length) return res.status(400).json({ error: 'files[] required' });
