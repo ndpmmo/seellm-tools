@@ -58,14 +58,16 @@
 
 **Solution**: Thiết kế lại layout Dashboard thành 2 cột — Controls (Quick Launch + Connection) bên trái, Tiêu trình hệ thống bên phải luôn visible. Process section có scroll riêng. Compact list mode khi >3 process. Live Screenshots collapsible.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `src/components/views/DashboardView.tsx`
 
-1. **Layout 2 cột** — Trái: Quick Launch + Connection (380px cố định). Phải: Tiêu trình hệ thống (flex-1, luôn visible, scroll riêng). Không cần cuộn toàn trang.
-2. **ProcRow compact** — Khi >3 process đang chạy, tự chuyển sang compact row layout (1 dòng/process) thay vì card grid. Dễ scan nhanh, tiết kiệm không gian.
-3. **Process section scroll riêng** — `flex-1 min-h-0 overflow-y-auto` trên CardContent → cuộn chỉ trong vùng process, không ảnh hưởng phần controls.
-4. **Live Screenshots collapsible** — Click header để mở/đóng, không chiếm chỗ khi không cần.
-5. **Stats row sticky** — Stats luôn trên đầu, không bị đẩy đi khi scroll.
-6. **Empty state** — Khi chưa có process, hiển thị thông báo thay vì để trống.
+1. **`DashboardView()` layout 2 cột** (line 170) — Thay toàn bộ layout 1 cột dọc bằng `flex` 2 cột. Container ngoài: `absolute inset-0 flex flex-col overflow-hidden` → Stats row `shrink-0` → Main area `flex-1 min-h-0 flex gap-5`. Cột trái: `w-[380px] shrink-0` (Quick Launch + Connection). Cột phải: `flex-1 min-w-0` (Tiêu trình + Live Shots).
+2. **`ProcRow()` component mới** (line 35) — Compact row layout cho process. 1 dòng/process: name + PID bên trái, meta (bắt đầu, logs count, exit code) giữa, status badge + actions phải. Dùng khi >3 process. Class: `flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02]`.
+3. **`useCompactList` toggle** (line 148) — `const useCompactList = procs.length > 3`. Khi >3 process: render `ProcRow[]` trong `flex-col gap-2`. Khi ≤3: render `ProcCard[]` trong `grid grid-cols-2 gap-3`.
+4. **Process section scroll riêng** (line 275) — CardContent của process card: `flex-1 min-h-0 overflow-y-auto custom-scrollbar`. Cuộn chỉ trong vùng process, không ảnh hưởng controls bên trái.
+5. **Stats row sticky** (line 173) — Stats row `shrink-0 px-6 pt-3 pb-1` luôn trên đầu, không bị đẩy khi process list dài. 4 StatBox: Processes, Đang chạy, Screenshots, Sessions.
+6. **Live Screenshots collapsible** (line 294) — Chỉ render khi `Object.keys(liveShots).length > 0`. CardHeader `cursor-pointer` click toggle `shotsOpen`. Header chứa nút "Xem tất cả →" + chevron icon. Grid `grid-cols-3 lg:grid-cols-4` với aspect-video thumbnails + LIVE badge.
+7. **Empty state** (line 277) — Khi `procs.length === 0`: hiển thị Settings icon + "Chưa có process nào đang chạy" centered trong vùng process.
+8. **`shotsOpen` state** (line 142) — `useState(true)`, toggle collapsible Live Screenshots section.
 
 ## [0.2.87] - 2026-05-15 19:00:00
 
@@ -75,11 +77,20 @@
 
 **Solution**: Đưa version từ server (đọc package.json) qua `/api/bootstrap` → AppContext → Sidebar. Version luôn tự động cập nhật khi bump version.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server.js`
 
-1. **`/api/bootstrap` thêm `version`** — Đọc từ `package.json` mỗi request, không cache → luôn đúng version mới nhất.
-2. **`AppContext` thêm `appVersion`** — State mới, set từ bootstrap response.
-3. **Sidebar dùng `appVersion`** — Thay hardcode `v3.0` bằng `v{appVersion}`.
+1. **`GET /api/bootstrap` thêm `version`** (line 513) — Đọc `package.json` mỗi request bằng `readFileSync` + `JSON.parse`, trả về field `version` trong response. Không cache → luôn đúng version mới nhất sau bump.
+
+#### Chi tiết thay đổi — `src/components/AppContext.tsx`
+
+2. **`appVersion` state** (line 112) — `useState('...')` mới. Default `'...'` hiển thị khi chưa load.
+3. **`IApp` interface thêm `appVersion`** (line 65) — `appVersion: string` trong interface.
+4. **Bootstrap handler set `appVersion`** (line 453) — `setAppVersion(data.version || '...')` khi nhận bootstrap response.
+5. **Provider value thêm `appVersion`** (line 615) — Export `appVersion` qua context.
+
+#### Chi tiết thay đổi — `src/components/Dashboard.tsx`
+
+6. **Sidebar dùng `appVersion`** (line 69) — `const { ..., appVersion } = useApp()`. Brand section (line 89): thay hardcode `v3.0` bằng `v{appVersion} · Vault Beta`.
 
 ## [0.2.86] - 2026-05-15 18:30:00
 
@@ -89,12 +100,15 @@
 
 **Solution**: Gộp 7 requests thành 1 `/api/bootstrap` (29ms), loại bỏ fetch logs thừa trong SSE, giảm polling intensity.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server.js`
 
-1. **`/api/bootstrap` endpoint** — Gộp config + processes + sessions + logFiles + accounts + profiles + profileOptions thành 1 response. Giảm từ 7 HTTP roundtrips xuống 1 (29ms thay vì 5-10s).
-2. **Loại bỏ fetch logs thừa trong SSE** — `processes:sync` đã gửi đầy đủ logs (qua `safeProc()`), không cần fetch `/api/processes/:id/logs` cho mỗi process nữa. Giảm N requests thừa.
-3. **Giảm polling intensity** — Fallback polling tăng từ 3s → 10s khi chưa connected, 10s → 15s khi đã connected. Chỉ poll processes (nhẹ nhất), không poll sessions.
-4. **Frontend dùng bootstrap** — `AppContext.tsx` thay 7 `fetch()` riêng biệt bằng 1 `fetch('/api/bootstrap')`.
+1. **`GET /api/bootstrap` endpoint mới** (line 506) — Gộp 7 data sources thành 1 response: `version` (từ package.json), `config` (loadConfig), `processes` (safeProc cho mỗi process), `sessions` (listSessions), `logFiles` (listLogFiles), `accounts` (vault.getAccounts), `profiles` (vault.getActiveProfiles), `profileOptions` (presets, timezones, languages, resolutions, proxies). Dùng `Promise.all([listSessions(), listLogFiles()])` chạy song song. Giảm từ 7 HTTP roundtrips xuống 1 (29ms thay vì 5-10s).
+
+#### Chi tiết thay đổi — `src/components/AppContext.tsx`
+
+2. **Initial load dùng bootstrap** (line 442) — Thay 7 `fetch()` riêng biệt bằng 1 `fetch('/api/bootstrap')`. Destructure response: `setAppVersion(data.version)`, `setConfig(data.config)`, `setProcesses(m)`, `setSessions(data.sessions)`, `setLogFiles(data.logFiles)`, `setAccounts(data.accounts)`, `setProfiles(data.profiles)`, `setProfileOptions(data.profileOptions)`.
+3. **Loại bỏ fetch logs thừa trong SSE** — `processes:sync` event đã gửi đầy đủ logs (qua `safeProc()`), không cần fetch `/api/processes/:id/logs` cho mỗi process nữa. Giảm N requests thừa.
+4. **Giảm polling intensity** (line 469) — Fallback polling: `realtimeConnected ? 15000 : 10000` (tăng từ 3s → 10s khi chưa connected, 10s → 15s khi đã connected). Chỉ poll `refreshProcesses()` (nhẹ nhất), không poll sessions.
 
 #### Không thay đổi logic
 
@@ -110,11 +124,12 @@
 
 **Solution**: Thêm Port Conflict Guard — chạy TRƯỚC khi Next.js init, tự động phát hiện và kill process cũ chiếm port bằng `lsof` + `SIGKILL`. Nếu vẫn thất bại, EADDRINUSE handler hiện thông báo rõ ràng thay vì crash với uncaughtException.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server.js`
 
-1. **Port Conflict Guard** — Chạy trước `next()` constructor. Dùng `/usr/sbin/lsof` (macOS) hoặc `lsof` (Linux) để tìm PID chiếm port, kill bằng SIGKILL, đợi 0.5s cho OS release port.
-2. **EADDRINUSE graceful handler** — `httpServer.on('error')` bắt EADDRINUSE, hiện hướng dẫn fix (lsof + kill, hoặc đổi PORT), rồi `process.exit(1)` thay vì uncaughtException crash.
-3. **`app.prepare().then()` → `async`** — Cho phép dùng `await` trong callback nếu cần.
+1. **`killStaleProcessOnPort(port)` function mới** (line 436) — Chạy trước `next()` constructor. Dùng `/usr/sbin/lsof` (macOS) hoặc `lsof` (Linux) với flag `-i :${port} -t -sTCP:LISTEN` để tìm PID chiếm port. Filter ra PID hiện tại (`process.pid`). Kill bằng `SIGKILL` (không SIGTERM — cần giải phóng port ngay). `execSync('sleep 0.5')` đợi OS release port. Return `true` nếu đã kill, `false` nếu port trống.
+2. **Port Guard chỉ chạy dev mode** (line 455) — `if (dev) { killStaleProcessOnPort(PORT); }` — Production không chạy guard.
+3. **EADDRINUSE graceful handler** (line 1916) — `httpServer.on('error')` bắt `err.code === 'EADDRINUSE'`. Hiện hướng dẫn: `lsof -i :${PORT} -t | xargs kill -9` hoặc đổi `PORT=4001 bun run dev`. `process.exit(1)` thay vì uncaughtException crash.
+4. **`app.prepare().then()` → `async`** (line 462) — Cho phép dùng `await` trong callback nếu cần.
 
 #### Không thay đổi logic
 
@@ -130,10 +145,12 @@
 
 **Solution**: Thêm Turbopack Cache Guard — tự động kiểm tra và purge `.next/dev` cache khi vượt quá 200MB trên mỗi lần startup. Kết hợp với chokidar fix từ v0.2.83, CPU giảm từ 582% → 0%.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server.js`
 
-1. **Turbopack Cache Guard** — Trên dev mode startup, kiểm tra dung lượng `.next/dev` bằng `du -sm`. Nếu vượt `SEELLM_MAX_DEV_CACHE_MB` (default 200MB), tự động purge toàn bộ cache để Turbopack rebuild sạch. Ngăn chặn cache bloat gây infinite recompile loop.
-2. **env var `SEELLM_MAX_DEV_CACHE_MB`** — Cho phép user tùy chỉnh ngưỡng cache (default 200MB). Đặt giá trị cao hơn nếu project lớn.
+1. **Turbopack Cache Guard** (line 48) — Chạy trên dev mode startup, trước Port Guard và Next.js init. Kiểm tra dung lượng `.next/dev` bằng `execSync('du -sm')`. Nếu vượt `SEELLM_MAX_DEV_CACHE_MB` (default 200MB), tự động purge bằng `rmSync(NEXT_DEV_CACHE_DIR, { recursive: true, force: true })` + recreate directory. Ngăn chặn cache bloat gây infinite recompile loop. Log: `[Turbopack] ⚠️ .next/dev cache is ${sizeMB}MB (limit: ${MAX_CACHE_MB}MB) — purging`.
+2. **`NEXT_DEV_CACHE_DIR` constant** (line 41) — `path.join(__dirname, '.next', 'dev')` — đường dẫn cache Turbopack.
+3. **env var `SEELLM_MAX_DEV_CACHE_MB`** (line 56) — `parseInt(process.env.SEELLM_MAX_DEV_CACHE_MB || '200', 10)`. Cho phép user tùy chỉnh ngưỡng cache. Đặt giá trị cao hơn nếu project lớn.
+4. **Cache size OK log** (line 62) — `[Turbopack] .next/dev cache: ${sizeMB}MB (OK, limit: ${MAX_CACHE_MB}MB)` khi cache trong giới hạn.
 
 #### Không thay đổi logic
 
@@ -149,13 +166,14 @@
 
 **Solution**: Thay `fs.watch` bằng `chokidar` (dùng native FSEvents trên macOS, gần 0 CPU) và chuyển các synchronous I/O sang async.
 
-#### Chi tiết thay đổi
+#### Chi tiết thay đổi — `server.js`
 
-1. **chokidar thay fs.watch** — `watchScreenshots()` dùng `chokidar.watch()` với `useFsEvents: true` (native macOS FSEvents API), `ignoreInitial: true`, `awaitWriteFinish` để tránh storm events. Giảm CPU từ hàng chục % xuống gần 0.
-2. **async listSessions()** — Chuyển `readdirSync`/`statSync` sang `readdir`/`stat` từ `fs/promises`, không block event loop khi quét 142 thư mục + 1097 file screenshots.
-3. **async listLogFiles()** — Tương tự, chuyển sang async I/O cho log files listing.
-4. **async /api/scripts** — Chuyển `readdirSync` sang `readdir` async.
-5. **async route handlers** — Các route `/api/sessions`, `/api/sessions/:id`, `/api/logfiles` chuyển sang `async` để await các hàm async mới.
+1. **`watchScreenshots()` dùng chokidar** (line 339) — Thay `fs.watch(SCREENSHOTS_DIR, { recursive: true })` bằng `chokidar.watch()`. Options: `ignored: /(^|[/\\])\../` (ignore dotfiles), `ignoreInitial: true` (skip existing files), `awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }` (đợi file ghi xong), `useFsEvents: true` (native macOS FSEvents API, gần 0 CPU). Giảm CPU từ hàng chục % xuống gần 0.
+2. **`import chokidar from 'chokidar'`** (line 18) — Thêm import chokidar thay vì dùng `fs.watch`.
+3. **`async listSessions()`** (line 296) — Chuyển `readdirSync`/`statSync` sang `readdir`/`stat` từ `fs/promises`. Không block event loop khi quét 142 thư mục + 1097 file screenshots. Cache TTL 5 giây giữ nguyên.
+4. **`async listLogFiles()`** (line 407) — Tương tự, chuyển sang async I/O cho log files listing. `readdir` + `stat` async. Cache TTL 5 giây giữ nguyên.
+5. **`async /api/scripts` route** (line 649) — Chuyển `readdirSync` sang `readdir` async.
+6. **Async route handlers** — Các route `/api/sessions` (line 659), `/api/sessions/:id` (line 662), `/api/logfiles` chuyển sang `async` để await các hàm async mới.
 
 #### Không thay đổi logic
 
@@ -172,48 +190,40 @@
 
 **Solution**: Redesign hoàn toàn cả hai view với UI/UX hiện đại, đầy đủ tính năng, linh hoạt và phù hợp với hệ thống.
 
-#### ScreenshotsView — Redesign
+#### Chi tiết thay đổi — `src/components/views/ScreenshotsView.tsx` (rewrite toàn bộ, 635 lines)
 
-1. **Stats Bar** — 4 ô thống kê phía trên: Sessions, Tổng ảnh, Đang Live, Đã chọn.
-2. **Grid/List Toggle** — Chuyển đổi giữa 2 chế độ hiển thị:
-   - **Grid Mode**: Session cards dạng thumbnail với aspect-video preview, badge số ảnh, nút Xem/Xóa.
-   - **List Mode**: Session rows với thumbnail nhỏ, expand để xem grid ảnh bên trong.
-3. **Advanced Viewer cải tiến**:
-   - Zoom controls (25%–400%) + phím tắt (+/-/0).
-   - Xoay ảnh 90° (phím R).
-   - Info panel (phím I) hiển thị metadata chi tiết.
-   - Copy URL, nút xóa ảnh trực tiếp từ viewer.
-   - Filmstrip cải tiến với scroll-snap, active item highlight.
-   - Ctrl+scroll để zoom bằng chuột.
-4. **Filters & Sort**:
-   - Tìm kiếm theo session ID, email, filename.
-   - Sắp xếp: Mới nhất / Cũ nhất / Nhiều ảnh nhất.
-   - Lọc: Chỉ session có ảnh.
-5. **Live Channels** — Grid bản xem trực tiếp với badge LIVE, nút dismiss riêng, nút "Dọn dẹp tất cả".
-6. **Bulk Operations** — Chọn tất cả / Bỏ chọn, xóa nhiều session cùng lúc với confirm modal.
-7. **Empty State** — Hiển thị thân thiện khi chưa có screenshots hoặc không có kết quả filter.
+1. **`ViewMode` type** (line 15) — `'grid' | 'list'` — 2 chế độ hiển thị session.
+2. **`SortMode` type** (line 16) — `'newest' | 'oldest' | 'most'` — 3 chế độ sắp xếp.
+3. **`AdvancedViewer()` component mới** (line 28) — Viewer toàn màn hình cho ảnh. Props: `session`, `initialImage`, `liveMode`, `onClose`, `onDeleteImage`. Tính năng: zoom 25%–400% (phím +/-/0), xoay 90° (phím R), info panel (phím I) hiển thị metadata, copy URL, nút xóa ảnh, filmstrip scroll-snap với active item highlight, Ctrl+scroll zoom bằng chuột.
+4. **`SessionGridCard()` component mới** (line 221) — Card dạng thumbnail cho Grid Mode. Aspect-video preview, checkbox, badge số ảnh, nút Xem/Xóa. Email label từ `session.images.find(i => i.email)`.
+5. **`SessionListRow()` component mới** (line 279) — Row cho List Mode. Thumbnail nhỏ 16×10, expand để xem grid ảnh bên trong. Chevron toggle `open` state.
+6. **`ScreenshotsView()` main component** (line 343) — Rewrite toàn bộ:
+   - **Stats Bar** (4 StatBox): Sessions, Tổng ảnh, Đang Live, Đã chọn.
+   - **Grid/List Toggle**: nút chuyển đổi `viewMode` state (line 353).
+   - **Filters & Sort**: `query` (tìm session ID/email/filename, line 350), `sortBy` (line 351), `onlyWithImages` filter (line 352).
+   - **Live Channels** (line 411): Grid bản xem trực tiếp từ `liveShots`, badge LIVE, nút dismiss riêng (`hiddenLive` set), nút "Dọn dẹp tất cả".
+   - **Bulk Operations** (line 436): `selectedSessions` Set, `toggleSessionSelect()`, `toggleSelectAll()`, xóa nhiều session cùng lúc với `ConfirmModal`.
+   - **Empty State**: Hiển thị thân thiện khi chưa có screenshots hoặc không có kết quả filter.
+   - **`deleteSession()`** (line 374): Xóa session qua `DELETE /api/sessions/:id` + confirm modal.
+   - **`deleteImage()`** (line 393): Xóa ảnh trực tiếp từ viewer qua `DELETE /api/sessions/:id/images/:filename`.
+   - **`filteredSessions` useMemo** (line 413): Filter + sort sessions theo query, onlyWithImages, sortBy.
 
-#### LogFilesView — Redesign
+#### Chi tiết thay đổi — `src/components/views/LogFilesView.tsx` (rewrite toàn bộ, 478 lines)
 
-1. **Stats Bar** — 4 ô thống kê: Tổng files, Dung lượng, Đang xem, Đã chọn.
-2. **Split Panel Layout** — Khi mở file, danh sách thu nhỏ bên trái (45%), viewer chiếm phần còn lại. Không còn chuyển đổi toàn màn hình.
-3. **Log Viewer nâng cấp**:
-   - **Tìm kiếm trong file** với highlight matches (tối đa 5000 matches).
-   - Navigate giữa các matches (‹ › buttons + counter).
-   - **Case-sensitive toggle** (Aa).
-   - **Word wrap toggle**.
-   - **Copy nội dung** clipboard.
-   - **Download file** về máy.
-   - **Fullscreen toggle** (phóng to viewer).
-   - Line count + dung lượng hiển thị.
-4. **File List cải tiến**:
-   - Icon phân biệt loại file (JSON = amber, LOG = cyan, khác = neutral).
-   - Size badge màu theo kích thước (lớn = amber, vừa = cyan, nhỏ = neutral).
-   - **Sortable columns** — Click header để sort theo Tên/Kích thước/Thời gian, toggle asc/desc.
-   - Hover actions (Xem, Xóa) với transition mượt.
-5. **Filters** — Tìm theo tên, lọc theo kích thước (Nhỏ/Vừa/Lớn).
-6. **Bulk Operations** — Chọn tất cả, xóa nhiều file.
-7. **Auto-close viewer** khi file đang xem bị xóa.
+7. **`SortField` type** (line 14) — `'name' | 'size' | 'mtime'` — 3 cột sortable.
+8. **`SortDir` type** (line 15) — `'asc' | 'desc'` — Hướng sort.
+9. **`SizeFilter` type** (line 16) — `'all' | 'small' | 'medium' | 'large'` — Lọc theo kích thước.
+10. **`LogViewer()` component mới** (line 25) — Viewer nâng cấp cho nội dung file. Tính năng: tìm kiếm trong file với highlight matches (tối đa 5000, line 44), navigate matches (‹ › buttons + counter), case-sensitive toggle (Aa), word wrap toggle, copy nội dung clipboard, download file, fullscreen toggle, line count + dung lượng hiển thị.
+11. **`FileRow()` component mới** (line 186) — Row cho file list. Icon phân biệt loại file (JSON = amber `FileCode`, LOG = cyan `FileText`, khác = neutral). Size badge màu theo kích thước (>5MB = amber, >512KB = cyan, nhỏ = neutral). Hover actions (Xem, Xóa) với transition mượt.
+12. **`LogFilesView()` main component** (line 236) — Rewrite toàn bộ:
+    - **Stats Bar** (4 StatBox): Tổng files, Dung lượng, Đang xem, Đã chọn.
+    - **Split Panel Layout**: Khi mở file, danh sách thu nhỏ bên trái (45%), viewer chiếm phần còn lại. Không còn chuyển đổi toàn màn hình.
+    - **Sortable columns**: Click header sort theo Tên/Kích thước/Thời gian, toggle asc/desc (`sortField`, `sortDir` state, line 244-245).
+    - **Filters**: `search` (tìm theo tên, line 242), `sizeFilter` (lọc Nhỏ/Vừa/Lớn, line 243).
+    - **Bulk Operations**: `selected` Set, chọn tất cả, xóa nhiều file với `ConfirmModal`.
+    - **Auto-close viewer**: Khi file đang xem bị xóa, viewer tự đóng.
+    - **`openFile()`** (line 251): Load nội dung file qua `GET /api/logfiles/:filename`.
+    - **`filtered` useMemo** (line 268): Filter + sort files theo search, sizeFilter, sortField, sortDir.
 
 #### Files Changed
 
