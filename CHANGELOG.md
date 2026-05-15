@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.88] - 2026-05-15 17:30:00
+
+### 🎨 UI — Dashboard layout 2 cột: Tiêu trình luôn visible, cuộn mượt
+
+**Problem**: Dashboard cũ xếp mọi thứ theo 1 cột dọc — khi nhiều process chạy, "Tiêu trình hệ thống" bị đẩy xuống tận đáy, phải cuộn chuột mới thấy. Không thể scroll mượt do layout `flex-col` dài. ProcCard chiếm nhiều diện tích, khi có 4+ process thì trang rất dài.
+
+**Solution**: Thiết kế lại layout Dashboard thành 2 cột — Controls (Quick Launch + Connection) bên trái, Tiêu trình hệ thống bên phải luôn visible. Process section có scroll riêng. Compact list mode khi >3 process. Live Screenshots collapsible.
+
+#### Chi tiết thay đổi
+
+1. **Layout 2 cột** — Trái: Quick Launch + Connection (380px cố định). Phải: Tiêu trình hệ thống (flex-1, luôn visible, scroll riêng). Không cần cuộn toàn trang.
+2. **ProcRow compact** — Khi >3 process đang chạy, tự chuyển sang compact row layout (1 dòng/process) thay vì card grid. Dễ scan nhanh, tiết kiệm không gian.
+3. **Process section scroll riêng** — `flex-1 min-h-0 overflow-y-auto` trên CardContent → cuộn chỉ trong vùng process, không ảnh hưởng phần controls.
+4. **Live Screenshots collapsible** — Click header để mở/đóng, không chiếm chỗ khi không cần.
+5. **Stats row sticky** — Stats luôn trên đầu, không bị đẩy đi khi scroll.
+6. **Empty state** — Khi chưa có process, hiển thị thông báo thay vì để trống.
+
 ## [0.2.87] - 2026-05-15 19:00:00
 
 ### 🔧 Fix — Version hiển thị trên sidebar đồng bộ với package.json
