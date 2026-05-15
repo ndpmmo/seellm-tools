@@ -2,20 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [0.2.92] - 2026-05-15 22:00:00
+## [0.2.92] - 2026-05-15 22:30:00
 
-### 🔍 Vault Workshop — Verify mode selector + per-email feedback
+### 🔍 Vault Workshop — Verify mode selector + gọn feedback
 
-**Problem**: Nút "Verify WaitList" chỉ kiểm tra email unknown, không rõ ràng đang làm gì. Không có feedback chi tiết từng email. Không thể chọn verify email active/dead.
+**Problem**: Nút "Verify WaitList" chỉ kiểm tra email unknown, không rõ ràng đang làm gì. Không thể chọn verify email active/dead. Feedback spam toast từng email.
 
-**Solution**: Thêm dropdown chọn mode verify (Active/Unknown/Dead/All). Mặc định "Active". Hiển thị kết quả từng email + tổng kết.
+**Solution**: Thêm dropdown chọn mode verify (Active/Unknown/Dead/All). Mặc định "Active". Feedback chỉ hiện số lượng gọn gàng.
 
 #### Chi tiết thay đổi
 
 1. **Verify mode selector** — Dropdown bên cạnh nút Verify: Active (mặc định), Unknown, Dead (re-check), Tất cả.
 2. **`verifyAllPool` dùng mode** — Filter email theo mode được chọn: active/unknown/dead/all.
-3. **Per-email feedback** — Hiển thị toast cho từng email kết quả (✅ active / ❌ dead + lý do).
-4. **Tổng kết toast** — Sau khi xong: "📊 Tổng kết: X active, Y dead (trong Z email)".
+3. **Feedback gọn gàng** — Chỉ 2 toast: bắt đầu verify + kết quả tổng (`✅ Verify xong: X active, Y dead / Z email`).
 
 ## [0.2.91] - 2026-05-15 21:00:00
 
