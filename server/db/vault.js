@@ -520,6 +520,12 @@ export const vault = {
     }));
   },
 
+  getEmailPoolByEmail: (email) => {
+    const row = db.prepare('SELECT * FROM vault_email_pool WHERE email = ?').get(email);
+    if (!row) return null;
+    return { ...row, services: safeParseJson(row.services_json, {}) };
+  },
+
   upsertEmailPool: (data, skipSync = false) => {
     const now = dayjs().toISOString();
     let existing = db.prepare('SELECT * FROM vault_email_pool WHERE email = ?').get(data.email);

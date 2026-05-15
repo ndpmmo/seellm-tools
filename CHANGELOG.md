@@ -2,6 +2,37 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.96] - 2026-05-15 22:00:00
+
+### ✏️ Vault Workshop — Chỉnh sửa Email Pool (Edit Modal)
+
+**Problem**: Vault Workshop không có chức năng chỉnh sửa email pool. Không thể cập nhật password, refresh_token, client_id, auth_method, mail_status, hay notes của email đã import. Muốn sửa phải xóa rồi import lại.
+
+**Solution**: Thêm nút Edit (Pencil icon) trong hàng action, mở modal chỉnh sửa với đầy đủ các trường. Server thêm GET/PUT endpoints cho single email record.
+
+#### Chi tiết thay đổi — `server/routes/vault.js`
+
+1. **`GET /api/vault/email-pool/:email` endpoint mới** (line ~522) — Lấy chi tiết 1 email record với full credentials (không mask password). Trả về 404 nếu không tìm thấy.
+2. **`PUT /api/vault/email-pool/:email` endpoint mới** (line ~531) — Cập nhật email pool record. Accept: password, refresh_token, client_id, auth_method, mail_status, notes. Dùng `getEmailPoolByEmail()` để lấy existing data, merge với input. Emit SSE `email-pool-updated` sau khi lưu. Log audit action='update'.
+3. **Route ordering** — GET/PUT `:email` đặt trước DELETE `:email`. Các specific routes (sync-all, bulk-verify...) là POST nên không conflict với GET `:email`.
+
+#### Chi tiết thay đổi — `server/db/vault.js`
+
+4. **`getEmailPoolByEmail(email)` method mới** (line ~522) — Truy vấn single record bằng `SELECT * FROM vault_email_pool WHERE email = ?`. Trả về null nếu không tìm thấy. Parse services_json. Dùng thay vì `getEmailPoolFull().find()` cho hiệu suất O(1).
+
+#### Chi tiết thay đổi — `src/components/views/vault/VaultWorkshopView.tsx`
+
+5. **`editingEmail` state mới** — Track email đang chỉnh sửa. Null = không edit.
+6. **`editForm` state mới** — Object: { password, refresh_token, client_id, auth_method, mail_status, notes }. Pre-fill từ API khi mở edit.
+7. **`editLoading` / `editFetching` state mới** — Loading states cho save/fetch.
+8. **`startEdit(it)` function mới** — Mở edit modal: set editingEmail, fetch full record từ `GET /api/vault/email-pool/:email` (để có password/refresh_token thật), pre-fill form.
+9. **`saveEdit()` function mới** — Gọi `PUT /api/vault/email-pool/:email` với editForm data. Toast success/error. Refresh pool sau khi lưu. Close modal.
+10. **`cancelEdit()` function mới** — Đóng edit modal, reset editingEmail.
+11. **Edit button** (Pencil icon, amber-400) — Thêm vào cột Actions của mỗi hàng. Hover-reveal như các nút khác.
+12. **Edit modal** — Fixed overlay với backdrop-blur. Header: Pencil icon + email. Form fields: Password (input), Refresh Token (textarea), Client ID (input), Auth Method (select: GraphAPI/OAuth2), Mail Status (select: Active/Unknown/Dead), Notes (textarea). Footer: Hủy + Lưu thay đổi (amber button).
+13. **Row highlight** — Hàng đang edit có `bg-amber-500/5 ring-1 ring-amber-500/20` để dễ nhận diện.
+14. **Import changes** — Thêm `Pencil`, `X`, `Save` từ lucide-react.
+
 ## [0.2.95] - 2026-05-15 19:30:00
 
 ### 🎨 UI — Color-coded log viewing: TerminalView + LogFilesView

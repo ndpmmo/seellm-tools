@@ -518,6 +518,46 @@ router.post('/email-pool', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/vault/email-pool/:email — get single email record (with full credentials)
+router.get('/email-pool/:email', (req, res) => {
+  try {
+    const record = vault.getEmailPoolByEmail(req.params.email);
+    if (!record) return res.status(404).json({ error: 'Email not found' });
+    res.json({ ok: true, item: record });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/vault/email-pool/:email — update email pool record
+router.put('/email-pool/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+    const existing = vault.getEmailPoolByEmail(email);
+    if (!existing) return res.status(404).json({ error: 'Email not found' });
+
+    const record = vault.upsertEmailPool({
+      email,
+      password: req.body.password !== undefined ? req.body.password : existing.password,
+      refresh_token: req.body.refresh_token !== undefined ? req.body.refresh_token : existing.refresh_token,
+      client_id: req.body.client_id !== undefined ? req.body.client_id : existing.client_id,
+      auth_method: req.body.auth_method || existing.auth_method,
+      mail_status: req.body.mail_status || existing.mail_status,
+      notes: req.body.notes !== undefined ? req.body.notes : existing.notes,
+    });
+    res.json({ ok: true, email: record.email });
+    if (emitSSE) emitSSE('email-pool-updated', { email: record.email });
+
+    logAudit({
+      action: 'update',
+      entity: 'email_pool',
+      entityId: record.email,
+      entityLabel: record.email,
+      details: { mail_status: record.mail_status, auth_method: record.auth_method, updatedFields: Object.keys(req.body) },
+      severity: 'info',
+      source: 'ui',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.delete('/email-pool/:email', async (req, res) => {
   try {
     vault.deleteEmailPool(req.params.email);

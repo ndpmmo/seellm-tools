@@ -6,7 +6,7 @@ import {
     ShieldCheck, Import, Filter, Copy, Check, Database, Activity, Play,
     ChevronRight, Square, CheckSquare, AlertCircle, Clock, Zap, List,
     LayoutGrid, Settings2, BarChart3, ArrowRight, Terminal, Link2,
-    Inbox, MailOpen
+    Inbox, MailOpen, Pencil, X, Save
 } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
 import { ConfirmModal } from '../../Views';
@@ -88,6 +88,12 @@ export function VaultWorkshopView() {
     // Proxy assignment state (per email → proxy URL)
     const [proxyMap, setProxyMap] = useState<Record<string, string>>({});
     const [vaultProxies, setVaultProxies] = useState<{ id: string; label: string; url: string }[]>([]);
+
+    // Edit state
+    const [editingEmail, setEditingEmail] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState({ password: '', refresh_token: '', client_id: '', auth_method: 'graph', mail_status: 'unknown', notes: '' });
+    const [editLoading, setEditLoading] = useState(false);
+    const [editFetching, setEditFetching] = useState(false);
 
     const fetchPool = useCallback(async () => {
         setLoading(true);
@@ -518,6 +524,55 @@ export function VaultWorkshopView() {
         onCopy(raw, 'Full String');
     };
 
+    // ── Edit helpers ────────────────────────────────────────────────────────
+    const startEdit = async (it: any) => {
+        setEditingEmail(it.email);
+        setEditFetching(true);
+        setEditForm({ password: '', refresh_token: '', client_id: '', auth_method: it.auth_method || 'graph', mail_status: it.mail_status || 'unknown', notes: it.notes || '' });
+        try {
+            const res = await fetch(`/api/vault/email-pool/${encodeURIComponent(it.email)}`);
+            const data = await res.json();
+            if (data.ok && data.item) {
+                setEditForm({
+                    password: data.item.password || '',
+                    refresh_token: data.item.refresh_token || '',
+                    client_id: data.item.client_id || '',
+                    auth_method: data.item.auth_method || 'graph',
+                    mail_status: data.item.mail_status || 'unknown',
+                    notes: data.item.notes || '',
+                });
+            }
+        } catch (_) { }
+        setEditFetching(false);
+    };
+
+    const saveEdit = async () => {
+        if (!editingEmail) return;
+        setEditLoading(true);
+        try {
+            const res = await fetch(`/api/vault/email-pool/${encodeURIComponent(editingEmail)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editForm),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                addToast(`Đã cập nhật: ${editingEmail}`, 'success');
+                setEditingEmail(null);
+                await fetchPool();
+            } else {
+                addToast(`Lỗi: ${data.error}`, 'error');
+            }
+        } catch (e: any) {
+            addToast(`Lỗi: ${e.message}`, 'error');
+        }
+        setEditLoading(false);
+    };
+
+    const cancelEdit = () => {
+        setEditingEmail(null);
+    };
+
     // ── Inbox helpers ──────────────────────────────────────────────────────
     const openInbox = async (emailOrItem: string | any) => {
         const email = typeof emailOrItem === 'string' ? emailOrItem : emailOrItem.email;
@@ -729,7 +784,7 @@ export function VaultWorkshopView() {
                                     </thead>
                                     <tbody className="divide-y divide-white/[0.04]">
                                         {filteredPool.map(it => (
-                                            <tr key={it.email} className={`hover:bg-white/[0.025] transition-colors group ${selected.has(it.email) ? 'bg-indigo-500/5' : ''}`}>
+                                            <tr key={it.email} className={`hover:bg-white/[0.025] transition-colors group ${selected.has(it.email) ? 'bg-indigo-500/5' : ''} ${editingEmail === it.email ? 'bg-amber-500/5 ring-1 ring-amber-500/20' : ''}`}>
                                                 <td className="px-4 py-3.5">
                                                     <button onClick={() => toggleOne(it.email)} className="text-slate-500 hover:text-slate-200 transition-colors">
                                                         {selected.has(it.email) ? <CheckSquare size={15} className="text-indigo-400" /> : <Square size={15} />}
@@ -803,6 +858,7 @@ export function VaultWorkshopView() {
                                                 </td>
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
+                                                        <Button variant="ghost" size="sm" onClick={() => startEdit(it)} className="text-amber-400" title="Chỉnh sửa"><Pencil size={13} /></Button>
                                                         <Button variant="ghost" size="sm" onClick={() => checkStatus(it)} className="text-cyan-400" title="Verify Mail"><Activity size={13} /></Button>
                                                         <Button variant="ghost" size="sm" onClick={() => openInbox(it)} className="text-indigo-400" title="Xem Inbox"><Inbox size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistration(it)} disabled={it.chatgpt_status === 'done' || it.chatgpt_status === 'processing'} title="Start Register"><Play size={13} /></Button>
@@ -1111,6 +1167,116 @@ export function VaultWorkshopView() {
                     </div>
                 )}
             </div>
+
+            {/* Edit Email Modal */}
+            {editingEmail && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={cancelEdit}>
+                    <div className="bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                                    <Pencil size={16} className="text-amber-400" />
+                                </div>
+                                <div>
+                                    <div className="text-[14px] font-semibold text-slate-100">Chỉnh sửa Email Pool</div>
+                                    <div className="text-[11px] text-slate-500 font-mono">{editingEmail}</div>
+                                </div>
+                            </div>
+                            <button onClick={cancelEdit} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-slate-300 transition-colors">
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {editFetching ? (
+                            <div className="flex items-center justify-center py-16 gap-2 text-slate-500">
+                                <RefreshCw size={16} className="animate-spin" /> Đang tải dữ liệu...
+                            </div>
+                        ) : (
+                            <div className="px-6 py-5 space-y-4">
+                                {/* Password */}
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Mật khẩu</label>
+                                    <input
+                                        type="text"
+                                        className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 font-mono outline-none focus:border-amber-500/50"
+                                        value={editForm.password}
+                                        onChange={e => setEditForm(f => ({ ...f, password: e.target.value }))}
+                                        placeholder="Nhập mật khẩu email..."
+                                    />
+                                </div>
+
+                                {/* Refresh Token */}
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Refresh Token</label>
+                                    <textarea
+                                        className="w-full h-20 bg-black/40 border border-white/10 rounded-lg p-3 text-[11px] text-slate-200 font-mono outline-none focus:border-amber-500/50 resize-none"
+                                        value={editForm.refresh_token}
+                                        onChange={e => setEditForm(f => ({ ...f, refresh_token: e.target.value }))}
+                                        placeholder="M.C546_BAY..."
+                                    />
+                                </div>
+
+                                {/* Client ID */}
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Client ID</label>
+                                    <input
+                                        type="text"
+                                        className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 font-mono outline-none focus:border-amber-500/50"
+                                        value={editForm.client_id}
+                                        onChange={e => setEditForm(f => ({ ...f, client_id: e.target.value }))}
+                                        placeholder="9e5f94bc-..."
+                                    />
+                                </div>
+
+                                {/* Auth Method + Mail Status row */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Auth Method</label>
+                                        <select
+                                            className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 cursor-pointer"
+                                            value={editForm.auth_method}
+                                            onChange={e => setEditForm(f => ({ ...f, auth_method: e.target.value }))}
+                                        >
+                                            <option value="graph" className="bg-[#0f172a]">GraphAPI</option>
+                                            <option value="oauth2" className="bg-[#0f172a]">OAuth2</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Mail Status</label>
+                                        <select
+                                            className="w-full h-9 bg-black/40 border border-white/10 rounded-lg px-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 cursor-pointer"
+                                            value={editForm.mail_status}
+                                            onChange={e => setEditForm(f => ({ ...f, mail_status: e.target.value }))}
+                                        >
+                                            <option value="active" className="bg-[#0f172a]">Active</option>
+                                            <option value="unknown" className="bg-[#0f172a]">Unknown</option>
+                                            <option value="dead" className="bg-[#0f172a]">Dead</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Notes */}
+                                <div>
+                                    <label className="block text-[10.5px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Ghi chú</label>
+                                    <textarea
+                                        className="w-full h-16 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] text-slate-200 outline-none focus:border-amber-500/50 resize-none"
+                                        value={editForm.notes}
+                                        onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                                        placeholder="Ghi chú..."
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-3 px-6 py-4 border-t border-white/5 bg-black/20">
+                            <Button variant="ghost" size="sm" onClick={cancelEdit}>Hủy</Button>
+                            <Button variant="primary" size="sm" onClick={saveEdit} disabled={editLoading || editFetching} className="bg-amber-600 hover:bg-amber-500">
+                                {editLoading ? <><RefreshCw size={13} className="animate-spin mr-1.5" /> Đang lưu...</> : <><Save size={13} className="mr-1.5" /> Lưu thay đổi</>}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {confirm && (
                 <ConfirmModal 
