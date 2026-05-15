@@ -8,7 +8,7 @@ import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
 import express from 'express';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import {
   existsSync, readFileSync, writeFileSync,
   mkdirSync, createWriteStream,
@@ -37,11 +37,34 @@ const SCRIPTS_DIR = path.join(__dirname, 'scripts');
 const DATA_DIR = path.join(__dirname, 'data');
 const SCREENSHOTS_DIR = path.join(DATA_DIR, 'screenshots');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
+const NEXT_DEV_CACHE_DIR = path.join(__dirname, '.next', 'dev');
 
 // Ensure dirs exist
 [DATA_DIR, SCREENSHOTS_DIR, LOGS_DIR].forEach(d => {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
 });
+
+// ─── Turbopack Cache Guard ──────────────────────────────────────────────────
+// In dev mode, .next/dev cache can grow unbounded (800MB+) and become corrupted,
+// causing Turbopack to enter an infinite recompile loop (500%+ CPU).
+// Auto-purge if cache exceeds 200MB on startup.
+if (dev && existsSync(NEXT_DEV_CACHE_DIR)) {
+  try {
+    const sizeOut = execSync(`du -sm "${NEXT_DEV_CACHE_DIR}" 2>/dev/null`, { encoding: 'utf8' });
+    const sizeMB = parseInt(sizeOut.split('\t')[0], 10);
+    const MAX_CACHE_MB = parseInt(process.env.SEELLM_MAX_DEV_CACHE_MB || '200', 10);
+    if (sizeMB > MAX_CACHE_MB) {
+      console.log(`[Turbopack] ⚠️ .next/dev cache is ${sizeMB}MB (limit: ${MAX_CACHE_MB}MB) — purging to prevent CPU spiral`);
+      rmSync(NEXT_DEV_CACHE_DIR, { recursive: true, force: true });
+      mkdirSync(NEXT_DEV_CACHE_DIR, { recursive: true });
+    } else {
+      console.log(`[Turbopack] .next/dev cache: ${sizeMB}MB (OK, limit: ${MAX_CACHE_MB}MB)`);
+    }
+  } catch (e) {
+    // If du fails (e.g., directory doesn't exist yet), just skip
+    console.log(`[Turbopack] Cache check skipped: ${e.message}`);
+  }
+}
 
 // ─── Processes ───────────────────────────────────────────────────────────────
 const processes = {};

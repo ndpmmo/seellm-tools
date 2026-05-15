@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.84] - 2026-05-15 17:30:00
+
+### 🔥 Fix Critical — Turbopack cache bloat gây CPU 500%+ (root cause)
+
+**Problem**: V0.2.83 chỉ giảm CPU từ fs.watch/chokidar, nhưng CPU vẫn cao (582% đo được). Root cause thực sự là **`.next/dev` Turbopack cache bị bloat lên 835MB** và corrupted, khiến Turbopack rơi vào vòng lặp recompile vô hạn. Vấn đề này bắt đầu từ v0.2.82 khi ScreenshotsView/LogFilesView redesign thêm 650+ dòng component mới, Turbopack rebuild cache cũ không tương thích → cache bloat → infinite recompile → CPU 500%+.
+
+**Solution**: Thêm Turbopack Cache Guard — tự động kiểm tra và purge `.next/dev` cache khi vượt quá 200MB trên mỗi lần startup. Kết hợp với chokidar fix từ v0.2.83, CPU giảm từ 582% → 0%.
+
+#### Chi tiết thay đổi
+
+1. **Turbopack Cache Guard** — Trên dev mode startup, kiểm tra dung lượng `.next/dev` bằng `du -sm`. Nếu vượt `SEELLM_MAX_DEV_CACHE_MB` (default 200MB), tự động purge toàn bộ cache để Turbopack rebuild sạch. Ngăn chặn cache bloat gây infinite recompile loop.
+2. **env var `SEELLM_MAX_DEV_CACHE_MB`** — Cho phép user tùy chỉnh ngưỡng cache (default 200MB). Đặt giá trị cao hơn nếu project lớn.
+
+#### Không thay đổi logic
+
+- Production mode không bị ảnh hưởng (cache guard chỉ chạy khi `dev=true`).
+- Turbopack rebuild cache sau purge là bình thường, chỉ chậm lần đầu tiên.
+- Tất cả API routes, SSE, sync intervals không thay đổi.
+
 ## [0.2.83] - 2026-05-15 17:05:00
 
 ### ⚡ Performance — Giảm CPU usage khi chạy dev server
