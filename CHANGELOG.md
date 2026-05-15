@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.89] - 2026-05-15 19:14:00
+
+### 🛡️ Vault Workshop — Bộ lọc mặc định & bỏ qua email die
+
+**Problem**: Mặc định hiển thị tất cả email (live + dead) trong Pool và Inbox. Khi click verify hoặc xem inbox của email đã die, hiển thị lỗi không cần thiết. Thanh danh sách email trong inbox view không scroll được.
+
+**Solution**: Mặc định filter `active` (chỉ hiển thị email live). Skip verify và inbox cho email dead — hiển thị toast cảnh báo thay vì lỗi. Fix scroll bằng `min-h-0` trong flex layout.
+
+#### Chi tiết thay đổi
+
+1. **Default filter `active`** — Pool mặc định chỉ hiển thị email `mail_status === 'active'`. Có thể chuyển sang `all`/`done`/`dead` qua StatBox.
+2. **Skip verify email dead** — `checkStatus()` kiểm tra `mail_status === 'dead'` → toast cảnh báo, không gửi API verify.
+3. **Skip inbox email dead** — `openInbox()` nhận object email, kiểm tra `mail_status === 'dead'` → toast cảnh báo, không load inbox.
+4. **Bulk verify bỏ qua dead** — `verifyAllPool()` chỉ filter `mail_status === 'unknown'`, không gửi dead emails đi verify hàng loạt.
+5. **Inbox sidebar ẩn email dead** — Filter `e.mail_status !== 'dead'` trong danh sách email inbox sidebar.
+6. **Fix scroll inbox view** — Thêm `min-h-0` cho tất cả flex columns và scrollable divs trong inbox (left/middle/right), đảm bảo scroll hoạt động.
+
 ## [0.2.88] - 2026-05-15 17:30:00
 
 ### 🎨 UI — Dashboard layout 2 cột: Tiêu trình luôn visible, cuộn mượt

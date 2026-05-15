@@ -61,7 +61,7 @@ export function VaultWorkshopView() {
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('active');
     const [showImport, setShowImport] = useState(false);
     const [inputText, setInputText] = useState('');
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -243,6 +243,11 @@ export function VaultWorkshopView() {
     };
 
     const checkStatus = async (it: any) => {
+        // Skip verification for dead emails to avoid showing error status
+        if (it.mail_status === 'dead') {
+            addToast(`⚠️ ${it.email}: Email đã được đánh dấu là DEAD, bỏ qua kiểm tra`, 'info');
+            return;
+        }
         addToast(`🔍 Đang kiểm tra: ${it.email}`, 'info');
         try {
             const res = await fetch('/api/vault/email-pool/bulk-verify', {
@@ -421,7 +426,7 @@ export function VaultWorkshopView() {
     };
 
     const verifyAllPool = async () => {
-        const unknown = items.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
+        const unknown = items.filter(e => e.mail_status === 'unknown');
         if (!unknown.length) return addToast('Tất cả email đã được verify', 'info');
 
         setVerifyLoading(true);
@@ -490,7 +495,16 @@ export function VaultWorkshopView() {
     };
 
     // ── Inbox helpers ──────────────────────────────────────────────────────
-    const openInbox = async (email: string) => {
+    const openInbox = async (emailOrItem: string | any) => {
+        const email = typeof emailOrItem === 'string' ? emailOrItem : emailOrItem.email;
+        const mailStatus = typeof emailOrItem === 'string' ? null : emailOrItem.mail_status;
+        
+        // Skip inbox for dead emails to avoid showing error status
+        if (mailStatus === 'dead') {
+            addToast(`⚠️ ${email}: Email đã được đánh dấu là DEAD, không thể xem inbox`, 'info');
+            return;
+        }
+        
         setActiveTab('inbox');
         setInboxSelectedEmail(email);
         setInboxMessages([]);
@@ -755,7 +769,7 @@ export function VaultWorkshopView() {
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
                                                         <Button variant="ghost" size="sm" onClick={() => checkStatus(it)} className="text-cyan-400" title="Verify Mail"><Activity size={13} /></Button>
-                                                        <Button variant="ghost" size="sm" onClick={() => openInbox(it.email)} className="text-indigo-400" title="Xem Inbox"><Inbox size={13} /></Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => openInbox(it)} className="text-indigo-400" title="Xem Inbox"><Inbox size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistration(it)} disabled={it.chatgpt_status === 'done' || it.chatgpt_status === 'processing'} title="Start Register"><Play size={13} /></Button>
                                                         <Button variant="primary" size="sm" onClick={() => startRegistrationWithConnect(it)} disabled={it.chatgpt_status === 'processing'} title="Register + Connect Codex" className="bg-emerald-600 hover:bg-emerald-500"><Link2 size={13} /></Button>
                                                     </div>
@@ -887,7 +901,7 @@ export function VaultWorkshopView() {
                 {activeTab === 'inbox' && (
                     <div className="flex-1 min-h-0 grid grid-cols-[260px_320px_1fr] rounded-2xl overflow-hidden border border-white/[0.07] bg-black/20">
                         {/* ─── Left: Email list ─────────────────────────────────────── */}
-                        <div className="flex flex-col border-r border-white/[0.07]">
+                        <div className="flex flex-col border-r border-white/[0.07] min-h-0">
                             <div className="px-4 py-3 border-b border-white/[0.07] bg-white/[0.02] shrink-0">
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Email Pool ({items.length})</div>
                                 <div className="relative">
@@ -900,13 +914,16 @@ export function VaultWorkshopView() {
                                     />
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                                 {items
-                                    .filter(e => e.email.toLowerCase().includes(inboxSearch.toLowerCase()))
+                                    .filter(e => 
+                                        e.email.toLowerCase().includes(inboxSearch.toLowerCase()) &&
+                                        e.mail_status !== 'dead' // Filter out dead emails from inbox list
+                                    )
                                     .map(it => (
                                         <div
                                             key={it.email}
-                                            onClick={() => openInbox(it.email)}
+                                            onClick={() => openInbox(it)}
                                             className={`px-3 py-2.5 cursor-pointer border-b border-white/[0.04] transition-colors ${
                                                 inboxSelectedEmail === it.email
                                                     ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
@@ -949,7 +966,7 @@ export function VaultWorkshopView() {
                                             <RefreshCw size={12} className={inboxLoading ? 'animate-spin text-indigo-400' : ''} />
                                         </button>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                                         {inboxLoading ? (
                                             <div className="flex items-center justify-center h-32 text-slate-500 text-sm gap-2">
                                                 <RefreshCw size={16} className="animate-spin" /> Đang tải...
@@ -1023,7 +1040,7 @@ export function VaultWorkshopView() {
                                             </button>
                                         </div>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
                                         {inboxMsgLoading ? (
                                             <div className="flex items-center justify-center h-32 text-slate-500 gap-2">
                                                 <RefreshCw size={16} className="animate-spin" /> Đang tải nội dung...
