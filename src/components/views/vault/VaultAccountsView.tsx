@@ -95,6 +95,7 @@ function safeParseTags(raw: any): string[] {
 // Tag → icon + color mapping. Each tag renders as a small icon-only badge with tooltip.
 const TAG_META: Record<string, { icon: any; color: string; bg: string; border: string; tip: string }> = {
   'auto-register': { icon: Bot, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', tip: 'Auto-registered — tạo tự động qua worker' },
+  'vault-register': { icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', tip: 'Vault-registered — đăng ký qua vault UI' },
   'need_phone':    { icon: PhoneOff, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Cần số điện thoại — yêu cầu xác thực SMS' },
   'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
 };
@@ -485,6 +486,7 @@ export function VaultAccountsView() {
   };
 
   const startEdit = (it: any) => {
+    setExpandedId(null); // collapse expanded row
     setUiState(s => ({
       ...s,
       isAdding: true,
@@ -499,8 +501,10 @@ export function VaultAccountsView() {
       tags: safeParseTags(it.tags),
       notes: it.notes || '',
     }));
-    // Scroll to form
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll to form — use the scrollable container, not window
+    const scrollContainer = document.querySelector('.custom-scrollbar');
+    if (scrollContainer) scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -610,13 +614,19 @@ export function VaultAccountsView() {
       )}
 
       {/* ═══ TABLE ═══ */}
-      <Card className="flex-1 min-h-[320px] flex flex-col">
+      <Card className="flex-1 min-h-[320px] flex flex-col !overflow-visible">
         <CardHeader>
           <CardTitle>
             <Shield size={14} className="text-indigo-400" /> Tài Khoản Vault
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
           </CardTitle>
           <div className="flex gap-2 ml-auto shrink-0">
+            <div className="relative">
+              <Button size="sm" variant="secondary" onClick={() => setLegendOpen(v => !v)} className="border-white/10 text-slate-400 hover:bg-white/5">
+                <HelpCircle size={12} className="mr-1" /> Nhãn
+              </Button>
+              <TagLegend open={legendOpen} onClose={() => setLegendOpen(false)} />
+            </div>
             <Button
               size="sm"
               variant="secondary"
@@ -673,17 +683,7 @@ export function VaultAccountsView() {
                 <th className="px-2 py-2.5 w-7" />
                 <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tài khoản</th>
                 <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-28">Trạng thái</th>
-                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-12">
-                  <div className="flex items-center gap-1">
-                    <span>Nhãn</span>
-                    <div className="relative">
-                      <button onClick={() => setLegendOpen(v => !v)} className="text-slate-500 hover:text-slate-300 transition-colors" title="Giải thích biểu tượng">
-                        <HelpCircle size={12} />
-                      </button>
-                      <TagLegend open={legendOpen} onClose={() => setLegendOpen(false)} />
-                    </div>
-                  </div>
-                </th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-12">Nhãn</th>
                 <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right w-36">Thao tác</th>
               </tr>
             </thead>
