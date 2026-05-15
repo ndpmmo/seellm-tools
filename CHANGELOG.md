@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.87] - 2026-05-15 19:00:00
+
+### 🔧 Fix — Version hiển thị trên sidebar đồng bộ với package.json
+
+**Problem**: Version ở góc trên bên trái sidebar hardcode `v3.0` — không đồng bộ với version thực tế trong package.json hay CHANGELOG.
+
+**Solution**: Đưa version từ server (đọc package.json) qua `/api/bootstrap` → AppContext → Sidebar. Version luôn tự động cập nhật khi bump version.
+
+#### Chi tiết thay đổi
+
+1. **`/api/bootstrap` thêm `version`** — Đọc từ `package.json` mỗi request, không cache → luôn đúng version mới nhất.
+2. **`AppContext` thêm `appVersion`** — State mới, set từ bootstrap response.
+3. **Sidebar dùng `appVersion`** — Thay hardcode `v3.0` bằng `v{appVersion}`.
+
 ## [0.2.86] - 2026-05-15 18:30:00
 
 ### ⚡ Performance — SSE/Bootstrap optimization: giảm 7 requests → 1, load nhanh hơn

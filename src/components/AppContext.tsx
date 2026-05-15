@@ -62,6 +62,7 @@ interface Toast { id: string; message: string; type: 'success' | 'error' | 'info
 interface IApp {
   processes: Record<string, ProcessInfo>;
   config: AppConfig | null;
+  appVersion: string;
   connected: boolean;
   sseConnected: boolean;
   realtimeConnected: boolean;
@@ -108,6 +109,7 @@ export const useApp = () => { const c = useContext(Ctx); if (!c) throw new Error
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [processes, setProcesses] = useState<Record<string, ProcessInfo>>({});
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [appVersion, setAppVersion] = useState('...');
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState('dashboard');
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -439,6 +441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Initial load — single bootstrap request instead of 7 separate fetches
   useEffect(() => {
     fetch('/api/bootstrap').then(r => r.json()).then((data: {
+      version: string;
       config: AppConfig;
       processes: ProcessInfo[];
       sessions: Session[];
@@ -447,6 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       profiles: BrowserProfile[];
       profileOptions: ProfileOptions;
     }) => {
+      setAppVersion(data.version || '...');
       setConfig(data.config);
       const m: Record<string, ProcessInfo> = {};
       (data.processes || []).forEach(p => { if (p) m[p.id] = p; });
@@ -608,7 +612,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      processes, config, connected, sseConnected, realtimeConnected, view, sessions, logFiles,
+      processes, config, appVersion, connected, sseConnected, realtimeConnected, view, sessions, logFiles,
       liveShots, selectedLog, toasts,
       setView: setViewWithHash, setSelectedLog,
       startCamofox, startWorker, stopProcess, runScript,

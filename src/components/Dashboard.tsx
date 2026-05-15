@@ -66,7 +66,7 @@ function NavItem({
 
 // ── Sidebar ───────────────────────────────────────────────
 function Sidebar() {
-  const { view, setView, connected, processes, startCamofox, startWorker, profiles } = useApp();
+  const { view, setView, connected, processes, startCamofox, startWorker, profiles, appVersion } = useApp();
   const procs = Object.values(processes);
   const running = procs.filter(p => p.status === 'running').length;
   const errors = procs.filter(p => p.status === 'error').length;
@@ -86,7 +86,7 @@ function Sidebar() {
         </div>
         <div>
           <div className="text-[14px] font-bold text-slate-100 tracking-[-0.4px]">SeeLLM Tools</div>
-          <div className="text-[10.5px] text-slate-400 mt-[1px] tracking-[0.2px]">v3.0 · Vault Beta</div>
+          <div className="text-[10.5px] text-slate-400 mt-[1px] tracking-[0.2px]">v{appVersion} · Vault Beta</div>
         </div>
       </div>
 

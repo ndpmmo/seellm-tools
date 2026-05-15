@@ -510,6 +510,7 @@ app.prepare().then(async () => {
         listLogFiles(),
       ]);
       res.json({
+        version: JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version,
         config: loadConfig(),
         processes: Object.keys(processes).map(id => safeProc(id)),
         sessions: sessionsData,
