@@ -453,7 +453,7 @@ export function VaultWorkshopView() {
 
         setVerifyLoading(true);
         const modeLabel: Record<string, string> = { active: 'Active', unknown: 'Unknown', dead: 'Dead', all: 'Tất cả' };
-        addToast(`🔍 Bắt đầu verify ${targets.length} email (${modeLabel[verifyMode]})...`, 'info');
+        addToast(`🔍 Đang verify ${targets.length} email (${modeLabel[verifyMode]})...`, 'info');
         try {
             const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
@@ -464,15 +464,8 @@ export function VaultWorkshopView() {
             if (data.ok) {
                 const active = data.results?.filter((r: any) => r.status === 'active').length || 0;
                 const dead = data.results?.filter((r: any) => r.status === 'dead').length || 0;
-                // Show per-email results
-                for (const r of (data.results || [])) {
-                    if (r.status === 'active') {
-                        addToast(`✅ ${r.email}: Mail hoạt động tốt`, 'success');
-                    } else {
-                        addToast(`❌ ${r.email}: ${r.error || 'Mail không hoạt động'}`, 'error');
-                    }
-                }
-                addToast(`📊 Tổng kết: ${active} active, ${dead} dead (trong ${data.results?.length || 0} email)`, active > 0 ? 'success' : 'warning');
+                const total = data.results?.length || 0;
+                addToast(`✅ Verify xong: ${active} active, ${dead} dead / ${total} email`, active > 0 ? 'success' : 'warning');
             } else {
                 addToast(`Lỗi verify: ${data.error}`, 'error');
             }
