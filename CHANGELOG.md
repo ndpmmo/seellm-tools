@@ -2,106 +2,392 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [0.3.1] - 2026-05-16 19:02:00
+## [0.3.2] - 2026-05-16 22:11:00
 
-### 🔧 OAuth — Fix Codex PKCE flow cho tất cả loại account (4 loại)
+### 🔧 OAuth — Fix Codex PKCE flow cho tất cả loại account + MFA loop + navigate timeout
 
 **Phân loại 4 loại account ChatGPT/Codex** (quan trọng để hiểu flow):
 
-| Loại | Mô tả | Giao diện OAuth | Trước v0.3.1 | Sau v0.3.1 |
+| Loại | Mô tả | Giao diện OAuth | Trước v0.3.2 | Sau v0.3.2 |
 |---|---|---|---|---|
-| **1** | Free có workspace, giao diện 1 | `/workspace` → click Personal → redirect chatgpt.com | ✅ Hoạt động (v0.3.0) | ✅ Không thay đổi |
-| **2** | Free có workspace, giao diện 2 | `/choose-an-account` → consent → workspace select → Continue → "session ended / invalid_state" | ❌ Fail → fallback chỉ access_token | ✅ Full PKCE (access + refresh) |
-| **3** | Free không dính phone (email/password) | Navigate OAuth URL → callback `code=` trực tiếp (nhanh) hoặc timeout → stuck chatgpt.com (chậm) | ⚠️ Hoạt động khi nhanh, fallback khi timeout | ✅ Retry navigate + fresh tab fallback |
-| **4** | Free dính phone | Navigate OAuth URL → `/add-phone` → phone screen | ✅ Hoạt động (NEED_PHONE report) | ✅ Không thay đổi |
+| **1** | Free có workspace, giao diện 1 | `/workspace` → click Personal → redirect chatgpt.com | ✅ (v0.3.0) | ✅ Không đổi |
+| **2** | Free có workspace, giao diện 2 | `/choose-an-account` → consent → workspace → Continue → "session ended / invalid_state" | ❌ Fallback chỉ access_token | ✅ Full PKCE |
+| **3** | Free không dính phone | Navigate OAuth URL → callback `code=` (nhanh) hoặc timeout → stuck chatgpt.com (chậm) | ⚠️ Fallback khi timeout | ✅ Retry + fresh tab |
+| **4** | Free dính phone | Navigate OAuth URL → `/add-phone` → phone screen | ✅ NEED_PHONE | ✅ Không đổi |
 
 **Chi tiết từng loại**:
 
-- **Loại 1** — Account thuộc workspace, OpenAI hiện trang `/workspace` ("Choose a workspace") với 2 button: org + personal. Click Personal → redirect về chatgpt.com. Code v0.3.0 xử lý OK. Backup code cũ trong `scripts/backup/`.
+- **Loại 1** — Account thuộc workspace, OpenAI hiện `/workspace` ("Choose a workspace") với 2 button: org + personal. Click Personal → redirect chatgpt.com. Code v0.3.0 xử lý OK.
 
-- **Loại 2** — Account thuộc workspace, nhưng OpenAI hiện giao diện khác: `/choose-an-account` (chọn account) → `/sign-in-with-chatgpt/codex/consent` (consent page có embedded workspace radio/dropdown) → click Continue → **"session ended / invalid_state"** error. Session Codex bị invalidate sau consent. Đây là loại bị break trong v0.3.0.
+- **Loại 2** — Account thuộc workspace, giao diện khác: `/choose-an-account` → `/sign-in-with-chatgpt/codex/consent` (consent page có embedded workspace radio/dropdown) → click Continue → **"session ended / invalid_state"** error. Session Codex bị invalidate sau consent. V0.3.0 không xử lý → loop vô hạn.
 
-- **Loại 3** — Free account đơn giản, không có workspace, không cần phone. Navigate OAuth URL → nếu session còn active + mạng nhanh → redirect thẳng đến callback `code=` (thành công). Nếu mạng chậm hoặc Google FedCM popup overlay block → navigate timeout → stuck trên chatgpt.com → trước v0.3.1: `hasError=true` (false positive) → loop 30 lần → fallback session. Sau v0.3.1: `hasError=false` → stuck handler retry navigate 3 lần → fresh tab browser OAuth → session fallback. Account `zyphor@gptmail.biz.id` là loại này. **Lưu ý về Google FedCM popup**: code cũ có `dismissGooglePopupAndClickLogin()` trong Connect flow (bước 1b) → dismiss popup + click "Log in" → redirect sang `auth.openai.com`. Nhưng Capture flow (OAuth PKCE) không gọi hàm này. Khi đã login (`looksLoggedIn=true`), popup thường không hiện, nhưng navigate vẫn có thể timeout do mạng chậm.
+- **Loại 3** — Free account đơn giản, không workspace, không phone. Navigate OAuth URL → nếu session active + mạng nhanh → redirect thẳng callback `code=`. Nếu chậm → timeout → stuck trên chatgpt.com. V0.3.1 bị regression: `hasError=true` (false positive) → loop 30 lần → fallback session. Account `zyphor@gptmail.biz.id` là loại này. **Lưu ý**: code có `dismissGooglePopupAndClickLogin()` trong Connect flow (bước 1b) nhưng Capture flow không gọi. Khi đã login, Google FedCM popup thường không hiện, nhưng navigate vẫn timeout do mạng chậm.
 
-- **Loại 4** — Free account bị yêu cầu thêm số điện thoại. Navigate OAuth URL → `/add-phone` → phone screen → report NEED_PHONE. Code cũ hoạt động OK.
+- **Loại 4** — Free account bị yêu cầu phone. Navigate OAuth URL → `/add-phone` → report NEED_PHONE. Code cũ OK.
 
-**Problem**: V0.3.1 ban đầu chỉ fix loại 2 nhưng gây regression cho loại 3:
-1. Loại 2: `getState()` không nhận diện error page (`hasError=false`) + `isConsentScreen=true` false positive → loop vô hạn
-2. Loại 3: `hasError=true` trên chatgpt.com homepage (ERROR_KW match "try again" + `[class*="error"]` match normal UI) → không handler nào chạy → loop vô hạn 30 lần → fallback chỉ access_token
-3. Loại 3: Navigate OAuth URL timeout → page vẫn ở chatgpt.com → không retry → stuck
+---
 
-**Root cause** (3 bug riêng biệt):
+**6 bug đã fix** (3 bug từ v0.3.1 + 3 bug mới):
 
-| Bug | Ảnh hưởng | Nguyên nhân |
+| # | Bug | Ảnh hưởng | Nguyên nhân | Fix |
+|---|---|---|---|---|
+| 1 | `hasError` false negative | Loại 2 | ERROR_KW thiếu "session ended", "invalid_state", "authentication error" | Mở rộng ERROR_KW |
+| 2 | `hasError` false positive | Loại 3 | "try again" + `[class*="error"]` match trên chatgpt.com homepage | `hasError = rawHasError && (onAuthDomain \|\| !looksLoggedIn)` |
+| 3 | `isConsentScreen`/`isWorkspaceScreen` false positive | Loại 2 | CONSENT_KW match "continue" trong error message → error page bị hiểu nhầm consent page | Thêm `!hasError` guard |
+| 4 | Navigate OAuth URL timeout → stuck | Loại 3 | Page vẫn ở chatgpt.com + `looksLoggedIn=true` → không handler match → loop vô hạn | Stuck-on-chatgpt handler: retry 3 lần → fresh tab → session fallback |
+| 5 | MFA infinite loop | Loại 3 có MFA | `hasMfaInput=true` + `?error=totp` → TOTP reject → retry vô hạn 30×4s=2 phút | `MAX_MFA_ATTEMPTS=5` + fresh tab fallback + clear old input |
+| 6 | `/choose-an-account` không handler | Loại 2 | Page hiện chọn account → không handler → stuck → fallback | Click account option chứa email hoặc "select account" |
+
+---
+
+#### Chi tiết thay đổi code
+
+##### 1. `scripts/lib/openai-login-flow.js` — `getState()` hasError false positive fix
+
+**Vị trí**: Dòng 201-207
+
+**Code trước**:
+```js
+const hasError = ERROR_KW.some(k => body.includes(k)) ||
+  document.querySelector('[class*="error"]') !== null;
+```
+
+**Code sau**:
+```js
+const rawHasError = ERROR_KW.some(k => body.includes(k)) ||
+  document.querySelector('[class*="error"]') !== null;
+const hasError = rawHasError && (onAuthDomain || !looksLoggedIn);
+```
+
+**Giải thích**: `rawHasError` giữ nguyên logic cũ. `hasError` chỉ `true` khi:
+- `onAuthDomain=true` → đang trên `auth.openai.com` → error thật
+- `!looksLoggedIn` → chưa login → error thật (login page có error)
+- Còn lại: `chatgpt.com` + `looksLoggedIn=true` → `hasError=false` → không block OAuth loop
+
+**Ví dụ cụ thể**: Account `zyphor@gptmail.biz.id` (loại 3) — navigate OAuth URL timeout → page vẫn ở `chatgpt.com/` → body chứa "try again" + DOM có `[class*="error"]` → `rawHasError=true` → nhưng `onAuthDomain=false` + `looksLoggedIn=true` → `hasError=false` → OAuth loop tiếp tục xử lý thay vì loop 30 lần vô nghĩa.
+
+---
+
+##### 2. `scripts/lib/openai-login-flow.js` — `getState()` isConsentScreen/isWorkspaceScreen `!hasError` guard
+
+**Vị trí**: Dòng 211-222
+
+**Code trước**:
+```js
+const isConsentScr = (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
+  (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'));
+// ...
+isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k)),
+```
+
+**Code sau**:
+```js
+const isConsentScr = !hasError && (
+  (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
+  (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'))
+);
+// ...
+isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k))),
+```
+
+**Giải thích**: Error page trên `auth.openai.com` thường chứa text "continue" → CONSENT_KW match → `isConsentScreen=true` → `noKnownState=false` → error detection bị skip hoàn toàn. Thêm `!hasError` guard: error page → `isConsentScreen=false` + `isWorkspaceScreen=false` → error detection chạy đúng.
+
+---
+
+##### 3. `scripts/lib/openai-login-flow.js` — ERROR_KW mở rộng
+
+**Vị trí**: Dòng 108-122 (MULTILANG.somethingWrong)
+
+**Keywords thêm mới**:
+```
+'authentication error', 'an error occurred during authentication',
+'workspaces not found', 'invalid authorize request',
+'session ended', 'invalid_state',
+```
+
+**Giải thích**: OpenAI auth error page hiển thị nhiều variant khác nhau. Code cũ chỉ có "something went wrong" + "try again" → không detect được "session ended / invalid_state" (loại 2 workspace error) hay "authentication error" (loại 2 auth error).
+
+---
+
+##### 4. `scripts/lib/openai-login-flow.js` — `fillMfa()` clear old input
+
+**Vị trí**: Dòng 379-384
+
+**Code thêm**:
+```js
+// Clear old value before setting new code (important when retrying after ?error=totp)
+const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+if (nativeInput) nativeInput.set.call(input, '');
+input.dispatchEvent(new Event('input', { bubbles: true }));
+input.dispatchEvent(new Event('change', { bubbles: true }));
+```
+
+**Giải thích**: Khi TOTP bị reject, page reload với `?error=totp` → input field vẫn chứa code cũ. Nếu không clear → `fillMfa()` set new code nhưng React state vẫn giữ code cũ → submit lại code cũ → reject lại → infinite loop. Clear bằng `nativeInput.set.call(input, '')` + dispatch events để React nhận biết value thay đổi.
+
+---
+
+##### 5. `scripts/auto-worker.js` — Stuck-on-chatgpt.com handler
+
+**Vị trí**: Dòng 1395-1442 (OAuth loop, ngay sau `getState()` + debug log)
+
+**Logic**:
+```
+if (looksLoggedIn && !onAuthDomain && !hasEmailInput && !hasPasswordInput && !hasMfaInput && chatgpt.com) {
+  iteration 0-2:  retry navigate authUrl (timeout 25s) → continue
+  iteration 3-5:  mở fresh tab → _completeBrowserOAuth → code → break
+  iteration 6+:   fallbackToSessionNow = true → break
+}
+```
+
+**Chi tiết**:
+- **Iteration 0-2**: Navigate timeout 25s (thay vì 20s mặc định) → đợi 5s → `continue` để re-check state. Lý do: mạng chậm có thể chỉ cần thêm thời gian.
+- **Iteration 3-5**: Mở fresh tab với userId khác (`codex_${timestamp}_${random}`) → navigate `authUrl` → gọi `_completeBrowserOAuth()` → full login flow → code. Fresh tab = session riêng, không bị ảnh hưởng bởi session lỗi trong tab cũ.
+- **Iteration 6+**: Cả retry lẫn fresh tab đều fail → `fallbackToSessionNow = true` → break loop → session capture (access_token only, không refresh_token).
+
+**Tại sao cần handler này**: Navigate `authUrl` từ `chatgpt.com` cần redirect qua `auth.openai.com` → consent → callback. Nếu bước nào chậm/hang → browser vẫn ở `chatgpt.com` + `looksLoggedIn=true` → không handler nào match → loop 30 lần vô nghĩa → 2 phút timeout → fallback session. Handler này cho phép retry + fallback nhanh hơn.
+
+---
+
+##### 6. `scripts/auto-worker.js` — MFA retry limit + fresh tab fallback
+
+**Vị trí**: Dòng 1360-1361 (khai báo), 1746-1799 (handler)
+
+**Biến mới**:
+```js
+let mfaAttempts = 0;          // dòng 1360
+const MAX_MFA_ATTEMPTS = 5;   // dòng 1361
+```
+
+**Handler logic**:
+```
+if (hasMfaInput && totpSecret) {
+  mfaAttempts++
+  if (mfaAttempts > 5) {
+    → log "MFA failed after 5 attempts"
+    → mở fresh tab → _completeBrowserOAuth → code
+    → nếu vẫn fail → fallbackToSessionNow = true → break
+  }
+  → log attempt number + isMfaError flag
+  → clear old input (evalJson select+focus)
+  → getFreshTOTP(totpSecret, 8) → otp + remaining seconds
+  → log TOTP code + remaining (debug)
+  → fillMfa(tabId, userId, otp)
+  → wait 4s → continue
+}
+// Reset counter when leaving MFA page (successful submit)
+if (!hasMfaInput && mfaAttempts > 0) mfaAttempts = 0;
+```
+
+**Chi tiết**:
+- `mfaAttempts++` mỗi lần submit → đếm số lần TOTP bị reject
+- `MAX_MFA_ATTEMPTS=5` → sau 5 lần fail → dừng → thử fresh tab
+- `isMfaError = debugUrl?.includes('error=totp')` → detect URL parameter cho biết TOTP trước bị reject
+- Clear old input: `evalJson` → `input.focus(); input.select()` → chuẩn bị cho `fillMfa()` clear + set new code
+- `getFreshTOTP(totpSecret, 8)` → đợi ít nhất 8 giây còn lại trong time period → tránh dùng TOTP sắp hết hạn
+- Log `TOTP code=${otp} remaining=${remaining}s` → debug TOTP bị reject (code đúng nhưng server reject → clock drift)
+- Reset `mfaAttempts=0` khi `!hasMfaInput` → submit thành công → rời MFA page → reset counter cho lần sau
+
+**Tại sao 5 lần**: TOTP period = 30s. Nếu clock drift → tối đa 1-2 period sai → 2-3 lần retry đủ. 5 lần = margin an toàn. Quá 5 → vấn đề không phải clock drift → cần fresh session.
+
+---
+
+##### 7. `scripts/auto-worker.js` — `/choose-an-account` handler
+
+**Vị trí**: Dòng 1444-1479 (OAuth loop), + trong `_completeBrowserOAuth`
+
+**Logic**:
+```
+if (debugUrl.includes('/choose-an-account')) {
+  → querySelectorAll: button, [role="button"], [role="option"], a, div[class*="account"], div[class*="item"]
+  → for each visible element:
+    → if text.includes('select account') || text.includes(email) → click → return
+  → fallback: click any visible button with text.includes('select')
+  → wait 4s → continue
+}
+```
+
+**Giải thích**: Khi account có session active → navigate OAuth URL → OpenAI hiện `/choose-an-account` thay vì login page. Page này yêu cầu chọn account để tiếp tục. Không handler → stuck → fallback session.
+
+---
+
+##### 8. `scripts/auto-worker.js` — Error page detection (loại 2)
+
+**Vị trí**: Dòng 1499-1570
+
+**Logic**:
+```
+// Check 1: noKnownState (không email/password/MFA/workspace/consent/error)
+noKnownState = !hasEmailInput && !hasPasswordInput && !hasMfaInput && !looksLoggedIn && !isWorkspaceScreen && !isConsentScreen && !hasError
+→ đọc body text → match error keywords
+
+// Check 2: hasError flag on auth.openai.com
+hasError && !hasEmailInput && !hasPasswordInput && !hasMfaInput && onAuthDomain
+→ đọc body text → match error keywords
+
+// Khi detect error:
+→ mở fresh tab với userId khác
+→ _completeBrowserOAuth(freshTabId, freshUserId, authUrl, pkce, email, password, totpSecret)
+→ nếu code → authCode → break
+→ nếu fail → continue fallbacks
+```
+
+**Error keywords**: "workspaces not found", "oops, an error occurred", "authentication error", "an error occurred during authentication", "session ended", "invalid_state"
+
+**Tại sao cần fresh tab**: Cùng `userId` chia sẻ cookies/session giữa tabs → session lỗi persist. UserId khác = session riêng → login mới → session sạch → code → tokens.
+
+---
+
+##### 9. `scripts/auto-worker.js` — Consent handler `!hasError` guard
+
+**Vị trí**: Dòng 1801
+
+**Code trước**:
+```js
+if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
+```
+
+**Code sau**:
+```js
+if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen && !oauthState?.hasError) {
+```
+
+**Giải thích**: Error page trên `auth.openai.com` → `isConsentScreen=false` (sau fix `!hasError` guard) → nhưng consent handler vẫn match vì `auth.openai.com && !hasEmailInput && !hasPasswordInput` → chạy consent logic trên error page → sai. Thêm `!hasError` → error page không bị capture bởi consent branch.
+
+---
+
+#### 📚 Docs: Kiến trúc OAuth PKCE flow và các vấn đề đã gặp
+
+##### A. Tổng quan flow `captureAndReport` (OAuth PKCE)
+
+```
+1. Tạo PKCE: codeVerifier + codeChallenge + state
+2. Build OAuth URL: auth.openai.com/authorize?client_id=...&code_challenge=...&redirect_uri=localhost:1455
+3. Navigate OAuth URL trong tab đã login
+4. OAuth loop (30 iterations, mỗi iteration 4-5s):
+   a. Check callback URL → code= → break → exchange tokens
+   b. Check page state → handler phù hợp:
+      - Stuck on chatgpt.com → retry navigate / fresh tab
+      - /choose-an-account → click account
+      - Workspace page → click Personal
+      - Error page → fresh tab browser OAuth
+      - Phone screen → workspace API bypass
+      - Email input → fillEmail
+      - Password input → fillPassword
+      - MFA input → fillMfa (max 5 attempts)
+      - Consent page → click Continue
+5. Nếu có code → exchangeCodeForTokens → access_token + refresh_token
+6. Nếu không → session fallback (access_token only)
+```
+
+##### B. Tại sao `hasError` dễ bị false positive/negative
+
+**False negative** (không detect error thật):
+- OpenAI auth error page có nhiều variant text khác nhau
+- Code cũ chỉ check "something went wrong" + "try again"
+- Thực tế: "session ended", "invalid_state", "authentication error", "workspaces not found"
+- → `hasError=false` → error page bị hiểu nhầm là consent page (vì text chứa "continue")
+
+**False positive** (detect error khi không phải):
+- `chatgpt.com` homepage (đã login) chứa "try again" (nút retry chat)
+- `chatgpt.com` DOM có `[class*="error"]` (CSS class cho error boundary, không phải error page)
+- → `hasError=true` → OAuth loop không handler nào chạy → loop 30 lần → fallback
+
+**Fix 2 chiều**:
+1. Mở rộng ERROR_KW → detect nhiều variant hơn → giảm false negative
+2. `hasError = rawHasError && (onAuthDomain || !looksLoggedIn)` → chỉ flag khi chắc chắn → giảm false positive
+
+##### C. Tại sao MFA loop vô hạn
+
+```
+1. fillMfa(otp) → submit → page reload với ?error=totp
+2. hasMfaInput=true (input vẫn visible) → fillMfa(otp2) → submit → ?error=totp
+3. Lặp lại 30 lần → 2 phút → timeout → fallback session
+```
+
+**Nguyên nhân**:
+- Không có retry counter → không biết khi nào dừng
+- `fillMfa()` không clear old input → React state giữ code cũ → submit lại code cũ
+- TOTP có thể bị reject do: clock drift, code hết hạn (30s period), server-side rate limit
+
+**Fix**:
+- `mfaAttempts` counter + `MAX_MFA_ATTEMPTS=5`
+- Clear old input trước khi set new code
+- `getFreshTOTP(totpSecret, 8)` → đợi ít nhất 8s còn lại → tránh dùng code sắp hết hạn
+- Sau 5 lần → fresh tab browser OAuth → session fallback
+
+##### D. Tại sao cần fresh tab (userId khác)
+
+**Vấn đề**: Khi navigate OAuth URL với Codex client_id → OpenAI tạo session mới cho Codex client. Nếu session này bị lỗi (workspace error, invalid_state) → session lỗi persist trong cookies của userId đó.
+
+**Cùng userId**: Tabs chia sẻ cookies → session lỗi persist → `_completeBrowserOAuth` trong cùng tab cũng fail.
+
+**UserId khác**: Session riêng → cookies sạch → login mới → session sạch → code → tokens.
+
+**Format userId**: `codex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` → unique + traceable.
+
+##### E. Google FedCM popup và `dismissGooglePopupAndClickLogin()`
+
+**Vấn đề**: Trang `chatgpt.com/auth/login` hiện Google FedCM popup overlay ("Sign in with Google") che trang. Popup này là iframe `accounts.google.com/gsi/iframe`.
+
+**Hàm `dismissGooglePopupAndClickLogin()`** (`openai-login-flow.js:414-540`):
+1. Tìm close button (aria-label "close", "schließen", "fermer"...) → click
+2. Tìm Google iframe overlay → remove
+3. Click "Log in" button (data-testid, landing area, href, text match)
+
+**Được gọi ở**: Connect flow bước 1b (`auto-worker.js:696`) + retry 1c (`auto-worker.js:706`)
+
+**KHÔNG được gọi ở**: Capture flow — vì khi đã login, popup thường không hiện. Navigate timeout do mạng chậm, không phải popup block.
+
+**Nếu cần thêm**: Có thể thêm `dismissGooglePopupAndClickLogin()` vào stuck-on-chatgpt handler (trước retry navigate) để handle edge case popup vẫn hiện khi đã login.
+
+##### F. Codex OAuth client vs ChatGPT client
+
+| | ChatGPT | Codex |
 |---|---|---|
-| `hasError` false negative trên auth error page | Loại 2 | ERROR_KW thiếu "session ended", "invalid_state", "authentication error" |
-| `hasError` false positive trên chatgpt.com | Loại 3 | ERROR_KW match "try again" + `[class*="error"]` match normal chatgpt.com UI elements |
-| `isConsentScreen`/`isWorkspaceScreen` false positive trên error page | Loại 2 | CONSENT_KW match "continue" trong error message → error page bị hiểu nhầm là consent page |
+| Client ID | `app_X8zY6vW2pQ9tR3dE7nK1jL5gH` | `app_EMoamEEZ73f0CkXaXp7hrann` |
+| Redirect URI | `chatgpt.com/api/auth/callback/login-web` | `localhost:1455/callback` |
+| Session | chatgpt.com cookies | auth.openai.com cookies (separate) |
 
-**Solution** (3 fix riêng biệt):
+**Hệ quả**: Khi navigate OAuth URL trong tab đã login chatgpt.com → OpenAI tạo session MỚI cho Codex client → session này có thể:
+- Hiện `/workspace` (workspace selection lại)
+- Hiện `/choose-an-account` (account selection)
+- Hiện consent page
+- Fail với "session ended / invalid_state" (session invalidate sau consent)
 
-1. **Fix hasError false negative** (loại 2): Mở rộng ERROR_KW + đọc body text trực tiếp
-2. **Fix hasError false positive** (loại 3): `hasError` chỉ `true` khi `onAuthDomain || !looksLoggedIn`
-3. **Fix isConsentScreen/isWorkspaceScreen false positive** (loại 2): Thêm `!hasError` guard
+→ Đây là lý do nhiều handler cần thiết trong OAuth loop.
 
-#### Chi tiết thay đổi
+##### G. Token exchange flow
 
-1. **`scripts/auto-worker.js`** — OAuth loop — `/choose-an-account` handler:
-   - **Vị trí**: Ngay sau `getState()`, trước workspace/error/consent handlers
-   - **Logic**: Tìm clickable element chứa "select account" hoặc email của account → click
-   - **Fallback**: Click bất kỳ button nào chứa "select"
-   - **Sau click**: Đợi 4 giây → page redirect đến consent page hoặc callback
+```
+authCode → POST auth.openai.com/oauth/token {
+  grant_type: "authorization_code",
+  code: authCode,
+  code_verifier: pkce.verifier,    // PKCE: chứng minh mình là người tạo challenge
+  client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+  redirect_uri: "http://localhost:1455/callback"
+}
+→ response: {
+  access_token, refresh_token, id_token,
+  expires_in: 863999 (≈10 ngày),
+  scope: "openid email profile offline_access"
+}
+```
 
-2. **`scripts/auto-worker.js`** — OAuth loop — Error page detection:
-   - **`noKnownState` check**: Thêm `!oauthState?.hasError` → khi `hasError=true` → skip check này → nhảy đến `hasError` check riêng
-   - **`hasError` check**: Khi `hasError=true && onAuthDomain=true` → đọc `document.body.innerText` → match keywords
-   - **Error keywords mở rộng**: "workspaces not found", "oops, an error occurred", "authentication error", "an error occurred during authentication", **"session ended"**, **"invalid_state"**
-   - **Khi detect error**: Mở fresh tab với userId khác (`codex_${timestamp}_${random}`) → gọi `_completeBrowserOAuth` → full login flow → code → tokens
-   - **Tại sao cần fresh tab**: Cùng `userId` chia sẻ cookies giữa tabs → session lỗi persist. UserId khác = session riêng → login mới → session sạch.
+**Tại sao PKCE tốt hơn session fallback**:
+- PKCE: access_token + refresh_token + id_token → đầy đủ → refresh token dùng được lâu
+- Session fallback: chỉ access_token (từ cookie) → hết hạn sau ~10 ngày → phải login lại
 
-3. **`scripts/auto-worker.js`** — OAuth loop — `!hasError` guards:
-   - Consent handler (dòng 1665): Thêm `&& !oauthState?.hasError` → error page không bị capture bởi consent branch
-   - Tránh: error page → `isConsentScreen=false` (sau fix) → consent handler vẫn match (vì `auth.openai.com && !hasEmailInput && !hasPasswordInput`) → "Unknown auth state"
+##### H. Debugging tips
 
-4. **`scripts/auto-worker.js`** — `_completeBrowserOAuth` — `/choose-an-account` handler:
-   - **Vị trí**: Trong page type detection, trước phone/login/password handlers
-   - **Logic**: Giống handler trong OAuth loop — click account option
-   - **Dùng cho**: Fresh tab mở từ error page → login → MFA → `/choose-an-account` → consent → code
+1. **Log `oauthState` mỗi iteration**: `hasError`, `isConsentScreen`, `isWorkspaceScreen`, `hasEmailInput`, `hasPasswordInput`, `hasMfaInput`, `looksLoggedIn` → biết chính xác page state
+2. **Log `debugUrl`**: URL hiện tại → biết page nào đang hiển thị
+3. **Log TOTP code + remaining**: `code=${otp} remaining=${remaining}s` → debug TOTP reject
+4. **Log body text**: `document.body?.innerText?.toLowerCase()` → biết text thực tế trên page
+5. **Screenshot mỗi step**: `recorder.before/after/error` → xem UI thực tế
 
-6. **`scripts/lib/openai-login-flow.js`** — `getState()` — **hasError false positive fix** (loại 3):
-   - **Bug**: `hasError = ERROR_KW.some(k => body.includes(k)) || document.querySelector('[class*="error"]') !== null` → match "try again" hoặc `[class*="error"]` trên chatgpt.com homepage → `hasError=true` → OAuth loop không handler nào chạy → loop 30 lần → fallback session
-   - **Fix**: `hasError = rawHasError && (onAuthDomain || !looksLoggedIn)` → chỉ flag error khi trên `auth.openai.com` HOẶC chưa login → chatgpt.com + logged in → `hasError=false`
-   - **Ảnh hưởng**: Loại 3 (free account không workspace) bị regression — trước fix chỉ lấy được access_token (fallback), sau fix lấy được cả refresh_token (PKCE)
+---
 
-7. **`scripts/auto-worker.js`** — OAuth loop — **stuck-on-chatgpt.com handler** (loại 3):
-   - **Trường hợp**: Navigate OAuth URL timeout → page vẫn ở `chatgpt.com` + `looksLoggedIn=true` → không handler nào match → loop vô hạn
-   - **Fix**: Thêm handler cho `looksLoggedIn && !onAuthDomain && chatgpt.com`:
-     - Iteration 0-2: Retry navigate `authUrl` (timeout 25s)
-     - Iteration 3-5: Mở fresh tab → `_completeBrowserOAuth` → full login → code
-     - Sau 5: `fallbackToSessionNow = true` → session capture
-
-8. **`scripts/auto-worker.js`** — OAuth loop — **MFA retry limit** (loại 3 có MFA):
-   - **Bug**: `hasMfaInput=true` + `?error=totp` → TOTP bị reject → retry vô hạn (30 iterations × 4s = 2 phút)
-   - **Fix**: Thêm `mfaAttempts` counter + `MAX_MFA_ATTEMPTS=5`:
-     - Mỗi lần MFA submit → `mfaAttempts++`
-     - Sau 5 lần fail → fresh tab browser OAuth → session fallback
-     - Reset `mfaAttempts=0` khi rời MFA page (submit thành công)
-   - **Clear old input**: `fillMfa()` giờ clear input cũ trước khi nhập code mới (tránh submit lại code cũ)
-   - **Log TOTP code**: `console.log(TOTP code=${otp} remaining=${remaining}s)` để debug TOTP bị reject
-
-9. **`scripts/lib/openai-login-flow.js`** — `getState()` fixes (loại 2):
-   - **ERROR_KW mở rộng**: Thêm "authentication error", "an error occurred during authentication", "workspaces not found", "invalid authorize request", "session ended", "invalid_state"
-   - **`isConsentScreen` guard**: `isConsentScr = !hasError && (...)` → error page không bị set `isConsentScreen=true`
-   - **`isWorkspaceScreen` guard**: `isWorkspaceScreen = !hasError && (...)` → error page không bị set `isWorkspaceScreen=true`
-   - **Tại sao cần guard**: Error page text chứa "continue" → CONSENT_KW match → `isConsentScreen=true` → `noKnownState=false` → error detection bị skip hoàn toàn
-
-10. **`scripts/test-workspace-selection.js`** — Test script (đã xác nhận flow hoạt động):
-   - Dùng `generatePKCE()` + `buildOAuthURL()` từ `openai-oauth.js` (PKCE đúng format base64url)
-   - Full OAuth flow: login → workspace → OAuth URL → email → password → MFA → choose-an-account → consent → code
-   - Token exchange từ Node.js (tránh CORS — browser fetch đến `auth.openai.com/oauth/token` bị block)
-   - **Kết quả xác nhận**: `access_token` + `refresh_token` + `expires_in=863999` (≈10 ngày) + `scope=openid email profile offline_access`
-
-#### Debugging journey chi tiết (7 commits: `361f1a8` → `a42a808`)
+#### Debugging journey chi tiết (8 commits: `361f1a8` → `a42a808` + v0.3.2)
 
 1. **`361f1a8`** — Detect "Workspaces not found" error page → trigger browser OAuth
    - Thêm `isWorkspaceError` check trong OAuth loop
@@ -136,7 +422,25 @@
 8. **`a42a808`** — Handle `/choose-an-account` + "session ended"/"invalid_state"
    - Thêm `/choose-an-account` handler trong OAuth loop + `_completeBrowserOAuth`
    - Thêm "session ended", "invalid_state" vào error keywords
-   - **Đây là commit cuối cùng → auto-worker hoạt động đúng**
+   - **Đây là commit cuối cùng v0.3.1 → auto-worker hoạt động đúng cho loại 2**
+
+9. **v0.3.2** — Fix regression loại 3 + MFA loop + stuck-on-chatgpt
+   - `hasError` false positive fix → loại 3 không còn fallback
+   - Stuck-on-chatgpt handler → retry navigate + fresh tab fallback
+   - MFA retry limit (`MAX_MFA_ATTEMPTS=5`) + clear old input + TOTP debug log
+   - `fillMfa()` clear old input trước khi set new code
+
+## [0.3.1] - 2026-05-16 19:02:00
+
+### 🔧 OAuth — Fix Codex PKCE flow cho loại 2 (workspace error page)
+
+**Problem**: V0.3.0 chỉ fix loại 1 (workspace page `/workspace`). Loại 2 (giao diện khác: `/choose-an-account` → consent → "session ended / invalid_state") vẫn fail → fallback chỉ access_token.
+
+**Root cause**: `getState()` không nhận diện error page (`hasError=false`) + `isConsentScreen=true` false positive → loop vô hạn.
+
+**Solution**: Mở rộng ERROR_KW, thêm `!hasError` guards, handle `/choose-an-account`, fresh tab browser OAuth.
+
+*(Chi tiết đầy đủ đã chuyển sang v0.3.2 ở trên)*
 
 ## [0.3.0] - 2026-05-16 16:06:00
 
