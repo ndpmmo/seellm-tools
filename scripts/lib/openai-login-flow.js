@@ -115,6 +115,9 @@ export const MULTILANG = {
     'algo deu errado', 'tentar novamente',
     'đã xảy ra lỗi', 'thử lại',
     'что-то пошло не так', 'повторить',
+    // OpenAI auth error pages
+    'authentication error', 'an error occurred during authentication',
+    'workspaces not found', 'invalid authorize request',
   ],
 };
 
@@ -199,8 +202,11 @@ export async function getState(tabId, userId) {
         document.querySelector('[class*="error"]') !== null;
 
       // Inline consent screen logic (was referencing Node function)
-      const isConsentScr = (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
-                           (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'));
+      // Do NOT set isConsentScreen=true on error pages (they may contain "continue")
+      const isConsentScr = !hasError && (
+        (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
+        (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'))
+      );
 
       return {
         href, host,
@@ -208,7 +214,7 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError,
         isConsentScreen: isConsentScr,
-        isWorkspaceScreen: lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k)),
+        isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k))),
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
       };
     })()

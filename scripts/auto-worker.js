@@ -1662,7 +1662,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       continue;
     }
 
-    if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen) {
+    if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen && !oauthState?.hasError) {
       // Detect consent/workspace page by URL (mirrors upstream _infer_page_type)
       const isConsentPage = currentUrl.includes('consent') || currentUrl.includes('sign-in-with-chatgpt') || currentUrl.includes('workspace') || currentUrl.includes('organization');
 
