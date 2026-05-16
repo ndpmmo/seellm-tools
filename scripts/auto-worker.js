@@ -1377,9 +1377,12 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     // This page has no recognizable state (not email/password/MFA/consent/workspace/phone) → triggers "Unknown auth state"
     // The fix: detect this error page and trigger browser-based OAuth which handles full login flow
     let isWorkspaceError = false;
-    if (!oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen) {
+    const noKnownState = !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen;
+    if (noKnownState) {
+      console.log(`[Capture] 🔍 No known auth state detected, checking page text for error...`);
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
+        console.log(`[Capture] 🔍 Page text (first 200 chars): ${bodyText.slice(0, 200)}`);
         isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
       } catch (_) {}
     }
