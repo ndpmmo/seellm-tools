@@ -1392,6 +1392,55 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     const debugUrl = currentUrl || (await evalJson(tabId, userId, 'location.href', 3000) || '');
     console.log(`[Capture] 📋 oauthState: url=${debugUrl.slice(0, 100)} hasError=${oauthState?.hasError} isConsent=${oauthState?.isConsentScreen} isWorkspace=${oauthState?.isWorkspaceScreen} hasEmail=${oauthState?.hasEmailInput} hasPwd=${oauthState?.hasPasswordInput} hasMfa=${oauthState?.hasMfaInput} loggedIn=${oauthState?.looksLoggedIn}`);
 
+    // Handle stuck-on-chatgpt.com: navigate to OAuth URL failed/timed out,
+    // page is still on chatgpt.com with looksLoggedIn=true.
+    // This happens for free accounts (no workspace) when the OAuth redirect is slow.
+    if (oauthState?.looksLoggedIn && !oauthState?.onAuthDomain && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput) {
+      const isChatgptPage = debugUrl?.includes('chatgpt.com') || debugUrl?.includes('chatgpt');
+      if (isChatgptPage) {
+        // Check if we already tried navigating (oauthLoginHandled tracks email fill, not navigate)
+        if (i < 3) {
+          console.log(`[Capture] 🔄 Stuck on chatgpt.com (looksLoggedIn=true) — retrying navigate to authUrl...`);
+          try {
+            await navigate(tabId, userId, authUrl, 25000);
+            await new Promise(r => setTimeout(r, 5000));
+          } catch (navErr) {
+            console.log(`[Capture] 🔄 Navigate retry failed: ${navErr?.message || navErr}`);
+          }
+          continue;
+        }
+        // After 3 retries, still stuck — try browser OAuth in fresh tab
+        if (i >= 3 && i < 6) {
+          console.log(`[Capture] 🔄 Still stuck on chatgpt.com after 3 retries — trying fresh tab browser OAuth...`);
+          try {
+            const freshUserId = `codex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const freshTab = await camofoxPost('/tabs', {
+              userId: freshUserId, sessionKey: `codex_stuck_${Date.now()}`, url: authUrl,
+              persistent: false, os: 'macos', screen: { width: 1440, height: 900 },
+              headless: false, randomFonts: true, canvas: 'random',
+            }, { timeoutMs: 25000 });
+            const freshTabId = freshTab?.tabId;
+            if (freshTabId) {
+              await new Promise(r => setTimeout(r, 5000));
+              const browserResult = await _completeBrowserOAuth(freshTabId, freshUserId, authUrl, pkce, email, password, totpSecret);
+              try { await camofoxDelete(`/tabs/${freshTabId}?userId=${freshUserId}`); } catch (_) {}
+              if (browserResult?.code) {
+                authCode = browserResult.code;
+                console.log(`[Capture] ✅ Code via fresh browser OAuth (stuck-on-chatgpt fallback): ${authCode.slice(0, 20)}...`);
+                break;
+              }
+              console.log(`[Capture] ❌ Fresh browser OAuth (stuck-on-chatgpt): ${browserResult?.error || 'no code'}`);
+            }
+          } catch (freshErr) {
+            console.log(`[Capture] ❌ Fresh tab stuck-on-chatgpt fallback failed: ${freshErr?.message || freshErr}`);
+          }
+          // If fresh tab also failed, fall through to session fallback
+          fallbackToSessionNow = true;
+          break;
+        }
+      }
+    }
+
     // Handle /choose-an-account page (appears when account has existing session)
     if (debugUrl.includes('/choose-an-account')) {
       console.log(`[Capture] 👤 Choose-an-account page detected → clicking account option...`);

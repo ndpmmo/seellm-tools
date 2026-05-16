@@ -199,8 +199,12 @@ export async function getState(tabId, userId) {
       const hasPhoneScreen = isAddPhonePage || PHONE_KW.some(k => body.includes(k));
 
       // ── Error screen ──
-      const hasError = ERROR_KW.some(k => body.includes(k)) ||
+      // Only flag as error when on auth domain or NOT logged in.
+      // chatgpt.com homepage may contain "try again" or [class*="error"] elements
+      // that are NOT auth error pages — they're just normal UI elements.
+      const rawHasError = ERROR_KW.some(k => body.includes(k)) ||
         document.querySelector('[class*="error"]') !== null;
+      const hasError = rawHasError && (onAuthDomain || !looksLoggedIn);
 
       // Inline consent screen logic (was referencing Node function)
       // Do NOT set isConsentScreen=true on error pages (they may contain "continue")
