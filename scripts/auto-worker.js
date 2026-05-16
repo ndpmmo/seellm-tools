@@ -1269,23 +1269,35 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   } catch (_) {}
 
   // ── Proactive workspace selection (CORS-safe) ───────────────────────────────
-  // Navigate đến auth.openai.com TRƯỚC, rồi gọi workspace/select API từ đúng
-  // domain context. Gọi từ chatgpt.com sẽ bị CORS block (NetworkError).
-  // Sau khi chọn workspace thành công, session "ghi nhớ" → khi navigate authUrl
-  // sau đó, OpenAI skip consent page → redirect thẳng về localhost:1455?code=xxx.
+  // Navigate đến auth.openai.com TRƯỚC (KHÔNG dùng OAuth URL — OAuth URL tạo
+  // session Codex mới không có workspace data). Trên auth.openai.com, session
+  // chatgpt.com (có workspace data) được giữ lại → có thể chọn workspace.
+  // Sau khi chọn workspace thành công, navigate authUrl sẽ tự động skip consent.
   let proactiveWorkspaceDone = false;
   try {
     console.log(`[Capture] 🗂️ Proactive workspace selection (navigate-first approach)...`);
-    // Navigate đến auth URL trước để chuyển sang domain auth.openai.com
-    // (không thể gọi API auth.openai.com từ chatgpt.com do CORS)
-    const probeUrl = buildOAuthURL(generatePKCE()); // dùng PKCE tạm để probe
-    await navigate(tabId, userId, probeUrl, 15000);
+    // Navigate đến auth.openai.com trực tiếp (KHÔNG dùng OAuth URL)
+    // OAuth URL tạo session mới cho Codex client → mất workspace data
+    await navigate(tabId, userId, 'https://auth.openai.com/', 15000);
     await new Promise(r => setTimeout(r, 3000));
 
     const probeState = await evalJson(tabId, userId, 'location.href', 4000) || '';
     const onAuthDomain = probeState.includes('auth.openai.com');
 
-    if (onAuthDomain) {
+    // Check if workspace selection page appeared
+    const probePageState = await getState(tabId, userId);
+    if (probePageState?.isWorkspaceScreen) {
+      console.log(`[Capture] 🗂️ Workspace selection page detected → clicking Personal account...`);
+      const wsPageResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs: 15000 });
+      if (wsPageResult?.ok) {
+        console.log(`[Capture] ✅ Proactive: Personal workspace selected → ${wsPageResult.reason}`);
+        proactiveWorkspaceDone = true;
+      } else {
+        console.log(`[Capture] ⚠️ Proactive: Workspace page click failed: ${wsPageResult?.reason || 'unknown'}`);
+      }
+    }
+
+    if (onAuthDomain && !proactiveWorkspaceDone) {
       console.log(`[Capture] 🗂️ Now on auth.openai.com — safe to call workspace/select API`);
       // Gọi workspace/select trực tiếp trong browser context (cùng domain → không bị CORS)
       const wsResult = await evalJson(tabId, userId, `
@@ -1403,6 +1415,12 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   } catch (wsErr) {
     console.log(`[Capture] ⚠️ Proactive workspace selection exception: ${wsErr.message} (non-critical)`);
   }
+
+  // Navigate back to chatgpt.com after proactive workspace selection
+  // (we navigated to auth.openai.com — need to return before loading authUrl)
+  console.log(`[Capture] 🔄 Navigating back to chatgpt.com after proactive step...`);
+  await navigate(tabId, userId, 'https://chatgpt.com/', 15000);
+  await new Promise(r => setTimeout(r, 3000));
 
   // Set up interceptor
   await evalJson(tabId, userId, `
