@@ -548,9 +548,9 @@ export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 3
     const state = await getState(tabId, userId);
     const allMatch = Object.entries(expectedFlags).every(([key, expected]) => state[key] === expected);
     if (allMatch) return state;
-    // Handle intermediate states: if MFA, phone, or workspace screen appears, return state early
-    // This prevents timeout when page redirects to MFA/phone/workspace after password fill
-    if (state?.hasMfaInput || state?.hasPhoneScreen || state?.isWorkspaceScreen) return state;
+    // Handle intermediate states: if MFA or phone screen appears, return state early
+    // This prevents timeout when page redirects to MFA/phone after password fill
+    if (state?.hasMfaInput || state?.hasPhoneScreen) return state;
     await new Promise(r => setTimeout(r, intervalMs));
   }
   return null;
@@ -622,103 +622,4 @@ export function isAuthLoginLikeScreen(url = '', snapshot = '') {
          cleanText.includes('welcome back') ||
          cleanText.includes('enter your password') ||
          cleanText.includes('verify your identity');
-}
-
-/**
- * Select personal workspace on the "Choose a workspace" page (auth.openai.com/workspace).
- * This page appears after MFA for accounts belonging to workspaces.
- * Clicks the "Personal account" button and optionally waits for redirect.
- * @param {string} tabId - Tab ID
- * @param {string} userId - User ID
- * @param {object} options - { timeoutMs = 10000, waitRedirect = true }
- * @returns {Promise<object>} - { ok, clicked, reason, redirectUrl }
- */
-export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs = 10000, waitRedirect = true } = {}) {
-  try {
-    const result = await evalJson(tabId, userId, `
-      (() => {
-        const buttons = document.querySelectorAll('button, [role="button"], a');
-        let personalBtn = null;
-
-        // Strategy 1: Find button containing "personal account" text
-        for (const el of buttons) {
-          if (el.offsetParent === null) continue;
-          const text = (el.textContent || '').toLowerCase();
-          if (text.includes('personal account') || text.includes('personal')) {
-            personalBtn = el;
-            break;
-          }
-        }
-
-        // Strategy 2: Find button that is NOT the organization/team one
-        // On the workspace page, buttons are: [org name] and [Initials] Personal account [Name]
-        if (!personalBtn) {
-          const allBtns = Array.from(buttons).filter(el => el.offsetParent !== null);
-          // The personal account button typically has the longest text or contains a name
-          for (const el of allBtns) {
-            const text = (el.textContent || '').toLowerCase();
-            // Skip organization buttons (they usually have "workspace" in text)
-            if (text.includes('workspace')) continue;
-            // Look for buttons with avatar-like initials + personal indicators
-            const spans = el.querySelectorAll('span');
-            for (const span of spans) {
-              const spanText = (span.textContent || '').toLowerCase();
-              if (spanText.includes('personal')) {
-                personalBtn = el;
-                break;
-              }
-            }
-            if (personalBtn) break;
-          }
-        }
-
-        // Strategy 3: Click the LAST button (personal is usually after org)
-        if (!personalBtn) {
-          const visibleBtns = Array.from(buttons).filter(el =>
-            el.offsetParent !== null &&
-            el.closest('form[action*="workspace"]')
-          );
-          if (visibleBtns.length >= 2) {
-            personalBtn = visibleBtns[visibleBtns.length - 1];
-          }
-        }
-
-        if (!personalBtn) {
-          // Dump debug info
-          const btnTexts = Array.from(buttons).filter(el => el.offsetParent !== null).map(el => (el.textContent || '').trim().slice(0, 60));
-          return { ok: false, clicked: false, reason: 'no_personal_button', btnTexts: btnTexts.slice(0, 10) };
-        }
-
-        personalBtn.click();
-        return { ok: true, clicked: true, text: (personalBtn.textContent || '').trim().slice(0, 60) };
-      })()
-    `, 5000);
-
-    if (!result?.clicked) {
-      return { ok: false, clicked: false, reason: result?.reason || 'unknown', btnTexts: result?.btnTexts || [] };
-    }
-
-    // Wait for redirect to chatgpt.com
-    if (waitRedirect) {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 1500));
-        const url = await evalJson(tabId, userId, 'location.href', 3000) || '';
-        if (url.includes('chatgpt.com') && !url.includes('/auth/')) {
-          return { ok: true, clicked: true, reason: 'redirected', redirectUrl: url };
-        }
-        // Also check if we got to a consent page (which is fine — means workspace was selected)
-        if (url.includes('consent') || url.includes('sign-in-with-chatgpt')) {
-          return { ok: true, clicked: true, reason: 'consent_page', redirectUrl: url };
-        }
-      }
-      // Timeout but click was made — still return ok
-      const finalUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
-      return { ok: true, clicked: true, reason: 'click_done_no_redirect', redirectUrl: finalUrl };
-    }
-
-    return { ok: true, clicked: true, reason: 'clicked' };
-  } catch (e) {
-    return { ok: false, clicked: false, reason: `exception: ${e.message}` };
-  }
 }

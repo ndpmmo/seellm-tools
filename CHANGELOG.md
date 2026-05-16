@@ -2,6 +2,36 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.0] - 2026-05-16 16:06:00
+
+### 🔧 OAuth — Xử lý trang "Choose a workspace" cho tài khoản thuộc nhiều workspace
+
+**Problem**: Tài khoản thuộc nhiều workspace (org + personal) sau khi nhập MFA sẽ bị chuyển đến trang `auth.openai.com/workspace` ("Choose a workspace") yêu cầu chọn workspace trước khi tiếp tục. `auto-worker.js` không xử lý trang này nên `waitForState` chờ `looksLoggedIn` mãi → timeout 60s → báo lỗi. Ngoài ra, khi `captureAndReport` navigate đến OAuth URL (Codex client_id khác với chatgpt.com), session không được giữ lại → hiện lại trang `/workspace` lần nữa → cũng không xử lý → fail.
+
+**Root cause**: OpenAI auth flow cho accounts thuộc workspace sẽ hiện trang `/workspace` sau MFA. Code cũ không biết trang này tồn tại.
+
+**Solution**: Thêm phát hiện và xử lý trang "Choose a workspace" ở 2 vị trí — sau MFA trong `runConnectFlow` và trong OAuth loop của `captureAndReport`.
+
+#### Chi tiết thay đổi
+
+1. **`scripts/lib/openai-login-flow.js`** — Thêm hàm `selectPersonalWorkspaceOnWorkspacePage()`:
+   - Tự click nút "Personal account" trên trang `/workspace`
+   - 3 chiến lược tìm button: text "personal account", span chứa "personal", hoặc button cuối cùng trong form workspace
+   - Đợi redirect về chatgpt.com hoặc consent page sau khi click
+   - `waitForState`: Thêm `isWorkspaceScreen` vào early return (cùng với MFA/phone screen)
+
+2. **`scripts/auto-worker.js`** — `runConnectFlow` (dòng 793-816):
+   - Sau khi `waitForState` trả về với `isWorkspaceScreen`, gọi `selectPersonalWorkspaceOnWorkspacePage()` click Personal
+   - Đợi redirect về chatgpt.com, sau đó tiếp tục flow bình thường
+
+3. **`scripts/auto-worker.js`** — `captureAndReport` OAuth loop (dòng 1486-1502):
+   - Khi navigate `authUrl` gặp trang `/workspace` (do client_id khác → session mất), tự động click Personal
+   - Sau khi chọn workspace, page redirect đến consent page → OAuth loop tiếp tục click Continue
+
+4. **`scripts/test-oauth-diag.js`** — Diagnostic script cập nhật:
+   - STEP 2f: Handle workspace page sau MFA
+   - STEP 3b/3c: Handle workspace page + consent page sau navigate `authUrl`
+
 ## [0.2.101] - 2026-05-16 13:30:00
 
 ### 📸 Auto Worker — Tối ưu Screenshot, Giảm Spam
