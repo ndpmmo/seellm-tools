@@ -118,6 +118,7 @@ export const MULTILANG = {
     // OpenAI auth error pages
     'authentication error', 'an error occurred during authentication',
     'workspaces not found', 'invalid authorize request',
+    'session ended', 'invalid_state',
   ],
 };
 

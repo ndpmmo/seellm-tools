@@ -1386,6 +1386,46 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     }
 
     const oauthState = await getState(tabId, userId);
+    // Debug: log oauthState to understand page state
+    const debugUrl = currentUrl || (await evalJson(tabId, userId, 'location.href', 3000) || '');
+    console.log(`[Capture] 📋 oauthState: url=${debugUrl.slice(0, 100)} hasError=${oauthState?.hasError} isConsent=${oauthState?.isConsentScreen} isWorkspace=${oauthState?.isWorkspaceScreen} hasEmail=${oauthState?.hasEmailInput} hasPwd=${oauthState?.hasPasswordInput} hasMfa=${oauthState?.hasMfaInput} loggedIn=${oauthState?.looksLoggedIn}`);
+
+    // Handle /choose-an-account page (appears when account has existing session)
+    if (debugUrl.includes('/choose-an-account')) {
+      console.log(`[Capture] 👤 Choose-an-account page detected → clicking account option...`);
+      await recorder.before(1, 22, 'choose_account_page');
+      try {
+        const chooseResult = await evalJson(tabId, userId, `(() => {
+          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a, div[class*="account"], div[class*="item"]');
+          for (const el of clickables) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text.includes('select account') || text.includes(${JSON.stringify(email?.toLowerCase() || '')})) {
+              el.click();
+              return 'clicked: ' + text.slice(0, 60);
+            }
+          }
+          // Fallback: click any visible button with "select"
+          const buttons = document.querySelectorAll('button');
+          for (const el of buttons) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text.includes('select')) {
+              el.click();
+              return 'clicked_select: ' + text.slice(0, 60);
+            }
+          }
+          return null;
+        })()`, { timeoutMs: 5000 });
+        console.log(`[Capture] 👤 Choose account result: ${chooseResult}`);
+        await recorder.after(1, 22, 'choose_account_clicked');
+      } catch (chooseErr) {
+        console.log(`[Capture] 👤 Choose account click failed: ${chooseErr?.message || chooseErr}`);
+        await recorder.error(1, 22, 'choose_account_failed');
+      }
+      await new Promise(r => setTimeout(r, 4000));
+      continue;
+    }
 
     // Handle workspace selection page that may appear when navigating authUrl
     // (different client_id from chatgpt.com login → may show workspace page again)
@@ -1417,7 +1457,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
         console.log(`[Capture] 🔍 Page text (first 200 chars): ${bodyText.slice(0, 200)}`);
-        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication');
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication') || bodyText.includes('session ended') || bodyText.includes('invalid_state');
       } catch (_) {}
     }
     // Also check if hasError flag is set — error page on auth.openai.com
@@ -1426,7 +1466,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
         console.log(`[Capture] 🔍 Error page text (first 200 chars): ${bodyText.slice(0, 200)}`);
-        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication');
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication') || bodyText.includes('session ended') || bodyText.includes('invalid_state');
       } catch (_) {}
     }
     if (isWorkspaceError) {
