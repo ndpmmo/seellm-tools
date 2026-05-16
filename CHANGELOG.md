@@ -2,6 +2,38 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.1] - 2026-05-16 18:47:00
+
+### 🔧 OAuth — Fix Codex PKCE flow cho account có workspace (access_token + refresh_token)
+
+**Problem**: Account thuộc workspace (org + personal) khi chạy `captureAndReport` chỉ lấy được `access_token` (qua session fallback), không lấy được `refresh_token` (qua PKCE flow). Nguyên nhân: sau khi login chatgpt.com thành công, navigate đến Codex OAuth URL → OpenAI tạo session mới cho Codex client (`app_name_enum=oaicli`) **KHÔNG CÓ workspace data** → server trả về `AuthApiFailure` error page. Session lỗi này persist ở server-side, không thể fix bằng clear cookies hay navigate lại trong cùng tab/userId.
+
+**Root cause**: 
+- Session chatgpt.com (`app_X8zY6vW2pQ9tR3dE7nK1jL5gH`) có `workspaces[]` data
+- Session Codex (`app_EMoamEEZ73f0CkXaXp7hrann`) tạo mới → **KHÔNG CÓ** `workspaces[]` data
+- Server trả về error: `AuthApiFailure / unknown_error` hoặc `authorize_hydra_invalid_request`
+- Cùng `userId` chia sẻ cookies giữa tabs → mở tab mới vẫn gặp error
+
+**Solution**: Khi detect auth error page, mở tab mới với **userId khác** (isolated session) → navigate OAuth URL → login lại cho Codex client → consent page → chọn personal workspace → Continue → code → token exchange.
+
+#### Chi tiết thay đổi
+
+1. **`scripts/auto-worker.js`** — Error page detection (dòng 1376-1447):
+   - Detect auth error page qua `hasError` flag + `document.body.innerText` check
+   - Match text: "authentication error", "an error occurred during authentication", "workspaces not found"
+   - Khi detect → mở **fresh tab với userId khác** (`codex_${timestamp}_${random}`)
+   - Gọi `_completeBrowserOAuth` với fresh tab → full login flow → code → tokens
+
+2. **`scripts/auto-worker.js`** — `_completeBrowserOAuth` (dòng 1058-1089):
+   - Thêm handler cho trang `/choose-an-account` (xuất hiện sau MFA cho accounts có unified sessions)
+   - Click account option hoặc "Select account" button
+
+3. **`scripts/test-workspace-selection.js`** — Test script cập nhật:
+   - Dùng `generatePKCE()` + `buildOAuthURL()` từ `openai-oauth.js` (PKCE đúng format base64url)
+   - Full OAuth flow: login → workspace → OAuth URL → email → password → MFA → choose-an-account → consent → code
+   - Token exchange từ Node.js (tránh CORS)
+   - Xác nhận: **access_token + refresh_token + expires_in=863999** ✅
+
 ## [0.3.0] - 2026-05-16 16:06:00
 
 ### 🔧 OAuth — Xử lý trang "Choose a workspace" cho tài khoản thuộc nhiều workspace
