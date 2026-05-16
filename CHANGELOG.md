@@ -6,35 +6,104 @@
 
 ### 🔧 OAuth — Fix Codex PKCE flow cho account có workspace (access_token + refresh_token)
 
-**Problem**: Account thuộc workspace (org + personal) khi chạy `captureAndReport` chỉ lấy được `access_token` (qua session fallback), không lấy được `refresh_token` (qua PKCE flow).
+**Problem**: Account thuộc workspace (org + personal) khi chạy `captureAndReport` chỉ lấy được `access_token` (qua session fallback), không lấy được `refresh_token` (qua PKCE flow). Kết quả: account được đánh dấu "fallback - chỉ access_token" → không có refresh_token → không thể tự động refresh khi token hết hạn.
 
-**Root cause**: 
-- Sau login chatgpt.com, navigate Codex OAuth URL → `/choose-an-account` (chọn account) → `/consent` (chọn workspace + approve) → click Continue → **"session ended / invalid_state"** error
-- Session Codex bị invalidate sau consent → không thể lấy code
-- `getState()` không nhận diện error page: `hasError=false` (ERROR_KW thiếu keywords), `isConsentScreen=true` (do "continue" trong body → CONSENT_KW match)
-- → Flow đi vào "Unknown auth state, workspace bypass attempt" → fail → fallback
+**Root cause** (phát hiện qua 7 iterations debug):
 
-**Solution**: 
+| # | Giả thuyết | Thử | Kết quả |
+|---|---|---|---|
+| 1 | Proactive workspace selection chọn sai workspace | Navigate `auth.openai.com` trực tiếp thay vì OAuth URL | Vẫn fail — session Codex không có workspace data |
+| 2 | Proactive selection không cần thiết | Disable proactive, để OAuth loop xử lý | Vẫn fail — OAuth loop gặp error page không nhận diện được |
+| 3 | Error page "Workspaces not found" | Detect qua `getState().snapshot` | `snapshot` không tồn tại trong getState() |
+| 4 | Error page có `hasError` flag | Check `oauthState?.hasError` | `hasError=false` — ERROR_KW không có keywords phù hợp |
+| 5 | Error page text cần đọc trực tiếp | `evalJson(tabId, userId, 'document.body.innerText')` | Phát hiện text thực tế: "authentication error" + "session ended / invalid_state" |
+| 6 | `isConsentScreen=true` trên error page | Do CONSENT_KW match "continue" → `noKnownState=false` → error detection skip | Thêm `!hasError` guard |
+| 7 | `/choose-an-account` page không xử lý | Account có session cũ → OAuth URL redirect đến choose-an-account → code không biết page này | Thêm handler |
+
+**Flow thực tế** (được xác nhận qua test script `test-workspace-selection.js`):
+1. Login chatgpt.com thành công → session active
+2. Navigate Codex OAuth URL → `/choose-an-account` (chọn account để tiếp tục)
+3. Click account → `/sign-in-with-chatgpt/codex/consent` (consent page + workspace selection)
+4. Chọn Personal workspace → click Continue → **"session ended / invalid_state"** error
+5. Session Codex bị invalidate → cần login lại từ đầu trong session riêng
+
+**Solution**:
 1. Detect `/choose-an-account` → click account option
 2. Detect consent page → select Personal workspace → click Continue
 3. Detect "session ended / invalid_state" error → mở fresh tab (userId khác) → full login → code → tokens
 
 #### Chi tiết thay đổi
 
-1. **`scripts/auto-worker.js`** — OAuth loop:
-   - Thêm handler `/choose-an-account`: click account option (email match hoặc "select account" button)
-   - Thêm error keywords: "session ended", "invalid_state" 
-   - Error page detection → mở fresh tab với userId khác → `_completeBrowserOAuth`
-   - `!hasError` guard trên consent handler (error page không phải consent page)
-   - Debug log `oauthState` mỗi iteration
+1. **`scripts/auto-worker.js`** — OAuth loop — `/choose-an-account` handler:
+   - **Vị trí**: Ngay sau `getState()`, trước workspace/error/consent handlers
+   - **Logic**: Tìm clickable element chứa "select account" hoặc email của account → click
+   - **Fallback**: Click bất kỳ button nào chứa "select"
+   - **Sau click**: Đợi 4 giây → page redirect đến consent page hoặc callback
 
-2. **`scripts/auto-worker.js`** — `_completeBrowserOAuth`:
-   - Thêm handler `/choose-an-account` trong browser OAuth flow
+2. **`scripts/auto-worker.js`** — OAuth loop — Error page detection:
+   - **`noKnownState` check**: Thêm `!oauthState?.hasError` → khi `hasError=true` → skip check này → nhảy đến `hasError` check riêng
+   - **`hasError` check**: Khi `hasError=true && onAuthDomain=true` → đọc `document.body.innerText` → match keywords
+   - **Error keywords mở rộng**: "workspaces not found", "oops, an error occurred", "authentication error", "an error occurred during authentication", **"session ended"**, **"invalid_state"**
+   - **Khi detect error**: Mở fresh tab với userId khác (`codex_${timestamp}_${random}`) → gọi `_completeBrowserOAuth` → full login flow → code → tokens
+   - **Tại sao cần fresh tab**: Cùng `userId` chia sẻ cookies giữa tabs → session lỗi persist. UserId khác = session riêng → login mới → session sạch.
 
-3. **`scripts/lib/openai-login-flow.js`** — `getState()`:
-   - Thêm ERROR_KW: "authentication error", "session ended", "invalid_state", "workspaces not found", "invalid authorize request"
-   - `isConsentScreen`: thêm `!hasError` guard (error page không phải consent)
-   - `isWorkspaceScreen`: thêm `!hasError` guard
+3. **`scripts/auto-worker.js`** — OAuth loop — `!hasError` guards:
+   - Consent handler (dòng 1665): Thêm `&& !oauthState?.hasError` → error page không bị capture bởi consent branch
+   - Tránh: error page → `isConsentScreen=false` (sau fix) → consent handler vẫn match (vì `auth.openai.com && !hasEmailInput && !hasPasswordInput`) → "Unknown auth state"
+
+4. **`scripts/auto-worker.js`** — `_completeBrowserOAuth` — `/choose-an-account` handler:
+   - **Vị trí**: Trong page type detection, trước phone/login/password handlers
+   - **Logic**: Giống handler trong OAuth loop — click account option
+   - **Dùng cho**: Fresh tab mở từ error page → login → MFA → `/choose-an-account` → consent → code
+
+5. **`scripts/lib/openai-login-flow.js`** — `getState()` fixes:
+   - **ERROR_KW mở rộng**: Thêm "authentication error", "an error occurred during authentication", "workspaces not found", "invalid authorize request", "session ended", "invalid_state"
+   - **`isConsentScreen` guard**: `isConsentScr = !hasError && (...)` → error page không bị set `isConsentScreen=true`
+   - **`isWorkspaceScreen` guard**: `isWorkspaceScreen = !hasError && (...)` → error page không bị set `isWorkspaceScreen=true`
+   - **Tại sao cần guard**: Error page text chứa "continue" → CONSENT_KW match → `isConsentScreen=true` → `noKnownState=false` → error detection bị skip hoàn toàn
+
+6. **`scripts/test-workspace-selection.js`** — Test script (đã xác nhận flow hoạt động):
+   - Dùng `generatePKCE()` + `buildOAuthURL()` từ `openai-oauth.js` (PKCE đúng format base64url)
+   - Full OAuth flow: login → workspace → OAuth URL → email → password → MFA → choose-an-account → consent → code
+   - Token exchange từ Node.js (tránh CORS — browser fetch đến `auth.openai.com/oauth/token` bị block)
+   - **Kết quả xác nhận**: `access_token` + `refresh_token` + `expires_in=863999` (≈10 ngày) + `scope=openid email profile offline_access`
+
+#### Debugging journey chi tiết (7 commits: `361f1a8` → `a42a808`)
+
+1. **`361f1a8`** — Detect "Workspaces not found" error page → trigger browser OAuth
+   - Thêm `isWorkspaceError` check trong OAuth loop
+   - Khi detect → gọi `_completeBrowserOAuth` với **cùng tab/userId** → vẫn fail (session lỗi persist)
+
+2. **`b3a8765`** — Read actual page text via `evalJson` thay vì `getState().snapshot`
+   - `snapshot` không tồn tại trong `getState()` return value
+   - Dùng `evalJson(tabId, userId, 'document.body.innerText')` → đọc được text thực tế
+
+3. **`df711fd`** — Debug logging cho workspace error page detection
+   - Log `oauthState` mỗi iteration
+   - Log page text khi `noKnownState` hoặc `hasError`
+
+4. **`7ae2935`** — Detect workspace error page via `hasError` flag + body text
+   - Thêm check `hasError && onAuthDomain` → đọc body text
+   - Vẫn không trigger vì ERROR_KW thiếu keywords phù hợp
+
+5. **`f356a4f`** — Detect actual AuthApiFailure error page text
+   - Phát hiện text thực tế: "authentication error" → thêm vào keywords
+   - Vẫn không đủ vì page thực tế là "session ended / invalid_state"
+
+6. **`3a3c410`** — **KEY FIX**: Open fresh tab with new userId
+   - Thay vì dùng cùng tab → mở fresh tab với userId khác
+   - `_completeBrowserOAuth` với fresh tab → full login → code → tokens
+   - **Đây là fix chính** — session lỗi persist trong cùng userId, cần session riêng
+
+7. **`b28f10d`** — Add ERROR_KW keywords + `!hasError` guards
+   - Thêm "authentication error", "workspaces not found" vào ERROR_KW
+   - `isConsentScreen`/`isWorkspaceScreen`: thêm `!hasError` guard
+   - Consent handler: thêm `!hasError` condition
+
+8. **`a42a808`** — Handle `/choose-an-account` + "session ended"/"invalid_state"
+   - Thêm `/choose-an-account` handler trong OAuth loop + `_completeBrowserOAuth`
+   - Thêm "session ended", "invalid_state" vào error keywords
+   - **Đây là commit cuối cùng → auto-worker hoạt động đúng**
 
 ## [0.3.0] - 2026-05-16 16:06:00
 
@@ -42,29 +111,47 @@
 
 **Problem**: Tài khoản thuộc nhiều workspace (org + personal) sau khi nhập MFA sẽ bị chuyển đến trang `auth.openai.com/workspace` ("Choose a workspace") yêu cầu chọn workspace trước khi tiếp tục. `auto-worker.js` không xử lý trang này nên `waitForState` chờ `looksLoggedIn` mãi → timeout 60s → báo lỗi. Ngoài ra, khi `captureAndReport` navigate đến OAuth URL (Codex client_id khác với chatgpt.com), session không được giữ lại → hiện lại trang `/workspace` lần nữa → cũng không xử lý → fail.
 
-**Root cause**: OpenAI auth flow cho accounts thuộc workspace sẽ hiện trang `/workspace` sau MFA. Code cũ không biết trang này tồn tại.
+**Root cause**: OpenAI auth flow cho accounts thuộc workspace sẽ hiện trang `/workspace` sau MFA. Code cũ không biết trang này tồn tại. Ngoài ra, Codex OAuth client (`app_EMoamEEZ73f0CkXaXp7hrann`) khác với chatgpt.com client (`app_X8zY6vW2pQ9tR3dE7nK1jL5gH`) → khi navigate OAuth URL trong tab đã login chatgpt.com, OpenAI tạo session mới cho Codex client → session này có thể hiện lại trang workspace selection.
 
-**Solution**: Thêm phát hiện và xử lý trang "Choose a workspace" ở 2 vị trí — sau MFA trong `runConnectFlow` và trong OAuth loop của `captureAndReport`.
+**Solution**: Thêm phát hiện và xử lý trang "Choose a workspace" ở 2 vị trí — sau MFA trong `runConnectFlow` và trong OAuth loop của `captureAndReport`. Thêm proactive workspace selection (chọn workspace trước khi navigate OAuth URL) để giảm lỗi.
 
 #### Chi tiết thay đổi
 
 1. **`scripts/lib/openai-login-flow.js`** — Thêm hàm `selectPersonalWorkspaceOnWorkspacePage()`:
    - Tự click nút "Personal account" trên trang `/workspace`
-   - 3 chiến lược tìm button: text "personal account", span chứa "personal", hoặc button cuối cùng trong form workspace
-   - Đợi redirect về chatgpt.com hoặc consent page sau khi click
-   - `waitForState`: Thêm `isWorkspaceScreen` vào early return (cùng với MFA/phone screen)
+   - 3 chiến lược tìm button:
+     - **Strategy 1**: Tìm button chứa text "personal account" hoặc "personal"
+     - **Strategy 2**: Tìm button có `<span>` chứa "personal" (bỏ qua button có "workspace")
+     - **Strategy 3**: Click button cuối cùng trong `form[action*="workspace"]` (personal thường nằm sau org)
+   - Đợi redirect về `chatgpt.com` hoặc consent page sau khi click
+   - `waitForState`: Thêm `isWorkspaceScreen` vào early return (cùng với MFA/phone screen) → không timeout khi workspace page xuất hiện
 
-2. **`scripts/auto-worker.js`** — `runConnectFlow` (dòng 793-816):
+2. **`scripts/auto-worker.js`** — `runConnectFlow` (sau dòng 788):
    - Sau khi `waitForState` trả về với `isWorkspaceScreen`, gọi `selectPersonalWorkspaceOnWorkspacePage()` click Personal
    - Đợi redirect về chatgpt.com, sau đó tiếp tục flow bình thường
+   - Nếu workspace selection fail → log error nhưng không crash → tiếp tục flow
 
-3. **`scripts/auto-worker.js`** — `captureAndReport` OAuth loop (dòng 1486-1502):
+3. **`scripts/auto-worker.js`** — `captureAndReport` proactive workspace selection (trước OAuth loop):
+   - **Mục đích**: Chọn workspace TRƯỚC khi navigate OAuth URL → tránh error page
+   - **Cách hoạt động**: Đọc `auth_session` cookie → parse JWT → lấy `workspaces[]` → tìm personal workspace → gọi `POST /api/accounts/workspace/select` API
+   - **Fallback**: Nếu cookie không có workspace data → fetch consent page HTML → extract UUID → gọi workspace/select API
+   - **Payload format thử**: `{ workspace_id }`, `{ workspaceId }`, `{ id }` — vì không biết API expect format nào
+   - **Kết quả**: Proactive selection thường fail (Codex session chưa có workspace data) → nhưng không critical, OAuth loop sẽ xử lý
+
+4. **`scripts/auto-worker.js`** — `captureAndReport` OAuth loop (dòng 1486-1502):
    - Khi navigate `authUrl` gặp trang `/workspace` (do client_id khác → session mất), tự động click Personal
    - Sau khi chọn workspace, page redirect đến consent page → OAuth loop tiếp tục click Continue
 
-4. **`scripts/test-oauth-diag.js`** — Diagnostic script cập nhật:
+5. **`scripts/test-oauth-diag.js`** — Diagnostic script cập nhật:
    - STEP 2f: Handle workspace page sau MFA
    - STEP 3b/3c: Handle workspace page + consent page sau navigate `authUrl`
+
+#### Những điều phát hiện trong quá trình debug (quan trọng cho v0.3.1)
+
+- **Proactive workspace selection thường fail**: Vì Codex OAuth session (tạo khi navigate `authUrl`) không có `workspaces[]` data trong cookie → không thể chọn workspace trước. Proactive selection chỉ hoạt động khi session chatgpt.com còn active trên cùng domain.
+- **`isConsentScreen` false positive**: `getState()` dùng CONSENT_KW (chứa "continue") → error page cũng match → `isConsentScreen=true` → error page bị hiểu nhầm là consent page → handler sai. Fix này nằm ở v0.3.1.
+- **`isWorkspaceScreen` false positive**: URL `/sign-in-with-chatgpt/codex/consent` match `sign-in-with-chatgpt` → `isWorkspaceScreen=true` → consent page bị hiểu nhầm là workspace page → handler sai. Fix này nằm ở v0.3.1.
+- **`selectPersonalWorkspaceOnWorkspacePage` fail trên consent page**: Consent page có workspace selection embedded (radio/dropdown), nhưng hàm này tìm `button` → chỉ thấy "Cancel" và "Continue" → `no_personal_button`. Fix: dùng `selectPersonalWorkspaceInConsentUI` (v0.3.1).
 
 ## [0.2.101] - 2026-05-16 13:30:00
 
