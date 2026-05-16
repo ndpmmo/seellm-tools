@@ -1373,6 +1373,30 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       // Fall through to existing consent/workspace handling
     }
 
+    // Handle "Workspaces not found" error page (appears when navigating authUrl with existing session that lacks Codex client workspace data)
+    // This page has no recognizable state (not email/password/MFA/consent/workspace/phone) → triggers "Unknown auth state"
+    // The fix: detect this error page and trigger browser-based OAuth which handles full login flow
+    const pageText = oauthState?.snapshot || '';
+    const isWorkspaceError = pageText.includes('workspaces not found in client auth session') || pageText.includes('oops, an error occurred');
+    if (isWorkspaceError && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput) {
+      console.log(`[Capture] 🚨 Detected 'Workspaces not found' error page → triggering browser-based OAuth`);
+      await recorder.before(1, 21, 'workspace_error_page');
+      // Trigger browser-based OAuth immediately (fallback 3) instead of trying workspace bypass
+      const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password, totpSecret);
+      if (browserResult?.code) {
+        authCode = browserResult.code;
+        console.log(`[Capture] ✅ Code via browser OAuth (workspace error path): ${authCode.slice(0, 20)}...`);
+        await recorder.after(1, 21, 'workspace_error_browser_oauth_success');
+        break;
+      }
+      const errMsg = browserResult?.error || 'no code';
+      console.log(`[Capture] ❌ Browser OAuth (workspace error path): ${errMsg}`);
+      await recorder.error(1, 21, 'workspace_error_browser_oauth_failed');
+      if (errMsg.startsWith('NEED_PHONE')) return sendResult(task, 'error', errMsg);
+      if (errMsg.startsWith('NEED_MFA')) return sendResult(task, 'error', errMsg);
+      // Continue with other fallbacks
+    }
+
     if (oauthState?.hasPhoneScreen) {
       phoneScreenDetected = true;
       console.log(`[Capture] 📵 Phone screen → workspace API bypass...`);
