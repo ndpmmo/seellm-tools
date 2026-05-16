@@ -374,6 +374,11 @@ export async function fillMfa(tabId, userId, otp) {
       );
       if (!input) return { ok: false, reason: 'no-mfa-input' };
       input.focus();
+      // Clear old value before setting new code (important when retrying after ?error=totp)
+      const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (nativeInput) nativeInput.set.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
       setValue(input, val);
 
       const btn = Array.from(document.querySelectorAll('button, [role="button"]'))

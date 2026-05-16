@@ -1357,6 +1357,8 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   let phoneScreenDetected = false; // Track nếu phone screen đã xuất hiện — dùng cho error message cuối
   let consentAttempts = 0;
   const MAX_CONSENT_ATTEMPTS = 2;
+  let mfaAttempts = 0;
+  const MAX_MFA_ATTEMPTS = 5;
   let consentBypassExhausted = false;
   let fallbackToSessionNow = false;
   const oauthLoopStartedAt = Date.now();
@@ -1693,13 +1695,58 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       continue;
     }
     if (oauthState?.hasMfaInput && totpSecret) {
-      console.log(`[Capture] 🛡️ OAuth loop: điền MFA...`);
+      mfaAttempts++;
+      if (mfaAttempts > MAX_MFA_ATTEMPTS) {
+        console.log(`[Capture] 🛡️ MFA failed after ${MAX_MFA_ATTEMPTS} attempts — TOTP repeatedly rejected`);
+        await recorder.error(1, 10, 'mfa_max_retries');
+        // Try fresh tab with browser OAuth as fallback
+        console.log(`[Capture] 🛡️ Trying fresh tab browser OAuth for MFA account...`);
+        try {
+          const freshUserId = `codex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const freshTab = await camofoxPost('/tabs', {
+            userId: freshUserId, sessionKey: `codex_mfa_${Date.now()}`, url: authUrl,
+            persistent: false, os: 'macos', screen: { width: 1440, height: 900 },
+            headless: false, randomFonts: true, canvas: 'random',
+          }, { timeoutMs: 25000 });
+          const freshTabId = freshTab?.tabId;
+          if (freshTabId) {
+            await new Promise(r => setTimeout(r, 5000));
+            const browserResult = await _completeBrowserOAuth(freshTabId, freshUserId, authUrl, pkce, email, password, totpSecret);
+            try { await camofoxDelete(`/tabs/${freshTabId}?userId=${freshUserId}`); } catch (_) {}
+            if (browserResult?.code) {
+              authCode = browserResult.code;
+              console.log(`[Capture] ✅ Code via fresh browser OAuth (MFA fallback): ${authCode.slice(0, 20)}...`);
+              break;
+            }
+            console.log(`[Capture] ❌ Fresh browser OAuth (MFA fallback): ${browserResult?.error || 'no code'}`);
+          }
+        } catch (freshErr) {
+          console.log(`[Capture] ❌ Fresh tab MFA fallback failed: ${freshErr?.message || freshErr}`);
+        }
+        // Final fallback: session capture
+        fallbackToSessionNow = true;
+        break;
+      }
+      const isMfaError = debugUrl?.includes('error=totp') || debugUrl?.includes('error=');
+      console.log(`[Capture] 🛡️ OAuth loop: điền MFA (attempt ${mfaAttempts}/${MAX_MFA_ATTEMPTS}${isMfaError ? ' — previous TOTP rejected' : ''})...`);
       await recorder.before(1, 10, 'oauth_fill_mfa');
-      const { otp } = await getFreshTOTP(totpSecret, 8);
+      // Clear old MFA input before entering new code
+      try {
+        await evalJson(tabId, userId, `(() => {
+          const input = document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[maxlength="6"]');
+          if (input) { input.focus(); input.select(); }
+        })()`, 2000);
+      } catch (_) {}
+      const { otp, remaining } = await getFreshTOTP(totpSecret, 8);
+      console.log(`[Capture] 🛡️ TOTP code=${otp} remaining=${remaining}s`);
       await fillMfa(tabId, userId, otp);
       await new Promise(r => setTimeout(r, 4000));
       await recorder.after(1, 10, 'oauth_fill_mfa');
       continue;
+    }
+    // Reset MFA counter when we leave MFA page (successful submit)
+    if (!oauthState?.hasMfaInput && mfaAttempts > 0) {
+      mfaAttempts = 0;
     }
 
     if (currentUrl && currentUrl.includes('auth.openai.com') && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.hasPhoneScreen && !oauthState?.hasError) {
