@@ -1373,9 +1373,11 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       // Fall through to existing consent/workspace handling
     }
 
-    // Handle "Workspaces not found" error page (appears when navigating authUrl with existing session that lacks Codex client workspace data)
-    // This page has no recognizable state (not email/password/MFA/consent/workspace/phone) → triggers "Unknown auth state"
-    // The fix: detect this error page and trigger browser-based OAuth which handles full login flow
+    // Handle "Workspaces not found" / "Authentication Error" error page
+    // When navigating authUrl with existing chatgpt.com session, OpenAI creates a NEW
+    // session for Codex client (app_name_enum=oaicli) WITHOUT workspace data.
+    // Server returns AuthApiFailure error page → triggers "Unknown auth state".
+    // Fix: detect this error page and trigger browser-based OAuth for full login.
     let isWorkspaceError = false;
     const noKnownState = !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen && !oauthState?.hasError;
     if (noKnownState) {
@@ -1383,16 +1385,16 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
         console.log(`[Capture] 🔍 Page text (first 200 chars): ${bodyText.slice(0, 200)}`);
-        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication');
       } catch (_) {}
     }
-    // Also check if hasError flag is set — error page with "Workspaces not found"
-    if (!isWorkspaceError && oauthState?.hasError && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput) {
-      console.log(`[Capture] 🔍 hasError flag set, checking page text...`);
+    // Also check if hasError flag is set — error page on auth.openai.com
+    if (!isWorkspaceError && oauthState?.hasError && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && oauthState?.onAuthDomain) {
+      console.log(`[Capture] 🔍 hasError flag on auth.openai.com, checking page text...`);
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
         console.log(`[Capture] 🔍 Error page text (first 200 chars): ${bodyText.slice(0, 200)}`);
-        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred') || bodyText.includes('authentication error') || bodyText.includes('an error occurred during authentication');
       } catch (_) {}
     }
     if (isWorkspaceError) {
