@@ -4,17 +4,16 @@
 
 ## [0.3.1] - 2026-05-16 19:02:00
 
-### 🔧 OAuth — Fix Codex PKCE flow cho tất cả loại account (5 loại)
+### 🔧 OAuth — Fix Codex PKCE flow cho tất cả loại account (4 loại)
 
-**Phân loại 5 loại account ChatGPT/Codex** (quan trọng để hiểu flow):
+**Phân loại 4 loại account ChatGPT/Codex** (quan trọng để hiểu flow):
 
 | Loại | Mô tả | Giao diện OAuth | Trước v0.3.1 | Sau v0.3.1 |
 |---|---|---|---|---|
 | **1** | Free có workspace, giao diện 1 | `/workspace` → click Personal → redirect chatgpt.com | ✅ Hoạt động (v0.3.0) | ✅ Không thay đổi |
 | **2** | Free có workspace, giao diện 2 | `/choose-an-account` → consent → workspace select → Continue → "session ended / invalid_state" | ❌ Fail → fallback chỉ access_token | ✅ Full PKCE (access + refresh) |
-| **3** | Free không dính phone (email/password) | Navigate OAuth URL → callback `code=` trực tiếp | ✅ Hoạt động | ✅ Hoạt động (fix hasError false positive) |
+| **3** | Free không dính phone (email/password) | Navigate OAuth URL → callback `code=` trực tiếp (nhanh) hoặc timeout → stuck chatgpt.com (chậm) | ⚠️ Hoạt động khi nhanh, fallback khi timeout | ✅ Retry navigate + fresh tab fallback |
 | **4** | Free dính phone | Navigate OAuth URL → `/add-phone` → phone screen | ✅ Hoạt động (NEED_PHONE report) | ✅ Không thay đổi |
-| **5** | Free có Google FedCM popup | Navigate OAuth URL → Google popup overlay block → timeout → stuck chatgpt.com | ⚠️ Fallback session (navigate timeout) | ⚠️ Fallback session (chưa dismiss popup trong Capture) |
 
 **Chi tiết từng loại**:
 
@@ -22,11 +21,9 @@
 
 - **Loại 2** — Account thuộc workspace, nhưng OpenAI hiện giao diện khác: `/choose-an-account` (chọn account) → `/sign-in-with-chatgpt/codex/consent` (consent page có embedded workspace radio/dropdown) → click Continue → **"session ended / invalid_state"** error. Session Codex bị invalidate sau consent. Đây là loại bị break trong v0.3.0.
 
-- **Loại 3** — Free account đơn giản, không có workspace, không cần phone. Navigate OAuth URL → nếu session còn active → redirect thẳng đến callback `code=`. Nếu session hết → login → MFA → callback. **Nhưng v0.3.1 bị regression**: `hasError=true` trên chatgpt.com homepage → loop vô hạn 30 lần → fallback session. Fix ở commit `hasError false positive`.
+- **Loại 3** — Free account đơn giản, không có workspace, không cần phone. Navigate OAuth URL → nếu session còn active + mạng nhanh → redirect thẳng đến callback `code=` (thành công). Nếu mạng chậm hoặc Google FedCM popup overlay block → navigate timeout → stuck trên chatgpt.com → trước v0.3.1: `hasError=true` (false positive) → loop 30 lần → fallback session. Sau v0.3.1: `hasError=false` → stuck handler retry navigate 3 lần → fresh tab browser OAuth → session fallback. Account `zyphor@gptmail.biz.id` là loại này. **Lưu ý về Google FedCM popup**: code cũ có `dismissGooglePopupAndClickLogin()` trong Connect flow (bước 1b) → dismiss popup + click "Log in" → redirect sang `auth.openai.com`. Nhưng Capture flow (OAuth PKCE) không gọi hàm này. Khi đã login (`looksLoggedIn=true`), popup thường không hiện, nhưng navigate vẫn có thể timeout do mạng chậm.
 
 - **Loại 4** — Free account bị yêu cầu thêm số điện thoại. Navigate OAuth URL → `/add-phone` → phone screen → report NEED_PHONE. Code cũ hoạt động OK.
-
-- **Loại 5** — Account email/password bình thường, nhưng chatgpt.com hiện **Google FedCM popup overlay** ("Sign in with Google") trên trang login. Popup này che trang → block navigation. Code cũ có `dismissGooglePopupAndClickLogin()` trong **Connect flow** (bước 1b) → dismiss popup + click "Log in" → redirect sang `auth.openai.com`. Nhưng **Capture flow** (OAuth PKCE) KHÔNG gọi `dismissGooglePopupAndClickLogin()` → navigate OAuth URL timeout → stuck trên chatgpt.com → fallback session. Account `zyphor@gptmail.biz.id` là loại này. **Fix**: Thêm `dismissGooglePopupAndClickLogin()` vào Capture flow trước navigate OAuth URL, hoặc trong stuck-on-chatgpt handler.
 
 **Problem**: V0.3.1 ban đầu chỉ fix loại 2 nhưng gây regression cho loại 3:
 1. Loại 2: `getState()` không nhận diện error page (`hasError=false`) + `isConsentScreen=true` false positive → loop vô hạn
