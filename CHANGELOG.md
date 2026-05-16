@@ -14,7 +14,7 @@
 | **2** | Free có workspace, giao diện 2 | `/choose-an-account` → consent → workspace select → Continue → "session ended / invalid_state" | ❌ Fail → fallback chỉ access_token | ✅ Full PKCE (access + refresh) |
 | **3** | Free không dính phone (email/password) | Navigate OAuth URL → callback `code=` trực tiếp | ✅ Hoạt động | ✅ Hoạt động (fix hasError false positive) |
 | **4** | Free dính phone | Navigate OAuth URL → `/add-phone` → phone screen | ✅ Hoạt động (NEED_PHONE report) | ✅ Không thay đổi |
-| **5** | SSO (Google/Microsoft) | Nhập email → redirect sang Google/Microsoft SSO → login → callback | ⚠️ Fallback session (navigate timeout) | ⚠️ Fallback session (SSO chưa hỗ trợ) |
+| **5** | Free có Google FedCM popup | Navigate OAuth URL → Google popup overlay block → timeout → stuck chatgpt.com | ⚠️ Fallback session (navigate timeout) | ⚠️ Fallback session (chưa dismiss popup trong Capture) |
 
 **Chi tiết từng loại**:
 
@@ -26,7 +26,7 @@
 
 - **Loại 4** — Free account bị yêu cầu thêm số điện thoại. Navigate OAuth URL → `/add-phone` → phone screen → report NEED_PHONE. Code cũ hoạt động OK.
 
-- **Loại 5** — SSO account (Google/Microsoft). Khi nhập email → OpenAI redirect sang Google/Microsoft SSO login page. Account `zyphor@gptmail.biz.id` là loại này (redirect sang Google Sign-In). **Hiện tại code KHÔNG hỗ trợ SSO login** — chỉ hỗ trợ email/password + MFA. Kết quả: navigate OAuth URL timeout → stuck trên chatgpt.com → fallback session (chỉ access_token). **Cần phát triển SSO handler riêng trong tương lai**.
+- **Loại 5** — Account email/password bình thường, nhưng chatgpt.com hiện **Google FedCM popup overlay** ("Sign in with Google") trên trang login. Popup này che trang → block navigation. Code cũ có `dismissGooglePopupAndClickLogin()` trong **Connect flow** (bước 1b) → dismiss popup + click "Log in" → redirect sang `auth.openai.com`. Nhưng **Capture flow** (OAuth PKCE) KHÔNG gọi `dismissGooglePopupAndClickLogin()` → navigate OAuth URL timeout → stuck trên chatgpt.com → fallback session. Account `zyphor@gptmail.biz.id` là loại này. **Fix**: Thêm `dismissGooglePopupAndClickLogin()` vào Capture flow trước navigate OAuth URL, hoặc trong stuck-on-chatgpt handler.
 
 **Problem**: V0.3.1 ban đầu chỉ fix loại 2 nhưng gây regression cho loại 3:
 1. Loại 2: `getState()` không nhận diện error page (`hasError=false`) + `isConsentScreen=true` false positive → loop vô hạn
