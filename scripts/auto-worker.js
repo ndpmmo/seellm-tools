@@ -1055,6 +1055,38 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     const isMfa = _isMfaUrl(url);
     const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
     const isWorkspace = url.includes('workspace') && url.includes('select');
+    const isChooseAccount = url.includes('/choose-an-account');
+
+    if (isChooseAccount) {
+      log(`Choose-an-account page detected, clicking account option...`);
+      try {
+        const chooseResult = await evalJson(tabId, userId, `(() => {
+          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a, div[class*="account"], div[class*="item"]');
+          for (const el of clickables) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text.includes('select account') || text.includes(email?.toLowerCase() || '___never___')) {
+              el.click();
+              return 'clicked: ' + text.slice(0, 60);
+            }
+          }
+          // Fallback: click any visible button with "select"
+          const buttons = document.querySelectorAll('button');
+          for (const el of buttons) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text.includes('select')) {
+              el.click();
+              return 'clicked_select: ' + text.slice(0, 60);
+            }
+          }
+          return null;
+        })()`, { timeoutMs: 5000 });
+        log(`Choose account result: ${chooseResult}`);
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 4000));
+      continue;
+    }
 
     if (isPhone) {
       log(`Phone screen detected — navigating authUrl (mirrors upstream _do_codex_oauth add_phone handler)...`);
@@ -1398,21 +1430,51 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       } catch (_) {}
     }
     if (isWorkspaceError) {
-      console.log(`[Capture] 🚨 Detected 'Workspaces not found' error page → triggering browser-based OAuth`);
+      console.log(`[Capture] 🚨 Detected auth error page → opening fresh tab for browser-based OAuth`);
       await recorder.before(1, 21, 'workspace_error_page');
-      // Trigger browser-based OAuth immediately (fallback 3) instead of trying workspace bypass
-      const browserResult = await _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, password, totpSecret);
-      if (browserResult?.code) {
-        authCode = browserResult.code;
-        console.log(`[Capture] ✅ Code via browser OAuth (workspace error path): ${authCode.slice(0, 20)}...`);
-        await recorder.after(1, 21, 'workspace_error_browser_oauth_success');
-        break;
+      // The existing tab has a corrupted Codex session (no workspace data).
+      // Opening a new tab with a DIFFERENT userId avoids sharing the broken session.
+      let freshTabId = null;
+      let freshUserId = null;
+      try {
+        freshUserId = `codex_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const freshTab = await camofoxPost('/tabs', {
+          userId: freshUserId,
+          sessionKey: `codex_oauth_${Date.now()}`,
+          url: authUrl,
+          persistent: false,
+          os: 'macos',
+          screen: { width: 1440, height: 900 },
+          headless: false,
+          randomFonts: true,
+          canvas: 'random',
+        }, { timeoutMs: 25000 });
+        freshTabId = freshTab?.tabId;
+        console.log(`[Capture] 🆕 Fresh tab opened: tabId=${freshTabId} userId=${freshUserId}`);
+      } catch (tabErr) {
+        console.log(`[Capture] ❌ Failed to open fresh tab: ${tabErr?.message || tabErr}`);
       }
-      const errMsg = browserResult?.error || 'no code';
-      console.log(`[Capture] ❌ Browser OAuth (workspace error path): ${errMsg}`);
-      await recorder.error(1, 21, 'workspace_error_browser_oauth_failed');
-      if (errMsg.startsWith('NEED_PHONE')) return sendResult(task, 'error', errMsg);
-      if (errMsg.startsWith('NEED_MFA')) return sendResult(task, 'error', errMsg);
+      if (freshTabId && freshUserId) {
+        // Wait for page to load
+        await new Promise(r => setTimeout(r, 5000));
+        const browserResult = await _completeBrowserOAuth(freshTabId, freshUserId, authUrl, pkce, email, password, totpSecret);
+        // Clean up fresh tab
+        try { await camofoxDelete(`/tabs/${freshTabId}?userId=${freshUserId}`); } catch (_) {}
+        if (browserResult?.code) {
+          authCode = browserResult.code;
+          console.log(`[Capture] ✅ Code via fresh browser OAuth (workspace error path): ${authCode.slice(0, 20)}...`);
+          await recorder.after(1, 21, 'workspace_error_browser_oauth_success');
+          break;
+        }
+        const errMsg = browserResult?.error || 'no code';
+        console.log(`[Capture] ❌ Fresh browser OAuth (workspace error path): ${errMsg}`);
+        await recorder.error(1, 21, 'workspace_error_browser_oauth_failed');
+        if (errMsg.startsWith('NEED_PHONE')) return sendResult(task, 'error', errMsg);
+        if (errMsg.startsWith('NEED_MFA')) return sendResult(task, 'error', errMsg);
+      } else {
+        console.log(`[Capture] ❌ Could not open fresh tab, falling through to other fallbacks`);
+        await recorder.error(1, 21, 'workspace_error_no_fresh_tab');
+      }
       // Continue with other fallbacks
     }
 
