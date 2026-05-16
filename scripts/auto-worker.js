@@ -1734,7 +1734,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   const meta = extractAccountMeta(accessToken);
   let sessionToken = '', deviceId = '';
   try {
-    const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, 6000);
+    const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
     const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
     sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
     deviceId = cookies.find(c => c.name === 'oai-did')?.value || '';
@@ -2016,12 +2016,15 @@ async function fetchAnyTask() {
   const now = Date.now();
 
   // Helper: kiểm tra xem ID hoặc email có trong cooldown không
+  // Đồng thời cleanup entries đã hết hạn để tránh memory leak
   const isCoolingDown = (id, email = null) => {
     const ts = completedCooldown.get(id);
     if (ts && (now - ts) < COOLDOWN_MS) return true;
+    if (ts) completedCooldown.delete(id); // hết hạn → cleanup
     if (email) {
       const emailTs = completedEmailCooldown.get(email.toLowerCase());
       if (emailTs && (now - emailTs) < COOLDOWN_MS) return true;
+      if (emailTs) completedEmailCooldown.delete(email.toLowerCase()); // hết hạn → cleanup
       if (processingEmails.has(email.toLowerCase())) return true;
     }
     return false;
@@ -2179,14 +2182,13 @@ setInterval(checkModeReload, 5000);
 // ═══════════════════════════════════════════════════════════════
 // CLEANUP ON SHUTDOWN
 // ═══════════════════════════════════════════════════════════════
-process.on('SIGTERM', async () => {
-  console.log('[Worker] SIGTERM received, cleaning up...');
-  // Cleanup all Camofox tabs for this worker session
+const cleanupWorkerTabs = async () => {
+  console.log('[Worker] Shutdown signal received, cleaning up...');
   try {
     const tabs = await camofoxGet('/tabs');
     if (tabs && tabs.length > 0) {
       for (const tab of tabs) {
-        if (tab.userId && tab.userId.startsWith('seellm_worker_')) {
+        if (tab.userId && tab.userId.startsWith('seellm_')) {
           try { await camofoxDelete(`/tabs/${tab.tabId}?userId=${tab.userId}`); } catch (_) {}
         }
       }
@@ -2194,7 +2196,10 @@ process.on('SIGTERM', async () => {
   } catch (_) {}
   console.log('[Worker] Cleanup complete, exiting...');
   process.exit(0);
-});
+};
+
+process.on('SIGTERM', cleanupWorkerTabs);
+process.on('SIGINT', cleanupWorkerTabs);
 
 // ═══════════════════════════════════════════════════════════════
 // KHỞI ĐỘNG

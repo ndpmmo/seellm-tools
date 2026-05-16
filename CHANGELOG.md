@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.100] - 2026-05-16 13:25:00
+
+### 🐛 Auto Worker Bug Fixes
+
+**Problem**: 3 bugs trong `scripts/auto-worker.js` gây timeout sai, memory leak, và thiếu cleanup khi Ctrl+C.
+
+**Solution**: Sửa từng bug tại gốc — sửa tham số hàm, thêm cleanup Map, thêm SIGINT handler.
+
+#### Chi tiết thay đổi — `scripts/auto-worker.js`
+
+1. **Sửa `camofoxGet` sai tham số (dòng 1737)** — Tham số thứ hai là số `6000` thay vì object `{ timeoutMs: 6000 }`. JavaScript auto-box số thành `Number(6000)` không có property `timeoutMs` → timeout mặc định 10000ms được dùng thay vì 6000ms như ý định. Fix: đổi `6000` → `{ timeoutMs: 6000 }`.
+
+2. **Sửa memory leak từ `completedCooldown` Maps (dòng 2018-2031)** — `completedCooldown` và `completedEmailCooldown` Map chỉ được thêm (`set`) nhưng không bao giờ bị xóa (`delete`). Sau thời gian dài chạy, entries đã hết hạn vẫn tồn tại, gây memory leak. Fix: thêm `delete()` trong `isCoolingDown` khi entry đã hết hạn.
+
+3. **Thêm `SIGINT` handler (dòng 2185-2202)** — Chỉ có `SIGTERM` handler, thiếu `SIGINT` (Ctrl+C). Khi chạy local và nhấn Ctrl+C, process thoát ngay không cleanup tab Camofox. Fix: extract cleanup logic thành `cleanupWorkerTabs()`, đăng ký cho cả `SIGTERM` và `SIGINT`. Đồng thời mở rộng prefix filter từ `seellm_worker_` → `seellm_` để cleanup cả `seellm_connect_` tabs.
+
 ## [0.2.99] - 2026-05-16 01:48:00
 
 ### 📧 Vault Workshop Inbox — Gửi Email + Chuỗi Hội Thoại + Phân Biệt Thư Gửi/Nhận
