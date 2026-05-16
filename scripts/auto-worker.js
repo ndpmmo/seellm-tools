@@ -1377,12 +1377,21 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     // This page has no recognizable state (not email/password/MFA/consent/workspace/phone) → triggers "Unknown auth state"
     // The fix: detect this error page and trigger browser-based OAuth which handles full login flow
     let isWorkspaceError = false;
-    const noKnownState = !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen;
+    const noKnownState = !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen && !oauthState?.hasError;
     if (noKnownState) {
-      console.log(`[Capture] 🔍 No known auth state detected, checking page text for error...`);
+      console.log(`[Capture] 🔍 No known auth state detected (no error flag), checking page text for error...`);
       try {
         const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
         console.log(`[Capture] 🔍 Page text (first 200 chars): ${bodyText.slice(0, 200)}`);
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
+      } catch (_) {}
+    }
+    // Also check if hasError flag is set — error page with "Workspaces not found"
+    if (!isWorkspaceError && oauthState?.hasError && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput) {
+      console.log(`[Capture] 🔍 hasError flag set, checking page text...`);
+      try {
+        const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
+        console.log(`[Capture] 🔍 Error page text (first 200 chars): ${bodyText.slice(0, 200)}`);
         isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
       } catch (_) {}
     }
