@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.2.101] - 2026-05-16 13:30:00
+
+### 📸 Auto Worker — Tối ưu Screenshot, Giảm Spam
+
+**Problem**: `auto-worker.js` chụp quá nhiều ảnh không cần thiết — 94 lần gọi recorder, phần lớn là before/after trong retry loop (cùng một form, không thay đổi) và dedupe không hoạt động do dynamic step counter (`++captureStep`).
+
+**Solution**: 3 nhóm thay đổi — giữ nguyên tất cả ảnh quan trọng (lần đầu, lỗi, checkpoint), chỉ cắt ảnh thực sự thừa.
+
+#### Chi tiết thay đổi — `scripts/auto-worker.js`
+
+1. **Email/Password loop trong `runConnectFlow`** — Chỉ chụp `before`/`after` ở attempt đầu tiên (`attempt === 0`). Các lần retry sau không chụp vì form không thay đổi. Giảm tối đa 24 ảnh (8 retry email × 2 + 5 retry password × 2).
+
+2. **MFA retry trong `runConnectFlow` + `runLoginFlow`** — Bỏ `before` khi retry MFA lần 2 (form vẫn là MFA, không có gì mới). Giữ `after` để xác nhận kết quả.
+
+3. **Fixed step numbers trong `captureAndReport`** — Thay `++captureStep` (dynamic, mỗi lần gọi key khác nhau → dedupe vô hiệu) bằng fixed step numbers (2-16). Mỗi logical operation có step cố định → khi cùng một path bị hit nhiều lần trong 30-iteration loop, dedupe sẽ skip. Ví dụ: `phone_bypass` luôn là step 2, `session_seed` luôn là step 4, v.v.
+
+4. **Fixed step numbers trong `runLoginFlow` wait loop** — `phone_screen_wait` → step 9, `consent_wait` → step 10, `consent_clicked` → step 11. Dedupe hoạt động khi loop 20 vòng gặp lại cùng màn hình.
+
+**Kết quả**: Runtime screenshots giảm từ ~94 xuống ~40-50 (tùy số lần retry), trong khi vẫn giữ đầy đủ ảnh first attempt, tất cả error, và tất cả checkpoint chuyển trạng thái.
+
 ## [0.2.100] - 2026-05-16 13:25:00
 
 ### 🐛 Auto Worker Bug Fixes
