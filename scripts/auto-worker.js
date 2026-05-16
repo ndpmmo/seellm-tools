@@ -1376,9 +1376,14 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     // Handle "Workspaces not found" error page (appears when navigating authUrl with existing session that lacks Codex client workspace data)
     // This page has no recognizable state (not email/password/MFA/consent/workspace/phone) → triggers "Unknown auth state"
     // The fix: detect this error page and trigger browser-based OAuth which handles full login flow
-    const pageText = oauthState?.snapshot || '';
-    const isWorkspaceError = pageText.includes('workspaces not found in client auth session') || pageText.includes('oops, an error occurred');
-    if (isWorkspaceError && !oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput) {
+    let isWorkspaceError = false;
+    if (!oauthState?.hasEmailInput && !oauthState?.hasPasswordInput && !oauthState?.hasMfaInput && !oauthState?.looksLoggedIn && !oauthState?.isWorkspaceScreen && !oauthState?.isConsentScreen) {
+      try {
+        const bodyText = await evalJson(tabId, userId, 'document.body?.innerText?.toLowerCase() || ""', 3000) || '';
+        isWorkspaceError = bodyText.includes('workspaces not found') || bodyText.includes('oops, an error occurred');
+      } catch (_) {}
+    }
+    if (isWorkspaceError) {
       console.log(`[Capture] 🚨 Detected 'Workspaces not found' error page → triggering browser-based OAuth`);
       await recorder.before(1, 21, 'workspace_error_page');
       // Trigger browser-based OAuth immediately (fallback 3) instead of trying workspace bypass
