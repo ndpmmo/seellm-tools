@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp, AppConfig } from '../AppContext';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
-import { Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, Cloud } from 'lucide-react';
 
 const DATA_DIRS = [
   ['data/screenshots/', '📸 Ảnh chụp màn hình từ các phiên login'],
@@ -41,7 +41,8 @@ export function SettingsView() {
     camofoxPath: '', camofoxNodePath: '/usr/local/bin/node', camofoxPort: 3000,
     camofoxApi: 'http://localhost:9377',
     gatewayUrl: 'http://localhost:20128',
-    workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
+    workerAuthToken: '', d1WorkerUrl: '', d1SyncSecret: '',
+    pollIntervalMs: 15000, maxThreads: 3,
     forceEnLocale: true,
     workerMode: 'auto',
     protocolFirst: true,
@@ -52,7 +53,9 @@ export function SettingsView() {
 
   useEffect(() => { if (config) setF(config); }, [config]);
 
-  const set = (k: keyof AppConfig, v: any) => {
+  const [showD1Secret, setShowD1Secret] = useState(false);
+
+  const set = (k: keyof AppConfig, v: string | number | boolean) => {
     setF(p => ({ ...p, [k]: v }));
     if (k === 'workerMode' && config?.workerMode !== v) {
       setModeChanged(true);
@@ -108,9 +111,29 @@ export function SettingsView() {
           </Field>
         </Section>
 
+        <Section title="D1 Cloud Sync" icon={Cloud}>
+          <Field label="D1 Worker URL" hint="URL của Cloudflare D1 Worker để sync vault data" full>
+            <Input mono className="font-mono text-xs" value={f.d1WorkerUrl} onChange={e => set('d1WorkerUrl', e.target.value)} placeholder="https://your-d1-worker.workers.dev" />
+          </Field>
+          <Field label="D1 Sync Secret" hint="Secret dùng để xác thực với D1 Worker (header x-sync-secret)" full>
+            <div className="relative flex items-center">
+              <Input
+                type={showD1Secret ? 'text' : 'password'}
+                mono className="font-mono text-xs pr-9"
+                value={f.d1SyncSecret}
+                onChange={e => set('d1SyncSecret', e.target.value)}
+                placeholder="Nhập D1 sync secret..."
+              />
+              <button className="absolute right-2.5 text-slate-500 hover:text-slate-300 transition-colors" onClick={() => setShowD1Secret(!showD1Secret)}>
+                {showD1Secret ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </Field>
+        </Section>
+
         <Section title="Worker Config" icon={Cpu}>
-          <Field label="Poll Interval (ms)" hint="Tần suất kiểm tra task mới. Mặc định: 15000ms">
-            <Input type="number" value={f.pollIntervalMs} onChange={e => set('pollIntervalMs', Number(e.target.value))} />
+          <Field label="Poll Interval (ms)" hint="Tần suất kiểm tra task mới. Tối thiểu: 1000ms. Mặc định: 15000ms">
+            <Input type="number" min={1000} value={f.pollIntervalMs} onChange={e => set('pollIntervalMs', Number(e.target.value))} />
           </Field>
           <Field label="Max Threads" hint="Tối đa bao nhiêu tài khoản xử lý song song">
             <Input type="number" min={1} max={10} value={f.maxThreads} onChange={e => set('maxThreads', Number(e.target.value))} />

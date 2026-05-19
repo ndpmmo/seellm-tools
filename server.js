@@ -482,7 +482,26 @@ app.prepare().then(async () => {
   ex.get('/api/config', (_, res) => res.json(loadConfig()));
   ex.post('/api/config', (req, res) => {
     const old = loadConfig();
-    const cfg = { ...old, ...req.body };
+    const body = req.body;
+
+    // Validate numeric fields
+    if (body.camofoxPort != null) {
+      const p = Number(body.camofoxPort);
+      if (!Number.isFinite(p) || p < 1 || p > 65535) return res.status(400).json({ error: 'camofoxPort must be 1–65535' });
+      body.camofoxPort = p;
+    }
+    if (body.pollIntervalMs != null) {
+      const v = Number(body.pollIntervalMs);
+      if (!Number.isFinite(v) || v < 1000) return res.status(400).json({ error: 'pollIntervalMs must be >= 1000' });
+      body.pollIntervalMs = v;
+    }
+    if (body.maxThreads != null) {
+      const v = Number(body.maxThreads);
+      if (!Number.isFinite(v) || v < 1 || v > 50) return res.status(400).json({ error: 'maxThreads must be 1–50' });
+      body.maxThreads = v;
+    }
+
+    const cfg = { ...old, ...body };
     saveConfig(cfg);
     res.json({ ok: true, config: cfg });
 

@@ -48,6 +48,10 @@ export interface ProcessInfo {
 export interface AppConfig {
   camofoxPath: string; camofoxNodePath?: string; camofoxPort: number; camofoxApi: string;
   gatewayUrl: string; workerAuthToken: string;
+  /** D1 Cloud Worker URL for vault sync */
+  d1WorkerUrl: string;
+  /** D1 sync secret for authenticating with the cloud worker */
+  d1SyncSecret: string;
   pollIntervalMs: number; maxThreads: number;
   /** Ép Camofox dùng locale 'en-US' bất kể proxy GeoIP, để UI luôn render English */
   forceEnLocale?: boolean;
