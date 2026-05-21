@@ -2453,6 +2453,31 @@ async function pollTasks() {
     if (task.email) processingEmails.add(task.email.trim().toLowerCase());
     activeThreads++;
 
+    // Enrich task credentials from local Vault if missing (common for D1 cloud tasks)
+    if (!task.password && (task.id || task.email)) {
+      try {
+        const lookupKey = task.id || task.email;
+        const vaultRes = await fetch(`${TOOLS_API}/api/vault/accounts/${encodeURIComponent(lookupKey)}`, { signal: AbortSignal.timeout(3000) });
+        if (vaultRes.ok) {
+          const vaultData = await vaultRes.json();
+          if (vaultData?.account) {
+            task.password = vaultData.account.password || task.password;
+            task.twoFaSecret = vaultData.account.two_fa_secret || vaultData.account.twoFaSecret || task.twoFaSecret;
+            task.two_fa_secret = task.twoFaSecret;
+            if (!task.proxyUrl && !task.proxy) {
+              const effectiveProxy = normalizeProxyUrl(vaultData.account.proxy_url || null);
+              if (effectiveProxy) {
+                task.proxyUrl = effectiveProxy;
+                task.proxy = effectiveProxy;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Worker] ⚠️ Failed to enrich task credentials from local Vault: ${err.message}`);
+      }
+    }
+
     // Auto-select flow: connect nếu có password, login nếu chỉ có codeVerifier
     const flow = task._flow || (task.password ? 'connect' : 'login');
     console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (source: ${task.source}, mode: ${currentMode}, threads: ${activeThreads}/${MAX_THREADS})`);

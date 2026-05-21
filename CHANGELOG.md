@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.16] - 2026-05-22 00:52:00
+
+### 🚀 Khắc phục lỗi thiếu mật khẩu (text is required) khi chạy task từ Cloudflare D1 Cloud
+
+**Thay đổi:**
+- **Bổ sung endpoint GET `/api/vault/accounts/:idOrEmail`**: Cho phép tra cứu thông tin chi tiết một tài khoản bằng ID hoặc Email (bao gồm cả mật khẩu và mã 2FA giải mã được lưu ở local).
+- **Tự động làm giàu dữ liệu Task (Credential Enrichment)**: Trước khi worker chạy task lấy từ Cloudflare D1 Cloud (thường bị ẩn/lọc đi các trường bảo mật như `password` và `two_fa_secret`), worker sẽ tự động tra cứu ngược lại Vault cục bộ thông qua API vừa thêm để lấy `password` và `two_fa_secret` tương ứng. Điều này ngăn chặn triệt để lỗi Camofox báo `400: {"error":"text is require"}` khi gõ mật khẩu hoặc MFA.
+
+**File thay đổi:**
+- `server/routes/vault.js`
+- `scripts/auto-worker.js`
+
+---
+
 ## [0.3.15] - 2026-05-22 00:43:00
 
 ### 🚀 Đồng bộ hóa và tự động gán nhãn Phone Verification khi Codex OAuth gặp lỗi trong luồng Đăng ký & Kết nối

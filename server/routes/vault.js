@@ -267,7 +267,32 @@ router.post('/accounts', async (req, res) => {
       console.log(`[Vault] 🚀 New Codex account → Sync to D1: ${record.email}`);
       // SyncManager đã được gọi bởi upsertAccount
     }
-  } catch (e) { res.status(500).json({ error: e.message }); }
+// GET /api/vault/accounts/:idOrEmail
+router.get('/accounts/:idOrEmail', (req, res) => {
+  try {
+    const { idOrEmail } = req.params;
+    let account = vault.getAccount(idOrEmail);
+    if (!account && idOrEmail.includes('@')) {
+      const a = vault.db.prepare('SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL').get(idOrEmail);
+      if (a) {
+        account = {
+          ...a,
+          password: a.password,
+          two_fa_secret: a.two_fa_secret,
+          access_token: a.access_token,
+          refresh_token: a.refresh_token,
+          tags: JSON.parse(a.tags || '[]'),
+          cookies: JSON.parse(a.cookies || '[]'),
+          provider_specific_data: JSON.parse(a.provider_specific_data || '{}'),
+          gateway_status: a.gateway_status ?? null,
+        };
+      }
+    }
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    res.json({ ok: true, account });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // DELETE /api/vault/accounts/:id
