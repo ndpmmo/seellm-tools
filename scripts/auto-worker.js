@@ -1038,6 +1038,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
   let loginEmailDone = false;
   let loginPasswordDone = false;
   let loginCycleCount = 0; // track how many times we've reset for re-login
+  let phoneScreenCount = 0;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const url = await _getUrl();
@@ -1089,6 +1090,11 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     }
 
     if (isPhone) {
+      phoneScreenCount++;
+      if (phoneScreenCount >= 2) {
+        log(`Phone screen detected multiple times — account requires phone verification`);
+        return { error: 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại' };
+      }
       log(`Phone screen detected — navigating authUrl (mirrors upstream _do_codex_oauth add_phone handler)...`);
       // Upstream: page.goto(oauth_start.auth_url) then poll 5s for code= or consent
       try { await navigate(tabId, userId, authUrl, 20000); } catch (_) {}

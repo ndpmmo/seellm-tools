@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.13] - 2026-05-22 00:18:00
+
+### 🚀 Phát hiện và thoát vòng lặp chuyển hướng xác minh Số điện thoại (Phone loop escape)
+
+**Thay đổi:**
+- **Ngăn chặn vòng lặp vô tận `choose-an-account` và `add-phone`**: Khi tài khoản bị dính màn hình xác minh số điện thoại cứng từ phía OpenAI, việc worker cố gắng điều hướng ngược về `authUrl` sẽ đưa trình duyệt quay lại màn hình chọn tài khoản (`choose-an-account`). Sau khi click chọn tài khoản, OpenAI lại chuyển hướng ngược lại trang `add-phone`, tạo ra một vòng lặp chuyển hướng và click vô tận kéo dài 12 vòng.
+- **Thoát ngay khi lặp lại màn hình Phone**: Bổ sung bộ đếm `phoneScreenCount`. Nếu màn hình `add-phone` xuất hiện từ lần thứ 2 trở đi trong cùng một phiên xử lý OAuth trình duyệt, worker sẽ dừng ngay lập tức và trả về lỗi `NEED_PHONE` để báo cho hệ thống đánh dấu khóa tài khoản hoặc đưa sang trạng thái xử lý lỗi, tiết kiệm thời gian xử lý và giảm tải hệ thống.
+
+**File thay đổi:**
+- `scripts/auto-worker.js`
+
+---
+
 ## [0.3.12] - 2026-05-21 23:12:00
 
 ### 🚀 Đồng bộ hóa và chống Race Condition trong Auto-Worker Đa nguồn
