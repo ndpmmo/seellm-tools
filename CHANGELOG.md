@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.3] - 2026-05-21 16:58:00
+
+### ✨ UI — Thêm nút copy cho email trong Vault Accounts View
+
+**Thay đổi:**
+- Thêm nút copy icon kế bên email trong bảng vault accounts
+- Hiệu ứng khi copy: icon chuyển thành dấu tích (Check) màu xanh lá
+- Border chuyển sang màu xanh lá khi copy thành công
+- Tự động trả lại icon Copy sau 1.5 giây
+- e.stopPropagation() để không trigger expand row khi click
+
+**File thay đổi:**
+- `src/components/views/vault/VaultAccountsView.tsx`
+
+---
+
 ## [0.3.2] - 2026-05-16 22:11:00
 
 ### 🔧 OAuth — Fix Codex PKCE flow cho tất cả loại account + MFA loop + navigate timeout

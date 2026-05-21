@@ -719,6 +719,24 @@ export function VaultAccountsView() {
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full shrink-0" style={{ background: isOpenAI(it.provider) ? '#10a37f' : (PROVIDERS.find(p => p.id === it.provider)?.color || '#999') }} />
                           <span className="font-semibold text-[13px] text-slate-200 truncate max-w-[280px]">{it.email || 'No email'}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(it.email);
+                              const btn = e.currentTarget;
+                              const originalIcon = btn.innerHTML;
+                              btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                              btn.classList.add('text-emerald-400', 'border-emerald-400/50');
+                              setTimeout(() => {
+                                btn.innerHTML = originalIcon;
+                                btn.classList.remove('text-emerald-400', 'border-emerald-400/50');
+                              }, 1500);
+                            }}
+                            className="p-1.5 rounded-md bg-white/5 border border-white/10 text-slate-400 hover:text-slate-200 hover:border-slate-400/50 transition-all"
+                            title="Copy email"
+                          >
+                            <Copy size={13} />
+                          </button>
                           <PlanBadge plan={it.plan} />
                           {it.label && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 border border-white/5 truncate max-w-[80px]">{it.label}</span>}
                         </div>
