@@ -651,8 +651,8 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
           }
 
           try {
-            const token = await getAccessToken(refreshToken, clientId);
-            await fetchMails(token, { top: 1 });
+            const token = await getAccessToken(refreshToken, clientId, true, email);
+            await fetchMails(token, { top: 1, email });
 
             const result = { email, status: 'active', error: null };
             vault.upsertEmailPool({
@@ -1563,9 +1563,11 @@ const _GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
 const _OUTLOOK_API = 'https://outlook.office.com/api/v2.0/me';
 const _inboxTokenCache = new Map(); // email → { token, expiresAt, isPersonal }
 
-// Personal Microsoft account domains — Thunderbird client ID uses IMAP scope,
-// which returns encrypted (EwA) tokens that Graph API rejects (IDX14100).
-// Must use Outlook REST API instead of Graph API for these accounts.
+// Personal Microsoft account domains.
+// TESTED 2026-05-21: With Thunderbird clientId (9e5f94bc...):
+//   - No-scope → EwBY token → works with Graph API ✅ (NOT Outlook REST v2.0 → 401)
+//   - .default scope → EwA token → works with Outlook REST API ✅ (Graph API → IDX14100)
+//   - IMAP scope → fails with AADSTS70000 unauthorized
 const _PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
 
 function _isPersonalMsAccount(email) {
@@ -1580,57 +1582,89 @@ async function _getGraphToken(pool) {
   // Clear stale cache
   _inboxTokenCache.delete(pool.email);
 
-  const isPersonal = _isPersonalMsAccount(pool.email);
-  const tokenUrl = isPersonal ? _GRAPH_TOKEN_URL_CONSUMERS : _GRAPH_TOKEN_URL;
+  const isPersonalDomain = _isPersonalMsAccount(pool.email);
 
-  // For personal accounts with Thunderbird client ID: use IMAP scope (which has consent)
-  // For work/school accounts: use Mail.Read scope
-  const scope = isPersonal
-    ? 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
-    : 'Mail.Read offline_access';
+  if (isPersonalDomain) {
+    // Strategy for personal accounts (hotmail/outlook.com):
+    // 1. No-scope → EwBY token (preferred, works with Graph API) ✅
+    // 2. Fallback: .default scope → EwA token → Outlook REST API ✅
+    const consumerUrl = _GRAPH_TOKEN_URL_CONSUMERS;
 
-  console.log(`[Inbox] Fetching token for ${pool.email} (${isPersonal ? 'personal/IMAP' : 'work/Mail.Read'})...`);
-
-  const params = new URLSearchParams({
-    client_id: pool.client_id,
-    grant_type: 'refresh_token',
-    refresh_token: pool.refresh_token,
-    scope
-  });
-  let r = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-
-  // Fallback: if scope fails, try without scope
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}));
-    console.log(`[Inbox] Token failed for ${pool.email}:`, err.error_description?.substring(0, 100));
-    if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
-      console.log(`[Inbox] Retrying without scope for ${pool.email}...`);
-      const noScopeParams = new URLSearchParams({
+    console.log(`[Inbox] Fetching token for ${pool.email} (personal/no-scope → Graph API)...`);
+    let r = await fetch(consumerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         client_id: pool.client_id,
         grant_type: 'refresh_token',
-        refresh_token: pool.refresh_token
-      });
-      r = await fetch(tokenUrl, {
+        refresh_token: pool.refresh_token,
+      }).toString(),
+    });
+
+    if (r.ok) {
+      const d = await r.json();
+      console.log(`[Inbox] Token OK for ${pool.email} (EwBY/Graph API mode)`);
+      const entry = { token: d.access_token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: false };
+      _inboxTokenCache.set(pool.email, entry);
+      return entry;
+    }
+
+    // Fallback: .default scope → EwA token → Outlook REST API
+    console.log(`[Inbox] No-scope failed, trying outlook.office.com/.default for ${pool.email}...`);
+    r = await fetch(consumerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: pool.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: pool.refresh_token,
+        scope: 'https://outlook.office.com/.default offline_access',
+      }).toString(),
+    });
+
+    const dFb = await r.json();
+    if (!r.ok) throw new Error(dFb.error_description || `Token error ${r.status}`);
+    console.log(`[Inbox] Token OK for ${pool.email} (EwA/Outlook REST fallback)`);
+    const entryFb = { token: dFb.access_token, expiresAt: Date.now() + ((dFb.expires_in || 3600) - 120) * 1000, isPersonal: true };
+    _inboxTokenCache.set(pool.email, entryFb);
+    return entryFb;
+  }
+
+  // Work/school accounts: Mail.Read scope → JWT → Graph API
+  console.log(`[Inbox] Fetching token for ${pool.email} (work/Mail.Read → Graph API)...`);
+  let r = await fetch(_GRAPH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: pool.client_id,
+      grant_type: 'refresh_token',
+      refresh_token: pool.refresh_token,
+      scope: 'Mail.Read offline_access',
+    }).toString(),
+  });
+
+  // Fallback: no scope if Mail.Read fails
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    console.log(`[Inbox] Work Mail.Read failed:`, err.error_description?.substring(0, 100));
+    if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
+      console.log(`[Inbox] Retrying without scope for ${pool.email}...`);
+      r = await fetch(_GRAPH_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: noScopeParams.toString(),
+        body: new URLSearchParams({
+          client_id: pool.client_id,
+          grant_type: 'refresh_token',
+          refresh_token: pool.refresh_token,
+        }).toString(),
       });
     }
   }
 
   const d = await r.json();
   if (!r.ok) throw new Error(d.error_description || `Token error ${r.status}`);
-  console.log(`[Inbox] Token OK for ${pool.email}`);
-
-  const entry = {
-    token: d.access_token,
-    expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000,
-    isPersonal
-  };
+  console.log(`[Inbox] Token OK for ${pool.email} (work/Graph API)`);
+  const entry = { token: d.access_token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: false };
   _inboxTokenCache.set(pool.email, entry);
   return entry;
 }
@@ -1799,7 +1833,8 @@ router.post('/inbox/send', async (req, res) => {
     if (!pool.refresh_token || !pool.client_id)
       return res.status(400).json({ error: 'Missing MS Graph credentials (refresh_token / client_id)' });
 
-    const token = await _getGraphToken(pool);
+    const tokenEntry = await _getGraphToken(pool);
+    const { token, isPersonal } = tokenEntry;
 
     const parseRecipients = (list) =>
       (list || []).filter(addr => addr && addr.trim()).map(addr => ({
@@ -1820,13 +1855,19 @@ router.post('/inbox/send', async (req, res) => {
       saveToSentItems: saveToSentItems !== false,
     };
 
-    const r = await fetch(`${_GRAPH_ME}/sendMail`, {
+    // Personal accounts (hotmail/outlook) use Outlook REST API — their encrypted (EwA)
+    // tokens are rejected by Graph API with IDX14100.
+    const sendUrl = isPersonal
+      ? `${_OUTLOOK_API}/sendmail`
+      : `${_GRAPH_ME}/sendMail`;
+
+    const r = await fetch(sendUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 
-    if (!r.ok && r.status !== 202) {
+    if (!r.ok && r.status !== 202 && r.status !== 204) {
       const d = await r.json().catch(() => ({}));
       throw new Error(d.error?.message || `Send failed: ${r.status}`);
     }

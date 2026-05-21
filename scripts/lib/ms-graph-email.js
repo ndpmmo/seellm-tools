@@ -4,6 +4,13 @@
  * Đọc email tự động thông qua Microsoft Graph API.
  * Sử dụng OData server-side filter để lọc chính xác email mới nhất từ OpenAI.
  * An toàn khi chạy đa luồng (multi-thread safe).
+ * 
+ * STRATEGY (tested 2026-05-21):
+ * - Personal accounts (hotmail/outlook.com): Thunderbird client → no-scope token (EwBY type)
+ *   → works with Graph API ✅ (NOT Outlook REST v2.0 which returns 401)
+ * - Personal accounts with outlook.office.com/.default scope → EwA (encrypted) token
+ *   → only works with Outlook REST v2.0 ✅ (Graph API → IDX14100 error)
+ * - Work/school accounts: Mail.Read scope → JWT → Graph API ✅
  */
 
 const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
@@ -11,9 +18,8 @@ const GRAPH_TOKEN_URL_CONSUMERS = 'https://login.microsoftonline.com/consumers/o
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0/me';
 const OUTLOOK_API_BASE = 'https://outlook.office.com/api/v2.0/me';
 
-// Personal Microsoft account domains — Thunderbird client ID uses IMAP scope,
-// which returns encrypted (EwA) tokens that Graph API rejects (IDX14100).
-// Must use Outlook REST API instead of Graph API for these accounts.
+// Personal Microsoft account domains — use no-scope token flow for Graph API access.
+// Alternatively, use outlook.office.com/.default scope for Outlook REST API.
 const PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
 
 function isPersonalMsAccount(email) {
@@ -23,28 +29,70 @@ function isPersonalMsAccount(email) {
 
 /**
  * Lấy Access Token từ Refresh Token
+ * 
+ * Strategy:
+ * - Personal accounts: no-scope → EwBY token (works with Graph API)
+ *   Fallback: outlook.office.com/.default → EwA token (works with Outlook REST API)
+ * - Work/school accounts: Mail.Read scope → JWT → Graph API
+ *   Fallback: no-scope
  */
 export async function getAccessToken(refreshToken, clientId, withScope = true, email = null) {
     if (!refreshToken || !clientId) throw new Error('Refresh Token và Client ID là bắt buộc.');
 
     const isPersonal = email ? isPersonalMsAccount(email) : false;
-    const tokenUrl = isPersonal ? GRAPH_TOKEN_URL_CONSUMERS : GRAPH_TOKEN_URL;
 
-    // For personal accounts with Thunderbird client ID: use IMAP scope (which has consent)
-    // For work/school accounts: use Mail.Read scope
-    const defaultScope = isPersonal
-        ? 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
-        : 'Mail.Read offline_access';
+    // Personal accounts: Try no-scope first → EwBY token that works with Graph API
+    if (isPersonal) {
+        const tokenUrl = GRAPH_TOKEN_URL_CONSUMERS;
 
+        // Step 1: Try no-scope (preferred — EwBY token works with Graph API)
+        const noScopeParams = new URLSearchParams({
+            client_id: clientId,
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken
+        });
+        let res = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: noScopeParams.toString(),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            // Tag the token so fetchMails knows which API to use
+            return { token: data.access_token, useOutlookApi: false };
+        }
+
+        // Step 2: Fallback → outlook.office.com/.default scope → EwA token for Outlook REST API
+        console.log(`[Graph] Personal no-scope failed, trying outlook.office.com/.default...`);
+        const defaultScopeParams = new URLSearchParams({
+            client_id: clientId,
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            scope: 'https://outlook.office.com/.default offline_access'
+        });
+        res = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: defaultScopeParams.toString(),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            console.log(`[Graph] Personal EwA token OK (Outlook REST API mode)`);
+            return { token: data.access_token, useOutlookApi: true };
+        }
+
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error_description || `Lỗi lấy Access Token: ${res.status}`);
+    }
+
+    // Work/school accounts: Mail.Read scope → JWT → Graph API
+    const tokenUrl = GRAPH_TOKEN_URL;
     const params = new URLSearchParams({
         client_id: clientId,
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
-
-    if (withScope) {
-        params.append('scope', defaultScope);
-    }
+    if (withScope) params.append('scope', 'Mail.Read offline_access');
 
     let res = await fetch(tokenUrl, {
         method: 'POST',
@@ -52,11 +100,11 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
         body: params.toString(),
     });
 
-    // If fails with scope error, try without scope
+    // Fallback: no scope if Mail.Read fails
     if (!res.ok && withScope) {
         const err = await res.json().catch(() => ({}));
         if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
-            console.log(`[Graph] Scope error, retrying without scope...`);
+            console.log(`[Graph] Work scope error, retrying without scope...`);
             const noScopeParams = new URLSearchParams({
                 client_id: clientId,
                 grant_type: 'refresh_token',
@@ -76,15 +124,30 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
     }
 
     const data = await res.json();
-    return data.access_token;
+    return { token: data.access_token, useOutlookApi: false };
 }
 
 /**
  * Fetch danh sách email với OData filter phía server.
- * Tự động dùng Outlook REST API cho personal accounts, Graph API cho work/school.
+ * Tự động dùng Outlook REST API (EwA token) hoặc Graph API (EwBY/JWT token).
+ * 
+ * tokenArg có thể là:
+ * - string (legacy): dùng Graph API, không biết account type
+ * - { token, useOutlookApi } (mới): routing đúng API
  */
-export async function fetchMails(accessToken, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null, email = null } = {}) {
-    const isPersonal = email ? isPersonalMsAccount(email) : false;
+export async function fetchMails(tokenArg, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null, email = null } = {}) {
+    // Support both legacy string token and new object format
+    let accessToken, useOutlookApi;
+    if (typeof tokenArg === 'string') {
+        accessToken = tokenArg;
+        // Legacy: detect from email parameter
+        useOutlookApi = email ? false : false; // Legacy callers use Graph API
+    } else {
+        accessToken = tokenArg.token;
+        useOutlookApi = tokenArg.useOutlookApi;
+    }
+
+    const isPersonal = useOutlookApi;
     const apiBase = isPersonal ? OUTLOOK_API_BASE : GRAPH_API_BASE;
 
     const filters = [];
@@ -189,10 +252,10 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
     const filterAfter = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const startTime = Date.now();
 
-    let accessToken = null;
+    let tokenEntry = null;
     try {
-        accessToken = await getAccessToken(refreshToken, clientId, true, email);
-        console.log(`[OTP] ✅ Access Token OK`);
+        tokenEntry = await getAccessToken(refreshToken, clientId, true, email);
+        console.log(`[OTP] ✅ Access Token OK (${tokenEntry.useOutlookApi ? 'Outlook REST' : 'Graph API'})`);
     } catch (err) {
         console.error(`[OTP] ❌ Lỗi lấy Access Token: ${err.message}`);
         return null;
@@ -203,7 +266,7 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
         pollCount++;
         try {
             // Fetch email từ server với filter: nhận sau filterAfter + từ sender openai
-            const mails = await fetchMails(accessToken, {
+            const mails = await fetchMails(tokenEntry, {
                 top: 5,
                 filterUnread: true,
                 receivedAfter: filterAfter,
@@ -232,7 +295,7 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
                 if (code) {
                     console.log(`[OTP] ✅ MÃ OTP: ${code} | Subject: "${subject}" | From: ${sender} | Recv: ${received}`);
                     // Đánh dấu đã đọc ngay lập tức → tránh lần chạy sau nhặt lại
-                    await markMailAsRead(m.id, accessToken, email).catch(() => { });
+                    await markMailAsRead(m.id, tokenEntry, email).catch(() => { });
                     return code;
                 } else {
                     console.log(`[OTP] ⚠️ Email match nhưng không tìm thấy mã 6 số: "${subject}"`);
@@ -241,7 +304,7 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
 
             // Nếu không tìm thấy mail chưa đọc, thử tìm cả mail đã đọc (phòng hờ auto-read)
             if (mails.length === 0 && pollCount % 3 === 0) {
-                const allMails = await fetchMails(accessToken, {
+                const allMails = await fetchMails(tokenEntry, {
                     top: 3,
                     filterUnread: false,
                     receivedAfter: filterAfter,
@@ -273,9 +336,19 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
 
 /**
  * Đánh dấu email là đã đọc (critical: ngăn OTP bị dùng lại)
+ * tokenArg có thể là string (legacy) hoặc { token, useOutlookApi }
  */
-export async function markMailAsRead(messageId, accessToken, email = null) {
-    const isPersonal = email ? isPersonalMsAccount(email) : false;
+export async function markMailAsRead(messageId, tokenArg, email = null) {
+    let accessToken, useOutlookApi;
+    if (typeof tokenArg === 'string') {
+        accessToken = tokenArg;
+        useOutlookApi = email ? isPersonalMsAccount(email) : false;
+    } else {
+        accessToken = tokenArg.token;
+        useOutlookApi = tokenArg.useOutlookApi;
+    }
+
+    const isPersonal = useOutlookApi;
     const apiBase = isPersonal ? OUTLOOK_API_BASE : GRAPH_API_BASE;
     const body = isPersonal ? { IsRead: true } : { isRead: true };
     const url = `${apiBase}/messages/${messageId}`;
