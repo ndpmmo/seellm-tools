@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.14] - 2026-05-22 00:20:00
+
+### 🚀 Tối ưu hóa xử lý lỗi Số điện thoại trong quá trình đăng ký trình duyệt (Auto-Register Worker)
+
+**Thay đổi:**
+- **Thất bại sớm khi không bypass được Phone**: Trong luồng đăng ký qua trình duyệt (`auto-register-worker.js`), nếu phát hiện trang yêu cầu số điện thoại `add-phone` mà các lần thử bypass qua API Workspace đều thất bại, worker sẽ lập tức ném lỗi `NEED_PHONE` để báo hỏng tài khoản.
+- **Tiết kiệm thời gian & Làm sạch log**: Bỏ qua các bước khảo sát, đóng modal, thiết lập MFA vô ích (vì trình duyệt thực tế vẫn đang bị kẹt ở màn hình xác minh số điện thoại và không thể truy cập các tính năng này). Giảm thời gian chờ đợi lỗi từ ~60 giây xuống ngay lập tức.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.13] - 2026-05-22 00:18:00
 
 ### 🚀 Phát hiện và thoát vòng lặp chuyển hướng xác minh Số điện thoại (Phone loop escape)

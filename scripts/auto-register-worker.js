@@ -1626,11 +1626,10 @@ export async function runAutoRegister(taskInput) {
           }
         }
         
-        // If all retries failed, redirect to home
+        // If all retries failed, fail early
         if (!phoneBypassSuccess) {
-          console.log(`[6.1] ❌ Hết retry, redirecting to home...`);
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-          await new Promise(r => setTimeout(r, 8000));
+          console.log(`[6.1] ❌ Hết retry, tài khoản yêu cầu xác minh số điện thoại.`);
+          throw new Error("NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại");
         }
       }
     }
