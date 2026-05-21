@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.8] - 2026-05-21 21:20:00
+
+### 🐛 Fix lỗi crash tự động đăng ký (Auto-Register Worker)
+
+**Vấn đề:**
+- Biến `otpScreenCheck` trong worker `scripts/auto-register-worker.js` bị khai báo bằng từ khóa `const` dẫn đến lỗi `TypeError: Assignment to constant variable` và crash tiến trình đăng ký tự động khi màn hình nhập OTP cần reload trang (retry reload).
+
+**Giải pháp:**
+- Đã chuyển đổi khai báo `const otpScreenCheck` thành `let otpScreenCheck` để cho phép gán lại giá trị an toàn sau khi reload/thử lại trang thành công.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js` — Thay đổi `const otpScreenCheck` thành `let otpScreenCheck`.
+
+---
+
 ## [0.3.7] - 2026-05-21 21:08:00
 
 ### ✨ Thêm nút "Đọc Inbox" vào Vault Accounts

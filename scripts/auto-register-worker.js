@@ -1192,7 +1192,7 @@ export async function runAutoRegister(taskInput) {
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
-    const otpScreenCheck = await evalJson(tabId, USER_ID, `
+    let otpScreenCheck = await evalJson(tabId, USER_ID, `
       (() => {
         const url = location.href.toLowerCase();
         const body = (document.body?.innerText || '').toLowerCase();
