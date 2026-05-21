@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.11] - 2026-05-21 22:54:00
+
+### 🚀 Tối ưu hóa bộ lọc thời gian mã OTP và Cache Token MS Graph
+
+**Thay đổi:**
+- **Khắc phục việc đọc nhầm mã OTP cũ (Stale OTP)**: Đối với các tài khoản cũ, luồng Protocol signup gửi 1 mã OTP, sau đó luồng Browser login lại gửi tiếp mã thứ 2 khiến mã thứ nhất bị hủy. Trước đây `waitForOTPCode` quét mail trong 5 phút nên nhặt nhầm mã thứ nhất (stale) trước. Đã bổ sung tham số `minTime` (thời điểm bắt đầu pha OTP) để lọc và chỉ lấy các email nhận được sau mốc thời gian này, giúp bỏ qua các mã OTP cũ và điền đúng mã mới ngay lần đầu.
+- **Tối ưu hóa tốc độ lấy Token Microsoft**: Triển khai cơ chế cache scope thành công (`successfulScopeCache`) theo từng email. Các lượt lấy token sau đó sẽ bỏ qua việc gọi thử scope lỗi (như `Mail.Read` của personal account) và gọi trực tiếp scope đã thành công trước đó (như Outlook REST `.default`), giúp tăng tốc và giảm thiểu log lỗi AADSTS70000.
+
+**File thay đổi:**
+- `scripts/lib/ms-graph-email.js`
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.10] - 2026-05-21 22:33:00
 
 ### 🚀 Khắc phục lỗi nhận diện sai màn hình OTP và tự động điền form About You cho tài khoản cũ

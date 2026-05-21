@@ -1197,6 +1197,7 @@ export async function runAutoRegister(taskInput) {
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
+    const otpCheckStartTime = Date.now();
     let otpScreenCheck = await evalJson(tabId, USER_ID, `
       (() => {
         const url = location.href.toLowerCase();
@@ -1271,7 +1272,7 @@ export async function runAutoRegister(taskInput) {
     const isOnOtpScreen = otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText);
     if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
-      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout });
+      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout, minTime: otpCheckStartTime });
       if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
@@ -1343,7 +1344,7 @@ export async function runAutoRegister(taskInput) {
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
-          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout });
+          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpCheckStartTime });
           if (!otpRetryCode) {
             console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
             continue;

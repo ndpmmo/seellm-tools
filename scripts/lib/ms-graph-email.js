@@ -19,6 +19,9 @@ const OUTLOOK_API_BASE = 'https://outlook.office.com/api/v2.0/me';
 // Alternatively, use outlook.office.com/.default scope for Outlook REST API.
 const PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
 
+// Cache for successful OAuth scopes per email to avoid repeated network failures
+const successfulScopeCache = new Map();
+
 function isPersonalMsAccount(email) {
     const domain = (email || '').split('@')[1]?.toLowerCase();
     return domain && PERSONAL_MS_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
@@ -66,15 +69,29 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
     const tokenUrl = isPersonal ? GRAPH_TOKEN_URL_CONSUMERS : GRAPH_TOKEN_URL;
 
     const scopesToTry = [];
+    if (email) {
+        const cached = successfulScopeCache.get(email.toLowerCase());
+        if (cached) {
+            scopesToTry.push(cached);
+        }
+    }
+
+    const defaults = [];
     if (isPersonal) {
         // For personal accounts: try Graph Mail.Read first, then Outlook REST .default, then no-scope
-        scopesToTry.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
-        scopesToTry.push({ scope: 'https://outlook.office.com/.default offline_access', useOutlookApi: true });
-        scopesToTry.push({ scope: null, useOutlookApi: null });
+        defaults.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
+        defaults.push({ scope: 'https://outlook.office.com/.default offline_access', useOutlookApi: true });
+        defaults.push({ scope: null, useOutlookApi: null });
     } else {
         // For work/school accounts: try Mail.Read first, then no-scope
-        scopesToTry.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
-        scopesToTry.push({ scope: null, useOutlookApi: null });
+        defaults.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
+        defaults.push({ scope: null, useOutlookApi: null });
+    }
+
+    for (const def of defaults) {
+        if (!scopesToTry.some(s => s.scope === def.scope)) {
+            scopesToTry.push(def);
+        }
     }
 
     let lastError = null;
@@ -106,6 +123,11 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
                 
                 const tokenType = useOutlookApi ? 'EwA (→Outlook REST)' : token.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
                 console.log(`[Graph] Token OK for ${email || 'unknown'} with scope "${item.scope || 'no-scope'}": ${tokenType}`);
+                
+                if (email) {
+                    successfulScopeCache.set(email.toLowerCase(), { scope: item.scope, useOutlookApi });
+                }
+                
                 return { token, useOutlookApi };
             } else {
                 const text = await res.text().catch(() => '');
@@ -246,22 +268,18 @@ function extractOTP(mail) {
 }
 
 /**
- * Hàm chờ mã OTP từ OpenAI, hoạt động theo cơ chế polling nhanh (mỗi 3s).
- * 
- * ĐẶC ĐIỂM CHÍNH:
- * 1. Dùng OData server-side filter ($filter=receivedDateTime ge ...) → chỉ lấy email mới
- * 2. Lọc theo sender domain phía server → giảm dữ liệu thừa
- * 3. Verify người nhận (toRecipients) → an toàn khi nhiều luồng chạy cùng lúc
- * 4. Dùng body dạng text (không HTML) → regex match chính xác hơn
- * 5. Đánh dấu email đã đọc ngay sau khi lấy OTP → tránh dùng lại
+ * Hàm chờ mã OTP qua API Graph, cơ chế polling.
+ * Hỗ trợ nhận diện tự động và routing tới endpoint thích hợp (Graph vs Outlook REST).
  */
-export async function waitForOTPCode({ email, refreshToken, clientId, senderDomain = 'openai.com', maxWaitSecs = 90 }) {
+export async function waitForOTPCode({ email, refreshToken, clientId, senderDomain = 'openai.com', maxWaitSecs = 90, minTime = null }) {
     console.log(`[OTP] ⏳ Polling cho ${email} | sender: *${senderDomain} | timeout: ${maxWaitSecs}s`);
 
     // Ghi nhận thời điểm TRƯỚC khi gọi hàm này (sẽ được gọi từ worker)
-    // Lùi 5 phút để chắc chắn bắt được email đã gửi trước khi function này được invoke.
-    // Việc lọc đúng mã sẽ do "mark as read" + "recipient check" đảm nhiệm.
-    const filterAfter = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // Lùi 5 phút (nếu không truyền minTime) để chắc chắn bắt được email đã gửi trước khi function này được invoke.
+    // Nếu có minTime, chỉ quét thư nhận sau minTime (lùi 5 giây để phòng lệch giờ nhỏ).
+    const filterAfter = minTime
+        ? new Date(minTime - 5000).toISOString()
+        : new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const startTime = Date.now();
 
     let tokenEntry = null;
