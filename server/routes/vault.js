@@ -1558,29 +1558,97 @@ router.post('/sync', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 const _GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const _GRAPH_TOKEN_URL_CONSUMERS = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
 const _GRAPH_ME = 'https://graph.microsoft.com/v1.0/me';
-const _inboxTokenCache = new Map(); // email → { token, expiresAt }
+const _OUTLOOK_API = 'https://outlook.office.com/api/v2.0/me';
+const _inboxTokenCache = new Map(); // email → { token, expiresAt, isPersonal }
+
+// Personal Microsoft account domains — Thunderbird client ID uses IMAP scope,
+// which returns encrypted (EwA) tokens that Graph API rejects (IDX14100).
+// Must use Outlook REST API instead of Graph API for these accounts.
+const _PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
+
+function _isPersonalMsAccount(email) {
+  const domain = (email || '').split('@')[1]?.toLowerCase();
+  return domain && _PERSONAL_MS_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
+}
 
 async function _getGraphToken(pool) {
-  const c = _inboxTokenCache.get(pool.email);
-  if (c && c.expiresAt > Date.now() + 60_000) return c.token;
+  const cached = _inboxTokenCache.get(pool.email);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached;
+
+  // Clear stale cache
+  _inboxTokenCache.delete(pool.email);
+
+  const isPersonal = _isPersonalMsAccount(pool.email);
+  const tokenUrl = isPersonal ? _GRAPH_TOKEN_URL_CONSUMERS : _GRAPH_TOKEN_URL;
+
+  // For personal accounts with Thunderbird client ID: use IMAP scope (which has consent)
+  // For work/school accounts: use Mail.Read scope
+  const scope = isPersonal
+    ? 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
+    : 'Mail.Read offline_access';
+
+  console.log(`[Inbox] Fetching token for ${pool.email} (${isPersonal ? 'personal/IMAP' : 'work/Mail.Read'})...`);
+
   const params = new URLSearchParams({
     client_id: pool.client_id,
     grant_type: 'refresh_token',
     refresh_token: pool.refresh_token,
+    scope
   });
-  const r = await fetch(_GRAPH_TOKEN_URL, {
+  let r = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
   });
+
+  // Fallback: if scope fails, try without scope
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    console.log(`[Inbox] Token failed for ${pool.email}:`, err.error_description?.substring(0, 100));
+    if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
+      console.log(`[Inbox] Retrying without scope for ${pool.email}...`);
+      const noScopeParams = new URLSearchParams({
+        client_id: pool.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: pool.refresh_token
+      });
+      r = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: noScopeParams.toString(),
+      });
+    }
+  }
+
   const d = await r.json();
   if (!r.ok) throw new Error(d.error_description || `Token error ${r.status}`);
-  _inboxTokenCache.set(pool.email, {
+  console.log(`[Inbox] Token OK for ${pool.email}`);
+
+  const entry = {
     token: d.access_token,
     expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000,
-  });
-  return d.access_token;
+    isPersonal
+  };
+  _inboxTokenCache.set(pool.email, entry);
+  return entry;
+}
+
+// Helper: normalize Outlook REST API message format to match Graph API format
+function _normalizeOutlookMessage(m, direction = 'incoming') {
+  return {
+    id: m.Id,
+    subject: m.Subject,
+    bodyPreview: m.BodyPreview || m.Body?.Content?.substring(0, 255),
+    body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType } : undefined,
+    from: m.From ? { emailAddress: { name: m.From.EmailAddress?.Name, address: m.From.EmailAddress?.Address } } : undefined,
+    toRecipients: (m.ToRecipients || []).map(r => ({ emailAddress: { name: r.EmailAddress?.Name, address: r.EmailAddress?.Address } })),
+    receivedDateTime: m.ReceivedDateTime || m.DateTimeReceived,
+    isRead: m.IsRead,
+    conversationId: m.ConversationId,
+    direction
+  };
 }
 
 // GET /api/vault/inbox/:email — list inbox + sent messages, merged & sorted
@@ -1591,24 +1659,42 @@ router.get('/inbox/:email', async (req, res) => {
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
     if (!pool.refresh_token || !pool.client_id)
       return res.status(400).json({ error: 'Missing MS Graph credentials (refresh_token / client_id)' });
-    const token = await _getGraphToken(pool);
+    const tokenEntry = await _getGraphToken(pool);
+    const { token, isPersonal } = tokenEntry;
     const top = Math.min(parseInt(req.query.top) || 50, 100);
-    const selectFields = 'id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId';
 
-    // Fetch Inbox
-    const inboxUrl = `${_GRAPH_ME}/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
-    const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
-    const inboxData = await inboxRes.json();
-    if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Graph inbox error ${inboxRes.status}`);
+    let inboxMsgs, sentMsgs;
 
-    // Fetch Sent Items
-    const sentUrl = `${_GRAPH_ME}/mailFolders/sentitems/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
-    const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
-    const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+    if (isPersonal) {
+      // Use Outlook REST API for personal accounts (encrypted token not accepted by Graph API)
+      const selectFields = 'Id,Subject,BodyPreview,From,ToRecipients,ReceivedDateTime,IsRead,ConversationId';
 
-    // Tag direction
-    const inboxMsgs = (inboxData.value || []).map(m => ({ ...m, direction: 'incoming' }));
-    const sentMsgs = (sentData.value || []).map(m => ({ ...m, direction: 'outgoing' }));
+      const inboxUrl = `${_OUTLOOK_API}/messages?$top=${top}&$orderby=ReceivedDateTime desc&$select=${selectFields}`;
+      const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const inboxData = await inboxRes.json();
+      if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Outlook inbox error ${inboxRes.status}`);
+      inboxMsgs = (inboxData.value || []).map(m => _normalizeOutlookMessage(m, 'incoming'));
+
+      // Sent items
+      const sentUrl = `${_OUTLOOK_API}/mailfolders/sentitems/messages?$top=${top}&$orderby=ReceivedDateTime desc&$select=${selectFields}`;
+      const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+      sentMsgs = (sentData.value || []).map(m => _normalizeOutlookMessage(m, 'outgoing'));
+    } else {
+      // Use Graph API for work/school accounts
+      const selectFields = 'id,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId';
+
+      const inboxUrl = `${_GRAPH_ME}/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
+      const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const inboxData = await inboxRes.json();
+      if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Graph inbox error ${inboxRes.status}`);
+      inboxMsgs = (inboxData.value || []).map(m => ({ ...m, direction: 'incoming' }));
+
+      const sentUrl = `${_GRAPH_ME}/mailFolders/sentitems/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
+      const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+      sentMsgs = (sentData.value || []).map(m => ({ ...m, direction: 'outgoing' }));
+    }
 
     // Merge & sort by receivedDateTime desc
     const all = [...inboxMsgs, ...sentMsgs]
@@ -1625,15 +1711,27 @@ router.post('/inbox/message', async (req, res) => {
     if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
     const pool = vault.getEmailPoolFull().find(e => e.email === email);
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
-    const token = await _getGraphToken(pool);
-    const url = `${_GRAPH_ME}/messages/${messageId}` +
-      `?$select=id,subject,body,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId`;
-    const r = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="html"' },
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
-    res.json({ ok: true, message: d });
+    const tokenEntry = await _getGraphToken(pool);
+    const { token, isPersonal } = tokenEntry;
+
+    let message;
+    if (isPersonal) {
+      const url = `${_OUTLOOK_API}/messages/${messageId}?$select=Id,Subject,Body,BodyPreview,From,ToRecipients,ReceivedDateTime,IsRead,ConversationId`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error?.message || `Outlook error ${r.status}`);
+      message = _normalizeOutlookMessage(d);
+    } else {
+      const url = `${_GRAPH_ME}/messages/${messageId}` +
+        `?$select=id,subject,body,bodyPreview,from,toRecipients,receivedDateTime,isRead,conversationId`;
+      const r = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="html"' },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
+      message = d;
+    }
+    res.json({ ok: true, message });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1644,12 +1742,22 @@ router.post('/inbox/mark-read', async (req, res) => {
     if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
     const pool = vault.getEmailPoolFull().find(e => e.email === email);
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
-    const token = await _getGraphToken(pool);
-    await fetch(`${_GRAPH_ME}/messages/${messageId}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isRead: true }),
-    });
+    const tokenEntry = await _getGraphToken(pool);
+    const { token, isPersonal } = tokenEntry;
+
+    if (isPersonal) {
+      await fetch(`${_OUTLOOK_API}/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ IsRead: true }),
+      });
+    } else {
+      await fetch(`${_GRAPH_ME}/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isRead: true }),
+      });
+    }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1661,8 +1769,11 @@ router.post('/inbox/delete', async (req, res) => {
     if (!email || !messageId) return res.status(400).json({ error: 'Missing email or messageId' });
     const pool = vault.getEmailPoolFull().find(e => e.email === email);
     if (!pool) return res.status(404).json({ error: 'Email not in pool' });
-    const token = await _getGraphToken(pool);
-    const r = await fetch(`${_GRAPH_ME}/messages/${messageId}`, {
+    const tokenEntry = await _getGraphToken(pool);
+    const { token, isPersonal } = tokenEntry;
+
+    const apiUrl = isPersonal ? `${_OUTLOOK_API}/messages/${messageId}` : `${_GRAPH_ME}/messages/${messageId}`;
+    const r = await fetch(apiUrl, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });

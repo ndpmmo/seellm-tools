@@ -999,10 +999,12 @@ export function VaultWorkshopView() {
                                                 </td>
                                                 <td className="px-4 py-3.5">
                                                     <div className="flex flex-col gap-0.5">
-                                                        <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                                                            <Clock size={10} />
-                                                            <span>Thêm: {dayjs(it.created_at).fromNow()}</span>
-                                                        </div>
+                                                        {it.created_at && (
+                                                            <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                                                                <Clock size={10} />
+                                                                <span>Thêm: {dayjs(it.created_at).fromNow()}</span>
+                                                            </div>
+                                                        )}
                                                         {it.last_checked_at && (
                                                             <div className="text-[10px] text-slate-600 flex items-center gap-1">
                                                                 <Activity size={10} />

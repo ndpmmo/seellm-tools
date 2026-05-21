@@ -48,19 +48,19 @@ async function runCheck(input) {
         // Try with scope first, fallback without scope if error
         let token;
         try {
-            token = await getAccessToken(refreshToken, clientId, true);
+            token = await getAccessToken(refreshToken, clientId, true, email);
             console.log(`[Check] ✅ Lấy Access Token thành công (với scope).`);
         } catch (scopeErr) {
             if (scopeErr.message.includes('unauthorized') || scopeErr.message.includes('scope')) {
                 console.log(`[Check] ⚠️ Scope không được phép, thử lại không scope...`);
-                token = await getAccessToken(refreshToken, clientId, false);
+                token = await getAccessToken(refreshToken, clientId, false, email);
                 console.log(`[Check] ✅ Lấy Access Token thành công (không scope).`);
             } else {
                 throw scopeErr;
             }
         }
         
-        const mails = await fetchMails(token, { top: 1 });
+        const mails = await fetchMails(token, { top: 1, email });
         const message = `Kết nối Mailbox thành công. Tìm thấy ${mails.length} email.`;
 
         console.log(`[Check] ✅ ${message}`);

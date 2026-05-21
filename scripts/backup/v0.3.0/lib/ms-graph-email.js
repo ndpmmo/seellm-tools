@@ -7,34 +7,13 @@
  */
 
 const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-const GRAPH_TOKEN_URL_CONSUMERS = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0/me';
-const OUTLOOK_API_BASE = 'https://outlook.office.com/api/v2.0/me';
-
-// Personal Microsoft account domains — Thunderbird client ID uses IMAP scope,
-// which returns encrypted (EwA) tokens that Graph API rejects (IDX14100).
-// Must use Outlook REST API instead of Graph API for these accounts.
-const PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
-
-function isPersonalMsAccount(email) {
-    const domain = (email || '').split('@')[1]?.toLowerCase();
-    return domain && PERSONAL_MS_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
-}
 
 /**
  * Lấy Access Token từ Refresh Token
  */
-export async function getAccessToken(refreshToken, clientId, withScope = true, email = null) {
+export async function getAccessToken(refreshToken, clientId) {
     if (!refreshToken || !clientId) throw new Error('Refresh Token và Client ID là bắt buộc.');
-
-    const isPersonal = email ? isPersonalMsAccount(email) : false;
-    const tokenUrl = isPersonal ? GRAPH_TOKEN_URL_CONSUMERS : GRAPH_TOKEN_URL;
-
-    // For personal accounts with Thunderbird client ID: use IMAP scope (which has consent)
-    // For work/school accounts: use Mail.Read scope
-    const defaultScope = isPersonal
-        ? 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
-        : 'Mail.Read offline_access';
 
     const params = new URLSearchParams({
         client_id: clientId,
@@ -42,33 +21,11 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
         refresh_token: refreshToken
     });
 
-    if (withScope) {
-        params.append('scope', defaultScope);
-    }
-
-    let res = await fetch(tokenUrl, {
+    const res = await fetch(GRAPH_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString(),
     });
-
-    // If fails with scope error, try without scope
-    if (!res.ok && withScope) {
-        const err = await res.json().catch(() => ({}));
-        if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
-            console.log(`[Graph] Scope error, retrying without scope...`);
-            const noScopeParams = new URLSearchParams({
-                client_id: clientId,
-                grant_type: 'refresh_token',
-                refresh_token: refreshToken
-            });
-            res = await fetch(tokenUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: noScopeParams.toString(),
-            });
-        }
-    }
 
     if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -81,33 +38,22 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
 
 /**
  * Fetch danh sách email với OData filter phía server.
- * Tự động dùng Outlook REST API cho personal accounts, Graph API cho work/school.
+ * Tham số receivedAfter (ISO string) sẽ được dùng để server chỉ trả về email mới.
  */
-export async function fetchMails(accessToken, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null, email = null } = {}) {
-    const isPersonal = email ? isPersonalMsAccount(email) : false;
-    const apiBase = isPersonal ? OUTLOOK_API_BASE : GRAPH_API_BASE;
-
+export async function fetchMails(accessToken, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null } = {}) {
     const filters = [];
-    if (filterUnread) filters.push(isPersonal ? 'IsRead eq false' : 'isRead eq false');
-    if (receivedAfter) filters.push(isPersonal ? `ReceivedDateTime ge ${receivedAfter}` : `receivedDateTime ge ${receivedAfter}`);
-    if (senderContains) filters.push(isPersonal
-        ? `contains(From/EmailAddress/Address,'${senderContains}')`
-        : `contains(from/emailAddress/address,'${senderContains}')`
-    );
+    if (filterUnread) filters.push('isRead eq false');
+    if (receivedAfter) filters.push(`receivedDateTime ge ${receivedAfter}`);
+    if (senderContains) filters.push(`contains(from/emailAddress/address,'${senderContains}')`);
 
-    const selectFields = isPersonal
-        ? 'Id,Subject,BodyPreview,Body,From,ToRecipients,ReceivedDateTime,IsRead'
-        : 'id,subject,bodyPreview,body,from,toRecipients,receivedDateTime,isRead';
-
-    const orderBy = isPersonal ? 'ReceivedDateTime desc' : 'receivedDateTime desc';
-    let url = `${apiBase}/messages?$top=${top}&$orderby=${orderBy}&$select=${selectFields}`;
+    let url = `${GRAPH_API_BASE}/messages?$top=${top}&$orderby=receivedDateTime desc&$select=id,subject,bodyPreview,body,from,toRecipients,receivedDateTime,isRead`;
     if (filters.length > 0) url += `&$filter=${filters.join(' and ')}`;
 
     const res = await fetch(url, {
         headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'Prefer': 'outlook.body-content-type="text"',
+            'Prefer': 'outlook.body-content-type="text"', // Trả body dạng text thay vì HTML → dễ parse OTP
         },
     });
 
@@ -117,22 +63,7 @@ export async function fetchMails(accessToken, { top = 10, filterUnread = false, 
     }
 
     const data = await res.json();
-    const messages = data.value || [];
-
-    // Normalize Outlook REST API format to match Graph API format
-    if (isPersonal) {
-        return messages.map(m => ({
-            id: m.Id,
-            subject: m.Subject,
-            bodyPreview: m.BodyPreview || m.Body?.Content?.substring(0, 255),
-            body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType } : undefined,
-            from: m.From ? { emailAddress: { name: m.From.EmailAddress?.Name, address: m.From.EmailAddress?.Address } } : undefined,
-            toRecipients: (m.ToRecipients || []).map(r => ({ emailAddress: { name: r.EmailAddress?.Name, address: r.EmailAddress?.Address } })),
-            receivedDateTime: m.ReceivedDateTime,
-            isRead: m.IsRead,
-        }));
-    }
-    return messages;
+    return data.value || [];
 }
 
 /**
@@ -191,7 +122,7 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
 
     let accessToken = null;
     try {
-        accessToken = await getAccessToken(refreshToken, clientId, true, email);
+        accessToken = await getAccessToken(refreshToken, clientId);
         console.log(`[OTP] ✅ Access Token OK`);
     } catch (err) {
         console.error(`[OTP] ❌ Lỗi lấy Access Token: ${err.message}`);
@@ -208,7 +139,6 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
                 filterUnread: true,
                 receivedAfter: filterAfter,
                 senderContains: senderDomain,
-                email,
             });
 
             if (pollCount <= 3 || pollCount % 5 === 0) {
@@ -232,7 +162,7 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
                 if (code) {
                     console.log(`[OTP] ✅ MÃ OTP: ${code} | Subject: "${subject}" | From: ${sender} | Recv: ${received}`);
                     // Đánh dấu đã đọc ngay lập tức → tránh lần chạy sau nhặt lại
-                    await markMailAsRead(m.id, accessToken, email).catch(() => { });
+                    await markMailAsRead(m.id, accessToken).catch(() => { });
                     return code;
                 } else {
                     console.log(`[OTP] ⚠️ Email match nhưng không tìm thấy mã 6 số: "${subject}"`);
@@ -246,7 +176,6 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
                     filterUnread: false,
                     receivedAfter: filterAfter,
                     senderContains: senderDomain,
-                    email,
                 });
                 for (const m of allMails) {
                     const recipients = (m.toRecipients || []).map(r => (r.emailAddress?.address || '').toLowerCase());
@@ -274,17 +203,14 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
 /**
  * Đánh dấu email là đã đọc (critical: ngăn OTP bị dùng lại)
  */
-export async function markMailAsRead(messageId, accessToken, email = null) {
-    const isPersonal = email ? isPersonalMsAccount(email) : false;
-    const apiBase = isPersonal ? OUTLOOK_API_BASE : GRAPH_API_BASE;
-    const body = isPersonal ? { IsRead: true } : { isRead: true };
-    const url = `${apiBase}/messages/${messageId}`;
+export async function markMailAsRead(messageId, accessToken) {
+    const url = `${GRAPH_API_BASE}/messages/${messageId}`;
     await fetch(url, {
         method: 'PATCH',
         headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ isRead: true })
     });
 }

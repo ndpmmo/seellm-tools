@@ -2,6 +2,39 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.5] - 2026-05-21 19:48:00
+
+### 🔧 Email API — Fix triệt để lỗi IDX14100 JWT format cho personal Microsoft accounts
+
+**Vấn đề:**
+- Personal Microsoft accounts (outlook.com, hotmail.com, live.com) gặp lỗi `IDX14100: JWT is not well formed, there are no dots (.)` khi đọc inbox
+- Nguyên nhân: Client ID Thunderbird (`9e5f94bc`) chỉ có scope `IMAP.AccessAsUser.All`, không có `Mail.Read` cho Graph API
+- Microsoft trả về encrypted token (EwA format) cho personal accounts → Graph API từ chối
+
+**Giải pháp — Dual API Strategy:**
+- **Personal accounts**: Dùng scope `IMAP.AccessAsUser.All` + `/consumers` endpoint + **Outlook REST API** (`outlook.office.com/api/v2.0`)
+- **Work/School accounts**: Dùng scope `Mail.Read` + `/common` endpoint + **Graph API** (`graph.microsoft.com/v1.0`)
+- Tự động phát hiện loại tài khoản qua email domain
+- Normalize Outlook REST API response format để UI không cần thay đổi
+
+**File thay đổi:**
+- `server/routes/vault.js` — toàn bộ inbox routes (_getGraphToken, inbox list, message body, mark-read, delete) hỗ trợ dual API
+- `scripts/lib/ms-graph-email.js` — getAccessToken(), fetchMails(), markMailAsRead() hỗ trợ dual API
+- `scripts/check-mail-worker.js` — truyền email vào getAccessToken() và fetchMails()
+
+### ✨ UI — Thêm nút copy vào toast notifications
+
+**Thay đổi:**
+- Thêm nút copy icon vào mỗi toast message (Views.tsx)
+- Click copy → lưu message vào clipboard, hiển thị checkmark 1.5s
+- Toast container bây giờ có thể click được (pointer-events-auto)
+- Import thêm useState, Copy, Check từ lucide-react
+
+**File thay đổi:**
+- `src/components/Views.tsx`
+
+---
+
 ## [0.3.4] - 2026-05-21 17:20:00
 
 ### ✨ UI — Thêm cột thời gian vào Vault Workshop View
