@@ -175,6 +175,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRealtimeConnected(sseConnected);
   }, [sseConnected]);
 
+  // Periodic cleanup for stale live screenshots (TTL: 60s)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setLiveShots(prev => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [id, shot] of Object.entries(prev)) {
+          const ts = shot.ts ? new Date(shot.ts).getTime() : 0;
+          if (now - ts > 60000) {
+            delete next[id];
+            delete liveShotsUpdateRef.current[id];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Math.random().toString(36).slice(2);
     setToasts(p => [...p, { id, message, type }]);
@@ -348,6 +369,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           queueRefreshSessions();
         } catch (err) {
           console.warn('[SSE] Failed to parse screenshot:new:', err);
+        }
+      });
+
+      eventSource.addEventListener('screenshot:clear', (e: MessageEvent) => {
+        try {
+          const data: { sessionId: string } = JSON.parse(e.data);
+          delete liveShotsUpdateRef.current[data.sessionId];
+          setLiveShots(prev => {
+            const next = { ...prev };
+            delete next[data.sessionId];
+            return next;
+          });
+        } catch (err) {
+          console.warn('[SSE] Failed to parse screenshot:clear:', err);
         }
       });
 

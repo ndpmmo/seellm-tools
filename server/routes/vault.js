@@ -27,6 +27,25 @@ export function setSSEEmitter(emitter) {
   emitSSE = emitter;
 }
 
+// Clear live screenshots associated with a task ID when a task finishes
+async function clearLiveScreenshots(taskId) {
+  if (!emitSSE) return;
+  try {
+    const screenshotsDir = path.join(process.cwd(), 'data', 'screenshots');
+    if (fs.existsSync(screenshotsDir)) {
+      const entries = await fs.promises.readdir(screenshotsDir).catch(() => []);
+      for (const d of entries) {
+        if (d.startsWith(`connect_${taskId}_`) || d.startsWith(`run_${taskId}_`)) {
+          console.log(`[SSE] Clearing live screenshot session: ${d} (task completed)`);
+          emitSSE('screenshot:clear', { sessionId: d });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Vault] Error clearing live screenshots:', err.message);
+  }
+}
+
 /** Helper: audit + broadcast realtime */
 function logAudit(opts) {
   const entry = auditLog(opts);
@@ -1144,6 +1163,7 @@ router.post('/accounts/result', async (req, res) => {
       // Reset về pending sau một khoảng thời gian nếu là lỗi tạm thời
     }
 
+    clearLiveScreenshots(id).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     console.error('[Result] 💥 Unhandled error:', e.message);
@@ -1478,6 +1498,7 @@ router.post('/accounts/connect-result', async (req, res) => {
       });
     }
 
+    clearLiveScreenshots(id).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     console.error('[Connect-Result] 💥 Error:', e.message);

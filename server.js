@@ -251,6 +251,14 @@ function spawnProcess(id, name, command, args, cwd, env = {}) {
     // Flush any remaining log batches for SSE
     flushLogBatch(id);
     broadcastRealtimeEvent('process:status', { id, status: entry.status, exitCode: code });
+    if (id.startsWith('script_')) {
+      const parts = id.split('_');
+      const suffix = parts[parts.length - 1];
+      if (/^\d{13}$/.test(suffix)) {
+        broadcastRealtimeEvent('screenshot:clear', { sessionId: `register_${suffix}` });
+        broadcastRealtimeEvent('screenshot:clear', { sessionId: `register_connect_${suffix}` });
+      }
+    }
   });
   proc.on('error', err => {
     entry.status = 'error';

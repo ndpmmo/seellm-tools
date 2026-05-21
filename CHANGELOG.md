@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.17] - 2026-05-22 01:10:00
+
+### 🚀 Đồng bộ hóa và tự động dọn dẹp Live Browser View khi tiến trình hoặc task hoàn thành
+
+**Thay đổi:**
+- **Thêm sự kiện `screenshot:clear` qua SSE**: Cho phép backend gửi thông báo đến frontend để xóa ngay lập tức ảnh chụp màn hình LIVE của một session cụ thể khi tiến trình hoàn thành.
+- **Tự động gửi sự kiện `screenshot:clear`**:
+  - Tại đầu ra của các tiến trình script child (như `auto-register-worker.js`), server tự động lấy timestamp của tiến trình để phát tín hiệu xóa ảnh LIVE.
+  - Khi worker báo kết quả qua endpoint `/api/vault/accounts/result` và `/api/vault/accounts/connect-result`, server tự động quét và xóa ảnh LIVE của task ID tương ứng.
+- **Cơ chế dự phòng TTL 60 giây ở Frontend**: Nếu có bất kỳ lỗi gián đoạn hoặc sự cố kết nối khiến sự kiện không được gửi, `AppContext` có cơ chế tự động quét định kỳ mỗi 5 giây để xóa các screenshot LIVE đã cũ hơn 60 giây, đảm bảo Live Browser Grid luôn phản ánh chính xác trạng thái thực tế.
+
+**File thay đổi:**
+- `server.js`
+- `server/routes/vault.js`
+- `src/components/AppContext.tsx`
+
+---
+
 ## [0.3.16] - 2026-05-22 00:52:00
 
 ### 🚀 Khắc phục lỗi thiếu mật khẩu (text is required) khi chạy task từ Cloudflare D1 Cloud
