@@ -2,6 +2,34 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.6] - 2026-05-21 20:10:00
+
+### 🔧 Fix triệt để IDX14100 — Token strategy đúng sau live test thực tế
+
+**Root cause thực sự (tested live 2026-05-21):**
+
+Fix 0.3.5 sai logic: IMAP scope → AADSTS70000 (không được cấp) → fallback no-scope → EwBY token → nhưng code vẫn route EwBY sang Outlook REST API (vì `isPersonal=true`) → **Outlook REST API ném IDX14100 với EwBY token**.
+
+**Live test kết quả với Thunderbird client ID (`9e5f94bc-e8a4-4e73-b8be-63364c29d753`):**
+
+| Scope | Token type | Graph API | Outlook REST v2.0 |
+|---|---|---|---|
+| IMAP scope | ❌ AADSTS70000 | — | — |
+| No scope | EwBY (opaque) | ✅ 200 OK | ❌ IDX14100 |
+| `.default` scope | EwA (encrypted) | ❌ IDX14100 | ✅ 200 OK |
+
+**Giải pháp đúng — token strategy mới:**
+- **Personal accounts (primary)**: No-scope → EwBY token → **Graph API** ✅
+- **Personal accounts (fallback)**: `.default` scope → EwA token → **Outlook REST API** ✅
+- **Work/school accounts**: `Mail.Read` scope → JWT → **Graph API** ✅
+
+**File thay đổi:**
+- `scripts/lib/ms-graph-email.js` — rewrite `getAccessToken()`: no-scope first cho personal accounts; returns `{ token, useOutlookApi }` object (backward-compat)
+- `server/routes/vault.js` — rewrite `_getGraphToken()` với strategy mới; fix `bulk-verify` email param; fix `inbox/send` Bearer token và routing
+- `scripts/test-token-live.mjs` — script debug token (mới)
+
+---
+
 ## [0.3.5] - 2026-05-21 19:48:00
 
 ### 🔧 Email API — Fix triệt để lỗi IDX14100 JWT format cho personal Microsoft accounts
@@ -2946,75 +2974,36 @@ Trong thực tế đây thường là ngắt kết nối tạm thời (refresh t
 
 **Kết quả:** Không còn lỗi duplicate keys khi import email.
 
-## [0.3.6] - 2026-04-30
+## [0.3.6] - 2026-05-21 20:10:00
 
-###  New Features - Camofox v1.8.15 Integration
+### 🔧 Fix triệt để IDX14100 — Token strategy đúng sau live test
 
-**Mô tả:**
-- Tích hợp 4 features mới từ Camofox v1.8.15 vào seellm-tools
-- Nâng cao khả năng debug và monitoring cho workers
+**Vấn đề thực sự (đã test live 2026-05-21):**
 
-**Structured Extract:**
-- Thêm hàm `extractData(tabId, userId, schema)` trong `lib/camofox.js`
-- Trích xuất dữ liệu theo JSON Schema từ page
-- Thay thế regex/parsing thủ công
-- Ví dụ:
-```js
-import { extractData } from './lib/camofox.js';
-const data = await extractData(tabId, userId, {
-  type: 'object',
-  properties: {
-    email: { type: 'string', selector: '#email' },
-    error: { type: 'string', selector: '.error-message' }
-  }
-});
-```
+Fix 0.3.5 sai logic: IMAP scope thất bại (AADSTS70000) → fallback no-scope → EwBY token → nhưng code vẫn route sang Outlook REST API (isPersonal=true) → Outlook REST API ném IDX14100 với EwBY token.
 
-**Session Tracing:**
-- Thêm hàm `getTraces(userId)`, `getTrace(userId, filename)`, `deleteTrace(userId, filename)`
-- Bắt trace khi tạo tab: `trace: true`
-- Debug workers với Playwright traces
-- Xem bằng: `npx playwright show-trace session.zip`
-- Ví dụ:
-```js
-// Tạo tab với trace
-const tab = await camofoxPost('/tabs', { userId, sessionKey, url, trace: true });
+**Live test kết quả với Thunderbird client ID:**
 
-// List traces sau khi worker chạy xong
-const traces = await getTraces(userId);
+| Scope | Token | Graph API | Outlook REST v2.0 |
+|---|---|---|---|
+| IMAP scope | AADSTS70000 ❌ | - | - |
+| No scope | EwBY (opaque) | ✅ 200 | ❌ IDX14100 |
+| `.default` scope | EwA (encrypted) | ❌ IDX14100 | ✅ 200 |
 
-// Download và xem
-const traceBlob = await getTrace(userId, traces.traces[0].filename);
-```
+**Giải pháp đúng:**
+- **Personal accounts**: No-scope → EwBY token → **Graph API** ✅ (primary)
+- **Fallback nếu no-scope fail**: `.default` scope → EwA token → **Outlook REST API** ✅
+- **Work/school accounts**: `Mail.Read` scope → JWT → **Graph API** ✅
 
-**Prometheus Metrics:**
-- Thêm hàm `getMetrics()` lấy Prometheus metrics
-- Cần `PROMETHEUS_ENABLED=1` trên Camofox server
-- Monitoring health không cần external tools
-- Ví dụ:
-```js
-import { getMetrics } from './lib/camofox.js';
-const metrics = await getMetrics();
-console.log(metrics); // Prometheus format
-```
+**File thay đổi:**
+- `scripts/lib/ms-graph-email.js` — rewrite `getAccessToken()` với strategy mới; returns `{ token, useOutlookApi }` object
+- `server/routes/vault.js`:
+  - `_getGraphToken()` — rewrite với strategy mới (no-scope first for personal)
+  - `bulk-verify` — thêm `email` param vào `getAccessToken()` và `fetchMails()`
+  - `inbox/send` — sửa bug: was using full token cache object as Bearer; thêm personal account routing
+- `scripts/test-token-live.mjs` — script test strategy token (mới)
 
-**Unified /act Endpoint:**
-- Thêm hàm `act(tabId, userId, kind, params)` và các helper: `actClick`, `actType`, `actPress`, `actScroll`, `actWait`
-- Thay thế nhiều endpoints riêng biệt bằng một endpoint duy nhất
-- Hỗ trợ: click, type, press, scroll, wait
-- Ví dụ:
-```js
-// Thay vì nhiều function
-await clickRef(tabId, userId, 'e1');
-await typeByRef(tabId, userId, 'e2', 'hello');
-
-// Dùng unified act
-await act(tabId, userId, 'click', { ref: 'e1' });
-await act(tabId, userId, 'type', { ref: 'e2', text: 'hello' });
-```
-
-**Files thay đổi:**
-- `scripts/lib/camofox.js`: Thêm 11 functions mới
+---
 
 ## [0.3.5] - 2026-04-29 21:50:00
 
