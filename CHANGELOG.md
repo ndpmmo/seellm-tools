@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.15] - 2026-05-22 00:43:00
+
+### 🚀 Đồng bộ hóa và tự động gán nhãn Phone Verification khi Codex OAuth gặp lỗi trong luồng Đăng ký & Kết nối
+
+**Thay đổi:**
+- **Tự động gắn nhãn `phone-verify`**: Khi chạy luồng đăng ký kết hợp kết nối OAuth (enable OAuth), nếu giai đoạn đăng ký vượt qua thành công (không gặp màn hình phone hoặc bypass thành công) nhưng giai đoạn **Codex OAuth** sau đó lại gặp màn hình `add-phone` và thất bại, hệ thống sẽ tự động gán nhãn `phone-verify` và đánh dấu `Bypass Failed` ở phần ghi chú của tài khoản khi lưu vào Vault.
+- **Thêm nhãn `oauth-failed`**: Bổ sung nhãn `oauth-failed` vào tài khoản khi lưu để nhận diện tài khoản chỉ có session token mà không lấy được Codex refresh token.
+- **Chi tiết hóa ghi chú lỗi**: Lưu rõ lỗi cụ thể (như `NEED_PHONE` hoặc các lỗi khác) vào cột ghi chú của tài khoản trong Vault để dễ truy vết.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.14] - 2026-05-22 00:20:00
 
 ### 🚀 Tối ưu hóa xử lý lỗi Số điện thoại trong quá trình đăng ký trình duyệt (Auto-Register Worker)

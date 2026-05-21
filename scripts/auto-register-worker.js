@@ -682,6 +682,7 @@ export async function runAutoRegister(taskInput) {
   let preFlightResult = null;
   let phoneBypassAttempted = false;
   let phoneBypassSuccess = false;
+  let oauthError = null;
 
   try {
     // 🔒 [PreFlight] Assert proxy applied BEFORE creating main tab
@@ -1763,7 +1764,12 @@ export async function runAutoRegister(taskInput) {
         // OAuth Phase 2, Step 1: OAuth success
         await recorder.after(2, 1, 'oauth_success');
       } else {
-        console.log(`[7.5] 🔴 Codex OAuth thất bại: ${oauthResult.error}. Account vẫn được lưu với session token.`);
+        oauthError = oauthResult.error || 'Unknown';
+        console.log(`[7.5] 🔴 Codex OAuth thất bại: ${oauthError}. Account vẫn được lưu với session token.`);
+        if (oauthError === 'NEED_PHONE') {
+          phoneBypassAttempted = true;
+          phoneBypassSuccess = false;
+        }
         // OAuth Phase 2, Step 1: OAuth failed
         await recorder.error(2, 1, 'oauth_failed');
         // Graceful fallback - continue with session token
@@ -1814,8 +1820,15 @@ export async function runAutoRegister(taskInput) {
         status: 'idle',
         skipSync: true,
         restore_deleted: true,
-        tags: JSON.stringify(['auto-register', 'vault-register', ...(phoneBypassAttempted ? ['phone-verify'] : []), ...(phoneBypassSuccess ? ['phone-bypass-ok'] : []), ...(codexRefreshToken ? ['codex-oauth'] : [])]),
-        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${phoneBypassAttempted ? ` | Phone Verify: ${phoneBypassSuccess ? 'Bypass OK' : 'Bypass Failed'}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''} | Tạo: ${new Date().toISOString()}`
+        tags: JSON.stringify([
+          'auto-register',
+          'vault-register',
+          ...(phoneBypassAttempted ? ['phone-verify'] : []),
+          ...(phoneBypassSuccess ? ['phone-bypass-ok'] : []),
+          ...(codexRefreshToken ? ['codex-oauth'] : []),
+          ...(oauthError ? ['oauth-failed'] : [])
+        ]),
+        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${phoneBypassAttempted ? ` | Phone Verify: ${phoneBypassSuccess ? 'Bypass OK' : 'Bypass Failed'}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''}${oauthError ? ` | OAuth Error: ${oauthError}` : ''} | Tạo: ${new Date().toISOString()}`
       }),
     });
     const accData = await accRes.json();
