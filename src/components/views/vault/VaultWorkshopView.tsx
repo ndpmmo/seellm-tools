@@ -919,6 +919,7 @@ export function VaultWorkshopView() {
                                             <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
                                             <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Services</th>
                                             <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider min-w-[160px]">Proxy</th>
+                                            <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-32">Thời gian</th>
                                             <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                                         </tr>
                                     </thead>
@@ -993,6 +994,20 @@ export function VaultWorkshopView() {
                                                             <code className="text-[10px] text-indigo-400 font-mono truncate max-w-[150px]" title={proxyMap[it.email]}>
                                                                 {proxyMap[it.email]}
                                                             </code>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3.5">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                                                            <Clock size={10} />
+                                                            <span>Thêm: {dayjs(it.created_at).fromNow()}</span>
+                                                        </div>
+                                                        {it.last_checked_at && (
+                                                            <div className="text-[10px] text-slate-600 flex items-center gap-1">
+                                                                <Activity size={10} />
+                                                                <span>Check: {dayjs(it.last_checked_at).fromNow()}</span>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </td>

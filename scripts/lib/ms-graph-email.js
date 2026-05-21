@@ -7,12 +7,13 @@
  */
 
 const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const GRAPH_TOKEN_URL_V1 = 'https://login.microsoftonline.com/common/oauth2/token';
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0/me';
 
 /**
  * Lấy Access Token từ Refresh Token
  */
-export async function getAccessToken(refreshToken, clientId) {
+export async function getAccessToken(refreshToken, clientId, withScope = true) {
     if (!refreshToken || !clientId) throw new Error('Refresh Token và Client ID là bắt buộc.');
 
     const params = new URLSearchParams({
@@ -21,11 +22,35 @@ export async function getAccessToken(refreshToken, clientId) {
         refresh_token: refreshToken
     });
 
-    const res = await fetch(GRAPH_TOKEN_URL, {
+    // Try with scope first, fallback without scope if unauthorized
+    if (withScope) {
+        params.append('scope', 'Mail.Read offline_access');
+    }
+
+    let res = await fetch(GRAPH_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString(),
     });
+
+    // If v2 fails with scope error, try v1 endpoint
+    if (!res.ok && withScope) {
+        const err = await res.json().catch(() => ({}));
+        if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
+            console.log(`[Graph] v2 scope error, trying v1 endpoint...`);
+            const v1Params = new URLSearchParams({
+                client_id: clientId,
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                resource: 'https://graph.microsoft.com'
+            });
+            res = await fetch(GRAPH_TOKEN_URL_V1, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: v1Params.toString(),
+            });
+        }
+    }
 
     if (!res.ok) {
         const err = await res.json().catch(() => ({}));

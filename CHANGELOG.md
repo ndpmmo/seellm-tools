@@ -2,6 +2,34 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.4] - 2026-05-21 17:20:00
+
+### ✨ UI — Thêm cột thời gian vào Vault Workshop View
+
+**Thay đổi:**
+- Thêm cột "Thời gian" vào bảng email pool trong Vault Workshop View
+- Hiển thị thời gian thêm (created_at) với icon Clock và format relative time
+- Hiển thị thời gian kiểm tra gần nhất (last_checked_at) với icon Activity (nếu có)
+- Sử dụng dayjs().fromNow() để hiển thị thời gian dễ đọc (ví dụ: "2 giờ trước")
+
+**File thay đổi:**
+- `src/components/views/vault/VaultWorkshopView.tsx`
+
+### 🔧 Email Graph API — Fix token request với scope và endpoint fallback
+
+**Thay đổi:**
+- Thêm parameter `withScope` vào hàm `getAccessToken()` trong ms-graph-email.js
+- Thêm scope `Mail.Read offline_access` vào request token để lấy permission đúng
+- Thêm fallback v1 endpoint nếu v2 fail với scope error
+- Thêm retry logic trong check-mail-worker.js: thử với scope trước → nếu lỗi unauthorized thì thử không scope
+- Sử dụng URLSearchParams đúng cách để build request body
+
+**File thay đổi:**
+- `scripts/lib/ms-graph-email.js`
+- `scripts/check-mail-worker.js`
+
+---
+
 ## [0.3.3] - 2026-05-21 16:58:00
 
 ### ✨ UI — Thêm nút copy cho email trong Vault Accounts View

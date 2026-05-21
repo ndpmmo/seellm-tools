@@ -45,8 +45,20 @@ async function runCheck(input) {
             throw new Error('Thiếu Client ID — không thể kiểm tra mail');
         }
 
-        const token = await getAccessToken(refreshToken, clientId);
-        console.log(`[Check] ✅ Lấy Access Token thành công.`);
+        // Try with scope first, fallback without scope if error
+        let token;
+        try {
+            token = await getAccessToken(refreshToken, clientId, true);
+            console.log(`[Check] ✅ Lấy Access Token thành công (với scope).`);
+        } catch (scopeErr) {
+            if (scopeErr.message.includes('unauthorized') || scopeErr.message.includes('scope')) {
+                console.log(`[Check] ⚠️ Scope không được phép, thử lại không scope...`);
+                token = await getAccessToken(refreshToken, clientId, false);
+                console.log(`[Check] ✅ Lấy Access Token thành công (không scope).`);
+            } else {
+                throw scopeErr;
+            }
+        }
         
         const mails = await fetchMails(token, { top: 1 });
         const message = `Kết nối Mailbox thành công. Tìm thấy ${mails.length} email.`;
