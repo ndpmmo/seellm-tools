@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.10] - 2026-05-21 22:33:00
+
+### 🚀 Khắc phục lỗi nhận diện sai màn hình OTP và tự động điền form About You cho tài khoản cũ
+
+**Thay đổi:**
+- **Sửa lỗi nhận diện nhầm trang "How old are you?" / "About you" là màn hình OTP**: Trang nhập tuổi/ngày sinh của OpenAI có các input hỗ trợ bàn phím số (`inputmode="numeric"`), dẫn tới việc hàm kiểm tra màn hình OTP trước đây ngộ nhận là vẫn ở màn hình OTP. Do đó, worker đã liên tục lấy code OTP mới và điền vào ô nhập Tuổi (như `169048`). Đã thắt chặt điều kiện nhận diện màn hình OTP, bắt buộc phải thỏa mãn đồng thời: vừa có input số/code, vừa có URL chứa `email-verification`/`verify` hoặc văn bản hiển thị chứa từ khóa xác thực (`verify`, `code`, `enter code`).
+- **Tự động điền form thông tin cá nhân cho cả tài khoản cũ**: Khi tài khoản cũ chưa hoàn tất cập nhật hồ sơ (tên, ngày sinh), OpenAI sẽ hiển thị form "How old are you?" khi đăng nhập. Trước đây, worker bỏ qua bước này nếu tài khoản đã tồn tại. Nay worker sẽ chủ động kiểm tra xem trên màn hình hiện tại có các ô nhập Name/Age/Birthday hay không (`hasAboutInputs`); nếu có, worker sẽ tự động điền thông tin ngẫu nhiên và bấm hoàn tất để giúp tài khoản vượt qua màn hình này thành công.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.9] - 2026-05-21 21:28:00
 
 ### 🚀 Tối ưu hóa và sửa lỗi luồng tự động đăng ký (Auto-Register Worker) khi gặp Existing Account

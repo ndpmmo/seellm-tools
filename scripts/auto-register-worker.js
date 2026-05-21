@@ -1268,7 +1268,8 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    if (otpScreenCheck.hasOtpInput || otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText) {
+    const isOnOtpScreen = otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText);
+    if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
       const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout });
       if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
@@ -1338,25 +1339,29 @@ export async function runAutoRegister(taskInput) {
       console.log(`[OTP] Verify check:`, JSON.stringify(otpVerifyCheck));
 
       // Retry OTP entry if still on OTP screen (max CONFIG.otpMaxRetries retries)
-      if (otpVerifyCheck.hasOtpInput || otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText) {
+      const isStillOnOtp = otpVerifyCheck.hasOtpInput && (otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText);
+      if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
           const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout });
           if (!otpRetryCode) {
-            console.log(`[OTP] Retry ${retry}: Không lấy được OTP mới, skip retry`);
+            console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
             continue;
           }
+
           console.log(`[OTP] Retry ${retry}: Nhập mã PIN ${otpRetryCode}...`);
           await evalJson(tabId, USER_ID, `
             (() => {
-              const isVisible = el => el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
-              const setValue = (el, text) => {
+              const typeReact = (el, text) => {
+                if (!el) return false;
                 const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
                 nativeSetter.call(el, text);
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
-                el.blur();
-                el.focus();
+                return true;
+              };
+              const isVisible = (el) => {
+                return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
               };
               const input = Array.from(document.querySelectorAll('input')).find(el =>
                 isVisible(el) && (
@@ -1371,11 +1376,11 @@ export async function runAutoRegister(taskInput) {
                 )
               );
               if (input) {
-                setValue(input, "${otpRetryCode}");
-                const btn = Array.from(document.querySelectorAll('button')).find(b =>
-                  (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next') || b.textContent.includes('Verify')) &&
-                  !b.textContent.includes('with') && isVisible(b)
-                );
+                typeReact(input, '${otpRetryCode}');
+                const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                  const t = b.textContent.toLowerCase().trim();
+                  return t === 'continue' || t === 'verify' || t.includes('verify') || t.includes('ti\u1ebfp t\u1ee5c');
+                });
                 if (btn) btn.click();
                 else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
                 return { ok: true };
@@ -1388,11 +1393,16 @@ export async function runAutoRegister(taskInput) {
           // Check if retry succeeded
           const retryCheck = await evalJson(tabId, USER_ID, `
             (() => {
+              const url = location.href.toLowerCase();
+              const body = (document.body?.innerText || '').toLowerCase();
               const hasOtpInput = !!document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]');
-              return { hasOtpInput };
+              const hasVerifyUrl = url.includes('email-verification') || url.includes('verify');
+              const hasVerifyText = body.includes('verify') || body.includes('code') || body.includes('enter code');
+              return { hasOtpInput, hasVerifyUrl, hasVerifyText };
             })()
           `);
-          if (!retryCheck.hasOtpInput) {
+          const isStillOnOtpAfterRetry = retryCheck.hasOtpInput && (retryCheck.hasVerifyUrl || retryCheck.hasVerifyText);
+          if (!isStillOnOtpAfterRetry) {
             console.log(`[OTP] ✅ Retry ${retry} thành công!`);
             break;
           } else {
@@ -1405,169 +1415,175 @@ export async function runAutoRegister(taskInput) {
       await recorder.after(3, 1, 'pin_verified');
     }
 
-    // 5. Cấp User Info (tên, ngày sinh) — skip nếu account đã tồn tại
-    if (!isExistingAccount) {
-    console.log(`[5] Bypass thông tin Form About...`);
-    const userInfo = generateRandomUserInfo();
-    await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
-    // Phase 3, Step 1: Before about form
-    await recorder.before(3, 1, 'about_form');
+    // 5. Cấp User Info (tên, ngày sinh) — chạy nếu là account mới hoặc nếu page có yêu cầu
+    const hasAboutInputs = await evalJson(tabId, USER_ID, `
+      (() => {
+        const input = document.querySelector('input[name="name"], input[placeholder*="name" i], input[name="birthday"], input[name="dob"], input[name="age"], input[placeholder*="age" i]');
+        return !!input;
+      })()
+    `);
+    if (!isExistingAccount || hasAboutInputs) {
+      console.log(`[5] Bypass thông tin Form About...`);
+      const userInfo = generateRandomUserInfo();
+      await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
+      // Phase 3, Step 1: Before about form
+      await recorder.before(3, 1, 'about_form');
 
-    const aboutFillInfo = await evalJson(tabId, USER_ID, `
-          (() => {
-             const typeReact = (el, text) => {
-               if (!el) return false;
-               const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-               nativeSetter.call(el, text);
-               el.dispatchEvent(new Event('input', { bubbles: true }));
-               el.dispatchEvent(new Event('change', { bubbles: true }));
-               return true;
-             };
+      const aboutFillInfo = await evalJson(tabId, USER_ID, `
+            (() => {
+               const typeReact = (el, text) => {
+                 if (!el) return false;
+                 const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                 nativeSetter.call(el, text);
+                 el.dispatchEvent(new Event('input', { bubbles: true }));
+                 el.dispatchEvent(new Event('change', { bubbles: true }));
+                 return true;
+               };
 
-             const filled = { name: false, bday: false, btn: false };
+               const filled = { name: false, bday: false, btn: false };
 
-             // Điền Name — thử nhiều selector
-             const nameSelectors = [
-               'input[name="name"]',
-               'input[name="fullname"]', 
-               'input[name="full_name"]',
-               'input[autocomplete="name"]',
-               'input[placeholder="Full name"]',
-               'input[placeholder="Name"]',
-             ];
-             let nameEl = null;
-             for (const s of nameSelectors) {
-               nameEl = document.querySelector(s);
-               if (nameEl) break;
-             }
-             if (nameEl) {
-                 typeReact(nameEl, '${userInfo.name}');
-                 filled.name = 'fullname';
-             } else {
-                 // thử split first/last name
-                 const firstName = document.querySelector('input[name="first_name"], input[placeholder*="first" i], input[placeholder*="First" i]');
-                 const lastName  = document.querySelector('input[name="last_name"],  input[placeholder*="last" i],  input[placeholder*="Last" i]');
-                 const parts = '${userInfo.name}'.split(' ');
-                 if (firstName) { typeReact(firstName, parts[0] || ''); filled.name = 'first'; }
-                 if (lastName)  { typeReact(lastName,  parts[1] || parts[0]); filled.name = filled.name + '+last'; }
-             }
+               // Điền Name — thử nhiều selector
+               const nameSelectors = [
+                 'input[name="name"]',
+                 'input[name="fullname"]', 
+                 'input[name="full_name"]',
+                 'input[autocomplete="name"]',
+                 'input[placeholder="Full name"]',
+                 'input[placeholder="Name"]',
+               ];
+               let nameEl = null;
+               for (const s of nameSelectors) {
+                 nameEl = document.querySelector(s);
+                 if (nameEl) break;
+               }
+               if (nameEl) {
+                   typeReact(nameEl, '${userInfo.name}');
+                   filled.name = 'fullname';
+               } else {
+                   // thử split first/last name
+                   const firstName = document.querySelector('input[name="first_name"], input[placeholder*="first" i], input[placeholder*="First" i]');
+                   const lastName  = document.querySelector('input[name="last_name"],  input[placeholder*="last" i],  input[placeholder*="Last" i]');
+                   const parts = '${userInfo.name}'.split(' ');
+                   if (firstName) { typeReact(firstName, parts[0] || ''); filled.name = 'first'; }
+                   if (lastName)  { typeReact(lastName,  parts[1] || parts[0]); filled.name = filled.name + '+last'; }
+               }
 
-             // Điền ngày sinh / tuổi
-            const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
-                          document.querySelector('input[type="number"]');
-            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                          document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
-                          document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+               // Điền ngày sinh / tuổi
+              const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
+                            document.querySelector('input[type="number"]');
+              const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                            document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
+                            document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
 
-            if (ageEl && ageEl.type !== 'date') {
-                typeReact(ageEl, '${userInfo.age.toString()}');
-                filled.bday = 'age';
-            } else if (dobEl) {
-                // Nếu input type="date", dùng format YYYY-MM-DD
-                if (dobEl.type === 'date') {
-                    typeReact(dobEl, '${userInfo.birthdate}');
-                    filled.bday = 'dob-date';
-                } else {
-                    // format DD/MM/YYYY hoặc MM/DD/YYYY dựa trên placeholder
-                    const placeholder = dobEl.placeholder || '';
-                    let dobStr;
-                    if (placeholder.startsWith('MM')) {
-                        dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
-                    } else {
-                        dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
-                    }
-                    typeReact(dobEl, dobStr);
-                    filled.bday = 'dob-text';
-                }
-            }
-
-             // Click nút Agree / Continue / Finish creating account
-             const btn = Array.from(document.querySelectorAll('button')).find(b => {
-                 const txt = b.textContent.toLowerCase().trim();
-                 return txt === 'agree' || txt === 'i agree' || txt === 'continue' || 
-                        txt === 'finish' || txt.includes('creating account') ||
-                        txt.includes('create account') || txt.includes('finish creating') ||
-                        txt.includes('ti\u1ebfp t\u1ee5c') || txt.includes('\u0111\u1ed3ng \u00fd');
-             });
-             if (btn) { btn.click(); filled.btn = btn.textContent.trim(); }
-             else { filled.btn = 'NOT_FOUND: ' + Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).join(' | '); }
-
-             return filled;
-          })()
-        `);
-    console.log(`[5.1] Kết quả điền About: ${JSON.stringify(aboutFillInfo || {})}`);
-
-    // Validate birthday input - check if value was actually filled
-    if (aboutFillInfo?.bday) {
-      const birthdayValidation = await evalJson(tabId, USER_ID, `
-        (() => {
-          const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                        document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
-          if (!dobEl) return { found: false, value: null };
-          return { found: true, value: dobEl.value, type: dobEl.type };
-        })()
-      `);
-      console.log(`[5.1] Birthday validation:`, JSON.stringify(birthdayValidation));
-
-      // Retry birthday fill if empty
-      if (birthdayValidation?.found && !birthdayValidation?.value) {
-        console.log(`[5.1] ⚠️ Birthday input trống sau khi điền, retry...`);
-        await evalJson(tabId, USER_ID, `
-          (() => {
-            const typeReact = (el, text) => {
-              if (!el) return false;
-              const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-              nativeSetter.call(el, text);
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return true;
-            };
-            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                          document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
-            if (dobEl && dobEl.type === 'date') {
-              typeReact(dobEl, '${userInfo.birthdate}');
-            } else if (dobEl) {
-              const placeholder = dobEl.placeholder || '';
-              let dobStr;
-              if (placeholder.startsWith('MM')) {
-                dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
-              } else {
-                dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+              if (ageEl && ageEl.type !== 'date') {
+                  typeReact(ageEl, '${userInfo.age.toString()}');
+                  filled.bday = 'age';
+              } else if (dobEl) {
+                  // Nếu input type="date", dùng format YYYY-MM-DD
+                  if (dobEl.type === 'date') {
+                      typeReact(dobEl, '${userInfo.birthdate}');
+                      filled.bday = 'dob-date';
+                  } else {
+                      // format DD/MM/YYYY hoặc MM/DD/YYYY dựa trên placeholder
+                      const placeholder = dobEl.placeholder || '';
+                      let dobStr;
+                      if (placeholder.startsWith('MM')) {
+                          dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+                      } else {
+                          dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+                      }
+                      typeReact(dobEl, dobStr);
+                      filled.bday = 'dob-text';
+                  }
               }
-              typeReact(dobEl, dobStr);
-            }
-            return { ok: !!dobEl };
-          })()
-        `);
-        await new Promise(r => setTimeout(r, 2000));
-        const retryValidation = await evalJson(tabId, USER_ID, `
+
+               // Click nút Agree / Continue / Finish creating account
+               const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                   const txt = b.textContent.toLowerCase().trim();
+                   return txt === 'agree' || txt === 'i agree' || txt === 'continue' || 
+                          txt === 'finish' || txt.includes('creating account') ||
+                          txt.includes('create account') || txt.includes('finish creating') ||
+                          txt.includes('ti\u1ebfp t\u1ee5c') || txt.includes('\u0111\u1ed3ng \u00fd');
+               });
+               if (btn) { btn.click(); filled.btn = btn.textContent.trim(); }
+               else { filled.btn = 'NOT_FOUND: ' + Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).join(' | '); }
+
+               return filled;
+            })()
+          `);
+      console.log(`[5.1] Kết quả điền About: ${JSON.stringify(aboutFillInfo || {})}`);
+
+      // Validate birthday input - check if value was actually filled
+      if (aboutFillInfo?.bday) {
+        const birthdayValidation = await evalJson(tabId, USER_ID, `
           (() => {
             const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
                           document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
-            return { found: !!dobEl, value: dobEl?.value || null };
+            if (!dobEl) return { found: false, value: null };
+            return { found: true, value: dobEl.value, type: dobEl.type };
           })()
         `);
-        console.log(`[5.1] Birthday retry validation:`, JSON.stringify(retryValidation));
+        console.log(`[5.1] Birthday validation:`, JSON.stringify(birthdayValidation));
+
+        // Retry birthday fill if empty
+        if (birthdayValidation?.found && !birthdayValidation?.value) {
+          console.log(`[5.1] ⚠️ Birthday input trống sau khi điền, retry...`);
+          await evalJson(tabId, USER_ID, `
+            (() => {
+              const typeReact = (el, text) => {
+                if (!el) return false;
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(el, text);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              };
+              const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                            document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+              if (dobEl && dobEl.type === 'date') {
+                typeReact(dobEl, '${userInfo.birthdate}');
+              } else if (dobEl) {
+                const placeholder = dobEl.placeholder || '';
+                let dobStr;
+                if (placeholder.startsWith('MM')) {
+                  dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+                } else {
+                  dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+                }
+                typeReact(dobEl, dobStr);
+              }
+              return { ok: !!dobEl };
+            })()
+          `);
+          await new Promise(r => setTimeout(r, 2000));
+          const retryValidation = await evalJson(tabId, USER_ID, `
+            (() => {
+              const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                            document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+              return { found: !!dobEl, value: dobEl?.value || null };
+            })()
+          `);
+          console.log(`[5.1] Birthday retry validation:`, JSON.stringify(retryValidation));
+        }
       }
-    }
 
-    // Nếu btn bị NOT_FOUND, thử thêm 1 lần nữa
-    if (typeof aboutFillInfo?.btn === 'string' && aboutFillInfo.btn.startsWith('NOT_FOUND')) {
-      console.log(`[5.2] Btn không tìm thấy, thử lại sau 2s...`);
-      await new Promise(r => setTimeout(r, 2000));
-      await evalJson(tabId, USER_ID, `
-        const btn = Array.from(document.querySelectorAll('button')).find(b => {
-            const t = b.textContent.toLowerCase().trim();
-            return t.includes('creating') || t.includes('finish') || t === 'continue' || t.includes('agree');
-        });
-        if (btn) btn.click();
-        return btn?.textContent || 'still_not_found';
-      `);
-    }
+      // Nếu btn bị NOT_FOUND, thử thêm 1 lần nữa
+      if (typeof aboutFillInfo?.btn === 'string' && aboutFillInfo.btn.startsWith('NOT_FOUND')) {
+        console.log(`[5.2] Btn không tìm thấy, thử lại sau 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+        await evalJson(tabId, USER_ID, `
+          const btn = Array.from(document.querySelectorAll('button')).find(b => {
+              const t = b.textContent.toLowerCase().trim();
+              return t.includes('creating') || t.includes('finish') || t === 'continue' || t.includes('agree');
+          });
+          if (btn) btn.click();
+          return btn?.textContent || 'still_not_found';
+        `);
+      }
 
-    await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
-    // Phase 3, Step 2: About form completed
-    await recorder.after(3, 2, 'about_completed');
+      await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
+      // Phase 3, Step 2: About form completed
+      await recorder.after(3, 2, 'about_completed');
     } // end if (!isExistingAccount)
     } // end if (!skipRegistrationSteps)
 
