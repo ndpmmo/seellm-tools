@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.7] - 2026-05-21 21:08:00
+
+### ✨ Thêm nút "Đọc Inbox" vào Vault Accounts
+
+**Thay đổi:**
+- Thêm nút "Đọc Inbox" (màu tím) trong action column của bảng Vault Accounts
+- Nút này cho phép đọc inbox email trực tiếp từ màn hình vault-accounts mà không cần chuyển sang tab Vault Emails
+- Modal hiển thị danh sách email với thông tin chi tiết: subject, sender, thời gian, preview nội dung
+- Phân biệt email đã nhận/đã gửi và đã đọc/chưa đọc
+- Thêm nút reload trong modal để tải lại danh sách email mới nhất
+- Sử dụng API endpoint đã có sẵn `/api/vault/inbox/:email`
+
+**File thay đổi:**
+- `src/components/views/vault/VaultAccountsView.tsx` — Thêm state inboxModal, function readInbox(), nút Đọc Inbox và modal hiển thị inbox
+
+---
+
 ## [0.3.7] - 2026-05-21 20:35:00
 
 ### 🚀 Microsoft Token Auth & Scope Routing (Final Optimization)

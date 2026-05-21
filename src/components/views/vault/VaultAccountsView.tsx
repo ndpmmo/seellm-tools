@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, HelpCircle
+  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN } from '../../Views';
@@ -193,6 +193,7 @@ export function VaultAccountsView() {
   const [syncingDeadTags, setSyncingDeadTags] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [inboxModal, setInboxModal] = useState<{ open: boolean; email: string; messages: any[]; loading: boolean }>({ open: false, email: '', messages: [], loading: false });
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -485,6 +486,19 @@ export function VaultAccountsView() {
     }
   };
 
+  const readInbox = async (email: string) => {
+    setInboxModal({ open: true, email, messages: [], loading: true });
+    try {
+      const r = await fetch(`/api/vault/inbox/${encodeURIComponent(email)}`);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setInboxModal(prev => ({ ...prev, messages: d.messages || [], loading: false }));
+    } catch (e: any) {
+      addToast(e.message, 'error');
+      setInboxModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const startEdit = (it: any) => {
     setExpandedId(null); // collapse expanded row
     setUiState(s => ({
@@ -760,6 +774,7 @@ export function VaultAccountsView() {
                           {isOpenAI(it.provider) && it.proxy_url && (
                             <Button size="icon-sm" variant="ghost" title="Gỡ proxy" onClick={() => unassignProxy(it.id)} disabled={assigningId === it.id} className="!text-amber-400"><X size={13} /></Button>
                           )}
+                          <Button size="icon-sm" variant="ghost" title="Đọc Inbox" onClick={() => readInbox(it.email)} className="!text-purple-400"><Mail size={13} /></Button>
                           <Button size="icon-sm" variant="ghost" title="Đẩy lên D1" onClick={() => syncNow(it.id, it.email)} className="!text-indigo-400"><Database size={13} /></Button>
                           <Button size="icon-sm" variant="ghost" title="Sửa" onClick={() => startEdit(it)}><Pencil size={13} /></Button>
                           <Button size="icon-sm" variant="danger" title="Xóa" onClick={() => del(it.id)}><Trash2 size={13} /></Button>
@@ -849,6 +864,94 @@ export function VaultAccountsView() {
           </table>
         </div>
       </Card>
+
+      {/* ═══ INBOX MODAL ═══ */}
+      {inboxModal.open && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0d111c] border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                  <Mail size={18} />
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold text-slate-100">Inbox Email</h3>
+                  <p className="text-[11px] text-slate-400">{inboxModal.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => readInbox(inboxModal.email)}
+                  disabled={inboxModal.loading}
+                  className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Reload"
+                >
+                  <RefreshCw size={18} className={inboxModal.loading ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => setInboxModal({ open: false, email: '', messages: [], loading: false })}
+                  className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <XCircle size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto custom-scrollbar p-6">
+              {inboxModal.loading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+                </div>
+              ) : inboxModal.messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+                  <Mail size={48} className="opacity-20 mb-4" />
+                  <p className="text-[13px]">Không có email nào</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {inboxModal.messages.map((msg: any) => (
+                    <div
+                      key={msg.id}
+                      className={`p-4 rounded-xl border transition-all ${msg.direction === 'outgoing' ? 'bg-indigo-500/5 border-indigo-500/10' : 'bg-white/[0.02] border-white/5'} ${!msg.isRead ? 'border-l-2 border-l-purple-500' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${msg.direction === 'outgoing' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-slate-500/10 text-slate-400'}`}>
+                            {msg.direction === 'outgoing' ? 'Đã gửi' : 'Đã nhận'}
+                          </span>
+                          {!msg.isRead && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-500/10 text-purple-400">Chưa đọc</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          {msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString('vi-VN') : ''}
+                        </span>
+                      </div>
+                      <div className="text-[13px] font-semibold text-slate-200 mb-1">{msg.subject || '(Không tiêu đề)'}</div>
+                      <div className="text-[11px] text-slate-400 mb-2">
+                        Từ: {msg.from?.emailAddress?.address || 'Unknown'} {msg.from?.emailAddress?.name ? `(${msg.from.emailAddress.name})` : ''}
+                      </div>
+                      {msg.bodyPreview && (
+                        <div className="text-[11px] text-slate-500 bg-black/20 p-2 rounded-lg">
+                          {msg.bodyPreview.substring(0, 200)}{msg.bodyPreview.length > 200 ? '...' : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-white/10 flex justify-between items-center text-[11px] text-slate-500">
+              <span>Tổng {inboxModal.messages.length} email</span>
+              <span>Sắp xếp theo thời gian mới nhất</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
