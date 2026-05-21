@@ -1,16 +1,13 @@
 /**
- * SeeLLM Tools - MS Graph Email Reader Helper v2
- * 
- * Đọc email tự động thông qua Microsoft Graph API.
- * Sử dụng OData server-side filter để lọc chính xác email mới nhất từ OpenAI.
- * An toàn khi chạy đa luồng (multi-thread safe).
- * 
- * STRATEGY (tested 2026-05-21):
- * - Personal accounts (hotmail/outlook.com): Thunderbird client → no-scope token (EwBY type)
- *   → works with Graph API ✅ (NOT Outlook REST v2.0 which returns 401)
- * - Personal accounts with outlook.office.com/.default scope → EwA (encrypted) token
- *   → only works with Outlook REST v2.0 ✅ (Graph API → IDX14100 error)
- * - Work/school accounts: Mail.Read scope → JWT → Graph API ✅
+ * SeeLLM Tools - MS Graph Email Reader Helper v3
+ *
+ * KEY INSIGHT (tested 2026-05-21):
+ * Token type is determined by the CLIENT ID + what consent was granted, NOT by scope requested.
+ * Different client IDs return different token types even with the same no-scope request.
+ * Must detect AFTER receiving the token:
+ *   - EwA* (encrypted, no dots) → Outlook REST API only ✅  /  Graph API → IDX14100 ❌
+ *   - EwBY* (opaque, no dots)   → Graph API ✅              /  Outlook REST → 401 ❌
+ *   - eyJ* (JWT, has dots)      → Graph API ✅
  */
 
 const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
@@ -28,103 +25,73 @@ function isPersonalMsAccount(email) {
 }
 
 /**
- * Lấy Access Token từ Refresh Token
- * 
+ * Detect if an MS access token requires Outlook REST API (true) or Graph API (false).
+ * EwA* = encrypted → Outlook REST only. EwBY* / JWT = opaque/JWT → Graph API.
+ */
+function isEwAToken(token) {
+    if (!token) return false;
+    return token.startsWith('EwA') && !token.startsWith('EwBY');
+}
+
+/**
+ * Lấy Access Token từ Refresh Token.
+ * Returns { token, useOutlookApi } — useOutlookApi is detected from token prefix, NOT guessed.
+ *
  * Strategy:
- * - Personal accounts: no-scope → EwBY token (works with Graph API)
- *   Fallback: outlook.office.com/.default → EwA token (works with Outlook REST API)
- * - Work/school accounts: Mail.Read scope → JWT → Graph API
- *   Fallback: no-scope
+ * 1. Try no-scope first — works for most client IDs
+ * 2. Fallback with scope if no-scope fails
  */
 export async function getAccessToken(refreshToken, clientId, withScope = true, email = null) {
     if (!refreshToken || !clientId) throw new Error('Refresh Token và Client ID là bắt buộc.');
 
     const isPersonal = email ? isPersonalMsAccount(email) : false;
+    const tokenUrl = isPersonal ? GRAPH_TOKEN_URL_CONSUMERS : GRAPH_TOKEN_URL;
 
-    // Personal accounts: Try no-scope first → EwBY token that works with Graph API
-    if (isPersonal) {
-        const tokenUrl = GRAPH_TOKEN_URL_CONSUMERS;
-
-        // Step 1: Try no-scope (preferred — EwBY token works with Graph API)
-        const noScopeParams = new URLSearchParams({
-            client_id: clientId,
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken
-        });
-        let res = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: noScopeParams.toString(),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            // Tag the token so fetchMails knows which API to use
-            return { token: data.access_token, useOutlookApi: false };
-        }
-
-        // Step 2: Fallback → outlook.office.com/.default scope → EwA token for Outlook REST API
-        console.log(`[Graph] Personal no-scope failed, trying outlook.office.com/.default...`);
-        const defaultScopeParams = new URLSearchParams({
-            client_id: clientId,
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-            scope: 'https://outlook.office.com/.default offline_access'
-        });
-        res = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: defaultScopeParams.toString(),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            console.log(`[Graph] Personal EwA token OK (Outlook REST API mode)`);
-            return { token: data.access_token, useOutlookApi: true };
-        }
-
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error_description || `Lỗi lấy Access Token: ${res.status}`);
-    }
-
-    // Work/school accounts: Mail.Read scope → JWT → Graph API
-    const tokenUrl = GRAPH_TOKEN_URL;
-    const params = new URLSearchParams({
+    // Step 1: Try no-scope first — works for most client IDs
+    const noScopeParams = new URLSearchParams({
         client_id: clientId,
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
-    if (withScope) params.append('scope', 'Mail.Read offline_access');
-
     let res = await fetch(tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
+        body: noScopeParams.toString(),
     });
-
-    // Fallback: no scope if Mail.Read fails
-    if (!res.ok && withScope) {
-        const err = await res.json().catch(() => ({}));
-        if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
-            console.log(`[Graph] Work scope error, retrying without scope...`);
-            const noScopeParams = new URLSearchParams({
-                client_id: clientId,
-                grant_type: 'refresh_token',
-                refresh_token: refreshToken
-            });
-            res = await fetch(tokenUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: noScopeParams.toString(),
-            });
-        }
+    if (res.ok) {
+        const data = await res.json();
+        const token = data.access_token;
+        const useOutlookApi = isEwAToken(token);
+        console.log(`[Graph] Token OK (no-scope): ${useOutlookApi ? 'EwA→Outlook REST' : 'EwBY/JWT→Graph'}`);
+        return { token, useOutlookApi };
     }
 
+    // Step 2: Fallback with scope
+    const err = await res.json().catch(() => ({}));
+    console.log(`[Graph] No-scope failed: ${err.error_description?.substring(0, 80)}`);
+
+    const scopeParams = new URLSearchParams({
+        client_id: clientId,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        scope: isPersonal
+            ? 'https://outlook.office.com/.default offline_access'
+            : 'Mail.Read offline_access'
+    });
+    res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: scopeParams.toString(),
+    });
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error_description || `Lỗi lấy Access Token: ${res.status}`);
+        const err2 = await res.json().catch(() => ({}));
+        throw new Error(err2.error_description || `Lỗi lấy Access Token: ${res.status}`);
     }
-
-    const data = await res.json();
-    return { token: data.access_token, useOutlookApi: false };
+    const data2 = await res.json();
+    const token2 = data2.access_token;
+    const useOutlookApi2 = isEwAToken(token2);
+    console.log(`[Graph] Token OK (fallback scope): ${useOutlookApi2 ? 'EwA→Outlook REST' : 'EwBY/JWT→Graph'}`);
+    return { token: token2, useOutlookApi: useOutlookApi2 };
 }
 
 /**

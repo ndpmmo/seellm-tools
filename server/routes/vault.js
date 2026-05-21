@@ -1564,15 +1564,33 @@ const _OUTLOOK_API = 'https://outlook.office.com/api/v2.0/me';
 const _inboxTokenCache = new Map(); // email → { token, expiresAt, isPersonal }
 
 // Personal Microsoft account domains.
-// TESTED 2026-05-21: With Thunderbird clientId (9e5f94bc...):
-//   - No-scope → EwBY token → works with Graph API ✅ (NOT Outlook REST v2.0 → 401)
-//   - .default scope → EwA token → works with Outlook REST API ✅ (Graph API → IDX14100)
-//   - IMAP scope → fails with AADSTS70000 unauthorized
+// KEY INSIGHT: Token type determines which API to use — NOT account domain or scope.
+//   - EwBY... (opaque)    → Graph API ✅  |  Outlook REST → IDX14100
+//   - EwA...  (encrypted) → Outlook REST ✅ | Graph API → IDX14100
+//   - eyJ... (JWT)        → Graph API ✅
+// Different client IDs return DIFFERENT token types even with the same scope/no-scope.
+// Must detect AFTER receiving the token, not guess from input params.
 const _PERSONAL_MS_DOMAINS = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'passport.com'];
 
 function _isPersonalMsAccount(email) {
   const domain = (email || '').split('@')[1]?.toLowerCase();
   return domain && _PERSONAL_MS_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
+}
+
+/**
+ * Detect if an MS token requires Outlook REST API or Graph API.
+ * Based on token prefix — this is the ground truth, not the account domain or scope.
+ *
+ * EwA* = encrypted token for Outlook REST API (from .default or IMAP scopes)
+ * EwBY* = opaque token that works with Graph API
+ * eyJ* = standard JWT → Graph API
+ */
+function _isEwAToken(token) {
+  if (!token) return false;
+  // EwA tokens: encrypted, require Outlook REST API. They start with "EwA" followed by digits/letters.
+  // EwBY tokens: also opaque but work with Graph API.
+  // Safest check: starts with EwA and NOT EwBY (EwBY also starts with Ew but is Graph-compatible)
+  return token.startsWith('EwA') && !token.startsWith('EwBY');
 }
 
 async function _getGraphToken(pool) {
@@ -1583,35 +1601,41 @@ async function _getGraphToken(pool) {
   _inboxTokenCache.delete(pool.email);
 
   const isPersonalDomain = _isPersonalMsAccount(pool.email);
+  const tokenUrl = isPersonalDomain ? _GRAPH_TOKEN_URL_CONSUMERS : _GRAPH_TOKEN_URL;
 
+  // Step 1: Try no-scope first (works for most cases)
+  // Different client IDs return different token types — detect AFTER receiving.
+  console.log(`[Inbox] Fetching token for ${pool.email} (no-scope attempt)...`);
+  let r = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: pool.client_id,
+      grant_type: 'refresh_token',
+      refresh_token: pool.refresh_token,
+    }).toString(),
+  });
+
+  if (r.ok) {
+    const d = await r.json();
+    const token = d.access_token;
+    // Detect token type to route to correct API
+    const isEwA = _isEwAToken(token);
+    const tokenType = isEwA ? 'EwA (→Outlook REST)' : token.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
+    console.log(`[Inbox] Token OK for ${pool.email}: ${tokenType}`);
+    const entry = { token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: isEwA };
+    _inboxTokenCache.set(pool.email, entry);
+    return entry;
+  }
+
+  // Step 2: no-scope failed → try with scope
+  const err = await r.json().catch(() => ({}));
+  console.log(`[Inbox] No-scope failed for ${pool.email}:`, err.error_description?.substring(0, 100));
+
+  // For personal accounts: try .default scope → EwA token → Outlook REST API
   if (isPersonalDomain) {
-    // Strategy for personal accounts (hotmail/outlook.com):
-    // 1. No-scope → EwBY token (preferred, works with Graph API) ✅
-    // 2. Fallback: .default scope → EwA token → Outlook REST API ✅
-    const consumerUrl = _GRAPH_TOKEN_URL_CONSUMERS;
-
-    console.log(`[Inbox] Fetching token for ${pool.email} (personal/no-scope → Graph API)...`);
-    let r = await fetch(consumerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: pool.client_id,
-        grant_type: 'refresh_token',
-        refresh_token: pool.refresh_token,
-      }).toString(),
-    });
-
-    if (r.ok) {
-      const d = await r.json();
-      console.log(`[Inbox] Token OK for ${pool.email} (EwBY/Graph API mode)`);
-      const entry = { token: d.access_token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: false };
-      _inboxTokenCache.set(pool.email, entry);
-      return entry;
-    }
-
-    // Fallback: .default scope → EwA token → Outlook REST API
-    console.log(`[Inbox] No-scope failed, trying outlook.office.com/.default for ${pool.email}...`);
-    r = await fetch(consumerUrl, {
+    console.log(`[Inbox] Trying outlook.office.com/.default for ${pool.email}...`);
+    r = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -1621,52 +1645,31 @@ async function _getGraphToken(pool) {
         scope: 'https://outlook.office.com/.default offline_access',
       }).toString(),
     });
-
-    const dFb = await r.json();
-    if (!r.ok) throw new Error(dFb.error_description || `Token error ${r.status}`);
-    console.log(`[Inbox] Token OK for ${pool.email} (EwA/Outlook REST fallback)`);
-    const entryFb = { token: dFb.access_token, expiresAt: Date.now() + ((dFb.expires_in || 3600) - 120) * 1000, isPersonal: true };
-    _inboxTokenCache.set(pool.email, entryFb);
-    return entryFb;
+  } else {
+    // For work/school accounts: try Mail.Read scope
+    console.log(`[Inbox] Trying Mail.Read scope for ${pool.email}...`);
+    r = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: pool.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: pool.refresh_token,
+        scope: 'Mail.Read offline_access',
+      }).toString(),
+    });
   }
 
-  // Work/school accounts: Mail.Read scope → JWT → Graph API
-  console.log(`[Inbox] Fetching token for ${pool.email} (work/Mail.Read → Graph API)...`);
-  let r = await fetch(_GRAPH_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: pool.client_id,
-      grant_type: 'refresh_token',
-      refresh_token: pool.refresh_token,
-      scope: 'Mail.Read offline_access',
-    }).toString(),
-  });
+  const d2 = await r.json();
+  if (!r.ok) throw new Error(d2.error_description || `Token error ${r.status}`);
 
-  // Fallback: no scope if Mail.Read fails
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}));
-    console.log(`[Inbox] Work Mail.Read failed:`, err.error_description?.substring(0, 100));
-    if (err.error_description?.includes('scope') || err.error_description?.includes('unauthorized')) {
-      console.log(`[Inbox] Retrying without scope for ${pool.email}...`);
-      r = await fetch(_GRAPH_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: pool.client_id,
-          grant_type: 'refresh_token',
-          refresh_token: pool.refresh_token,
-        }).toString(),
-      });
-    }
-  }
-
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error_description || `Token error ${r.status}`);
-  console.log(`[Inbox] Token OK for ${pool.email} (work/Graph API)`);
-  const entry = { token: d.access_token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: false };
-  _inboxTokenCache.set(pool.email, entry);
-  return entry;
+  const token2 = d2.access_token;
+  const isEwA2 = _isEwAToken(token2);
+  const tokenType2 = isEwA2 ? 'EwA (→Outlook REST)' : token2.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
+  console.log(`[Inbox] Token OK (fallback) for ${pool.email}: ${tokenType2}`);
+  const entry2 = { token: token2, expiresAt: Date.now() + ((d2.expires_in || 3600) - 120) * 1000, isPersonal: isEwA2 };
+  _inboxTokenCache.set(pool.email, entry2);
+  return entry2;
 }
 
 // Helper: normalize Outlook REST API message format to match Graph API format
