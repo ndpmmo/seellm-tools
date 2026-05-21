@@ -1593,6 +1593,24 @@ function _isEwAToken(token) {
   return token.startsWith('EwA') && !token.startsWith('EwBY');
 }
 
+// Helper: safely fetch JSON response and throw descriptive error on failure
+async function _safeFetchJson(res, label = 'Request') {
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    let errObj = {};
+    try {
+      if (text) errObj = JSON.parse(text);
+    } catch (e) {}
+    const msg = errObj.error_description || errObj.error?.message || `${label} failed with status ${res.status}: ${text.substring(0, 200)}`;
+    throw new Error(msg);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${label} returned invalid JSON: ${text.substring(0, 200)}`);
+  }
+}
+
 async function _getGraphToken(pool) {
   const cached = _inboxTokenCache.get(pool.email);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached;
@@ -1603,73 +1621,74 @@ async function _getGraphToken(pool) {
   const isPersonalDomain = _isPersonalMsAccount(pool.email);
   const tokenUrl = isPersonalDomain ? _GRAPH_TOKEN_URL_CONSUMERS : _GRAPH_TOKEN_URL;
 
-  // Step 1: Try no-scope first (works for most cases)
-  // Different client IDs return different token types — detect AFTER receiving.
-  console.log(`[Inbox] Fetching token for ${pool.email} (no-scope attempt)...`);
-  let r = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: pool.client_id,
-      grant_type: 'refresh_token',
-      refresh_token: pool.refresh_token,
-    }).toString(),
-  });
-
-  if (r.ok) {
-    const d = await r.json();
-    const token = d.access_token;
-    // Detect token type to route to correct API
-    const isEwA = _isEwAToken(token);
-    const tokenType = isEwA ? 'EwA (→Outlook REST)' : token.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
-    console.log(`[Inbox] Token OK for ${pool.email}: ${tokenType}`);
-    const entry = { token, expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000, isPersonal: isEwA };
-    _inboxTokenCache.set(pool.email, entry);
-    return entry;
-  }
-
-  // Step 2: no-scope failed → try with scope
-  const err = await r.json().catch(() => ({}));
-  console.log(`[Inbox] No-scope failed for ${pool.email}:`, err.error_description?.substring(0, 100));
-
-  // For personal accounts: try .default scope → EwA token → Outlook REST API
+  const scopesToTry = [];
   if (isPersonalDomain) {
-    console.log(`[Inbox] Trying outlook.office.com/.default for ${pool.email}...`);
-    r = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: pool.client_id,
-        grant_type: 'refresh_token',
-        refresh_token: pool.refresh_token,
-        scope: 'https://outlook.office.com/.default offline_access',
-      }).toString(),
-    });
+    // For personal accounts: try Graph Mail.Read first, then Outlook REST .default, then no-scope
+    scopesToTry.push({ scope: 'Mail.Read offline_access', isPersonal: false });
+    scopesToTry.push({ scope: 'https://outlook.office.com/.default offline_access', isPersonal: true });
+    scopesToTry.push({ scope: null, isPersonal: null });
   } else {
-    // For work/school accounts: try Mail.Read scope
-    console.log(`[Inbox] Trying Mail.Read scope for ${pool.email}...`);
-    r = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: pool.client_id,
-        grant_type: 'refresh_token',
-        refresh_token: pool.refresh_token,
-        scope: 'Mail.Read offline_access',
-      }).toString(),
-    });
+    // For work/school accounts: try Mail.Read first, then no-scope
+    scopesToTry.push({ scope: 'Mail.Read offline_access', isPersonal: false });
+    scopesToTry.push({ scope: null, isPersonal: null });
   }
 
-  const d2 = await r.json();
-  if (!r.ok) throw new Error(d2.error_description || `Token error ${r.status}`);
+  let lastError = null;
+  for (const item of scopesToTry) {
+    try {
+      console.log(`[Inbox] Fetching token for ${pool.email} (scope: ${item.scope || 'no-scope'})...`);
+      const bodyParams = {
+        client_id: pool.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: pool.refresh_token,
+      };
+      if (item.scope) {
+        bodyParams.scope = item.scope;
+      }
+      const r = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(bodyParams).toString(),
+      });
 
-  const token2 = d2.access_token;
-  const isEwA2 = _isEwAToken(token2);
-  const tokenType2 = isEwA2 ? 'EwA (→Outlook REST)' : token2.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
-  console.log(`[Inbox] Token OK (fallback) for ${pool.email}: ${tokenType2}`);
-  const entry2 = { token: token2, expiresAt: Date.now() + ((d2.expires_in || 3600) - 120) * 1000, isPersonal: isEwA2 };
-  _inboxTokenCache.set(pool.email, entry2);
-  return entry2;
+      if (r.ok) {
+        const d = await _safeFetchJson(r, `Graph Token (${item.scope || 'no-scope'})`);
+        const token = d.access_token;
+        
+        let isPersonal = item.isPersonal;
+        if (isPersonal === null) {
+          isPersonal = _isEwAToken(token);
+        }
+        
+        const tokenType = isPersonal ? 'EwA (→Outlook REST)' : token.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
+        console.log(`[Inbox] Token OK for ${pool.email} with scope "${item.scope || 'no-scope'}": ${tokenType}`);
+        
+        const entry = {
+          token,
+          expiresAt: Date.now() + ((d.expires_in || 3600) - 120) * 1000,
+          isPersonal
+        };
+        _inboxTokenCache.set(pool.email, entry);
+        return entry;
+      } else {
+        const text = await r.text().catch(() => '');
+        let errDesc = text;
+        try {
+          if (text) {
+            const err = JSON.parse(text);
+            errDesc = err.error_description || err.error?.message || text;
+          }
+        } catch (e) {}
+        console.log(`[Inbox] Token attempt failed for ${pool.email} (scope: ${item.scope || 'no-scope'}): ${errDesc.substring(0, 100)}`);
+        lastError = new Error(errDesc);
+      }
+    } catch (err) {
+      console.log(`[Inbox] Error during token attempt for ${pool.email} (scope: ${item.scope || 'no-scope'}): ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Failed to acquire token from all configured scopes');
 }
 
 // Helper: normalize Outlook REST API message format to match Graph API format
@@ -1678,7 +1697,7 @@ function _normalizeOutlookMessage(m, direction = 'incoming') {
     id: m.Id,
     subject: m.Subject,
     bodyPreview: m.BodyPreview || m.Body?.Content?.substring(0, 255),
-    body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType } : undefined,
+    body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType?.toLowerCase() } : undefined,
     from: m.From ? { emailAddress: { name: m.From.EmailAddress?.Name, address: m.From.EmailAddress?.Address } } : undefined,
     toRecipients: (m.ToRecipients || []).map(r => ({ emailAddress: { name: r.EmailAddress?.Name, address: r.EmailAddress?.Address } })),
     receivedDateTime: m.ReceivedDateTime || m.DateTimeReceived,
@@ -1708,14 +1727,13 @@ router.get('/inbox/:email', async (req, res) => {
 
       const inboxUrl = `${_OUTLOOK_API}/messages?$top=${top}&$orderby=ReceivedDateTime desc&$select=${selectFields}`;
       const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
-      const inboxData = await inboxRes.json();
-      if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Outlook inbox error ${inboxRes.status}`);
+      const inboxData = await _safeFetchJson(inboxRes, 'Outlook Inbox');
       inboxMsgs = (inboxData.value || []).map(m => _normalizeOutlookMessage(m, 'incoming'));
 
       // Sent items
       const sentUrl = `${_OUTLOOK_API}/mailfolders/sentitems/messages?$top=${top}&$orderby=ReceivedDateTime desc&$select=${selectFields}`;
       const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
-      const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+      const sentData = sentRes.ok ? await _safeFetchJson(sentRes, 'Outlook Sent') : { value: [] };
       sentMsgs = (sentData.value || []).map(m => _normalizeOutlookMessage(m, 'outgoing'));
     } else {
       // Use Graph API for work/school accounts
@@ -1723,13 +1741,12 @@ router.get('/inbox/:email', async (req, res) => {
 
       const inboxUrl = `${_GRAPH_ME}/mailFolders/inbox/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
       const inboxRes = await fetch(inboxUrl, { headers: { Authorization: `Bearer ${token}` } });
-      const inboxData = await inboxRes.json();
-      if (!inboxRes.ok) throw new Error(inboxData.error?.message || `Graph inbox error ${inboxRes.status}`);
+      const inboxData = await _safeFetchJson(inboxRes, 'Graph Inbox');
       inboxMsgs = (inboxData.value || []).map(m => ({ ...m, direction: 'incoming' }));
 
       const sentUrl = `${_GRAPH_ME}/mailFolders/sentitems/messages?$top=${top}&$orderby=receivedDateTime desc&$select=${selectFields}`;
       const sentRes = await fetch(sentUrl, { headers: { Authorization: `Bearer ${token}` } });
-      const sentData = await sentRes.ok ? await sentRes.json() : { value: [] };
+      const sentData = sentRes.ok ? await _safeFetchJson(sentRes, 'Graph Sent') : { value: [] };
       sentMsgs = (sentData.value || []).map(m => ({ ...m, direction: 'outgoing' }));
     }
 
@@ -1755,8 +1772,7 @@ router.post('/inbox/message', async (req, res) => {
     if (isPersonal) {
       const url = `${_OUTLOOK_API}/messages/${messageId}?$select=Id,Subject,Body,BodyPreview,From,ToRecipients,ReceivedDateTime,IsRead,ConversationId`;
       const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error?.message || `Outlook error ${r.status}`);
+      const d = await _safeFetchJson(r, 'Outlook Message Details');
       message = _normalizeOutlookMessage(d);
     } else {
       const url = `${_GRAPH_ME}/messages/${messageId}` +
@@ -1764,8 +1780,10 @@ router.post('/inbox/message', async (req, res) => {
       const r = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="html"' },
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error?.message || `Graph error ${r.status}`);
+      const d = await _safeFetchJson(r, 'Graph Message Details');
+      if (d && d.body) {
+        d.body.contentType = d.body.contentType?.toLowerCase();
+      }
       message = d;
     }
     res.json({ ok: true, message });
@@ -1815,8 +1833,12 @@ router.post('/inbox/delete', async (req, res) => {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!r.ok && r.status !== 204) {
-      const d = await r.json().catch(() => ({}));
-      throw new Error(d.error?.message || `Delete failed: ${r.status}`);
+      const text = await r.text().catch(() => '');
+      let errObj = {};
+      try {
+        if (text) errObj = JSON.parse(text);
+      } catch (e) {}
+      throw new Error(errObj.error?.message || `Delete failed: ${r.status} - ${text}`);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1871,8 +1893,12 @@ router.post('/inbox/send', async (req, res) => {
     });
 
     if (!r.ok && r.status !== 202 && r.status !== 204) {
-      const d = await r.json().catch(() => ({}));
-      throw new Error(d.error?.message || `Send failed: ${r.status}`);
+      const text = await r.text().catch(() => '');
+      let errObj = {};
+      try {
+        if (text) errObj = JSON.parse(text);
+      } catch (e) {}
+      throw new Error(errObj.error?.message || `Send failed: ${r.status} - ${text}`);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

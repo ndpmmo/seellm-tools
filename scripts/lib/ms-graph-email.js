@@ -33,6 +33,24 @@ function isEwAToken(token) {
     return token.startsWith('EwA') && !token.startsWith('EwBY');
 }
 
+// Helper: safely fetch JSON response and throw descriptive error on failure
+async function safeFetchJson(res, label = 'Request') {
+    const text = await res.text().catch(() => '');
+    if (!res.ok) {
+        let errObj = {};
+        try {
+            if (text) errObj = JSON.parse(text);
+        } catch (e) {}
+        const msg = errObj.error_description || errObj.error?.message || `${label} failed with status ${res.status}: ${text.substring(0, 200)}`;
+        throw new Error(msg);
+    }
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        throw new Error(`${label} returned invalid JSON: ${text.substring(0, 200)}`);
+    }
+}
+
 /**
  * Lấy Access Token từ Refresh Token.
  * Returns { token, useOutlookApi } — useOutlookApi is detected from token prefix, NOT guessed.
@@ -47,51 +65,67 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
     const isPersonal = email ? isPersonalMsAccount(email) : false;
     const tokenUrl = isPersonal ? GRAPH_TOKEN_URL_CONSUMERS : GRAPH_TOKEN_URL;
 
-    // Step 1: Try no-scope first — works for most client IDs
-    const noScopeParams = new URLSearchParams({
-        client_id: clientId,
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken
-    });
-    let res = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: noScopeParams.toString(),
-    });
-    if (res.ok) {
-        const data = await res.json();
-        const token = data.access_token;
-        const useOutlookApi = isEwAToken(token);
-        console.log(`[Graph] Token OK (no-scope): ${useOutlookApi ? 'EwA→Outlook REST' : 'EwBY/JWT→Graph'}`);
-        return { token, useOutlookApi };
+    const scopesToTry = [];
+    if (isPersonal) {
+        // For personal accounts: try Graph Mail.Read first, then Outlook REST .default, then no-scope
+        scopesToTry.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
+        scopesToTry.push({ scope: 'https://outlook.office.com/.default offline_access', useOutlookApi: true });
+        scopesToTry.push({ scope: null, useOutlookApi: null });
+    } else {
+        // For work/school accounts: try Mail.Read first, then no-scope
+        scopesToTry.push({ scope: 'Mail.Read offline_access', useOutlookApi: false });
+        scopesToTry.push({ scope: null, useOutlookApi: null });
     }
 
-    // Step 2: Fallback with scope
-    const err = await res.json().catch(() => ({}));
-    console.log(`[Graph] No-scope failed: ${err.error_description?.substring(0, 80)}`);
+    let lastError = null;
+    for (const item of scopesToTry) {
+        try {
+            console.log(`[Graph] Fetching token for ${email || 'unknown'} (scope: ${item.scope || 'no-scope'})...`);
+            const bodyParams = {
+                client_id: clientId,
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken
+            };
+            if (item.scope) {
+                bodyParams.scope = item.scope;
+            }
+            const res = await fetch(tokenUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams(bodyParams).toString()
+            });
 
-    const scopeParams = new URLSearchParams({
-        client_id: clientId,
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        scope: isPersonal
-            ? 'https://outlook.office.com/.default offline_access'
-            : 'Mail.Read offline_access'
-    });
-    res = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: scopeParams.toString(),
-    });
-    if (!res.ok) {
-        const err2 = await res.json().catch(() => ({}));
-        throw new Error(err2.error_description || `Lỗi lấy Access Token: ${res.status}`);
+            if (res.ok) {
+                const data = await safeFetchJson(res, `Graph Token (${item.scope || 'no-scope'})`);
+                const token = data.access_token;
+                
+                let useOutlookApi = item.useOutlookApi;
+                if (useOutlookApi === null) {
+                    useOutlookApi = isEwAToken(token);
+                }
+                
+                const tokenType = useOutlookApi ? 'EwA (→Outlook REST)' : token.startsWith('EwBY') ? 'EwBY (→Graph)' : 'JWT (→Graph)';
+                console.log(`[Graph] Token OK for ${email || 'unknown'} with scope "${item.scope || 'no-scope'}": ${tokenType}`);
+                return { token, useOutlookApi };
+            } else {
+                const text = await res.text().catch(() => '');
+                let errDesc = text;
+                try {
+                    if (text) {
+                        const err = JSON.parse(text);
+                        errDesc = err.error_description || err.error?.message || text;
+                    }
+                } catch (e) {}
+                console.log(`[Graph] Token attempt failed for ${email || 'unknown'} (scope: ${item.scope || 'no-scope'}): ${errDesc.substring(0, 100)}`);
+                lastError = new Error(errDesc);
+            }
+        } catch (err) {
+            console.log(`[Graph] Error during token attempt for ${email || 'unknown'} (scope: ${item.scope || 'no-scope'}): ${err.message}`);
+            lastError = err;
+        }
     }
-    const data2 = await res.json();
-    const token2 = data2.access_token;
-    const useOutlookApi2 = isEwAToken(token2);
-    console.log(`[Graph] Token OK (fallback scope): ${useOutlookApi2 ? 'EwA→Outlook REST' : 'EwBY/JWT→Graph'}`);
-    return { token: token2, useOutlookApi: useOutlookApi2 };
+
+    throw lastError || new Error('Failed to acquire token from all configured scopes');
 }
 
 /**
@@ -142,11 +176,11 @@ export async function fetchMails(tokenArg, { top = 10, filterUnread = false, rec
     });
 
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await safeFetchJson(res, 'Outlook Fetch Mails');
         throw new Error(err.error?.message || `Lỗi fetch mail: ${res.status}`);
     }
 
-    const data = await res.json();
+    const data = await safeFetchJson(res, 'Outlook Fetch Mails');
     const messages = data.value || [];
 
     // Normalize Outlook REST API format to match Graph API format
@@ -155,14 +189,25 @@ export async function fetchMails(tokenArg, { top = 10, filterUnread = false, rec
             id: m.Id,
             subject: m.Subject,
             bodyPreview: m.BodyPreview || m.Body?.Content?.substring(0, 255),
-            body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType } : undefined,
+            body: m.Body ? { content: m.Body.Content, contentType: m.Body.ContentType?.toLowerCase() } : undefined,
             from: m.From ? { emailAddress: { name: m.From.EmailAddress?.Name, address: m.From.EmailAddress?.Address } } : undefined,
             toRecipients: (m.ToRecipients || []).map(r => ({ emailAddress: { name: r.EmailAddress?.Name, address: r.EmailAddress?.Address } })),
             receivedDateTime: m.ReceivedDateTime,
             isRead: m.IsRead,
         }));
     }
-    return messages;
+    return messages.map(m => {
+        if (m && m.body) {
+            return {
+                ...m,
+                body: {
+                    ...m.body,
+                    contentType: m.body.contentType?.toLowerCase()
+                }
+            };
+        }
+        return m;
+    });
 }
 
 /**

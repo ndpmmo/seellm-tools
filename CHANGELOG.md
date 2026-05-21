@@ -2,6 +2,29 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.7] - 2026-05-21 20:35:00
+
+### 🚀 Microsoft Token Auth & Scope Routing (Final Optimization)
+
+**Vấn đề:**
+- Phương pháp no-scope trả về token không tương thích với Graph API đối với một số tài khoản personal (như `omexromersinth@hotmail.com` chỉ có scope IMAP/SMTP).
+- Phụ thuộc hoàn toàn vào format token prefix (`EwA` vs `EwBY`) để xác định API dẫn đến routing sai và lỗi `401 Unauthorized` hoặc `IDX14100` khi Graph API trả về `EwA4...` cho tài khoản personal.
+
+**Giải pháp (Prioritized Scope Strategy):**
+- Đã cấu trúc lại vòng lặp cấp phát token tự động (fallback strategy) theo độ ưu tiên tốt nhất cho personal accounts:
+  1. `Mail.Read offline_access` (ưu tiên gọi Graph API)
+  2. `https://outlook.office.com/.default offline_access` (fallback gọi Outlook REST API)
+  3. No-scope (bước cuối cùng).
+- Xóa bỏ sự phụ thuộc mù quáng vào token format prefix. Việc chọn Graph hay Outlook REST giờ đây được xác định 100% dựa trên **scope nào đã request thành công**.
+- Chuẩn hóa Content-Type của email (`.toLowerCase()`) để tránh lỗi render `Unexpected end of JSON input` và lỗi IFrame trên frontend.
+
+**File thay đổi:**
+- `scripts/lib/ms-graph-email.js` — Cập nhật logic `getAccessToken()` và `fetchMails()` với hệ thống ưu tiên scope.
+- `server/routes/vault.js` — Áp dụng logic tương tự cho `_getGraphToken()` và thêm `_safeFetchJson()`.
+- `scripts/check-mail.js` & `scripts/test-graph-scopes.mjs` — Bổ sung và cập nhật scripts test tự động các tài khoản với mọi tổ hợp scope.
+
+---
+
 ## [0.3.6] - 2026-05-21 20:10:00
 
 ### 🔧 Fix triệt để IDX14100 — Token strategy đúng sau live test thực tế
@@ -18,7 +41,7 @@ Fix 0.3.5 sai logic: IMAP scope → AADSTS70000 (không được cấp) → fall
 | No scope | EwBY (opaque) | ✅ 200 OK | ❌ IDX14100 |
 | `.default` scope | EwA (encrypted) | ❌ IDX14100 | ✅ 200 OK |
 
-**Giải pháp đúng — token strategy mới:**
+**Giải pháp cũ (tạm thời trong 0.3.6):**
 - **Personal accounts (primary)**: No-scope → EwBY token → **Graph API** ✅
 - **Personal accounts (fallback)**: `.default` scope → EwA token → **Outlook REST API** ✅
 - **Work/school accounts**: `Mail.Read` scope → JWT → **Graph API** ✅

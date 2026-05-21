@@ -1528,7 +1528,7 @@ export function VaultWorkshopView() {
                                                 <RefreshCw size={16} className="animate-spin" /> Đang tải nội dung...
                                             </div>
                                         ) : inboxMsgContent?.body?.content ? (
-                                            inboxMsgContent.body.contentType === 'html' ? (
+                                            inboxMsgContent.body.contentType?.toLowerCase() === 'html' ? (
                                                 <iframe
                                                     srcDoc={inboxMsgContent.body.content}
                                                     className="w-full border-0 bg-white rounded-b-2xl"
