@@ -2,7 +2,7 @@
  * Audit Log API Router — Đọc/xóa audit logs + thống kê.
  */
 import express from 'express';
-import { getAuditLogs, getAuditStats, purgeAuditLogs, clearAuditLogs } from '../db/auditLog.js';
+import { getAuditLogs, getAuditStats, purgeAuditLogs, purgeAuditLogsToday, clearAuditLogs } from '../db/auditLog.js';
 
 const router = express.Router();
 router.use(express.json());
@@ -56,13 +56,15 @@ router.get('/stats', (req, res) => {
   }
 });
 
-/** DELETE /api/audit-logs — Purge logs cũ hơn X ngày hoặc xóa tất cả */
+/** DELETE /api/audit-logs — Purge logs cũ hơn X ngày, xóa hôm nay, hoặc xóa tất cả */
 router.delete('/', (req, res) => {
   try {
-    const { olderThanDays, clearAll } = req.body || req.query;
+    const { olderThanDays, clearAll, today } = req.body || req.query;
     let deleted;
     if (clearAll === 'true' || clearAll === true) {
       deleted = clearAuditLogs();
+    } else if (today === 'true' || today === true) {
+      deleted = purgeAuditLogsToday();
     } else {
       deleted = purgeAuditLogs(parseInt(olderThanDays) || 30);
     }

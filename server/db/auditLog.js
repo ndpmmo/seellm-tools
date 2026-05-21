@@ -149,6 +149,16 @@ export function purgeAuditLogs(olderThanDays = 30) {
 }
 
 /**
+ * Xóa audit logs được tạo trong ngày hôm nay (từ 00:00:00 hôm nay).
+ * @returns {number}
+ */
+export function purgeAuditLogsToday() {
+  const startOfDay = dayjs().startOf('day').toISOString();
+  const result = vault.db.prepare('DELETE FROM audit_logs WHERE created_at >= ?').run(startOfDay);
+  return result.changes;
+}
+
+/**
  * Xóa toàn bộ audit logs.
  * @returns {number}
  */

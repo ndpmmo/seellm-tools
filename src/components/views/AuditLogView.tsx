@@ -5,7 +5,7 @@ import { fmtDateTimeVN, ConfirmModal } from '../Views';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, StatBox } from '../ui';
 import {
   Shield, Search, RefreshCw, Trash2, Filter, ChevronLeft, ChevronRight,
-  X, Eye, Activity, AlertTriangle, CheckCircle2, XCircle, Info, Clock
+  X, Eye, Activity, AlertTriangle, CheckCircle2, XCircle, Info, Clock, ChevronDown
 } from 'lucide-react';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -60,6 +60,16 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const PAGE_SIZE = 50;
+
+/* ─── Cleanup Options ────────────────────────────────────────────────────── */
+const CLEANUP_OPTIONS = [
+  { label: 'Hôm nay', days: 0 },
+  { label: '7 ngày qua', days: 7 },
+  { label: '1 tháng qua', days: 30 },
+  { label: '3 tháng qua', days: 90 },
+  { label: 'Toàn bộ', days: -1 },
+] as const;
+type CleanupOption = typeof CLEANUP_OPTIONS[number];
 
 /* ─── Detail Modal ───────────────────────────────────────────────────────── */
 function DetailModal({ entry, onClose }: { entry: AuditEntry; onClose: () => void }) {
@@ -143,6 +153,8 @@ export function AuditLogView() {
   const [filterSeverity, setFilterSeverity] = useState('');
   const [detailEntry, setDetailEntry] = useState<AuditEntry | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
+  const [cleanupDropOpen, setCleanupDropOpen] = useState(false);
+  const cleanupDropRef = React.useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchLogs = useCallback(async (p = page) => {
@@ -224,6 +236,22 @@ export function AuditLogView() {
     setConfirmModal(null);
   };
 
+  const purgeLogsToday = async () => {
+    const r = await fetch('/api/audit-logs', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ today: true }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      addToast(`Đã xóa ${data.deleted} log hôm nay`, 'success');
+      await refresh();
+    } else {
+      addToast('Xóa thất bại', 'error');
+    }
+    setConfirmModal(null);
+  };
+
   const clearAllLogs = async () => {
     const r = await fetch('/api/audit-logs', {
       method: 'DELETE',
@@ -238,6 +266,40 @@ export function AuditLogView() {
       addToast('Xóa thất bại', 'error');
     }
     setConfirmModal(null);
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!cleanupDropOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (cleanupDropRef.current && !cleanupDropRef.current.contains(e.target as Node))
+        setCleanupDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [cleanupDropOpen]);
+
+  const handleCleanupSelect = (opt: CleanupOption) => {
+    setCleanupDropOpen(false);
+    if (opt.days === -1) {
+      setConfirmModal({
+        title: 'Xóa Toàn Bộ Logs',
+        message: 'Xóa TOÀN BỘ audit logs? Hành động này không thể hoàn tác.',
+        onConfirm: clearAllLogs,
+      });
+    } else if (opt.days === 0) {
+      setConfirmModal({
+        title: 'Xóa Logs Hôm Nay',
+        message: 'Xóa tất cả audit logs được tạo hôm nay? Hành động này không thể hoàn tác.',
+        onConfirm: purgeLogsToday,
+      });
+    } else {
+      setConfirmModal({
+        title: `Xóa Logs ${opt.label}`,
+        message: `Xóa tất cả audit logs cũ hơn ${opt.days} ngày? Hành động này không thể hoàn tác.`,
+        onConfirm: () => purgeLogs(opt.days as number),
+      });
+    }
   };
 
   const hasActiveFilter = search || filterEntity || filterAction || filterSeverity;
@@ -357,13 +419,43 @@ export function AuditLogView() {
               </Button>
             )}
 
-            <Button variant="danger" size="sm" onClick={() => setConfirmModal({
-              title: 'Xóa Logs Cũ',
-              message: 'Xóa tất cả audit logs cũ hơn 30 ngày? Hành động này không thể hoàn tác.',
-              onConfirm: () => purgeLogs(30),
-            })}>
-              <Trash2 size={13} /> Dọn dẹp
-            </Button>
+            {/* Cleanup dropdown */}
+            <div className="relative" ref={cleanupDropRef}>
+              <button
+                onClick={() => setCleanupDropOpen(o => !o)}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-400 transition-colors"
+              >
+                <Trash2 size={13} />
+                Dọn dẹp
+                <ChevronDown size={11} className={`transition-transform duration-200 ${cleanupDropOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {cleanupDropOpen && (
+                <div className="absolute right-0 top-full mt-1.5 z-50 min-w-[180px] bg-[#0f1520] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-white/5">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Xóa logs</span>
+                  </div>
+                  {CLEANUP_OPTIONS.map(opt => (
+                    <button
+                      key={opt.label}
+                      onClick={() => handleCleanupSelect(opt)}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[12.5px] text-left transition-colors hover:bg-white/5
+                        ${
+                          opt.days === -1
+                            ? 'text-rose-400 hover:text-rose-300 border-t border-white/5 mt-0.5'
+                            : 'text-slate-300 hover:text-slate-100'
+                        }`}
+                    >
+                      <Trash2 size={12} className={opt.days === -1 ? 'text-rose-400' : 'text-slate-500'} />
+                      {opt.label}
+                      {opt.days === -1 && (
+                        <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold">!</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <Button variant="secondary" size="icon-sm" onClick={refresh} disabled={loading} className="border-white/10 bg-white/5">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
