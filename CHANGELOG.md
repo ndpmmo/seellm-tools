@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.9] - 2026-05-21 21:28:00
+
+### 🚀 Tối ưu hóa và sửa lỗi luồng tự động đăng ký (Auto-Register Worker) khi gặp Existing Account
+
+**Thay đổi:**
+- **Sửa lỗi không nhận diện được email input khi chuyển từ Protocol sang Browser Mode**: Khi tài khoản đã tồn tại ở Protocol Mode và chuyển sang Browser Mode, trình duyệt truy cập `https://chatgpt.com/auth/login` (trang này có sẵn email input). Tuy nhiên, worker lại cố áp dụng các chiến lược chuyển hướng đăng ký khác và chuyển hướng sang `auth.openai.com/log-in-or-create-account` dẫn tới lỗi "Your session has ended" và báo lỗi thiếu Email input. Đã thêm kiểm tra `signupUiState?.hasEmailInput` trực tiếp trên trang tải ban đầu để bỏ qua các chiến lược chuyển hướng nếu email input đã hiển thị sẵn.
+- **Sửa lỗi bỏ qua điền mật khẩu**: Thay vì bỏ qua việc điền mật khẩu hoàn toàn dựa trên trạng thái `isExistingAccount`, worker hiện tại luôn kiểm tra xem giao diện có yêu cầu nhập mật khẩu hay không (`hasPwdInput`). Điều này giúp tài khoản cũ vẫn có thể thực hiện đăng nhập và điền mật khẩu thành công trong luồng Browser Mode fallback.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.8] - 2026-05-21 21:20:00
 
 ### 🐛 Fix lỗi crash tự động đăng ký (Auto-Register Worker)

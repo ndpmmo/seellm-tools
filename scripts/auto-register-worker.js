@@ -833,41 +833,46 @@ export async function runAutoRegister(taskInput) {
     }
 
     let signupResolved = false;
-    for (const strategy of signupStrategies) {
-      if (strategy.directNavigate) {
-        console.log(`[Sign-up step] Strategy ${strategy.name}: direct navigate → ${strategy.directNavigate}`);
-        try {
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: strategy.directNavigate });
-        } catch (e) {
-          const msg = e?.message || String(e);
-          if (!msg.includes('NS_BINDING_ABORTED')) throw e;
-          console.log(`[Sign-up step] direct navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
+    if (signupUiState?.hasEmailInput) {
+      console.log(`[Sign-up step] Email input already present on load, skipping signup strategies.`);
+      signupResolved = true;
+    } else {
+      for (const strategy of signupStrategies) {
+        if (strategy.directNavigate) {
+          console.log(`[Sign-up step] Strategy ${strategy.name}: direct navigate → ${strategy.directNavigate}`);
+          try {
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: strategy.directNavigate });
+          } catch (e) {
+            const msg = e?.message || String(e);
+            if (!msg.includes('NS_BINDING_ABORTED')) throw e;
+            console.log(`[Sign-up step] direct navigate bị abort — có thể browser đang tự chuyển trang, tiếp tục chờ...`);
+          }
+        } else {
+          const clickResult = await clickSignupUiAction(tabId, USER_ID, strategy.labels, strategy.name);
+          console.log(`[Sign-up step] ${strategy.name} →`, JSON.stringify(clickResult || {}));
+          if (!clickResult?.clicked) continue;
         }
-      } else {
-        const clickResult = await clickSignupUiAction(tabId, USER_ID, strategy.labels, strategy.name);
-        console.log(`[Sign-up step] ${strategy.name} →`, JSON.stringify(clickResult || {}));
-        if (!clickResult?.clicked) continue;
-      }
 
-      const progress = await waitForSignupProgress(tabId, USER_ID, signupUiState, {
-        timeoutMs: (proxyUrl ? CONFIG.emailInputTimeoutWithProxy : CONFIG.emailInputTimeout) * 1000,
-        intervalMs: 600,
-      });
-      console.log(`[Sign-up step] progress after ${strategy.name} →`, JSON.stringify(progress || {}));
-      signupUiState = progress?.state || await collectSignupUiState(tabId, USER_ID);
-      signupVariant = classifySignupUiState(signupUiState);
+        const progress = await waitForSignupProgress(tabId, USER_ID, signupUiState, {
+          timeoutMs: (proxyUrl ? CONFIG.emailInputTimeoutWithProxy : CONFIG.emailInputTimeout) * 1000,
+          intervalMs: 600,
+        });
+        console.log(`[Sign-up step] progress after ${strategy.name} →`, JSON.stringify(progress || {}));
+        signupUiState = progress?.state || await collectSignupUiState(tabId, USER_ID);
+        signupVariant = classifySignupUiState(signupUiState);
 
-      if (signupUiState?.hasEmailInput) {
-        signupResolved = true;
-        break;
-      }
-
-      if (progress?.status === 'navigated') {
-        await new Promise(r => setTimeout(r, 2000));
-        signupUiState = await collectSignupUiState(tabId, USER_ID);
         if (signupUiState?.hasEmailInput) {
           signupResolved = true;
           break;
+        }
+
+        if (progress?.status === 'navigated') {
+          await new Promise(r => setTimeout(r, 2000));
+          signupUiState = await collectSignupUiState(tabId, USER_ID);
+          if (signupUiState?.hasEmailInput) {
+            signupResolved = true;
+            break;
+          }
         }
       }
     }
@@ -1036,7 +1041,7 @@ export async function runAutoRegister(taskInput) {
     }
 
     // 3. Điền mật khẩu — skip nếu account đã tồn tại
-    if (!isExistingAccount) {
+    if (true) {
     // Flow mới: click "Continue with password" link trước
     if (flowDetection?.flow === 'new') {
       // Flow mới: click "Continue with password" link trước
