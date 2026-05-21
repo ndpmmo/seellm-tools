@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.12] - 2026-05-21 23:12:00
+
+### 🚀 Đồng bộ hóa và chống Race Condition trong Auto-Worker Đa nguồn
+
+**Thay đổi:**
+- **Thắt chặt kiểm tra Cooldown/Email Trùng**: Tự động `.trim().toLowerCase()` toàn bộ email khi so sánh trong `completedEmailCooldown` và `processingEmails` để tránh việc sai lệch do khoảng trắng hoặc viết hoa viết thường.
+- **Tự động giải phóng (Unlock) các Task bị Skip**: Khi worker bỏ qua một task (do tài khoản đang bận hoặc đang trong cooldown), worker sẽ chủ động gọi API `connect-result` (đối với connect flow), `/accounts/result` (đối với local login), hoặc `/api/public/worker/result` (đối với Gateway) để cập nhật trạng thái về `'pending'` hoặc lỗi tương ứng. Điều này ngăn chặn việc tài khoản bị khóa vĩnh viễn ở trạng thái `'processing'`/`connect_pending = 2`.
+- **Lock D1 Cloud Task trước khi xử lý**: Khi worker chọn một tài khoản cần login từ nguồn D1 Cloud, worker sẽ lập tức gửi `PATCH` request lên D1 Cloud worker để đổi trạng thái tài khoản thành `'processing'`. Nếu request khóa thành công thì worker mới tiếp tục xử lý, loại bỏ triệt để hiện tượng race condition khi nhiều worker cùng nhặt 1 task từ D1 Cloud.
+
+**File thay đổi:**
+- `scripts/auto-worker.js`
+
+---
+
 ## [0.3.11] - 2026-05-21 22:54:00
 
 ### 🚀 Tối ưu hóa bộ lọc thời gian mã OTP và Cache Token MS Graph

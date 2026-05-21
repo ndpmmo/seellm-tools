@@ -2309,10 +2309,11 @@ async function fetchAnyTask() {
     if (ts && (now - ts) < COOLDOWN_MS) return true;
     if (ts) completedCooldown.delete(id); // hết hạn → cleanup
     if (email) {
-      const emailTs = completedEmailCooldown.get(email.toLowerCase());
+      const emailKey = email.trim().toLowerCase();
+      const emailTs = completedEmailCooldown.get(emailKey);
       if (emailTs && (now - emailTs) < COOLDOWN_MS) return true;
-      if (emailTs) completedEmailCooldown.delete(email.toLowerCase()); // hết hạn → cleanup
-      if (processingEmails.has(email.toLowerCase())) return true;
+      if (emailTs) completedEmailCooldown.delete(emailKey); // hết hạn → cleanup
+      if (processingEmails.has(emailKey)) return true;
     }
     return false;
   };
@@ -2324,8 +2325,15 @@ async function fetchAnyTask() {
       if (res.ok) {
         const d = await res.json();
         if (d?.task) {
-          if (isCoolingDown(d.task.id, d.task.email)) {
-            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Connect task ${d.task.id} skipped (cooldown)`);
+          const taskEmail = (d.task.email || '').trim().toLowerCase();
+          if (isCoolingDown(d.task.id, taskEmail)) {
+            console.log(`[Poll] ⏭️ Connect task ${d.task.id} (${d.task.email}) skipped (cooldown/processing). Releasing lock...`);
+            await fetch(`${TOOLS_API}/api/vault/accounts/connect-result`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: d.task.id, status: 'error', message: 'Skipped due to worker cooldown' }),
+              signal: AbortSignal.timeout(5000),
+            }).catch(() => {});
           } else {
             d.task._flow = 'connect'; d.task.source = d.task.source || 'tools'; return d.task;
           }
@@ -2345,8 +2353,15 @@ async function fetchAnyTask() {
       if (res.ok) {
         const data = await res.json();
         if (data.task) {
-          if (isCoolingDown(data.task.id, data.task.email)) {
-            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Local login task ${data.task.id} skipped (cooldown)`);
+          const taskEmail = (data.task.email || '').trim().toLowerCase();
+          if (isCoolingDown(data.task.id, taskEmail)) {
+            console.log(`[Poll] ⏭️ Local login task ${data.task.id} (${data.task.email}) skipped (cooldown/processing). Releasing lock...`);
+            await fetch(`${TOOLS_API}/api/vault/accounts/result`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: data.task.id, status: 'pending', message: 'Skipped due to worker cooldown' }),
+              signal: AbortSignal.timeout(5000),
+            }).catch(() => {});
           } else {
             data.task._flow = 'login'; data.task.source = 'tools'; return data.task;
           }
@@ -2363,8 +2378,15 @@ async function fetchAnyTask() {
       if (res.status === 200) {
         const data = await res.json();
         if (data.task) {
-          if (processingIds.has(data.task.id) || isCoolingDown(data.task.id, data.task.email)) {
-            if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏭️ Gateway task ${data.task.id} skipped (cooldown/processing)`);
+          const taskEmail = (data.task.email || '').trim().toLowerCase();
+          if (processingIds.has(data.task.id) || isCoolingDown(data.task.id, taskEmail)) {
+            console.log(`[Poll] ⏭️ Gateway task ${data.task.id} (${data.task.email}) skipped (cooldown/processing). Releasing lock...`);
+            await fetch(`${GATEWAY_URL}/api/public/worker/result`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${WORKER_AUTH_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: data.task.id, status: 'pending', message: 'Skipped due to worker cooldown' }),
+              signal: AbortSignal.timeout(5000),
+            }).catch(() => {});
           } else {
             data.task._flow = 'login'; data.task.source = 'gateway'; return data.task;
           }
@@ -2388,7 +2410,24 @@ async function fetchAnyTask() {
             !processingIds.has(a.id) &&
             !isCoolingDown(a.id, a.email)
           );
-          if (pending) { pending._flow = 'login'; pending.source = 'd1'; return pending; }
+          if (pending) {
+            console.log(`[Poll] 🔒 D1 Cloud task ${pending.id} (${pending.email}) selected. Locking...`);
+            try {
+              const lockRes = await fetch(`${cfg.d1WorkerUrl}/accounts/${pending.id}`, {
+                method: 'PATCH',
+                headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'processing', updated_at: new Date().toISOString() }),
+                signal: AbortSignal.timeout(5000),
+              });
+              if (lockRes.ok) {
+                pending._flow = 'login'; pending.source = 'd1'; return pending;
+              } else {
+                console.log(`[Poll] ⚠️ Failed to lock D1 Cloud task ${pending.id} (HTTP ${lockRes.status})`);
+              }
+            } catch (lockErr) {
+              console.log(`[Poll] ⚠️ Lock D1 Cloud task exception: ${lockErr.message}`);
+            }
+          }
         }
       }
     } catch (_) {}
@@ -2405,30 +2444,30 @@ async function pollTasks() {
     if (processingIds.has(task.id)) return;
 
     processingIds.add(task.id);
-    if (task.email) processingEmails.add(task.email.toLowerCase());
+    if (task.email) processingEmails.add(task.email.trim().toLowerCase());
     activeThreads++;
 
     // Auto-select flow: connect nếu có password, login nếu chỉ có codeVerifier
     const flow = task._flow || (task.password ? 'connect' : 'login');
-    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (mode: ${currentMode}, threads: ${activeThreads}/${MAX_THREADS})`);
+    console.log(`[Worker] 🚀 ${flow.toUpperCase()} flow: ${task.email} (source: ${task.source}, mode: ${currentMode}, threads: ${activeThreads}/${MAX_THREADS})`);
 
     const runner = flow === 'connect' ? runConnectFlow : runLoginFlow;
     runner(task)
       .then(() => {
         activeThreads = Math.max(0, activeThreads - 1);
         completedCooldown.set(task.id, Date.now()); // Đánh dấu cooldown để không bị double-run
-        if (task.email) completedEmailCooldown.set(task.email.toLowerCase(), Date.now());
+        if (task.email) completedEmailCooldown.set(task.email.trim().toLowerCase(), Date.now());
         processingIds.delete(task.id);
-        if (task.email) processingEmails.delete(task.email.toLowerCase());
+        if (task.email) processingEmails.delete(task.email.trim().toLowerCase());
         console.log(`[Worker] ✅ Hoàn tất ${task.email}. Còn trống: ${MAX_THREADS - activeThreads}`);
         if (activeThreads < MAX_THREADS) setTimeout(pollTasks, 1000);
       })
       .catch(err => {
         activeThreads = Math.max(0, activeThreads - 1);
         completedCooldown.set(task.id, Date.now());
-        if (task.email) completedEmailCooldown.set(task.email.toLowerCase(), Date.now());
+        if (task.email) completedEmailCooldown.set(task.email.trim().toLowerCase(), Date.now());
         processingIds.delete(task.id);
-        if (task.email) processingEmails.delete(task.email.toLowerCase());
+        if (task.email) processingEmails.delete(task.email.trim().toLowerCase());
         console.error(`[Worker] ❌ Lỗi ${task.email}:`, err.message);
       });
 
