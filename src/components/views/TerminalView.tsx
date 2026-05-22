@@ -133,7 +133,6 @@ function Terminal({ proc }: { proc: ProcessInfo }) {
 export function TerminalView() {
   const { processes, selectedLog, setSelectedLog } = useApp();
   const procs = Object.values(processes)
-    .filter(p => p.status === 'running')
     .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
   const sel = selectedLog ? processes[selectedLog] : procs[0] || null;
 
@@ -141,16 +140,30 @@ export function TerminalView() {
     if (!selectedLog && procs.length) setSelectedLog(procs[0].id);
   }, [procs.length]);
 
+  const handleClearInactive = async () => {
+    try {
+      await fetch('/api/processes/clear-inactive', { method: 'POST' });
+    } catch (_) {}
+  };
+
   return (
     <div className="absolute inset-0 px-6 pb-10 pt-2 flex flex-col overflow-hidden">
       <div className="flex-1 flex flex-col lg:flex-row gap-5 min-h-0">
         {/* Process list Sidebar */}
         <Card className="flex flex-col shrink-0 lg:w-72 h-[45%] lg:h-full bg-[#0d111c]/70 backdrop-blur-md border border-white/5 shadow-lg overflow-hidden">
-          <CardHeader className="py-4 border-b border-white/5 shrink-0 bg-transparent">
+          <CardHeader className="py-4 border-b border-white/5 shrink-0 bg-transparent flex flex-row items-center justify-between">
             <CardTitle className="text-[11.5px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
               <TerminalIcon size={14} className="text-indigo-400" />
-              Tiến trình đang chạy ({procs.length})
+              Tiến trình ({procs.length})
             </CardTitle>
+            {procs.some(p => p.status !== 'running') && (
+              <button
+                onClick={handleClearInactive}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 px-2 py-0.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition-all font-semibold"
+              >
+                Dọn dẹp
+              </button>
+            )}
           </CardHeader>
           <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
             {procs.length === 0 && (

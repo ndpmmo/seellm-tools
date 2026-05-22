@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.25] - 2026-05-22 23:58:00
+
+### 🖥️ Sửa lỗi hiển thị số lượng lỗi Terminal Logs (Badge) và Hỗ trợ Dọn dẹp tiến trình đã dừng
+
+**Thay đổi:**
+- **Giải quyết lỗi Badge không khớp**: Sidebar hiển thị 17 lỗi nhưng danh sách trống là do trước đây giao diện Terminal Logs chỉ lọc hiển thị các tiến trình đang chạy (`status === 'running'`), trong khi các tiến trình lỗi/dừng đã kết thúc vẫn nằm trong bộ nhớ hệ thống và được đếm vào số lượng lỗi.
+- **Hiển thị đầy đủ tiến trình**: Cập nhật `TerminalView.tsx` để hiển thị tất cả các tiến trình (bao gồm cả đang chạy, đã dừng, hoặc bị lỗi). Giúp người dùng có thể xem lại log của các tiến trình cũ đã kết thúc.
+- **Thêm tính năng Dọn dẹp**:
+  * Thêm endpoint API `POST /api/processes/clear-inactive` trong `server.js` để xóa toàn bộ các tiến trình đã dừng/lỗi khỏi bộ nhớ.
+  * Bổ sung nút **"Dọn dẹp"** trực tiếp trên Sidebar của giao diện Terminal Logs, cho phép người dùng click xóa nhanh các tiến trình đã kết thúc và đặt lại Badge đếm lỗi về `0`.
+
+---
+
 ## [0.3.24] - 2026-05-22 22:04:00
 
 ### ⏱️ Đặt lại thời gian chờ OTP về 90 giây

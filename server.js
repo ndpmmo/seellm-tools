@@ -658,6 +658,19 @@ app.prepare().then(async () => {
     auditLog({ action: 'stop', entity: 'process', entityId: req.params.id, entityLabel: req.params.id, severity: 'info', source: 'ui' });
   });
 
+  ex.post('/api/processes/clear-inactive', (req, res) => {
+    let clearedCount = 0;
+    for (const id of Object.keys(processes)) {
+      if (processes[id].status !== 'running') {
+        delete processes[id];
+        clearedCount++;
+      }
+    }
+    const activeProcesses = Object.keys(processes).map(pid => safeProc(pid));
+    broadcastRealtimeEvent('processes:sync', activeProcesses);
+    res.json({ ok: true, clearedCount });
+  });
+
   // ── Scripts list ─────────────────────────────────────────────────────────
   ex.get('/api/scripts', async (_, res) => {
     try {
