@@ -286,6 +286,9 @@ router.post('/accounts', async (req, res) => {
       console.log(`[Vault] 🚀 New Codex account → Sync to D1: ${record.email}`);
       // SyncManager đã được gọi bởi upsertAccount
     }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/vault/accounts/:idOrEmail
 router.get('/accounts/:idOrEmail', (req, res) => {
   try {
@@ -313,6 +316,7 @@ router.get('/accounts/:idOrEmail', (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
 
 // DELETE /api/vault/accounts/:id
 router.delete('/accounts/:id', async (req, res) => {
