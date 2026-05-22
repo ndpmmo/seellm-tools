@@ -27,6 +27,7 @@ function StatusBadge({ status, notes }: { status: string; notes?: string }) {
     ready: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Ready' },
     idle: { color: 'text-slate-400', bg: 'bg-white/5', border: 'border-white/5', label: 'Idle' },
     error: { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', label: 'Error' },
+    dead: { color: 'text-rose-500 font-bold', bg: 'bg-rose-950/40', border: 'border-rose-900/30', label: 'Dead' },
     pending: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', label: 'Pending' },
     processing: { color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', label: 'Processing' },
     relogin: { color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20', label: 'Re-login' },

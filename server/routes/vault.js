@@ -101,10 +101,14 @@ function maybeAddNeedPhoneTag(id, message) {
   }
 }
 
-function maybeAddAccountDeactivatedTag(id, message) {
-  if (!message) return;
+function isDeactivatedMsg(message) {
+  if (!message) return false;
   const msg = String(message).toLowerCase();
-  if (msg.includes('account_deactivated') || msg.includes('deactivated') || msg.includes('vô hiệu hóa') || msg.includes('đã bị xóa')) {
+  return msg.includes('account_deactivated') || msg.includes('deactivated') || msg.includes('vô hiệu hóa') || msg.includes('đã bị xóa');
+}
+
+function maybeAddAccountDeactivatedTag(id, message) {
+  if (isDeactivatedMsg(message)) {
     const account = vault.getAccountFull(id);
     if (!account) return;
     const tags = safeParseTags(account.tags);
@@ -1140,7 +1144,9 @@ router.post('/accounts/result', async (req, res) => {
           fs.appendFileSync(logPath, `[${new Date().toISOString()}] exchange_failed id=${id}: ${exchangeErr.message}\n`);
         } catch (_) { }
         maybeAddNeedPhoneTag(id, exchangeErr.message);
-        vault.upsertAccount({ id, status: 'error', notes: `Exchange failed: ${exchangeErr.message}` });
+        maybeAddAccountDeactivatedTag(id, exchangeErr.message);
+        const exchangeStatus = isDeactivatedMsg(exchangeErr.message) ? 'dead' : 'error';
+        vault.upsertAccount({ id, status: exchangeStatus, notes: `Exchange failed: ${exchangeErr.message}` });
         pkceStore.delete(id);
 
         logAudit({
@@ -1210,7 +1216,8 @@ router.post('/accounts/result', async (req, res) => {
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
       maybeAddNeedPhoneTag(id, errorMsg);
       maybeAddAccountDeactivatedTag(id, errorMsg);
-      vault.upsertAccount({ id, status: status || 'error', notes: errorMsg });
+      const finalStatus = isDeactivatedMsg(errorMsg) ? 'dead' : (status || 'error');
+      vault.upsertAccount({ id, status: finalStatus, notes: errorMsg });
 
       logAudit({
         action: 'connect',
@@ -1536,12 +1543,14 @@ router.post('/accounts/connect-result', async (req, res) => {
       // Error hoặc trạng thái không thành công
       const errorMsg = message || `Connect worker status: ${status}`;
       const isNeedPhone = String(errorMsg).includes('NEED_PHONE');
+      const isDeactivated = isDeactivatedMsg(errorMsg);
       maybeAddNeedPhoneTag(id, errorMsg);
       maybeAddAccountDeactivatedTag(id, errorMsg);
 
       // NEED_PHONE: set idle + tag — account chỉ hiển thị ở Vault local, không push Services
+      // Deactivated: set dead
       // Other errors: set error + push D1
-      const targetStatus = isNeedPhone ? 'idle' : 'error';
+      const targetStatus = isNeedPhone ? 'idle' : (isDeactivated ? 'dead' : 'error');
       vault.db.prepare(
         `UPDATE vault_accounts SET status=?, notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
       ).run(targetStatus, errorMsg, id);
