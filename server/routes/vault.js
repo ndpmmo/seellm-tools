@@ -318,9 +318,12 @@ router.post('/accounts', async (req, res) => {
 });
 
 // GET /api/vault/accounts/:idOrEmail
-router.get('/accounts/:idOrEmail', (req, res) => {
+router.get('/accounts/:idOrEmail', (req, res, next) => {
   try {
     const { idOrEmail } = req.params;
+    if (['task', 'connect-task'].includes(idOrEmail)) {
+      return next();
+    }
     let account = vault.getAccount(idOrEmail);
     if (!account && idOrEmail.includes('@')) {
       const a = vault.db.prepare('SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL').get(idOrEmail);

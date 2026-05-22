@@ -2211,7 +2211,7 @@ async function runLoginFlow(task) {
     await recorder.before(1, 2, 'before_email');
     await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: emailInputSelector, text: account.email });
     await pressKey(tabId, USER_ID, 'Enter');
-    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }); } catch (_) {}
+    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
     await new Promise(r => setTimeout(r, 1000));
     await recorder.after(1, 2, 'email_filled');
 
@@ -2220,7 +2220,7 @@ async function runLoginFlow(task) {
     await recorder.before(1, 3, 'before_password');
     await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: 'input[type="password"], input[name="password"], #password', text: account.password });
     await pressKey(tabId, USER_ID, 'Enter');
-    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }); } catch (_) {}
+    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
     await new Promise(r => setTimeout(r, 2000));
     await recorder.after(1, 3, 'password_filled');
 
