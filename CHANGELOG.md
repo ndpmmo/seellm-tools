@@ -2,6 +2,53 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.19] - 2026-05-22 12:39:00
+
+### 🐛 Dọn dẹp Screenshot không cần thiết + Sửa lỗi SyntaxError vault.js
+
+**Thay đổi:**
+- **Refactor screenshot trong luồng Đăng ký (`auto-register-worker.js`)**:
+  - Xóa `checkpoint(1, 1, 'login_page')` bị lặp ngay trước `checkpoint(1, 1, 'login_page_<variant>')` — 2 ảnh giống nhau chụp cách nhau vài ms.
+  - Gộp `after(5, 1, 'inside_chat')` + `checkpoint(5, 2, 'home_reached')` (cùng trang, không thao tác ở giữa) thành 1 `checkpoint(5, 1, 'home_reached')` duy nhất.
+- **Refactor screenshot trong `performBrowserOAuth()` (`auto-worker.js`)**:
+  - Xóa `after(1, 3, 'after_email')` thừa (chụp lại trang đã có ở `after(1, 2, 'email_filled')`).
+  - Xóa `after(1, 5, 'after_password')` thừa tương tự.
+  - Di chuyển `after email_filled` và `after password_filled` ra sau Enter/click/wait để ảnh phản ánh đúng trạng thái sau submit.
+  - Sửa step numbering tuyến tính: password đổi từ (1,4) → (1,3) sau khi bỏ step thừa.
+- **Sửa lỗi `SyntaxError: Unexpected token 'export'` trong `server/routes/vault.js`**:
+  - Route `GET /api/vault/accounts/:idOrEmail` bị chèn **vào bên trong** handler `POST /accounts` (thiếu `} catch (e) {...}` và `});` đóng handler) khiến toàn bộ server không khởi động được.
+  - Thêm lại đúng vị trí `} catch (e) {...}` và `});` để đóng handler POST trước khi định nghĩa GET route mới.
+
+**File thay đổi:**
+- `scripts/auto-register-worker.js`
+- `scripts/auto-worker.js`
+- `server/routes/vault.js`
+
+---
+
+## [0.3.18] - 2026-05-22 01:30:00
+
+### 🚀 Thêm tuỳ chọn dọn dẹp Audit Log linh hoạt (Hôm nay / 7 ngày / 1 tháng / 3 tháng / Tất cả)
+
+**Thay đổi:**
+- **Dropdown "Dọn dẹp" có tuỳ chọn linh hoạt**: Thay nút cứng "Dọn dẹp (30 ngày)" bằng dropdown split-button với 5 lựa chọn:
+  - **Hôm nay** — Xóa toàn bộ audit logs được tạo trong ngày hôm nay (từ 00:00:00).
+  - **7 ngày qua** — Xóa logs cũ hơn 7 ngày.
+  - **1 tháng qua** — Xóa logs cũ hơn 30 ngày.
+  - **3 tháng qua** — Xóa logs cũ hơn 90 ngày.
+  - **Toàn bộ ⚠️** — Xóa toàn bộ audit logs (highlight đỏ + badge `!`).
+- **Confirm Modal trước mỗi lựa chọn**: Mỗi option hiển thị modal xác nhận với mô tả rõ ràng trước khi thực thi.
+- **Dropdown tự đóng** khi click ngoài.
+- **Backend `purgeAuditLogsToday()`**: Thêm hàm riêng xóa logs từ `startOf('day')` — chính xác hơn `purgeAuditLogs(1)` (vốn xóa 24h trước).
+- **Route `DELETE /api/audit-logs`**: Bổ sung tham số `today: true` để kích hoạt hàm xóa hôm nay.
+
+**File thay đổi:**
+- `src/components/views/AuditLogView.tsx`
+- `server/db/auditLog.js`
+- `server/routes/auditLog.js`
+
+---
+
 ## [0.3.17] - 2026-05-22 01:10:00
 
 ### 🚀 Đồng bộ hóa và tự động dọn dẹp Live Browser View khi tiến trình hoặc task hoàn thành
