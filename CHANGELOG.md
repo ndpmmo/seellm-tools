@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.27] - 2026-05-23 01:33:00
+
+### 🔴 Chuyển đổi sang trạng thái "Dead" trực quan cho Tài khoản bị Vô hiệu hóa & Tối ưu hóa Luồng Automation
+
+**Thay đổi:**
+- **Trạng thái "Dead" trực quan:**
+  - Thay thế trạng thái `'error'` chung chung bằng trạng thái `'dead'` cho các tài khoản bị OpenAI vô hiệu hóa/xóa (`account_deactivated`, `deactivated`...) trong `server/routes/vault.js` (các route `/accounts/result` và `/accounts/connect-result`).
+  - Thiết kế huy hiệu **🔴 Dead** nổi bật màu đỏ đậm trên giao diện `VaultAccountsView.tsx` để người dùng dễ dàng phân biệt với lỗi thông thường.
+  - Khi tài khoản chuyển sang trạng thái `Dead`, nút **Deploy (Đẩy lên D1)** và nút **Thử lại (Retry)** sẽ bị ẩn đi hoàn toàn trên giao diện.
+- **Khắc phục lỗi chặn định tuyến (Route Parameter Blockage):**
+  - Sửa lỗi trong `server/routes/vault.js` khi route động `/accounts/:idOrEmail` chặn các endpoint static `/accounts/task` và `/accounts/connect-task` bằng cách bổ sung logic `next()` để chuyển tiếp tác vụ.
+- **Tối ưu hóa thời gian chờ (Click Timeout):**
+  - Giảm thời gian chờ sự kiện click submit button dự phòng trong `auto-worker.js` xuống `3 giây` (`timeoutMs: 3000`), giải quyết triệt để lỗi treo `30 giây` khi chạy login.
+- **Backup Scripts:**
+  - Tự động sao lưu toàn bộ mã nguồn của các script quan trọng liên quan (`auto-worker.js`, `vault.js`, `VaultAccountsView.tsx`) vào thư mục `scripts/backup/v0.3.27/`.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `server/routes/vault.js`
+- `scripts/auto-worker.js`
+- `src/components/views/vault/VaultAccountsView.tsx`
+
+---
+
 ## [0.3.26] - 2026-05-23 00:15:00
 
 ### 🏷️ Tự động nhận diện và gắn nhãn Workspace cho tài khoản khi Deploy / Đăng nhập thành công
