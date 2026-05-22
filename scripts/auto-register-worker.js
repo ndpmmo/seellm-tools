@@ -689,15 +689,31 @@ export async function runAutoRegister(taskInput) {
     if (proxyUrl) {
       console.log(`🔒 [PreFlight] Asserting proxy applied: ${proxyUrl}`);
       try {
-        preFlightResult = await assertProxyApplied(proxyUrl);
+        let lastErr = null;
+        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+          try {
+            preFlightResult = await assertProxyApplied(proxyUrl);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || '');
+            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED');
+            if (!isTransient || preflightAttempt === 2) break;
+            console.log(`⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
+            await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+          }
+        }
+        if (!preFlightResult && lastErr) throw lastErr;
         console.log(`✅ [PreFlight] OK — Exit IP: ${preFlightResult.exitIp} (${preFlightResult.networkType})${preFlightResult.isLocalRelay ? ' 🔒 LOCAL RELAY' : ''}`);
       } catch (err) {
-        console.log(`🛑 [PreFlight] FAILED: ${err.message}`);
-        if (CONFIG.proxyStrictMode) {
-          throw err;  // hard abort in strict mode
-        } else {
-          console.log(`⚠️ [PreFlight] Continuing despite proxy failure (strict mode disabled)`);
-        }
+        const errMsg = `[PreFlight Failed] Proxy validation failed: ${err.message}`;
+        console.log(`🛑 ${errMsg}`);
+        await updatePoolStatus(email, {
+          chatgpt_status: 'failed',
+          notes: errMsg
+        });
+        process.exit(1);
       }
     }
 
@@ -790,14 +806,53 @@ export async function runAutoRegister(taskInput) {
     // 🔍 [PostVerify] Re-probe to confirm session inherited proxy
     if (proxyUrl && preFlightResult) {
       console.log(`🔍 [PostVerify] Verifying proxy applied after tab creation...`);
-      const verifyCheck = await probeProxyExitIp(USER_ID, proxyUrl, true);  // reuse session
-      if (!verifyCheck?.ip) {
-        throw new Error(`[PostVerify] Không probe được sau khi tạo tab: ${verifyCheck?.error}`);
+      let verifyCheck = null;
+      let lastVerifyErr = null;
+      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+        try {
+          verifyCheck = await probeProxyExitIp(USER_ID, proxyUrl, true);  // reuse session
+          if (verifyCheck?.ip) {
+            lastVerifyErr = null;
+            break;
+          }
+          lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
+        } catch (err) {
+          lastVerifyErr = err;
+        }
+        if (verifyAttempt < 2) {
+          console.log(`⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
+          await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+        }
       }
+
+      if (!verifyCheck?.ip) {
+        const errMsg = `[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`;
+        console.log(`🛑 ${errMsg}`);
+        await updatePoolStatus(email, {
+          chatgpt_status: 'failed',
+          notes: errMsg
+        });
+        if (tabId) { await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => { }); }
+        process.exit(1);
+      }
+
+      // Compare with host local IP to detect fallback leaks
+      const isLocalRelay = isLocalRelayProxy(proxyUrl);
+      const localIp = isLocalRelay ? null : await getLocalPublicIp();
+      if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
+        const errMsg = `[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`;
+        console.log(`🛑 ${errMsg}`);
+        await updatePoolStatus(email, {
+          chatgpt_status: 'failed',
+          notes: errMsg
+        });
+        if (tabId) { await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => { }); }
+        process.exit(1);
+      }
+
       if (verifyCheck.ip !== preFlightResult.exitIp) {
         // For backconnect/rotating proxies this MAY be expected; for static proxies it indicates session leak
         console.log(`⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating proxy?)`);
-        // For local relay or static proxies, this is suspicious → warn but don't abort
       } else {
         console.log(`✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
       }
@@ -1881,7 +1936,7 @@ export async function runAutoRegister(taskInput) {
       notes: `Error: ${err.message} at ${new Date().toISOString()}`
     });
 
-    if (tabId) { await camofoxPostWithSessionKey(`/tabs/${tabId}?userId=${USER_ID}`, {}, 5000).catch(() => { }); }
+    if (tabId) { await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => { }); }
     return { success: false, email, error: err.message || String(err) };
   }
 }

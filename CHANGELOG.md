@@ -2,6 +2,28 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.20] - 2026-05-22 19:30:00
+
+### 🛡️ Nâng cấp cơ chế bảo mật Fail-Fast và kiểm tra rò rỉ IP qua Proxy
+
+**Thay đổi:**
+- **Ngăn chặn rò rỉ Host IP trong Đăng ký (`auto-register-worker.js`)**:
+  - Loại bỏ hoàn toàn cơ chế bỏ qua lỗi proxy khi strict mode bị tắt. Mọi tài khoản có cấu hình proxy bắt buộc phải xác thực thành công.
+  - Bổ sung cơ chế retry 3 lần cho cả giai đoạn **PreFlight** và **PostVerify** để tránh bị ảnh hưởng bởi sự cố mạng tạm thời.
+  - Thêm phần đối chiếu exit IP sau khi tạo tab trình duyệt với public IP thực tế của máy chủ (Host IP) thông qua `getLocalPublicIp()`. Nếu phát hiện trùng khớp (proxy bypass/leak), lập tức đánh dấu lỗi `failed` trên cơ sở dữ liệu và dừng tiến trình bằng `process.exit(1)`.
+- **Đồng bộ hóa bảo mật cho Task Runner (`auto-worker.js`)**:
+  - Áp dụng toàn bộ cơ chế retry 3 lần và đối chiếu rò rỉ Host IP đối với cả luồng Đăng nhập (`runLoginFlow`) và luồng Kết nối (`runConnectFlow`).
+  - Đảm bảo nếu phát hiện proxy không ổn định hoặc bypass rò rỉ, worker sẽ dừng và báo lỗi ngay lập tức, ngăn chặn hoàn toàn việc thực hiện bất kỳ request nào qua IP gốc của Host.
+- **Sửa lỗi API đóng Tab (`auto-register-worker.js`)**:
+  - Thay đổi lệnh gọi API đóng tab từ `POST` sang `DELETE` thông qua helper `camofoxDelete` cho phù hợp với đặc tả OpenAPI của Camofox Browser.
+
+**File thay đổi:**
+- `package.json`
+- `scripts/auto-register-worker.js`
+- `scripts/auto-worker.js`
+
+---
+
 ## [0.3.19] - 2026-05-22 12:39:00
 
 ### 🐛 Dọn dẹp Screenshot không cần thiết + Sửa lỗi SyntaxError vault.js

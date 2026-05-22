@@ -671,11 +671,41 @@ async function runConnectFlow(task) {
     await new Promise(r => setTimeout(r, 5000));
 
     if (effectiveProxy && preFlightResult) {
-      const verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);
-      if (verifyCheck?.ip && verifyCheck.ip !== preFlightResult.exitIp) {
-        console.log(`[Connect] ⚠️ [PostVerify] IP changed: ${preFlightResult.exitIp} → ${verifyCheck.ip} (rotating?)`);
-      } else if (verifyCheck?.ip) {
-        console.log(`[Connect] ✅ [PostVerify] IP consistent: ${verifyCheck.ip}`);
+      console.log(`[Connect] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+      let verifyCheck = null;
+      let lastVerifyErr = null;
+      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+        try {
+          verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+          if (verifyCheck?.ip) {
+            lastVerifyErr = null;
+            break;
+          }
+          lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
+        } catch (err) {
+          lastVerifyErr = err;
+        }
+        if (verifyAttempt < 2) {
+          console.log(`[Connect] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
+          await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+        }
+      }
+
+      if (!verifyCheck?.ip) {
+        throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
+      }
+
+      // Compare with host local IP to detect fallback leaks
+      const isLocalRelay = isLocalRelayProxy(effectiveProxy);
+      const localIp = isLocalRelay ? null : await getLocalPublicIp();
+      if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
+        throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
+      }
+
+      if (verifyCheck.ip !== preFlightResult.exitIp) {
+        console.log(`[Connect] ⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating?)`);
+      } else {
+        console.log(`[Connect] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
       }
     }
     await recorder.checkpoint(1, 1, 'login_page');
@@ -2062,8 +2092,26 @@ async function runLoginFlow(task) {
 
   try {
     if (effectiveProxy) {
-      try { preFlightResult = await assertProxyApplied(effectiveProxy); console.log(`✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`); }
-      catch (err) { console.log(`🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
+      console.log(`[Login] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
+      try {
+        let lastErr = null;
+        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+          try {
+            preFlightResult = await assertProxyApplied(effectiveProxy);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || '');
+            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED');
+            if (!isTransient || preflightAttempt === 2) break;
+            console.log(`[Login] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
+            await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+          }
+        }
+        if (!preFlightResult && lastErr) throw lastErr;
+        console.log(`[Login] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
+      } catch (err) { console.log(`[Login] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
     }
 
     const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
@@ -2078,11 +2126,41 @@ async function runLoginFlow(task) {
     await new Promise(r => setTimeout(r, 2000));
 
     if (effectiveProxy && preFlightResult) {
-      const verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);
-      if (verifyCheck?.ip && verifyCheck.ip !== preFlightResult.exitIp) {
-        console.log(`⚠️ [PostVerify] IP changed (rotating proxy?)`);
-      } else if (verifyCheck?.ip) {
-        console.log(`✅ [PostVerify] IP consistent: ${verifyCheck.ip}`);
+      console.log(`[Login] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+      let verifyCheck = null;
+      let lastVerifyErr = null;
+      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+        try {
+          verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+          if (verifyCheck?.ip) {
+            lastVerifyErr = null;
+            break;
+          }
+          lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
+        } catch (err) {
+          lastVerifyErr = err;
+        }
+        if (verifyAttempt < 2) {
+          console.log(`[Login] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
+          await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+        }
+      }
+
+      if (!verifyCheck?.ip) {
+        throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
+      }
+
+      // Compare with host local IP to detect fallback leaks
+      const isLocalRelay = isLocalRelayProxy(effectiveProxy);
+      const localIp = isLocalRelay ? null : await getLocalPublicIp();
+      if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
+        throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
+      }
+
+      if (verifyCheck.ip !== preFlightResult.exitIp) {
+        console.log(`[Login] ⚠️ [PostVerify] Exit IP changed (rotating proxy?)`);
+      } else {
+        console.log(`[Login] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
       }
     }
     await recorder.checkpoint(1, 1, 'khoi_dong');
