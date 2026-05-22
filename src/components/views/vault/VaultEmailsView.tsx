@@ -60,7 +60,27 @@ export function VaultEmailsView() {
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('all');
+    const [statusFilter, _setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('all');
+
+    const setStatusFilter = useCallback((s: 'all' | 'active' | 'dead' | 'done') => {
+        _setStatusFilter(s);
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', s);
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get('tab');
+            if (tab === 'all' || tab === 'active' || tab === 'dead' || tab === 'done') {
+                _setStatusFilter(tab);
+            }
+        }
+    }, []);
+
     const [showImport, setShowImport] = useState(false);
     const [inputText, setInputText] = useState('');
     const [copied, setCopied] = useState<string | null>(null);

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, SquareTerminal, CheckCircle2, XCircle, Clock, Zap, Image as ImageIcon, Settings2, Trash2, RotateCcw, AlertTriangle, AlertCircle, Copy, Check, Info, List, Mail, ShieldCheck, Database, RefreshCw } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
@@ -14,7 +14,26 @@ export function VaultAutoRegisterView() {
     const { addToast, processes, liveShots, setView } = useApp();
     const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done' | 'failed'>('all');
+    const [statusFilter, _setStatusFilter] = useState<'all' | 'active' | 'done' | 'failed'>('all');
+
+    const setStatusFilter = useCallback((s: 'all' | 'active' | 'done' | 'failed') => {
+        _setStatusFilter(s);
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', s);
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get('tab');
+            if (tab === 'all' || tab === 'active' || tab === 'done' || tab === 'failed') {
+                _setStatusFilter(tab);
+            }
+        }
+    }, []);
     const [emailPool, setEmailPool] = useState<any[]>([]);
     const [loadingPool, setLoadingPool] = useState(false);
     const [successAccounts, setSuccessAccounts] = useState<any[]>([]);

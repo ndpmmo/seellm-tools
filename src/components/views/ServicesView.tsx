@@ -202,8 +202,40 @@ export function ServicesView() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [providerFilter, setProviderFilter] = useState('all');
+  const [statusFilter, _setStatusFilter] = useState('all');
+  const [providerFilter, _setProviderFilter] = useState('all');
+
+  const setProviderFilter = useCallback((p: string) => {
+    _setProviderFilter(p);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', p);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  const setStatusFilter = useCallback((s: string) => {
+    _setStatusFilter(s);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('status', s);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const status = params.get('status');
+      if (tab === 'all' || ['openai', 'anthropic', 'gemini', 'cursor', 'perplexity'].includes(tab || '')) {
+        _setProviderFilter(tab as string);
+      }
+      if (status === 'all' || ['connected', 'pending', 'error'].includes(status || '')) {
+        _setStatusFilter(status as string);
+      }
+    }
+  }, []);
 
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
   const [newEmail, setNewEmail] = useState('');

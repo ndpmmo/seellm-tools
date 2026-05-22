@@ -228,8 +228,40 @@ export function AccountsView() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [gatewayFilter, setGatewayFilter] = useState('all');
+  const [statusFilter, _setStatusFilter] = useState('all');
+  const [gatewayFilter, _setGatewayFilter] = useState('all');
+
+  const setStatusFilter = useCallback((s: string) => {
+    _setStatusFilter(s);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', s);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  const setGatewayFilter = useCallback((g: string) => {
+    _setGatewayFilter(g);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('gateway', g);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const gateway = params.get('gateway');
+      if (tab === 'all' || ['ready', 'pending', 'error'].includes(tab || '')) {
+        _setStatusFilter(tab as string);
+      }
+      if (gateway === 'all' || ['active', 'revoked', 'pending_push', 'not_deployed'].includes(gateway || '')) {
+        _setGatewayFilter(gateway as string);
+      }
+    }
+  }, []);
 
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 

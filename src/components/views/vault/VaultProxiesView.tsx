@@ -122,8 +122,41 @@ export function VaultProxiesView() {
   const [items, setItems]       = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, _setTypeFilter] = useState('all');
+  const [statusFilter, _setStatusFilter] = useState('all');
+
+  const setTypeFilter = useCallback((t: string) => {
+    _setTypeFilter(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  const setStatusFilter = useCallback((s: string) => {
+    _setStatusFilter(s);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('status', s);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const status = params.get('status');
+      if (tab === 'all' || ['http', 'https', 'socks5', 'socks4'].includes(tab || '')) {
+        _setTypeFilter(tab as string);
+      }
+      if (status === 'all' || ['active', 'down', 'unknown'].includes(status || '')) {
+        _setStatusFilter(status as string);
+      }
+    }
+  }, []);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [testingAll, setTestingAll] = useState(false);

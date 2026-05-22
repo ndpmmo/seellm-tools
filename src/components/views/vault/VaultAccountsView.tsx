@@ -183,7 +183,27 @@ export function VaultAccountsView() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [providerFilter, setProviderFilter] = useState('all');
+  const [providerFilter, _setProviderFilter] = useState('all');
+
+  const setProviderFilter = useCallback((p: string) => {
+    _setProviderFilter(p);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', p);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab === 'all' || ['openai', 'anthropic', 'gemini', 'cursor'].includes(tab || '')) {
+        _setProviderFilter(tab as string);
+      }
+    }
+  }, []);
+
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);

@@ -111,7 +111,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [appVersion, setAppVersion] = useState('...');
   const [connected, setConnected] = useState(false);
-  const [view, setView] = useState('dashboard');
+  const [view, _setView] = useState('dashboard');
+
+  const setView = useCallback((v: string) => {
+    _setView(v);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', v);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  // Sync view parameter on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get('view');
+      if (v) {
+        _setView(v);
+      }
+    }
+  }, []);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [logFiles, setLogFiles] = useState<LogFile[]>([]);
   const [liveShots, setLiveShots] = useState<Record<string, Screenshot>>({});
