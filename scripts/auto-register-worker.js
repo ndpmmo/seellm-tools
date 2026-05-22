@@ -804,9 +804,6 @@ export async function runAutoRegister(taskInput) {
     }
 
     if (!skipRegistrationSteps) {
-    // Phase 1, Step 1: Login page loaded
-    await recorder.checkpoint(1, 1, 'login_page');
-
     // Domain guard — đảm bảo đang ở chatgpt.com/auth.openai.com
     await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
 
@@ -817,7 +814,9 @@ export async function runAutoRegister(taskInput) {
     let signupUiState = await collectSignupUiState(tabId, USER_ID);
     let signupVariant = classifySignupUiState(signupUiState);
     console.log(`[Sign-up step] UI variant → ${JSON.stringify(signupVariant.summary)}`);
+    // Phase 1, Step 1: Login page — ghi nhận variant UI hiện tại
     await recorder.checkpoint(1, 1, `login_page_${signupVariant.variant}`);
+
 
     const signupStrategies = [];
     if (signupVariant.actions.signup) {
@@ -1696,12 +1695,8 @@ export async function runAutoRegister(taskInput) {
         return { attempts: retryCount, found: retryCount <= maxRetries };
       })()
     `);
-    await new Promise(r => setTimeout(r, 5000));
-    // Phase 5, Step 1: Inside chat
-    await recorder.after(5, 1, 'inside_chat');
-
-    // Phase 5, Step 2: Home reached
-    await recorder.checkpoint(5, 2, 'home_reached');
+    // Phase 5, Step 1: Inside chat home (survey dismissed, welcome closed)
+    await recorder.checkpoint(5, 1, 'home_reached');
 
     // 7. SETUP 2FA (MFA) - dùng UI Automation thay vì API cũ (404)
     console.log(`==========================================`);
