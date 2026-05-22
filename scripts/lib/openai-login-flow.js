@@ -206,6 +206,8 @@ export async function getState(tabId, userId) {
         document.querySelector('[class*="error"]') !== null;
       const hasError = rawHasError && (onAuthDomain || !looksLoggedIn);
 
+      const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
+
       // Inline consent screen logic (was referencing Node function)
       // Do NOT set isConsentScreen=true on error pages (they may contain "continue")
       const isConsentScr = !hasError && (
@@ -217,7 +219,7 @@ export async function getState(tabId, userId) {
         href, host,
         looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
-        hasCookieBanner, hasPhoneScreen, hasError,
+        hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         isConsentScreen: isConsentScr,
         isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k))),
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
@@ -564,9 +566,9 @@ export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 3
     const state = await getState(tabId, userId);
     const allMatch = Object.entries(expectedFlags).every(([key, expected]) => state[key] === expected);
     if (allMatch) return state;
-    // Handle intermediate states: if MFA, phone, or workspace screen appears, return state early
+    // Handle intermediate states: if MFA, phone, workspace, or deactivated screen appears, return state early
     // This prevents timeout when page redirects to MFA/phone/workspace after password fill
-    if (state?.hasMfaInput || state?.hasPhoneScreen || state?.isWorkspaceScreen) return state;
+    if (state?.hasMfaInput || state?.hasPhoneScreen || state?.isWorkspaceScreen || state?.hasDeactivated) return state;
     await new Promise(r => setTimeout(r, intervalMs));
   }
   return null;

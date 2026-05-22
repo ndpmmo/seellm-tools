@@ -22,6 +22,12 @@ function normalizeProviderSpecificData(raw) {
   }
 }
 
+function safeParseTags(raw) {
+  if (!raw) return [];
+  if (typeof raw === 'object') return Array.isArray(raw) ? raw : [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
 function normalizeAccountState(data = {}) {
   const providerData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData);
   return {
@@ -291,7 +297,9 @@ export const SyncManager = {
           version,
         }];
 
-        if (data.ever_ready) {
+        const tags = safeParseTags(data.tags);
+        const isDeactivated = tags.includes('account_deactivated');
+        if (data.ever_ready && !isDeactivated) {
           const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
           const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
           const mergedProviderData = {

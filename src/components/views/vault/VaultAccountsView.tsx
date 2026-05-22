@@ -724,8 +724,8 @@ export function VaultAccountsView() {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.map(it => {
-                const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped');
                 const tags = safeParseTags(it.tags);
+                const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped') && !tags.includes('account_deactivated');
                 const isExpanded = expandedId === it.id;
                 return (
                   <React.Fragment key={it.id}>
@@ -786,7 +786,7 @@ export function VaultAccountsView() {
                           {(it.status !== 'idle') && isOpenAI(it.provider) && (
                             <Button size="icon-sm" variant="ghost" title="Thu hồi về kho lạnh" onClick={() => stopAccount(it.id, it.email, it)}><X size={13} /></Button>
                           )}
-                          {(it.status === 'error') && isOpenAI(it.provider) && (
+                          {(it.status === 'error') && isOpenAI(it.provider) && !tags.includes('account_deactivated') && (
                             <Button size="icon-sm" variant="ghost" title="Thử lại" onClick={() => deploy(it.id, it.email)}><RotateCcw size={13} /></Button>
                           )}
                           {isOpenAI(it.provider) && (

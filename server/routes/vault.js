@@ -101,6 +101,20 @@ function maybeAddNeedPhoneTag(id, message) {
   }
 }
 
+function maybeAddAccountDeactivatedTag(id, message) {
+  if (!message) return;
+  const msg = String(message).toLowerCase();
+  if (msg.includes('account_deactivated') || msg.includes('deactivated') || msg.includes('vô hiệu hóa') || msg.includes('đã bị xóa')) {
+    const account = vault.getAccountFull(id);
+    if (!account) return;
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('account_deactivated')) {
+      tags.push('account_deactivated');
+      vault.upsertAccount({ id, tags });
+    }
+  }
+}
+
 function removeNeedPhoneTag(id) {
   const account = vault.getAccountFull(id);
   if (!account) return;
@@ -1192,6 +1206,7 @@ router.post('/accounts/result', async (req, res) => {
       const errorMsg = message || `Worker reported status: ${status}`;
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
       maybeAddNeedPhoneTag(id, errorMsg);
+      maybeAddAccountDeactivatedTag(id, errorMsg);
       vault.upsertAccount({ id, status: status || 'error', notes: errorMsg });
 
       logAudit({
@@ -1203,6 +1218,11 @@ router.post('/accounts/result', async (req, res) => {
         severity: 'error',
         source: 'worker',
       });
+
+      const fullRecord = vault.getAccountFull(id);
+      if (fullRecord) {
+        SyncManager.pushVault('account', fullRecord).catch(() => {});
+      }
       // Reset về pending sau một khoảng thời gian nếu là lỗi tạm thời
     }
 
@@ -1514,6 +1534,7 @@ router.post('/accounts/connect-result', async (req, res) => {
       const errorMsg = message || `Connect worker status: ${status}`;
       const isNeedPhone = String(errorMsg).includes('NEED_PHONE');
       maybeAddNeedPhoneTag(id, errorMsg);
+      maybeAddAccountDeactivatedTag(id, errorMsg);
 
       // NEED_PHONE: set idle + tag — account chỉ hiển thị ở Vault local, không push Services
       // Other errors: set error + push D1

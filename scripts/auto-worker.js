@@ -544,6 +544,25 @@ async function tryBootstrapWorkspaceSession({ task, userId, tabId, recorder }) {
   return { ok: false, reason: 'bootstrap_failed' };
 }
 
+async function checkStateAndReportDeactivated(tabId, userId, task) {
+  const state = await getState(tabId, userId);
+  if (state?.hasDeactivated) {
+    await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
+    throw new Error('ACCOUNT_DEACTIVATED');
+  }
+  return state;
+}
+
+async function checkDeactivatedInSnapshot(tabId, userId, task, snapData) {
+  if (!snapData) return;
+  const url = (snapData.url || '').toLowerCase();
+  const text = (snapData.snapshot || '').toLowerCase();
+  if (text.includes('account_deactivated') || text.includes('deactivated') || (text.includes('vô hiệu hóa') && text.includes('tài khoản'))) {
+    await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
+    throw new Error('ACCOUNT_DEACTIVATED');
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // RESULT REPORTING (UNIFIED)
 // ═══════════════════════════════════════════════════════════════
@@ -714,7 +733,7 @@ async function runConnectFlow(task) {
     }
     await recorder.checkpoint(1, 1, 'login_page');
 
-    let state = await getState(tabId, USER_ID);
+    let state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
 
     if (state?.looksLoggedIn) {
       console.log(`[Connect] ✅ Đã có session! Lấy token ngay...`);
@@ -733,14 +752,14 @@ async function runConnectFlow(task) {
     const waitTime = loginClick?.formVisible ? 2000 : 4000;
     await new Promise(r => setTimeout(r, waitTime));
     await recorder.after(1, 2, 'after_login_click');
-    state = await getState(tabId, USER_ID);
+    state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
 
     if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
       console.log(`[Connect] [1c] Chưa redirect, thử bấm Log in lần 2...`);
       await dismissGooglePopupAndClickLogin(tabId, USER_ID);
       await new Promise(r => setTimeout(r, 5000));
       await recorder.checkpoint(1, 3, 'login_retry');
-      state = await getState(tabId, USER_ID);
+      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
     }
 
     if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
@@ -751,7 +770,7 @@ async function runConnectFlow(task) {
         { timeoutMs: 15000 });
       await new Promise(r => setTimeout(r, 5000));
       await recorder.checkpoint(1, 4, 'authorize_fallback');
-      state = await getState(tabId, USER_ID);
+      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
     }
 
     // Email
@@ -764,11 +783,11 @@ async function runConnectFlow(task) {
         const r = await fillEmail(tabId, USER_ID, email);
         await new Promise(r2 => setTimeout(r2, 3000));
         if (attempt === 0) await recorder.after(2, 1, 'email_filled');
-        state = await getState(tabId, USER_ID);
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
         if (r?.ok) emailDone = true;
       } else {
         await new Promise(r => setTimeout(r, 2500));
-        state = await getState(tabId, USER_ID);
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       }
     }
     if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
@@ -786,17 +805,17 @@ async function runConnectFlow(task) {
         const r = await fillPassword(tabId, USER_ID, password);
         await new Promise(r2 => setTimeout(r2, 3500));
         if (attempt === 0) await recorder.after(3, 1, 'password_filled');
-        state = await getState(tabId, USER_ID);
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       } else {
         await new Promise(r => setTimeout(r, 2500));
-        state = await getState(tabId, USER_ID);
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       }
     }
 
     // Safety re-check after password loop: catch slow redirects to MFA/phone
     if (!state?.looksLoggedIn && !state?.hasMfaInput && !state?.hasPhoneScreen) {
       await new Promise(r => setTimeout(r, 3000));
-      state = await getState(tabId, USER_ID);
+      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       await recorder.checkpoint(3, 2, 'after_password_wait');
     }
 
@@ -809,20 +828,24 @@ async function runConnectFlow(task) {
       await fillMfa(tabId, USER_ID, otp);
       await new Promise(r2 => setTimeout(r2, 4000));
       await recorder.after(4, 1, 'mfa_filled');
-      state = await getState(tabId, USER_ID);
+      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       if (state?.hasMfaInput) {
         console.log(`[Connect] [4] MFA vẫn còn, thử lần 2...`);
         const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
         await fillMfa(tabId, USER_ID, otp2);
         await new Promise(r2 => setTimeout(r2, 4000));
         await recorder.after(4, 2, 'mfa_retry');
-        state = await getState(tabId, USER_ID);
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
       }
     }
 
     // Wait for login
     console.log(`[Connect] [5] Đợi redirect sau login...`);
     let finalState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 60000, intervalMs: 2000 });
+    if (finalState?.hasDeactivated) {
+      await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
+      throw new Error('ACCOUNT_DEACTIVATED');
+    }
 
     // Handle workspace selection page (appears after MFA for accounts in workspaces)
     // waitForState returns early when isWorkspaceScreen is detected
@@ -836,13 +859,17 @@ async function runConnectFlow(task) {
         await recorder.after(5, 5, 'workspace_page_selected');
         // Wait for redirect to chatgpt.com after workspace selection
         const afterWsState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 30000, intervalMs: 2000 });
+        if (afterWsState?.hasDeactivated) {
+          await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
+          throw new Error('ACCOUNT_DEACTIVATED');
+        }
         if (afterWsState?.looksLoggedIn) {
           finalState = afterWsState;
         } else {
           // Workspace selected but not yet on chatgpt.com — may need more time
           console.log(`[Connect] ⚠️ Workspace selected but not yet on chatgpt.com, waiting...`);
           await new Promise(r => setTimeout(r, 5000));
-          finalState = await getState(tabId, USER_ID);
+          finalState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
         }
       } else {
         console.log(`[Connect] ⚠️ Workspace selection failed: ${wsPageResult?.reason || 'unknown'}`);
@@ -851,7 +878,7 @@ async function runConnectFlow(task) {
     }
 
     if (!finalState?.looksLoggedIn) {
-      const currentState = finalState || await getState(tabId, USER_ID);
+      const currentState = finalState || await checkStateAndReportDeactivated(tabId, USER_ID, task);
       await recorder.error(5, 1, 'login_timeout');
       if (currentState?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
       if (currentState?.hasMfaInput) {
@@ -863,7 +890,7 @@ async function runConnectFlow(task) {
         await fillMfa(tabId, USER_ID, otp);
         await new Promise(r2 => setTimeout(r2, 4000));
         await recorder.after(5, 2, 'mfa_late');
-        const afterMfaState = await getState(tabId, USER_ID);
+        const afterMfaState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
         if (afterMfaState?.looksLoggedIn) {
           console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
           await recorder.after(5, 3, 'post_login_mfa');
@@ -878,9 +905,10 @@ async function runConnectFlow(task) {
     await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
 
   } catch (err) {
+    const rawMsg = err?.message || String(err);
+    if (rawMsg === 'ACCOUNT_DEACTIVATED') return;
     console.error(`[Connect] ❌ Exception: ${err.message}`);
     await recorder.error(5, 4, 'exception');
-    const rawMsg = err?.message || String(err);
     const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Exception: ${rawMsg}`;
     await sendResult(task, 'error', reportMsg);
   } finally {
@@ -2201,6 +2229,7 @@ async function runLoginFlow(task) {
     let redirectUrl = null, isAtMFA = false;
     for (let j = 0; j < 5; j++) {
       const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+      await checkDeactivatedInSnapshot(tabId, USER_ID, task, snapData);
       const snap2Url = (snapData.url || '').toLowerCase();
       const snapText = (snapData.snapshot || '').toLowerCase();
       const cleanMfaText = snapText.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
@@ -2236,6 +2265,7 @@ async function runLoginFlow(task) {
 
         // Check phone after OTP
         const afterSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        await checkDeactivatedInSnapshot(tabId, USER_ID, task, afterSnap);
         if (isPhoneVerificationScreen(afterSnap.url || '', (afterSnap.snapshot || '').toLowerCase())) {
           await recorder.error(1, 6, 'phone_after_mfa');
           const bypassUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
@@ -2263,6 +2293,7 @@ async function runLoginFlow(task) {
     for (let i = 0; i < 20 && !redirectUrl; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+      await checkDeactivatedInSnapshot(tabId, USER_ID, task, checkSnap);
       const curUrl = checkSnap.url || '';
       const html = (checkSnap.snapshot || '').toLowerCase();
 
@@ -2308,16 +2339,20 @@ async function runLoginFlow(task) {
     } else {
       try {
         const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+        await checkDeactivatedInSnapshot(tabId, USER_ID, task, finalSnap);
         if (isPhoneVerificationScreen(finalSnap.url || '', (finalSnap.snapshot || '').toLowerCase())) {
           await recorder.error(1, 11, 'phone_final');
           await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return;
         }
-      } catch (_) {}
+      } catch (_) {
+        if (_?.message === 'ACCOUNT_DEACTIVATED') throw _;
+      }
       await recorder.error(1, 11, 'no_code_timeout');
       await sendResult(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', { finalUrl: redirectUrl || 'unknown' });
     }
   } catch (err) {
     const rawMsg = err?.message || String(err);
+    if (rawMsg === 'ACCOUNT_DEACTIVATED') return;
     const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Lỗi Worker: ${rawMsg}`;
     if (recorder) await recorder.error(1, 12, 'exception');
     await sendResult(task, 'error', reportMsg, null);
