@@ -1954,4 +1954,595 @@ router.post('/inbox/send', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  BULK REGISTRATION RUNNER & ENDPOINTS                                       */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+let processManager = {
+  spawnProcess: null,
+  stopProcess: null,
+  getProcesses: null
+};
+
+export function registerProcessManager(pm) {
+  processManager = pm;
+}
+
+let currentBulkRun = null;
+
+class BulkRegisterRunner {
+  constructor(id, queue, concurrency, enableOAuth) {
+    this.id = id;
+    this.queue = queue; // array of { emailRecord, proxy }
+    this.total = queue.length;
+    this.concurrency = concurrency;
+    this.enableOAuth = enableOAuth;
+    this.activeWorkers = new Map(); // email -> procId
+    this.completed = [];
+    this.failed = [];
+    this.status = 'running'; // 'running', 'stopped', 'completed'
+    this.timer = null;
+    this.logs = [];
+    this.log(`Khởi tạo tiến trình Bulk Registration với ${this.total} accounts, tối đa ${concurrency} luồng.`);
+  }
+
+  log(text) {
+    const timestamp = new Date().toLocaleTimeString();
+    if (!this.logs) this.logs = [];
+    this.logs.push(`[${timestamp}] ${text}`);
+    console.log(`[Bulk][${this.id}] ${text}`);
+  }
+
+  start() {
+    this.tick();
+    this.timer = setInterval(() => this.tick(), 2000);
+  }
+
+  tick() {
+    if (this.status !== 'running') {
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+      return;
+    }
+
+    // 1. Check active workers
+    const allProcs = processManager.getProcesses ? processManager.getProcesses() : {};
+    for (const [email, procId] of this.activeWorkers.entries()) {
+      const proc = allProcs[procId];
+      if (!proc || proc.status !== 'running') {
+        const exitCode = proc ? proc.exitCode : null;
+        const status = proc ? proc.status : 'not_found';
+        
+        this.activeWorkers.delete(email);
+
+        if (status === 'stopped' && exitCode === 0) {
+          this.completed.push(email);
+          this.log(`✅ Đăng ký thành công: ${email}`);
+        } else {
+          // Find error message from logs
+          let errMsg = `Exit code ${exitCode} (${status})`;
+          if (proc && proc.logs) {
+            const errorLog = proc.logs.find(l => l.text?.includes('Lỗi:') || l.text?.includes('Error:'));
+            if (errorLog) {
+              errMsg = errorLog.text.trim();
+            }
+          }
+          this.failed.push({ email, error: errMsg });
+          this.log(`❌ Đăng ký thất bại: ${email} (${errMsg})`);
+        }
+
+        // Notify client via SSE of single task complete
+        if (emitSSE) {
+          emitSSE('bulk-register-item-complete', {
+            email,
+            success: status === 'stopped' && exitCode === 0
+          });
+        }
+      }
+    }
+
+    // 2. Spawn next workers up to concurrency
+    while (this.activeWorkers.size < this.concurrency && this.queue.length > 0) {
+      const task = this.queue.shift();
+      const { emailRecord, proxy } = task;
+
+      if (!processManager.spawnProcess) {
+        this.log('❌ Lỗi: Process manager chưa được đăng ký!');
+        this.status = 'stopped';
+        break;
+      }
+
+      const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}`;
+      
+      const scriptName = 'auto-register-worker.js';
+      const procId = `script_${scriptName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
+
+      this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'}`);
+      
+      const cfg = loadConfig();
+      const r = processManager.spawnProcess(procId, `📜 ${scriptName}`, 'node', [scriptPath, raw], process.cwd(), {
+        WORKER_AUTH_TOKEN: cfg.workerAuthToken
+      });
+
+      if (r.error) {
+        this.log(`⚠️ Lỗi khởi chạy tiến trình cho ${emailRecord.email}: ${r.error}`);
+        this.failed.push({ email: emailRecord.email, error: r.error });
+        continue;
+      }
+
+      this.activeWorkers.set(emailRecord.email, procId);
+    }
+
+    // Notify status update
+    if (emitSSE) {
+      emitSSE('bulk-register-status', {
+        id: this.id,
+        status: this.status,
+        completed: this.completed.length,
+        failed: this.failed.length,
+        total: this.total,
+        activeCount: this.activeWorkers.size,
+        queueCount: this.queue.length
+      });
+    }
+
+    // 3. Check if all completed
+    if (this.queue.length === 0 && this.activeWorkers.size === 0) {
+      this.status = 'completed';
+      this.log(`🎉 Tiến trình đăng ký hàng loạt hoàn tất! Thành công: ${this.completed.length}, Thất bại: ${this.failed.length}`);
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+    }
+  }
+
+  stop() {
+    this.status = 'stopped';
+    this.log(`🛑 Tiến trình bị dừng lại bởi người dùng.`);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    for (const [email, procId] of this.activeWorkers.entries()) {
+      if (processManager.stopProcess) {
+        processManager.stopProcess(procId);
+      }
+    }
+    this.activeWorkers.clear();
+    if (emitSSE) {
+      emitSSE('bulk-register-status', {
+        id: this.id,
+        status: this.status,
+        completed: this.completed.length,
+        failed: this.failed.length,
+        total: this.total,
+        activeCount: 0,
+        queueCount: 0
+      });
+    }
+  }
+}
+
+function smartParseProxy(inputStr) {
+  let raw = inputStr.trim();
+  if (!raw) return null;
+
+  // 1. Check if there is a protocol prefix
+  let protocol = 'http';
+  const protoMatch = raw.match(/^([a-zA-Z0-9]+):\/\/(.*)$/);
+  if (protoMatch) {
+    protocol = protoMatch[1].toLowerCase();
+    raw = protoMatch[2];
+  }
+
+  let host = '';
+  let port = '';
+  let username = '';
+  let password = '';
+
+  // Case A: user:pass@host:port
+  if (raw.includes('@')) {
+    const parts = raw.split('@');
+    const authPart = parts[0];
+    const hostPart = parts[1];
+    
+    const authSub = authPart.split(':');
+    if (authSub.length >= 2) {
+      username = authSub[0];
+      password = authSub.slice(1).join(':');
+    } else {
+      username = authSub[0];
+    }
+
+    const hostSub = hostPart.split(':');
+    host = hostSub[0];
+    port = hostSub[1] || '';
+  } else {
+    // No @ character. Split by colon.
+    const parts = raw.split(':');
+    
+    if (parts.length === 1) {
+      host = parts[0];
+    } else if (parts.length === 2) {
+      host = parts[0];
+      port = parts[1];
+    } else if (parts.length === 4) {
+      // Check which part is the port
+      const part1Port = parseInt(parts[1], 10);
+      const part3Port = parseInt(parts[3], 10);
+      
+      const isPart1Port = !isNaN(part1Port) && part1Port > 0 && part1Port <= 65535;
+      const isPart3Port = !isNaN(part3Port) && part3Port > 0 && part3Port <= 65535;
+
+      if (isPart1Port && !isPart3Port) {
+        // host:port:user:pass
+        host = parts[0];
+        port = parts[1];
+        username = parts[2];
+        password = parts[3];
+      } else if (isPart3Port && !isPart1Port) {
+        // user:pass:host:port
+        username = parts[0];
+        password = parts[1];
+        host = parts[2];
+        port = parts[3];
+      } else {
+        // default host:port:user:pass
+        host = parts[0];
+        port = parts[1];
+        username = parts[2];
+        password = parts[3];
+      }
+    } else if (parts.length === 3) {
+      // 3 parts: host:port:user or user:host:port
+      const part1Port = parseInt(parts[1], 10);
+      const part2Port = parseInt(parts[2], 10);
+      if (!isNaN(part1Port) && part1Port > 0 && part1Port <= 65535) {
+        // host:port:user
+        host = parts[0];
+        port = parts[1];
+        username = parts[2];
+      } else if (!isNaN(part2Port) && part2Port > 0 && part2Port <= 65535) {
+        // user:host:port
+        username = parts[0];
+        host = parts[1];
+        port = parts[2];
+      } else {
+        host = parts[0];
+        port = parts[1] || '';
+      }
+    } else {
+      host = parts[0];
+      port = parts[1] || '';
+    }
+  }
+
+  let normalized = '';
+  if (username && password) {
+    normalized = `${protocol}://${username}:${password}@${host}:${port}`;
+  } else if (username) {
+    normalized = `${protocol}://${username}@${host}:${port}`;
+  } else {
+    normalized = `${protocol}://${host}:${port}`;
+  }
+
+  let isValid = !!host && !!port;
+  let error = null;
+  if (isValid) {
+    try {
+      new URL(normalized);
+    } catch (e) {
+      isValid = false;
+      error = 'URL proxy không hợp lệ';
+    }
+  } else {
+    error = 'Sai định dạng proxy (cần ip:port hoặc host:port:user:pass)';
+  }
+
+  return {
+    raw: inputStr,
+    valid: isValid,
+    normalized,
+    protocol,
+    host,
+    port,
+    username,
+    password,
+    error
+  };
+}
+
+// POST /api/vault/accounts/bulk-register/validate-inputs
+router.post('/accounts/bulk-register/validate-inputs', async (req, res) => {
+  try {
+    const { emails = [], proxies = [] } = req.body;
+    
+    const parsedEmails = (emails || []).map(line => {
+      const raw = line.trim();
+      if (!raw) return null;
+      
+      const parts = raw.split('|');
+      const email = parts[0]?.trim();
+      const hasAt = email && email.includes('@');
+      
+      if (!hasAt) {
+        return { raw, valid: false, error: 'Sai định dạng email (Thiếu @)' };
+      }
+      
+      if (parts.length >= 4) {
+        return {
+          raw,
+          valid: true,
+          email,
+          password: parts[1]?.trim(),
+          refresh_token: parts[2]?.trim(),
+          client_id: parts[3]?.trim(),
+          format: 'GraphAPI (4 trường)'
+        };
+      } else if (parts.length === 3) {
+        return {
+          raw,
+          valid: true,
+          email,
+          refresh_token: parts[1]?.trim(),
+          client_id: parts[2]?.trim(),
+          format: 'OAuth2 (3 trường)'
+        };
+      } else {
+        return {
+          raw,
+          valid: true,
+          email,
+          format: 'Chỉ Email (Đăng ký chay)'
+        };
+      }
+    }).filter(Boolean);
+
+    const parsedProxies = (proxies || []).map(line => {
+      return smartParseProxy(line);
+    }).filter(Boolean);
+
+    res.json({
+      ok: true,
+      emails: parsedEmails,
+      proxies: parsedProxies,
+      summary: {
+        totalEmails: parsedEmails.length,
+        validEmails: parsedEmails.filter(e => e.valid).length,
+        invalidEmails: parsedEmails.filter(e => !e.valid).length,
+        totalProxies: parsedProxies.length,
+        validProxies: parsedProxies.filter(p => p.valid).length,
+        invalidProxies: parsedProxies.filter(p => !p.valid).length,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register/check-proxies
+router.post('/accounts/bulk-register/check-proxies', async (req, res) => {
+  try {
+    const { proxies = [] } = req.body;
+    if (!Array.isArray(proxies)) {
+      return res.status(400).json({ error: 'Tham số proxies không hợp lệ' });
+    }
+
+    const { exec } = await import('node:child_process');
+
+    const results = [];
+    const limit = 10; // Check up to 10 concurrently
+    
+    const checkOne = async (proxyStr) => {
+      const parsed = smartParseProxy(proxyStr);
+      if (!parsed || !parsed.valid) {
+        return { proxy: proxyStr, status: 'invalid', error: parsed?.error || 'Sai định dạng proxy' };
+      }
+      
+      const normUrl = parsed.normalized;
+
+      try {
+        const escapedProxy = normUrl.replace(/"/g, '\\"');
+        const cmd = `curl -s -w "\\nHTTP_STATUS:%{http_code}\\nTIME:%{time_total}" --connect-timeout 5 -x "${escapedProxy}" https://www.cloudflare.com/cdn-cgi/trace`;
+        
+        const output = await new Promise((resolve) => {
+          exec(cmd, (err, stdout) => {
+            if (err) {
+              resolve(`HTTP_STATUS:000\nTIME:0\nERROR:${err.message}`);
+            } else {
+              resolve(stdout);
+            }
+          });
+        });
+
+        const lines = output.split('\n');
+        let httpStatus = '000';
+        let timeTotal = '0';
+        let ip = '';
+        let loc = '';
+        let errorMsg = null;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('HTTP_STATUS:')) {
+            httpStatus = trimmed.replace('HTTP_STATUS:', '');
+          } else if (trimmed.startsWith('TIME:')) {
+            timeTotal = trimmed.replace('TIME:', '');
+          } else if (trimmed.startsWith('ip=')) {
+            ip = trimmed.replace('ip=', '');
+          } else if (trimmed.startsWith('loc=')) {
+            loc = trimmed.replace('loc=', '');
+          } else if (trimmed.startsWith('ERROR:')) {
+            errorMsg = trimmed.replace('ERROR:', '');
+          }
+        }
+
+        const httpCodeInt = parseInt(httpStatus, 10);
+        if (httpCodeInt >= 200 && httpCodeInt < 400) {
+          const latency = Math.round(parseFloat(timeTotal) * 1000);
+          return { 
+            proxy: proxyStr, 
+            normalized: normUrl, 
+            status: 'live', 
+            httpCode: httpStatus,
+            latency,
+            ip,
+            loc
+          };
+        } else {
+          return { 
+            proxy: proxyStr, 
+            normalized: normUrl, 
+            status: 'dead', 
+            error: errorMsg || `HTTP Code ${httpStatus} (Lỗi Kết Nối hoặc Timeout)` 
+          };
+        }
+      } catch (err) {
+        return { proxy: proxyStr, normalized: normUrl, status: 'dead', error: err.message };
+      }
+    };
+
+    for (let i = 0; i < proxies.length; i += limit) {
+      const chunk = proxies.slice(i, i + limit);
+      const chunkResults = await Promise.all(chunk.map(checkOne));
+      results.push(...chunkResults);
+    }
+
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register
+router.post('/accounts/bulk-register', async (req, res) => {
+  try {
+    if (currentBulkRun && currentBulkRun.status === 'running') {
+      return res.status(400).json({ error: 'Có một tiến trình Bulk Registration đang chạy.' });
+    }
+
+    const { emails = [], proxies = [], ratio = 1, concurrency = 2, enableOAuth = false } = req.body;
+
+    if (!emails.length) {
+      return res.status(400).json({ error: 'Danh sách email trống.' });
+    }
+
+    const resolvedEmails = [];
+    for (const input of emails) {
+      if (!input || !input.trim()) continue;
+      
+      const trimmedInput = input.trim();
+      if (trimmedInput.includes('|')) {
+        const parts = trimmedInput.split('|');
+        let email, password, refresh_token, client_id, auth_method;
+        if (parts.length === 3) {
+          [email, refresh_token, client_id] = parts;
+          password = '';
+          auth_method = 'oauth2';
+        } else if (parts.length >= 4) {
+          [email, password, refresh_token, client_id] = parts;
+          auth_method = 'graph';
+        }
+        if (email && refresh_token) {
+          const record = vault.upsertEmailPool({ email, password, refresh_token, client_id, auth_method });
+          resolvedEmails.push(record);
+        }
+      } else {
+        const record = vault.getEmailPoolByEmail(trimmedInput);
+        if (record) {
+          resolvedEmails.push(record);
+        } else {
+          console.log(`[Bulk] Warning: Email ${trimmedInput} not found in pool. Skipping.`);
+        }
+      }
+    }
+
+    if (!resolvedEmails.length) {
+      return res.status(400).json({ error: 'Không tìm thấy thông tin email hợp lệ để đăng ký.' });
+    }
+
+    const activeProxies = proxies.map(p => {
+      const parsed = smartParseProxy(p);
+      return parsed && parsed.valid ? parsed.normalized : p.trim();
+    }).filter(Boolean);
+    const parsedRatio = parseInt(ratio, 10) || 1;
+    const parsedConcurrency = parseInt(concurrency, 10) || 2;
+
+    const queue = resolvedEmails.map((emailRecord, idx) => {
+      let proxy = '';
+      if (activeProxies.length > 0) {
+        const proxyIdx = Math.floor(idx / parsedRatio) % activeProxies.length;
+        proxy = activeProxies[proxyIdx];
+      }
+      return { emailRecord, proxy };
+    });
+
+    const bulkRunId = `bulk_${Date.now()}`;
+    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth);
+    currentBulkRun.start();
+
+    res.json({
+      ok: true,
+      id: bulkRunId,
+      total: queue.length,
+      concurrency: parsedConcurrency
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/vault/accounts/bulk-register/status
+router.get('/accounts/bulk-register/status', (req, res) => {
+  try {
+    if (!currentBulkRun) {
+      return res.json({ status: 'idle', total: 0, completed: [], failed: [], activeWorkers: [], logs: [] });
+    }
+
+    res.json({
+      id: currentBulkRun.id,
+      status: currentBulkRun.status,
+      total: currentBulkRun.total,
+      completed: currentBulkRun.completed,
+      failed: currentBulkRun.failed,
+      activeWorkers: Array.from(currentBulkRun.activeWorkers.entries()).map(([email, procId]) => ({ email, procId })),
+      queueLength: currentBulkRun.queue.length,
+      logs: currentBulkRun.logs || []
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register/stop
+router.post('/accounts/bulk-register/stop', (req, res) => {
+  try {
+    if (!currentBulkRun || currentBulkRun.status !== 'running') {
+      return res.json({ ok: true, message: 'Không có tiến trình nào đang chạy.' });
+    }
+
+    currentBulkRun.stop();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register/clear
+router.post('/accounts/bulk-register/clear', (req, res) => {
+  try {
+    if (currentBulkRun && currentBulkRun.status === 'running') {
+      return res.status(400).json({ error: 'Không thể xóa khi tiến trình đang chạy. Hãy dừng nó trước.' });
+    }
+    currentBulkRun = null;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;

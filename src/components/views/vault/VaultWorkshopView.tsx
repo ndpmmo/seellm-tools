@@ -55,8 +55,274 @@ function ServiceTag({ name, status }: { name: string; status: string }) {
 
 export function VaultWorkshopView() {
     const { addToast, processes, liveShots } = useApp();
-    const [activeTab, setActiveTab] = useState<'pool' | 'queue' | 'results' | 'inbox'>('pool');
-    
+    const [activeTab, _setActiveTab] = useState<'pool' | 'queue' | 'results' | 'inbox' | 'bulk-register'>('pool');
+
+    const setActiveTab = useCallback((t: 'pool' | 'queue' | 'results' | 'inbox' | 'bulk-register') => {
+        _setActiveTab(t);
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', t);
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        }
+    }, []);
+
+    // Sync tab with URL search parameter on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get('tab');
+            if (tab && ['pool', 'queue', 'results', 'inbox', 'bulk-register'].includes(tab)) {
+                _setActiveTab(tab as any);
+            }
+        }
+    }, []);
+
+    // Bulk Registration State
+    const [bulkEmailsText, setBulkEmailsText] = useState('');
+    const [bulkProxiesText, setBulkProxiesText] = useState('');
+    const [bulkRatio, setBulkRatio] = useState(1);
+    const [bulkConcurrency, setBulkConcurrency] = useState(2);
+    const [bulkEnableOAuth, setBulkEnableOAuth] = useState(false);
+
+    // Validation & Check states
+    const [validating, setValidating] = useState(false);
+    const [checkingProxies, setCheckingProxies] = useState(false);
+    const [validationSummary, setValidationSummary] = useState<{
+        totalEmails: number;
+        validEmails: number;
+        invalidEmails: number;
+        invalidDetails: { line: number; text: string; error: string }[];
+        totalProxies: number;
+        validProxies: number;
+        invalidProxies: number;
+    } | null>(null);
+
+    const [proxyCheckResults, setProxyCheckResults] = useState<Record<string, {
+        status: 'live' | 'dead' | 'invalid';
+        httpCode?: string;
+        latency?: number;
+        ip?: string;
+        loc?: string;
+        error?: string;
+    }>>({});
+
+    // Bulk registration progress / status
+    const [bulkStatus, setBulkStatus] = useState<{
+        id?: string;
+        status: 'idle' | 'running' | 'stopped' | 'completed';
+        total: number;
+        completed: string[];
+        failed: { email: string; error: string }[];
+        activeWorkers: { email: string; procId: string }[];
+        queueLength: number;
+        logs: string[];
+    } | null>(null);
+
+    const [bulkSubmitting, setBulkSubmitting] = useState(false);
+    const bulkLogsEndRef = useRef<HTMLDivElement>(null);
+
+    // Load from localStorage on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedEmails = localStorage.getItem('seellm_bulk_emails');
+            const savedProxies = localStorage.getItem('seellm_bulk_proxies');
+            const savedRatio = localStorage.getItem('seellm_bulk_ratio');
+            const savedConcurrency = localStorage.getItem('seellm_bulk_concurrency');
+            const savedEnableOAuth = localStorage.getItem('seellm_bulk_enable_oauth');
+
+            if (savedEmails) setBulkEmailsText(savedEmails);
+            if (savedProxies) setBulkProxiesText(savedProxies);
+            if (savedRatio) setBulkRatio(parseInt(savedRatio, 10) || 1);
+            if (savedConcurrency) setBulkConcurrency(parseInt(savedConcurrency, 10) || 2);
+            if (savedEnableOAuth) setBulkEnableOAuth(savedEnableOAuth === 'true');
+        }
+    }, []);
+
+    // Save to localStorage when changed
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_emails', bulkEmailsText);
+        }
+    }, [bulkEmailsText]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_proxies', bulkProxiesText);
+        }
+    }, [bulkProxiesText]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_ratio', String(bulkRatio));
+        }
+    }, [bulkRatio]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_concurrency', String(bulkConcurrency));
+        }
+    }, [bulkConcurrency]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_enable_oauth', String(bulkEnableOAuth));
+        }
+    }, [bulkEnableOAuth]);
+
+    const handleValidateInputs = async () => {
+        setValidating(true);
+        setValidationSummary(null);
+        try {
+            const emails = bulkEmailsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const proxies = bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean);
+
+            const res = await fetch('/api/vault/accounts/bulk-register/validate-inputs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails, proxies })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setValidationSummary(data.summary);
+                addToast('Xác thực dữ liệu đầu vào thành công', 'success');
+            } else {
+                addToast(data.error || 'Lỗi xác thực', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        } finally {
+            setValidating(false);
+        }
+    };
+
+    const handleCheckProxies = async () => {
+        setCheckingProxies(true);
+        setProxyCheckResults({});
+        try {
+            const proxies = bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean);
+            if (proxies.length === 0) {
+                addToast('Danh sách proxy trống', 'warning');
+                setCheckingProxies(false);
+                return;
+            }
+
+            const res = await fetch('/api/vault/accounts/bulk-register/check-proxies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxies })
+            });
+            const data = await res.json();
+            if (data.ok && Array.isArray(data.results)) {
+                const mapped: Record<string, any> = {};
+                data.results.forEach((r: any) => {
+                    mapped[r.proxy] = r;
+                });
+                setProxyCheckResults(mapped);
+                addToast(`Đã kiểm tra xong ${data.results.length} proxies`, 'success');
+            } else {
+                addToast(data.error || 'Lỗi kiểm tra proxy', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        } finally {
+            setCheckingProxies(false);
+        }
+    };
+
+    const handleStartBulkRegister = async () => {
+        setBulkSubmitting(true);
+        try {
+            const emails = bulkEmailsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const proxies = bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean);
+
+            if (emails.length === 0) {
+                addToast('Vui lòng nhập ít nhất một email', 'warning');
+                setBulkSubmitting(false);
+                return;
+            }
+
+            const res = await fetch('/api/vault/accounts/bulk-register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    emails,
+                    proxies,
+                    ratio: bulkRatio,
+                    concurrency: bulkConcurrency,
+                    enableOAuth: bulkEnableOAuth
+                })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                addToast('Đã bắt đầu tiến trình đăng ký hàng loạt', 'success');
+                fetchBulkStatus();
+            } else {
+                addToast(data.error || 'Không thể bắt đầu', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        } finally {
+            setBulkSubmitting(false);
+        }
+    };
+
+    const handleStopBulkRegister = async () => {
+        try {
+            const res = await fetch('/api/vault/accounts/bulk-register/stop', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.ok) {
+                addToast('Đã phát lệnh dừng tiến trình', 'success');
+                fetchBulkStatus();
+            } else {
+                addToast(data.error || 'Lỗi khi dừng', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        }
+    };
+
+    const handleClearBulkStatus = async () => {
+        try {
+            const res = await fetch('/api/vault/accounts/bulk-register/clear', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setBulkStatus(null);
+                addToast('Đã dọn dẹp trạng thái tiến trình', 'success');
+            } else {
+                addToast(data.error || 'Lỗi khi dọn dẹp', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        }
+    };
+
+    const fetchBulkStatus = useCallback(async () => {
+        try {
+            const res = await fetch('/api/vault/accounts/bulk-register/status');
+            const data = await res.json();
+            setBulkStatus(data);
+        } catch (_) {}
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'bulk-register') {
+            fetchBulkStatus();
+            const interval = setInterval(fetchBulkStatus, 2000);
+            return () => clearInterval(interval);
+        }
+    }, [activeTab, fetchBulkStatus]);
+
+    // Auto-scroll logs
+    useEffect(() => {
+        if (bulkLogsEndRef.current) {
+            bulkLogsEndRef.current.scrollTop = bulkLogsEndRef.current.scrollHeight;
+        }
+    }, [bulkStatus?.logs]);
+
     // Pool State
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -783,7 +1049,7 @@ export function VaultWorkshopView() {
     };
 
     return (
-        <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+        <div className="absolute inset-0 overflow-hidden px-6 pb-6 pt-2 flex flex-col gap-5">
             {/* Header / Tabs */}
             <div className="flex justify-between items-end mt-4">
                 <div className="flex flex-col gap-1">
@@ -826,13 +1092,19 @@ export function VaultWorkshopView() {
                             </span>
                         )}
                     </button>
+                    <button 
+                        onClick={() => setActiveTab('bulk-register')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'bulk-register' ? 'bg-white text-black shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                        <Users size={16} /> Bulk Register
+                    </button>
                 </div>
             </div>
 
             {/* Content Rendering */}
             <div className="flex-1 min-h-0 flex flex-col gap-6">
                 {activeTab === 'pool' && (
-                    <div className="flex flex-col gap-5">
+                    <div className="flex flex-col gap-5 flex-1 min-h-0">
                         <div className="grid grid-cols-4 gap-4">
                             <StatBox label="Tổng Pool" value={items.length} icon={Mail} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
                             <StatBox label="Mail Ready" value={items.filter(e => e.mail_status === 'active').length} icon={ShieldCheck} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
@@ -849,9 +1121,30 @@ export function VaultWorkshopView() {
                                     </div>
                                     <div className="ml-auto flex items-center gap-2">
                                         {selected.size > 0 && (
-                                            <Button variant="danger" size="sm" onClick={() => setConfirm({ title: 'Xóa Email', message: `Xóa ${selected.size} email đã chọn?`, onConfirm: doDeleteSelected })}>
-                                                <Trash2 size={13} /> Xóa ({selected.size})
-                                            </Button>
+                                            <>
+                                                <Button variant="danger" size="sm" onClick={() => setConfirm({ title: 'Xóa Email', message: `Xóa ${selected.size} email đã chọn?`, onConfirm: doDeleteSelected })}>
+                                                    <Trash2 size={13} /> Xóa ({selected.size})
+                                                </Button>
+                                                <Button variant="primary" size="sm" onClick={() => {
+                                                    const selectedEmails = items.filter(it => selected.has(it.email)).map(it => {
+                                                        const parts = [
+                                                            it.email,
+                                                            it.password || '',
+                                                            it.auth_method || '',
+                                                            it.refresh_token || '',
+                                                            it.client_id || ''
+                                                        ];
+                                                        while (parts.length > 1 && !parts[parts.length - 1]) {
+                                                            parts.pop();
+                                                        }
+                                                        return parts.join('|');
+                                                    }).join('\n');
+                                                    setBulkEmailsText(selectedEmails);
+                                                    setActiveTab('bulk-register');
+                                                }} className="bg-indigo-600 hover:bg-indigo-500">
+                                                    <Users size={13} /> Đăng ký ({selected.size})
+                                                </Button>
+                                            </>
                                         )}
                                         <Button variant="ghost" size="sm" onClick={verifyAllPool} disabled={verifyLoading}>
                                             {verifyLoading ? <RefreshCw size={14} className="text-cyan-400 animate-spin" /> : <ShieldCheck size={14} className="text-cyan-400" />}
@@ -1554,6 +1847,386 @@ export function VaultWorkshopView() {
                                     <div className="text-sm">Chọn thư để đọc</div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'bulk-register' && (
+                    <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-6">
+                        {/* ─── Left Column: Setup ─── */}
+                        <div className="flex flex-col gap-5 overflow-y-auto pr-2 custom-scrollbar">
+                            <Card className="shrink-0">
+                                <CardHeader>
+                                    <div className="flex items-center gap-2">
+                                        <Settings2 className="text-indigo-400" size={16} />
+                                        <div className="text-sm font-semibold text-slate-200">Cấu hình Bulk Registration</div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {/* Emails text area */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between items-center">
+                                            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                Danh sách Email ({bulkEmailsText.split('\n').filter(Boolean).length})
+                                            </label>
+                                            <button 
+                                                onClick={() => { setBulkEmailsText(''); localStorage.removeItem('seellm_bulk_emails'); }} 
+                                                className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
+                                            >
+                                                <Trash2 size={10} /> Xóa trống
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
+                                            value={bulkEmailsText}
+                                            onChange={e => setBulkEmailsText(e.target.value)}
+                                            placeholder="email|password&#10;email|password|auth_method|refresh_token|client_id"
+                                        />
+                                    </div>
+
+                                    {/* Proxies text area */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between items-center">
+                                            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                Danh sách Proxy ({bulkProxiesText.split('\n').filter(Boolean).length})
+                                            </label>
+                                            <button 
+                                                onClick={() => { setBulkProxiesText(''); localStorage.removeItem('seellm_bulk_proxies'); }} 
+                                                className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
+                                            >
+                                                <Trash2 size={10} /> Xóa trống
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
+                                            value={bulkProxiesText}
+                                            onChange={e => setBulkProxiesText(e.target.value)}
+                                            placeholder="http://host:port&#10;socks5://user:pass@host:port&#10;user:pass:host:port"
+                                        />
+                                    </div>
+
+                                    {/* Verification row */}
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={handleValidateInputs}
+                                            disabled={validating}
+                                            className="flex-1"
+                                        >
+                                            {validating ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : <ShieldCheck size={12} className="mr-1.5" />}
+                                            Xác thực định dạng
+                                        </Button>
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={handleCheckProxies}
+                                            disabled={checkingProxies}
+                                            className="flex-1"
+                                        >
+                                            {checkingProxies ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : <Activity size={12} className="mr-1.5" />}
+                                            Kiểm tra Proxy Sống
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Validation / Verification Results Card */}
+                            {(validationSummary || Object.keys(proxyCheckResults).length > 0) && (
+                                <Card className="shrink-0">
+                                    <CardHeader>
+                                        <div className="text-xs font-semibold text-slate-300">Kết quả xác thực & Kiểm tra</div>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar">
+                                        {/* Validation Summary */}
+                                        {validationSummary && (
+                                            <div className="p-3 rounded-lg bg-white/[0.02] border border-white/5 space-y-2">
+                                                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cú pháp Email & Proxy</div>
+                                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                                    <div>
+                                                        <span className="text-slate-500">Emails:</span>{' '}
+                                                        <span className="text-emerald-400 font-semibold">{validationSummary.validEmails} hợp lệ</span>
+                                                        {validationSummary.invalidEmails > 0 && (
+                                                            <span className="text-rose-400 font-semibold ml-1">({validationSummary.invalidEmails} lỗi)</span>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-slate-500">Proxies:</span>{' '}
+                                                        <span className="text-emerald-400 font-semibold">{validationSummary.validProxies} hợp lệ</span>
+                                                        {validationSummary.invalidProxies > 0 && (
+                                                            <span className="text-rose-400 font-semibold ml-1">({validationSummary.invalidProxies} lỗi)</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {validationSummary.invalidDetails && validationSummary.invalidDetails.length > 0 && (
+                                                    <div className="mt-2 text-[11px] text-rose-400/80 space-y-1 font-mono max-h-24 overflow-y-auto custom-scrollbar border-t border-white/5 pt-2">
+                                                        {validationSummary.invalidDetails.map((d, i) => (
+                                                            <div key={i}>Dòng {d.line}: "{d.text}" - {d.error}</div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Proxy Check Results */}
+                                        {Object.keys(proxyCheckResults).length > 0 && (
+                                            <div className="space-y-2">
+                                                <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Trạng thái kết nối Proxy</div>
+                                                <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                                    {Object.entries(proxyCheckResults).map(([rawProxy, res]) => (
+                                                        <div key={rawProxy} className="flex justify-between items-center text-xs p-2 rounded bg-white/[0.01] border border-white/5 hover:bg-white/[0.03] group transition-colors">
+                                                            <span className="font-mono text-slate-400 truncate max-w-[200px]" title={rawProxy}>{rawProxy}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                {res.status === 'live' ? (
+                                                                    <>
+                                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold uppercase" title={`External IP: ${res.ip || 'Unknown'}`}>
+                                                                            {res.loc || 'LIVE'}
+                                                                        </span>
+                                                                        <span className="text-slate-500 text-[10px]">{res.latency}ms</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 font-semibold" title={res.error || 'Connection Failed'}>
+                                                                        DEAD
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            {/* Runner Settings Card */}
+                            <Card className="shrink-0">
+                                <CardHeader>
+                                    <div className="text-xs font-semibold text-slate-300">Cấu hình luồng chạy</div>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {/* Ratio */}
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <div className="text-xs font-medium text-slate-300">Tỷ lệ Email / Proxy</div>
+                                            <div className="text-[11px] text-slate-500">Số lượng tài khoản gán cho mỗi proxy cùng chạy</div>
+                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            className="w-16 h-8 bg-white/5 border border-white/10 rounded-md px-2 text-center text-xs text-slate-200 outline-none focus:border-indigo-500/50"
+                                            value={bulkRatio}
+                                            onChange={e => setBulkRatio(Math.max(1, parseInt(e.target.value) || 1))}
+                                        />
+                                    </div>
+
+                                    {/* Concurrency */}
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <div className="text-xs font-medium text-slate-300">Số luồng chạy đồng thời (Concurrency)</div>
+                                            <div className="text-[11px] text-slate-500">Tối đa số cửa sổ trình duyệt chạy song song</div>
+                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="20"
+                                            className="w-16 h-8 bg-white/5 border border-white/10 rounded-md px-2 text-center text-xs text-slate-200 outline-none focus:border-indigo-500/50"
+                                            value={bulkConcurrency}
+                                            onChange={e => setBulkConcurrency(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))}
+                                        />
+                                    </div>
+
+                                    {/* Enable OAuth checkbox */}
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <div className="text-xs font-medium text-slate-300">Bật Connect (OAuth2)</div>
+                                            <div className="text-[11px] text-slate-500">Kích hoạt liên kết OAuth2 tự động sau khi đăng ký thành công</div>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-500 focus:ring-0 cursor-pointer"
+                                            checked={bulkEnableOAuth}
+                                            onChange={e => setBulkEnableOAuth(e.target.checked)}
+                                        />
+                                    </div>
+
+                                    {/* Actions */}
+                                    <div className="flex gap-3 pt-2">
+                                        <Button
+                                            variant="primary"
+                                            className="flex-1 shadow-lg shadow-indigo-500/20"
+                                            onClick={handleStartBulkRegister}
+                                            disabled={bulkSubmitting || bulkStatus?.status === 'running'}
+                                        >
+                                            <Play size={14} className="mr-2" /> Bắt đầu đăng ký
+                                        </Button>
+                                        {bulkStatus?.status === 'running' && (
+                                            <Button
+                                                variant="danger"
+                                                className="flex-1"
+                                                onClick={handleStopBulkRegister}
+                                            >
+                                                <Square size={14} className="mr-2" /> Dừng tiến trình
+                                            </Button>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+
+                        {/* ─── Right Column: Execution Status ─── */}
+                        <div className="flex flex-col gap-5 min-h-0 overflow-hidden">
+                            <Card className="flex flex-col flex-1 min-h-0">
+                                <CardHeader>
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-2">
+                                            <Activity className="text-emerald-400" size={16} />
+                                            <div className="text-sm font-semibold text-slate-200">Trạng thái tiến trình</div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {bulkStatus?.status === 'running' && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium animate-pulse">
+                                                    Đang chạy
+                                                </span>
+                                            )}
+                                            {bulkStatus?.status === 'completed' && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium">
+                                                    Đã hoàn thành
+                                                </span>
+                                            )}
+                                            {bulkStatus?.status === 'stopped' && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 font-medium">
+                                                    Đã dừng
+                                                </span>
+                                            )}
+                                            {(!bulkStatus || bulkStatus.status === 'idle') && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-400 font-medium">
+                                                    Chờ chạy
+                                                </span>
+                                            )}
+                                            {bulkStatus && (
+                                                <button
+                                                    onClick={handleClearBulkStatus}
+                                                    className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                                                >
+                                                    Dọn dẹp
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="flex flex-col flex-1 min-h-0 p-5 space-y-4">
+                                    {bulkStatus ? (
+                                        <>
+                                            {/* Progress Bar */}
+                                            <div className="space-y-1 shrink-0">
+                                                <div className="flex justify-between text-xs text-slate-400">
+                                                    <span>Tiến độ tổng quát</span>
+                                                    <span>
+                                                        {bulkStatus.completed.length + bulkStatus.failed.length} / {bulkStatus.total} ({Math.round(((bulkStatus.completed.length + bulkStatus.failed.length) / (bulkStatus.total || 1)) * 100)}%)
+                                                    </span>
+                                                </div>
+                                                <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500"
+                                                        style={{ width: `${((bulkStatus.completed.length + bulkStatus.failed.length) / (bulkStatus.total || 1)) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Stats Grid */}
+                                            <div className="grid grid-cols-4 gap-3 shrink-0 text-center">
+                                                <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                                                    <div className="text-[10px] font-semibold text-emerald-400 uppercase">Thành công</div>
+                                                    <div className="text-lg font-bold text-emerald-300 mt-0.5">{bulkStatus.completed.length}</div>
+                                                </div>
+                                                <div className="p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/10">
+                                                    <div className="text-[10px] font-semibold text-rose-400 uppercase">Thất bại</div>
+                                                    <div className="text-lg font-bold text-rose-300 mt-0.5">{bulkStatus.failed.length}</div>
+                                                </div>
+                                                <div className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                                                    <div className="text-[10px] font-semibold text-amber-400 uppercase">Đang chạy</div>
+                                                    <div className="text-lg font-bold text-amber-300 mt-0.5">{bulkStatus.activeWorkers.length}</div>
+                                                </div>
+                                                <div className="p-2.5 rounded-xl bg-slate-500/5 border border-slate-500/10">
+                                                    <div className="text-[10px] font-semibold text-slate-400 uppercase">Hàng đợi</div>
+                                                    <div className="text-lg font-bold text-slate-300 mt-0.5">{bulkStatus.queueLength}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Detailed accounts scroll pane */}
+                                            <div className="flex-1 min-h-0 border border-white/5 rounded-xl bg-black/40 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                                                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Chi tiết danh sách</div>
+                                                
+                                                {/* Active workers */}
+                                                {bulkStatus.activeWorkers.map(w => (
+                                                    <div key={w.email} className="flex justify-between items-center text-xs p-2 rounded bg-amber-500/5 border border-amber-500/10 animate-pulse">
+                                                        <span className="font-mono text-slate-300">{w.email}</span>
+                                                        <span className="text-[10px] text-amber-400 font-semibold uppercase">Đang chạy...</span>
+                                                    </div>
+                                                ))}
+
+                                                {/* Succeeded */}
+                                                {bulkStatus.completed.map(email => (
+                                                    <div key={email} className="flex justify-between items-center text-xs p-2 rounded bg-emerald-500/5 border border-emerald-500/10">
+                                                        <span className="font-mono text-slate-300">{email}</span>
+                                                        <span className="text-[10px] text-emerald-400 font-semibold uppercase">Thành công</span>
+                                                    </div>
+                                                ))}
+
+                                                {/* Failed */}
+                                                {bulkStatus.failed.map(f => (
+                                                    <div key={f.email} className="flex flex-col gap-1 text-xs p-2.5 rounded bg-rose-500/5 border border-rose-500/10">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="font-mono text-slate-300">{f.email}</span>
+                                                            <span className="text-[10px] text-rose-400 font-semibold uppercase">Thất bại</span>
+                                                        </div>
+                                                        <div className="text-[10px] text-rose-400/80 font-mono break-all">{f.error}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3">
+                                            <Activity size={40} strokeWidth={1} />
+                                            <div className="text-sm">Chưa bắt đầu tiến trình đăng ký nào</div>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            {/* Logs Panel */}
+                            <Card className="h-64 flex flex-col min-h-0">
+                                <CardHeader>
+                                    <div className="flex items-center gap-2">
+                                        <Terminal size={14} className="text-slate-400" />
+                                        <div className="text-xs font-semibold text-slate-200">Logs chi tiết</div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="flex-1 min-h-0 p-0">
+                                    <div 
+                                        ref={bulkLogsEndRef}
+                                        className="h-full overflow-y-auto custom-scrollbar font-mono text-[11px] p-4 bg-black/60 text-slate-300 space-y-1 select-text"
+                                    >
+                                        {bulkStatus?.logs && bulkStatus.logs.length > 0 ? (
+                                            bulkStatus.logs.map((logLine, idx) => {
+                                                let color = 'text-slate-400';
+                                                if (logLine.includes('✅') || logLine.includes('Thành công')) color = 'text-emerald-400';
+                                                else if (logLine.includes('❌') || logLine.includes('Lỗi') || logLine.includes('Thất bại')) color = 'text-rose-400';
+                                                else if (logLine.includes('🚀') || logLine.includes('Khởi chạy')) color = 'text-indigo-400';
+                                                else if (logLine.includes('🛑') || logLine.includes('dừng')) color = 'text-amber-400';
+                                                return (
+                                                    <div key={idx} className={`${color} leading-relaxed break-all`}>
+                                                        {logLine}
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="text-slate-600 italic">Chưa có logs...</div>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
                         </div>
                     </div>
                 )}

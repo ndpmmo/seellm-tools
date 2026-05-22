@@ -20,7 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig, saveConfig } from './server/db/config.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import vaultRouter, { setSSEEmitter } from './server/routes/vault.js';
+import vaultRouter, { setSSEEmitter, registerProcessManager } from './server/routes/vault.js';
 import profileRouter, { setProfileSSEEmitter } from './server/routes/profiles.js';
 import auditLogRouter, { setAuditSSEEmitter } from './server/routes/auditLog.js';
 import { vault } from './server/db/vault.js';
@@ -472,6 +472,11 @@ app.prepare().then(async () => {
   ex.use(express.json());        // ← PHẢI đứng trước để parse body cho vault router
   // Set SSE emitter for vault router
   setSSEEmitter(emitSSE);
+  registerProcessManager({
+    spawnProcess,
+    stopProcess,
+    getProcesses: () => processes
+  });
   setProfileSSEEmitter(emitSSE);
   setAuditSSEEmitter(emitSSE);
   ex.use('/api/vault', vaultRouter);
