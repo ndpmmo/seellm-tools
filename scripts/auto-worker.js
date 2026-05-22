@@ -247,6 +247,10 @@ async function trySelectWorkspaceAndOrganization({ task, userId, tabId, recorder
   const preferredWs = pickPreferredWorkspace(cookieWorkspaces);
   const preferredId = preferredWs?.id || null;
 
+  if (cookieWorkspaces.some(ws => !isPersonalWorkspace(ws))) {
+    task.hasWorkspace = true;
+  }
+
   console.log(`[${task.email}] 🗂️ Cookie workspaces: ${cookieWorkspaces.length} — preferred: ${preferredId || 'none'} (${preferredWs ? (isPersonalWorkspace(preferredWs) ? 'personal' : 'enterprise/team') : 'n/a'})`);
   if (cookieWorkspaces.length > 0) {
     cookieWorkspaces.forEach((ws, i) => {
@@ -557,7 +561,7 @@ async function sendResult(task, status, message, result = null, tokens = null) {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/connect-result`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: taskId, status, message, tokens }),
+        body: JSON.stringify({ id: taskId, status, message, tokens, hasWorkspace: !!task.hasWorkspace }),
         signal: AbortSignal.timeout(30000),
       });
       console.log(`[Report] 📡 connect-result HTTP ${res.status}`);
@@ -573,7 +577,7 @@ async function sendResult(task, status, message, result = null, tokens = null) {
     const res = await fetch(`${TOOLS_API}/api/vault/accounts/result`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: taskId, status, message, result: toolsResult }),
+      body: JSON.stringify({ id: taskId, status, message, result: toolsResult, hasWorkspace: !!task.hasWorkspace }),
       signal: AbortSignal.timeout(45000),
     });
     console.log(`[Report] 📡 result HTTP ${res.status}`);
@@ -824,6 +828,7 @@ async function runConnectFlow(task) {
     // waitForState returns early when isWorkspaceScreen is detected
     if (finalState?.isWorkspaceScreen && !finalState?.looksLoggedIn) {
       console.log(`[Connect] [5a] Workspace selection page detected → clicking Personal account...`);
+      task.hasWorkspace = true;
       await recorder.before(5, 5, 'workspace_page');
       const wsPageResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
       if (wsPageResult?.ok) {
@@ -1233,6 +1238,9 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
       // Log workspace info từ cookie — để biết đang consent cho workspace nào
       try {
         const wsList = await extractWorkspacesFromCookieInPage(tabId, userId);
+        if (wsList.some(ws => !isPersonalWorkspace(ws))) {
+          task.hasWorkspace = true;
+        }
         if (wsList.length > 0) {
           const preferred = pickPreferredWorkspace(wsList);
           log(`🗂️ Consent for ${wsList.length} workspace(s) — active: "${preferred?.name || preferred?.id || 'n/a'}" (${isPersonalWorkspace(preferred) ? 'personal' : 'enterprise/team'})`);
@@ -1518,6 +1526,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     // (different client_id from chatgpt.com login → may show workspace page again)
     if (oauthState?.isWorkspaceScreen && !oauthState?.looksLoggedIn) {
       console.log(`[Capture] 🗂️ Workspace selection page detected in OAuth loop → clicking Personal account...`);
+      task.hasWorkspace = true;
       await recorder.before(1, 20, 'oauth_workspace_page');
       const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs: 15000 });
       if (wsResult?.ok) {
@@ -1849,6 +1858,9 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         // Log workspace info từ cookie trước khi click — để biết đang consent cho workspace nào
         try {
           const consentWorkspaces = await extractWorkspacesFromCookieInPage(tabId, userId);
+          if (consentWorkspaces.some(ws => !isPersonalWorkspace(ws))) {
+            task.hasWorkspace = true;
+          }
           if (consentWorkspaces.length > 0) {
             const preferred = pickPreferredWorkspace(consentWorkspaces);
             console.log(`[Capture] 🗂️ Consent for ${consentWorkspaces.length} workspace(s) — active: "${preferred?.name || preferred?.id || 'n/a'}" (${isPersonalWorkspace(preferred) ? 'personal' : 'enterprise/team'})`);

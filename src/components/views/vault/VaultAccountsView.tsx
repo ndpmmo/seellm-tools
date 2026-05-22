@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle
+  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN } from '../../Views';
@@ -98,6 +98,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'vault-register': { icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', tip: 'Vault-registered — đăng ký qua vault UI' },
   'need_phone':    { icon: PhoneOff, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Cần số điện thoại — yêu cầu xác thực SMS' },
   'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
+  'workspace':     { icon: Briefcase, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', tip: 'Tài khoản có Workspace — thuộc tổ chức/doanh nghiệp' },
 };
 
 function TagIcons({ tags, twoFa }: { tags: string[]; twoFa?: string }) {

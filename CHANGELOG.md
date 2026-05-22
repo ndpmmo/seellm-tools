@@ -2,6 +2,30 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.26] - 2026-05-23 00:15:00
+
+### 🏷️ Tự động nhận diện và gắn nhãn Workspace cho tài khoản khi Deploy / Đăng nhập thành công
+
+**Thay đổi:**
+- **Tích hợp Nhãn Workspace:**
+  - Cập nhật logic xử lý kết quả đăng nhập và kết nối tài khoản tại backend trong `server/routes/vault.js` (các route `/accounts/result` và `/accounts/connect-result`).
+  - Tự động phân tích trường `hasWorkspace` từ payload do worker gửi về để thêm hoặc xóa tag `workspace` của tài khoản trong cơ sở dữ liệu SQLite một cách đồng bộ.
+  - Tự động loại bỏ nhãn `need_phone` khỏi tài khoản khi đăng nhập/kết nối thành công.
+- **Cập nhật Worker (`auto-worker.js`):**
+  - Tự động quét và xác định xem tài khoản có sở hữu Workspace (doanh nghiệp/tổ chức) hay không thông qua việc kiểm tra cấu trúc cookie `oai-client-auth-session` hoặc khi xuất hiện màn hình lựa chọn workspace trong quá trình đăng nhập/kết nối.
+  - Truyền trạng thái `hasWorkspace` về Tools API thông qua helper `sendResult()`.
+- **Giao diện người dùng (`VaultAccountsView.tsx`):**
+  - Bổ sung định nghĩa hiển thị và tooltip cho nhãn `workspace` trong `TAG_META` sử dụng icon `Briefcase` màu xanh dương để dễ dàng nhận biết các tài khoản thuộc doanh nghiệp/tổ chức.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `server/routes/vault.js`
+- `scripts/auto-worker.js`
+- `src/components/views/vault/VaultAccountsView.tsx`
+
+---
+
 ## [0.3.25] - 2026-05-22 23:58:00
 
 ### 🖥️ Sửa lỗi hiển thị số lượng lỗi Terminal Logs (Badge) và Hỗ trợ Dọn dẹp tiến trình đã dừng

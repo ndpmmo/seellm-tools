@@ -104,8 +104,22 @@ function maybeAddNeedPhoneTag(id, message) {
 function removeNeedPhoneTag(id) {
   const account = vault.getAccountFull(id);
   if (!account) return;
-  const tags = (account.tags || []).filter((t) => t !== 'need_phone');
+  const tags = safeParseTags(account.tags).filter((t) => t !== 'need_phone');
   vault.upsertAccount({ id, tags });
+}
+
+function updateWorkspaceTag(id, hasWorkspace) {
+  const account = vault.getAccountFull(id);
+  if (!account) return;
+  const tags = safeParseTags(account.tags);
+  const hasTag = tags.includes('workspace');
+  if (hasWorkspace && !hasTag) {
+    tags.push('workspace');
+    vault.upsertAccount({ id, tags });
+  } else if (!hasWorkspace && hasTag) {
+    const updatedTags = tags.filter(t => t !== 'workspace');
+    vault.upsertAccount({ id, tags: updatedTags });
+  }
 }
 
 /** Tag vault-accounts with 'email_dead' when their email is dead in the pool */
@@ -1010,6 +1024,17 @@ router.post('/accounts/result', async (req, res) => {
           proxyUrl: localAccount?.proxy_url || null,
         });
 
+        const tags = safeParseTags(localAccount?.tags);
+        const hasWorkspace = !!req.body.hasWorkspace;
+        let finalTags = tags;
+        const hasWorkspaceTag = tags.includes('workspace');
+        if (hasWorkspace && !hasWorkspaceTag) {
+          finalTags = [...tags, 'workspace'];
+        } else if (!hasWorkspace && hasWorkspaceTag) {
+          finalTags = tags.filter(t => t !== 'workspace');
+        }
+        finalTags = finalTags.filter(t => t !== 'need_phone');
+
         vault.upsertAccount({
           id: targetId,
           status: 'ready',
@@ -1022,6 +1047,7 @@ router.post('/accounts/result', async (req, res) => {
           device_id: providerSpecificData?.deviceId || null,
           machine_id: providerSpecificData?.machineId || machineId,
           provider_specific_data: providerSpecificData,
+          tags: finalTags,
         });
 
         // Xóa PKCE khỏi store sau khi xử lý xong
@@ -1113,6 +1139,18 @@ router.post('/accounts/result', async (req, res) => {
 
     } else if (status === 'success') {
       // ─── Path 2: Direct tokens (cookie-based / no-code) ──────────────────
+      const localAccount = vault.getAccountFull(id);
+      const tags = safeParseTags(localAccount?.tags);
+      const hasWorkspace = !!req.body.hasWorkspace;
+      let finalTags = tags;
+      const hasWorkspaceTag = tags.includes('workspace');
+      if (hasWorkspace && !hasWorkspaceTag) {
+        finalTags = [...tags, 'workspace'];
+      } else if (!hasWorkspace && hasWorkspaceTag) {
+        finalTags = tags.filter(t => t !== 'workspace');
+      }
+      finalTags = finalTags.filter(t => t !== 'need_phone');
+
       vault.upsertAccount({
         id,
         status: 'ready',
@@ -1121,6 +1159,7 @@ router.post('/accounts/result', async (req, res) => {
         refresh_token: result?.refresh_token,
         cookies: result?.cookies,
         machine_id: getConsistentMachineId(),
+        tags: finalTags,
       });
       removeNeedPhoneTag(id);
       pkceStore.delete(id);
@@ -1406,6 +1445,17 @@ router.post('/accounts/connect-result', async (req, res) => {
       const hasRefreshToken = !!(tokens.refresh_token || tokens.refreshToken);
       const isFallbackOnly = !hasRefreshToken; // session fallback — chỉ có access_token
 
+      const tags = safeParseTags(localAccount?.tags);
+      const hasWorkspace = !!req.body.hasWorkspace;
+      let finalTags = tags;
+      const hasWorkspaceTag = tags.includes('workspace');
+      if (hasWorkspace && !hasWorkspaceTag) {
+        finalTags = [...tags, 'workspace'];
+      } else if (!hasWorkspace && hasWorkspaceTag) {
+        finalTags = tags.filter(t => t !== 'workspace');
+      }
+      finalTags = finalTags.filter(t => t !== 'need_phone');
+
       // skipSync=true: tránh double-push từ upsertAccount internal — chỉ push 1 lần explicit bên dưới
       vault.upsertAccount({
         id,
@@ -1421,6 +1471,7 @@ router.post('/accounts/connect-result', async (req, res) => {
         machine_id: machineId,
         provider_specific_data: providerSpecificData,
         connect_pending: 0,
+        tags: finalTags,
       }, /* skipSync= */ true);
 
       const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
