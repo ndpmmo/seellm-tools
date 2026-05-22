@@ -45,7 +45,7 @@ const CONFIG = {
   // Timeouts (seconds)
   emailInputTimeout: 15,
   emailInputTimeoutWithProxy: 25,
-  otpWaitTimeout: 120,
+  otpWaitTimeout: 90,
   otpRetryTimeout: 30,
   
   // Retry counts

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.24] - 2026-05-22 22:04:00
+
+### ⏱️ Đặt lại thời gian chờ OTP về 90 giây
+
+**Thay đổi:**
+- **Revert OTP timeout**: Cập nhật lại cấu hình `otpWaitTimeout` trong `scripts/auto-register-worker.js` về mức cũ là **90 giây** theo yêu cầu của người dùng để phù hợp hơn với luồng làm việc thực tế.
+
+---
+
 ## [0.3.23] - 2026-05-22 21:50:00
 
 ### ⚙️ Tối ưu hóa luồng Bulk Registration: Tự động loại bỏ Email thành công, Bảo vệ chống lỗi Proxy & Hỗ trợ Retry
