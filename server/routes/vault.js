@@ -1974,6 +1974,7 @@ class BulkRegisterRunner {
   constructor(id, queue, concurrency, enableOAuth) {
     this.id = id;
     this.queue = queue; // array of { emailRecord, proxy }
+    this.allTasks = [...queue];
     this.total = queue.length;
     this.concurrency = concurrency;
     this.enableOAuth = enableOAuth;
@@ -2023,14 +2024,21 @@ class BulkRegisterRunner {
         } else {
           // Find error message from logs
           let errMsg = `Exit code ${exitCode} (${status})`;
+          let isProxyError = false;
           if (proc && proc.logs) {
-            const errorLog = proc.logs.find(l => l.text?.includes('Lỗi:') || l.text?.includes('Error:'));
+            const errorLog = proc.logs.find(l => l.text?.includes('Lỗi:') || l.text?.includes('Error:') || l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed'));
             if (errorLog) {
               errMsg = errorLog.text.trim();
             }
+            isProxyError = proc.logs.some(l => l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed'));
           }
           this.failed.push({ email, error: errMsg });
           this.log(`❌ Đăng ký thất bại: ${email} (${errMsg})`);
+
+          if (isProxyError) {
+            this.log(`🛑 [An toàn] Tự động dừng tiến trình Bulk do lỗi Proxy nghiêm trọng ở account ${email} để tránh chạy trên IP cố định.`);
+            this.stop();
+          }
         }
 
         // Notify client via SSE of single task complete
@@ -2102,7 +2110,7 @@ class BulkRegisterRunner {
 
   stop() {
     this.status = 'stopped';
-    this.log(`🛑 Tiến trình bị dừng lại bởi người dùng.`);
+    this.log(`🛑 Tiến trình bị dừng lại bởi người dùng hoặc hệ thống bảo vệ.`);
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -2124,6 +2132,41 @@ class BulkRegisterRunner {
         queueCount: 0
       });
     }
+  }
+
+  retryFailed() {
+    if (this.status === 'running') {
+      return false;
+    }
+    const failedEmails = this.failed.map(f => f.email);
+    const tasksToRetry = this.allTasks.filter(t => failedEmails.includes(t.emailRecord.email));
+    if (tasksToRetry.length === 0) return false;
+
+    this.queue = [...this.queue, ...tasksToRetry];
+    this.total = this.completed.length + this.failed.length + this.queue.length + this.activeWorkers.size;
+    this.failed = this.failed.filter(f => !failedEmails.includes(f.email));
+    
+    this.status = 'running';
+    this.start();
+    return true;
+  }
+
+  retryItem(email) {
+    const task = this.allTasks.find(t => t.emailRecord.email === email);
+    if (!task) return false;
+    
+    this.failed = this.failed.filter(f => f.email !== email);
+    
+    if (!this.queue.some(t => t.emailRecord.email === email) && !this.activeWorkers.has(email)) {
+      this.queue.push(task);
+      this.total = this.completed.length + this.failed.length + this.queue.length + this.activeWorkers.size;
+      if (this.status !== 'running') {
+        this.status = 'running';
+        this.start();
+      }
+      return true;
+    }
+    return false;
   }
 }
 
@@ -2527,6 +2570,36 @@ router.post('/accounts/bulk-register/stop', (req, res) => {
 
     currentBulkRun.stop();
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register/retry-failed
+router.post('/accounts/bulk-register/retry-failed', (req, res) => {
+  try {
+    if (!currentBulkRun) {
+      return res.status(400).json({ error: 'Không có tiến trình Bulk Registration nào tồn tại.' });
+    }
+    const ok = currentBulkRun.retryFailed();
+    res.json({ ok });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/bulk-register/retry-item
+router.post('/accounts/bulk-register/retry-item', (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email không hợp lệ.' });
+    }
+    if (!currentBulkRun) {
+      return res.status(400).json({ error: 'Không có tiến trình Bulk Registration nào tồn tại.' });
+    }
+    const ok = currentBulkRun.retryItem(email);
+    res.json({ ok });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

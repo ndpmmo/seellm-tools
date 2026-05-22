@@ -300,11 +300,64 @@ export function VaultWorkshopView() {
         }
     };
 
+    const handleRetryFailed = async () => {
+        try {
+            const res = await fetch('/api/vault/accounts/bulk-register/retry-failed', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.ok) {
+                addToast('Đã bắt đầu chạy lại các tài khoản lỗi', 'success');
+                fetchBulkStatus();
+            } else {
+                addToast(data.error || 'Lỗi khi chạy lại', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        }
+    };
+
+    const handleRetryItem = async (email: string) => {
+        try {
+            const res = await fetch('/api/vault/accounts/bulk-register/retry-item', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                addToast(`Đã yêu cầu chạy lại cho ${email}`, 'success');
+                fetchBulkStatus();
+            } else {
+                addToast(data.error || 'Lỗi khi chạy lại', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        }
+    };
+
     const fetchBulkStatus = useCallback(async () => {
         try {
             const res = await fetch('/api/vault/accounts/bulk-register/status');
             const data = await res.json();
             setBulkStatus(data);
+
+            if (data && Array.isArray(data.completed) && data.completed.length > 0) {
+                setBulkEmailsText(prev => {
+                    const lines = prev.split('\n');
+                    const filtered = lines.filter(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return false;
+                        const email = trimmed.split('|')[0].trim();
+                        return !data.completed.includes(email);
+                    });
+                    const newText = filtered.join('\n');
+                    if (newText !== prev) {
+                        return newText;
+                    }
+                    return prev;
+                });
+            }
         } catch (_) {}
     }, []);
 
@@ -2104,6 +2157,14 @@ export function VaultWorkshopView() {
                                                     Chờ chạy
                                                 </span>
                                             )}
+                                            {bulkStatus && bulkStatus.failed && bulkStatus.failed.length > 0 && bulkStatus.status !== 'running' && (
+                                                <button
+                                                    onClick={handleRetryFailed}
+                                                    className="text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition-all font-semibold flex items-center gap-1"
+                                                >
+                                                    <Play size={10} /> Chạy lại lỗi ({bulkStatus.failed.length})
+                                                </button>
+                                            )}
                                             {bulkStatus && (
                                                 <button
                                                     onClick={handleClearBulkStatus}
@@ -2179,7 +2240,18 @@ export function VaultWorkshopView() {
                                                     <div key={f.email} className="flex flex-col gap-1 text-xs p-2.5 rounded bg-rose-500/5 border border-rose-500/10">
                                                         <div className="flex justify-between items-center">
                                                             <span className="font-mono text-slate-300">{f.email}</span>
-                                                            <span className="text-[10px] text-rose-400 font-semibold uppercase">Thất bại</span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                {bulkStatus.status !== 'running' && (
+                                                                    <button
+                                                                        onClick={() => handleRetryItem(f.email)}
+                                                                        title="Chạy lại riêng tài khoản này"
+                                                                        className="p-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all hover:scale-105"
+                                                                    >
+                                                                        <Play size={10} />
+                                                                    </button>
+                                                                )}
+                                                                <span className="text-[10px] text-rose-400 font-semibold uppercase">Thất bại</span>
+                                                            </div>
                                                         </div>
                                                         <div className="text-[10px] text-rose-400/80 font-mono break-all">{f.error}</div>
                                                     </div>

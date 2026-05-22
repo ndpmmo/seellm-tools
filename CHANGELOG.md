@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.23] - 2026-05-22 21:50:00
+
+### ⚙️ Tối ưu hóa luồng Bulk Registration: Tự động loại bỏ Email thành công, Bảo vệ chống lỗi Proxy & Hỗ trợ Retry
+
+**Thay đổi:**
+- **Tự động lọc/loại bỏ Email đăng ký thành công khỏi danh sách chạy**:
+  - Giao diện `VaultWorkshopView.tsx` khi định kỳ lấy trạng thái tiến độ (`fetchBulkStatus`) sẽ tự động phân tích danh sách email thành công và loại bỏ chúng trực tiếp khỏi Textarea nhập liệu email.
+  - Giúp danh sách email chỉ còn lại các tài khoản chưa chạy hoặc chạy lỗi, dễ dàng theo dõi và xử lý tiếp.
+- **Tự động dừng tiến trình Bulk khi lỗi Proxy nghiêm trọng (Bảo vệ IP Host)**:
+  - Cập nhật logic xử lý trong `BulkRegisterRunner.tick()` ở server: nếu phát hiện lỗi proxy nghiêm trọng (ví dụ: `Proxy validation failed`, `Proxy bypassed`, `PreFlight Failed`...), tiến trình Bulk sẽ tự động dừng ngay lập tức (`stop()`).
+  - Tránh tình trạng chạy dồn dập các account tiếp theo bằng IP cố định/IP gốc của máy khi proxy gặp sự cố.
+- **Cơ chế Retry nâng cao (Chạy lại lỗi)**:
+  - Hỗ trợ nút **"Chạy lại lỗi (X)"** trên header của bảng trạng thái tiến trình (chỉ hiển thị khi có tài khoản lỗi và tiến trình đã dừng). Cho phép người dùng chạy lại toàn bộ tài khoản bị lỗi chỉ với 1 click.
+  - Bổ sung nút **Play/Retry** nhỏ bên cạnh từng email thất bại trong danh sách chi tiết, cho phép người dùng kích hoạt chạy lại riêng lẻ tài khoản đó một cách tiện lợi.
+  - Thêm các endpoint API backend tương ứng: `/api/vault/accounts/bulk-register/retry-failed` và `/api/vault/accounts/bulk-register/retry-item`.
+
+---
+
 ## [0.3.22] - 2026-05-22 20:45:00
 
 ### 🔄 Cập nhật trạng thái Email Pool sau khi đăng ký thành công (Fix lỗi UNKNOWN)

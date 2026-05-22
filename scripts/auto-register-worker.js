@@ -45,7 +45,7 @@ const CONFIG = {
   // Timeouts (seconds)
   emailInputTimeout: 15,
   emailInputTimeoutWithProxy: 25,
-  otpWaitTimeout: 90,
+  otpWaitTimeout: 120,
   otpRetryTimeout: 30,
   
   // Retry counts
@@ -1328,7 +1328,7 @@ export async function runAutoRegister(taskInput) {
     if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
       const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout, minTime: otpCheckStartTime });
-      if (!otpCode) throw new Error("Thất bại: Không lấy được mã OTP từ Mail sau 90s.");
+      if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau ${CONFIG.otpWaitTimeout}s.`);
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await evalJson(tabId, USER_ID, `
