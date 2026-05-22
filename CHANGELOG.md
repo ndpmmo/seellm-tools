@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.22] - 2026-05-22 20:45:00
+
+### 🔄 Cập nhật trạng thái Email Pool sau khi đăng ký thành công (Fix lỗi UNKNOWN)
+
+**Thay đổi:**
+- **Đồng bộ trạng thái `mail_status` của Email**:
+  - Khi luồng đăng ký ChatGPT hoàn thành thành công trong `scripts/auto-register-worker.js`, worker giờ đây sẽ tự động cập nhật trường `mail_status: 'active'` (trạng thái READY trên giao diện) cùng lúc với trạng thái `chatgpt_status: 'done'`.
+  - Khắc phục triệt để tình trạng các email sau khi đăng ký tài khoản thành công vẫn hiển thị trạng thái màu vàng "UNKNOWN" trong danh sách Email Pool của Vault Workshop.
+
+**File thay đổi:**
+- `package.json`
+- `scripts/auto-register-worker.js`
+
+---
+
 ## [0.3.21] - 2026-05-22 19:55:00
 
 ### 🚀 Tăng cường khả năng chịu tải và tự động Retry khi gọi Camoufox API

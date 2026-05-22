@@ -1886,6 +1886,7 @@ export async function runAutoRegister(taskInput) {
     // Cập nhật pool status
     await updatePoolStatus(email, {
       chatgpt_status: 'done',
+      mail_status: 'active',
       linked_chatgpt_id: accData.id,
       notes: `Thành công | PID: ${process.pid} | Acc ID: ${accData.id}`
     });
