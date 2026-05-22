@@ -6,6 +6,7 @@
  */
 
 import https from 'node:https';
+import { exec } from 'node:child_process';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson } from './camofox.js';
 import { CAMOUFOX_API } from '../config.js';
 
@@ -203,22 +204,23 @@ export function validateDiagnosticResult({ proxyUrl, exitIp, localIp }) {
  * @returns {Promise<string>} Response text
  */
 export async function fetchTextViaProxy(url, proxyUrl, timeoutMs = 10000) {
-  const proxy = new URL(proxyUrl);
-  const target = new URL(url);
   return new Promise((resolve, reject) => {
-    const req = https.get({
-      host: proxy.hostname,
-      port: proxy.port || (proxy.protocol === 'https:' ? 443 : 80),
-      path: target.href,
-      headers: { Host: target.hostname },
-      timeout: timeoutMs,
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += String(chunk); });
-      res.on('end', () => resolve(data));
-    });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', reject);
+    try {
+      const escapedProxy = String(proxyUrl).replace(/'/g, "'\\''");
+      const escapedUrl = String(url).replace(/'/g, "'\\''");
+      const timeoutSec = Math.ceil(timeoutMs / 1000) || 10;
+      const cmd = `curl -sS --connect-timeout ${timeoutSec} -x '${escapedProxy}' '${escapedUrl}'`;
+      
+      exec(cmd, { timeout: timeoutMs }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message));
+        } else {
+          resolve(stdout);
+        }
+      });
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
