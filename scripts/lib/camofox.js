@@ -8,6 +8,36 @@
 import { CAMOUFOX_API, FORCE_LOCALE_STR, WORKER_AUTH_TOKEN } from '../config.js';
 
 /**
+ * Helper to fetch with retry for resilient local Camoufox server communication.
+ * Retries on connection refuse, reset, or timeout errors.
+ * @param {string} url - Target URL
+ * @param {object} options - Fetch options, supports custom timeoutMs field
+ * @param {number} maxAttempts - Number of retries
+ * @returns {Promise<Response>} Fetch Response
+ */
+async function fetchWithRetry(url, options = {}, maxAttempts = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      let finalOptions = { ...options };
+      if (options.timeoutMs !== undefined) {
+        finalOptions.signal = AbortSignal.timeout(options.timeoutMs);
+        delete finalOptions.timeoutMs;
+      }
+      return await fetch(url, finalOptions);
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        const delay = 1000 + (attempt - 1) * 1500;
+        console.log(`⚠️ [camofox-api] Lỗi kết nối (lần ${attempt}/${maxAttempts}): ${err.message || err}. Thử lại sau ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
  * POST request to Camoufox API.
  * Auto-injects `sessionKey` (v1.8.15+) and `locale` (v1.8.15+) when needed.
  *
@@ -30,12 +60,12 @@ export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
     }
   }
 
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, {
+  const res = await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(finalBody),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+    timeoutMs,
+  }, 3);
   if (!res.ok) throw new Error(`Camofox ${endpoint} → ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -47,7 +77,7 @@ export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
  * @returns {Promise<object>} JSON response
  */
 export async function camofoxGet(endpoint, { timeoutMs = 10000 } = {}) {
-  const res = await fetch(`${CAMOUFOX_API}${endpoint}`, { signal: AbortSignal.timeout(timeoutMs) });
+  const res = await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, { timeoutMs }, 3);
   if (!res.ok) throw new Error(`Camofox GET ${endpoint} → ${res.status}`);
   return res.json();
 }
@@ -59,7 +89,7 @@ export async function camofoxGet(endpoint, { timeoutMs = 10000 } = {}) {
  * @returns {Promise<void>}
  */
 export async function camofoxDelete(endpoint, { timeoutMs = 8000 } = {}) {
-  await fetch(`${CAMOUFOX_API}${endpoint}`, { method: 'DELETE', signal: AbortSignal.timeout(timeoutMs) }).catch(() => { });
+  await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, { method: 'DELETE', timeoutMs }, 3).catch(() => { });
 }
 
 /**

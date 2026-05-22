@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.21] - 2026-05-22 19:55:00
+
+### 🚀 Tăng cường khả năng chịu tải và tự động Retry khi gọi Camoufox API
+
+**Thay đổi:**
+- **Thêm cơ chế tự động thử lại (`fetchWithRetry`) cho Camoufox API**:
+  - Giao tiếp giữa các worker và Camoufox API (qua `camofoxPost`, `camofoxGet`, và `camofoxDelete` trong `scripts/lib/camofox.js`) hiện được bọc bằng `fetchWithRetry` hỗ trợ tối đa 3 lần thử lại với khoảng trễ tăng dần (exponential delay).
+  - Giải quyết triệt để lỗi `fetch failed` hoặc timeout khi chạy Bulk Registration (nhiều tiến trình worker khởi chạy trình duyệt đồng thời gây quá tải tạm thời cho Camoufox Express server).
+- **Tránh tình trạng dừng tiến trình ngoài ý muốn**:
+  - Khi Camoufox API bận hoặc bị nghẽn socket tạm thời do nhiều tab mở cùng lúc, worker sẽ tự động chờ và thử kết nối lại thay vì vội vàng dừng tiến trình với mã lỗi `fetch failed`.
+
+**File thay đổi:**
+- `package.json`
+- `scripts/lib/camofox.js`
+
+---
+
 ## [0.3.20] - 2026-05-22 19:30:00
 
 ### 🛡️ Nâng cấp cơ chế bảo mật Fail-Fast và kiểm tra rò rỉ IP qua Proxy
