@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.38] - 2026-05-24 00:33:00
+
+### ⚡ Cải thiện hiệu năng render và tích hợp Phân trang (Pagination) cho Giao diện Proxies cũ (`?view=proxies`)
+
+**Bối cảnh:**
+Khi người dùng import 1000 proxy ở giao diện cũ, trình duyệt bị đứng/đơ và không thể cuộn (scroll) màn hình lên xuống được. Nguyên nhân là:
+1. Giao diện render đồng thời 1000 thẻ proxy cards phức tạp, mỗi thẻ chứa các vòng lặp con (slots).
+2. Với mỗi proxy card, React chạy bộ lọc `.filter()` và `.find()` trên mảng `slots` (kích thước ~4000) và `bindings` (kích thước ~1000), dẫn đến độ phức tạp thuật toán cực kỳ cao $O(N^2)$, chiếm dụng 100% tài nguyên CPU của trình duyệt.
+
+**Thay đổi:**
+- **Nhóm dữ liệu O(1) trước khi render:**
+  - Sử dụng `useMemo` để gom nhóm trước `slots` theo ID proxy (`slotsByProxyId`) và `bindings` theo ID/URL proxy (`bindingsByProxy`) thành các Map tra cứu nhanh. Việc tra cứu trong vòng lặp chuyển từ quét mảng tuần tự sang lấy giá trị trực tiếp $O(1)$.
+- **Tích hợp Phân trang (Pagination):**
+  - Mặc định chia trang hiển thị **50 proxy trên mỗi trang** để giữ cho DOM luôn nhẹ và phản hồi ngay lập tức khi cuộn trang.
+  - Reset trang hiện tại về 1 bất cứ khi nào người dùng tìm kiếm.
+  - Hiển thị bảng điều khiển phân trang dưới danh sách (Trang đầu, Trước, Trang X / Y, Sau, Trang cuối).
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.38`.
+
+---
+
 ## [0.3.37] - 2026-05-24 00:28:00
 
 ### 🚀 Đồng bộ tối ưu hóa cho Giao diện Proxies cũ (`?view=proxies`)

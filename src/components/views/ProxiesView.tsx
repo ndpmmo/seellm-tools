@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Plus, Upload, Search, RefreshCw,
   Trash2, Globe, Server, Activity, ChevronUp, ChevronDown, Check, X,
@@ -156,7 +156,51 @@ export function ProxiesView() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const filtered = proxies.filter(p => !search || p.url.toLowerCase().includes(search.toLowerCase()) || (p.label && p.label.toLowerCase().includes(search.toLowerCase())));
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  // Group slots by proxy_id
+  const slotsByProxyId = useMemo(() => {
+    const map = new Map<string, ProxySlot[]>();
+    for (const slot of slots) {
+      if (!slot.proxy_id) continue;
+      if (!map.has(slot.proxy_id)) map.set(slot.proxy_id, []);
+      map.get(slot.proxy_id)!.push(slot);
+    }
+    return map;
+  }, [slots]);
+
+  // Group bindings by proxy_id or proxy_url
+  const bindingsByProxy = useMemo(() => {
+    const byId = new Map<string, ProxyBinding[]>();
+    const byUrl = new Map<string, ProxyBinding[]>();
+    for (const binding of bindings) {
+      if (binding.proxy_id) {
+        if (!byId.has(binding.proxy_id)) byId.set(binding.proxy_id, []);
+        byId.get(binding.proxy_id)!.push(binding);
+      }
+      if (binding.proxy_url) {
+        if (!byUrl.has(binding.proxy_url)) byUrl.set(binding.proxy_url, []);
+        byUrl.get(binding.proxy_url)!.push(binding);
+      }
+    }
+    return { byId, byUrl };
+  }, [bindings]);
+
+  const filtered = useMemo(() => {
+    const query = search.toLowerCase();
+    return proxies.filter(p => !search || p.url.toLowerCase().includes(query) || (p.label && p.label.toLowerCase().includes(query)));
+  }, [proxies, search]);
+
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const paginated = useMemo(() => {
+    return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [filtered, currentPage, pageSize]);
+
   const totalSlots = slots.length;
   const busySlots = slots.filter(s => s.connection_id).length;
   const freeSlots = totalSlots - busySlots;
@@ -331,10 +375,18 @@ export function ProxiesView() {
           {filtered.length === 0 && !loading && (
             <div className="py-10 text-center text-[13px] text-slate-500">{search ? `Không tìm thấy "${search}"` : 'Chưa có proxy nào'}</div>
           )}
-          {filtered.map(p => {
-            const pSlots = slots.filter(s => s.proxy_id === p.id).sort((a, b) => a.slot_index - b.slot_index);
+          {paginated.map(p => {
+            const pSlots = (slotsByProxyId.get(p.id) || []).sort((a, b) => a.slot_index - b.slot_index);
             const busyCount = pSlots.filter(s => s.connection_id).length;
-            const proxyBindings = bindings.filter(b => b.proxy_id === p.id || b.proxy_url === p.url).sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+            const listById = bindingsByProxy.byId.get(p.id) || [];
+            const listByUrl = bindingsByProxy.byUrl.get(p.url) || [];
+            const combined = [...listById];
+            for (const b of listByUrl) {
+              if (!combined.some(x => x.account_id === b.account_id)) {
+                combined.push(b);
+              }
+            }
+            const proxyBindings = combined.sort((a, b) => (a.email || '').localeCompare(b.email || ''));
             const isEditing = editProxyId === p.id;
             return (
               <div key={p.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-indigo-500/5 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
@@ -385,7 +437,7 @@ export function ProxiesView() {
                 <div className="flex flex-wrap gap-1.5 items-center">
                   {pSlots.map(s => {
                     const isBusy = !!s.connection_id;
-                    const owner = bindings.find(b => b.account_id === s.connection_id);
+                    const owner = combined.find(b => b.account_id === s.connection_id);
                     return (
                       <div
                         key={s.id}
@@ -429,6 +481,22 @@ export function ProxiesView() {
               </div>
             );
           })}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5 text-xs text-slate-400">
+              <div>
+                Hiển thị {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filtered.length)} trên tổng số {filtered.length} proxy
+              </div>
+              <div className="flex gap-1.5">
+                <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>Trang đầu</Button>
+                <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Trước</Button>
+                <span className="px-3 py-1.5 bg-white/5 rounded border border-white/10 font-medium">Trang {currentPage} / {totalPages}</span>
+                <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Sau</Button>
+                <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Trang cuối</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
