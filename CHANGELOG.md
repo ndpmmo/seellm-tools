@@ -2,6 +2,30 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.31] - 2026-05-23 18:48:00
+
+### 🚀 Tối ưu hóa Đồng bộ hóa, Khắc phục Stale Cache & Tính năng Auto Deploy Hàng Loạt trong Vault
+
+**Thay đổi:**
+- **Tối ưu hóa Đồng bộ hóa & Tránh Xung đột Cache (`syncManager.js`):**
+  - Khắc phục lỗi cache bị stale: Xóa fingerprint khỏi `lastPushCache` và `lastPushState` trong block `catch` khi thực hiện `_executePush` thất bại. Điều này giúp các lần đồng bộ/retries tiếp theo được thực hiện ngay lập tức thay vì bị bỏ qua.
+  - Sửa đổi cấu trúc `cacheKey` trong `_executePush` từ `type:${data.id}` sang `${type}:${data.email || data.id}` để hỗ trợ gỡ lỗi và đồng bộ chính xác cho `email_pool` (vốn không có trường `id`).
+- **Đồng bộ trạng thái "Dead" trực quan lên Services View (`ServicesView.tsx`):**
+  - Mở rộng hỗ trợ trạng thái `dead` (Deactivated) trên trang Quản lý Services (`ServicesView.tsx`).
+  - Hiển thị nhãn **🔴 Dead** với giao diện màu đỏ đậm đặc trưng tương đồng với Vault Accounts, giúp thống nhất trải nghiệm người dùng trên tất cả các tab.
+  - Ánh xạ mã lỗi `account_deactivated` thành nhãn `Deactivated` trong `ERROR_TYPE_LABELS`.
+- **Giao diện & Tính năng Auto Deploy Hàng Loạt (`VaultAccountsView.tsx`):**
+  - Thiết kế bảng điều khiển **"Auto Deploy"** hoàn toàn mới để chạy hàng loạt tài khoản tự động (phân biệt với việc tích chọn thủ công).
+  - Cho phép người dùng cấu hình số lượng tài khoản cần deploy (với nút chọn nhanh "Tất cả") và lựa chọn thứ tự lấy tài khoản: **Theo thứ tự** (Sequential) hoặc **Ngẫu nhiên** (Random).
+  - Hệ thống sẽ tự động lọc các tài khoản hợp lệ ở trạng thái `idle`, `stopped`, `error`, `relogin` và không bị vô hiệu hóa (`account_deactivated`) để chuyển sang `pending` và khởi động background worker thực thi tự động.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `server/services/syncManager.js`
+- `src/components/views/vault/VaultAccountsView.tsx`
+- `src/components/views/ServicesView.tsx`
+
 ## [0.3.30] - 2026-05-23 17:25:00
 
 ### 🚀 Giao diện người dùng: Tính năng Deploy hàng loạt và Khắc phục lỗi URL

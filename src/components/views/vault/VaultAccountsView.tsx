@@ -217,6 +217,11 @@ export function VaultAccountsView() {
   const [legendOpen, setLegendOpen] = useState(false);
   const [inboxModal, setInboxModal] = useState<{ open: boolean; email: string; messages: any[]; loading: boolean }>({ open: false, email: '', messages: [], loading: false });
 
+  const [isBulkDeployFormOpen, setIsBulkDeployFormOpen] = useState(false);
+  const [bulkDeployCount, setBulkDeployCount] = useState<number | ''>('');
+  const [bulkDeployOrder, setBulkDeployOrder] = useState<'sequential' | 'random'>('sequential');
+  const [isBulkDeployingAuto, setIsBulkDeployingAuto] = useState(false);
+
   const [uiState, setUiState] = useState({
     isAdding: false,
     isBulk: false,
@@ -509,6 +514,58 @@ export function VaultAccountsView() {
     }
   };
 
+  const startAutoBulkDeploy = async () => {
+    const pool = items.filter(it => {
+      const tags = safeParseTags(it.tags);
+      return isOpenAI(it.provider) && 
+             (it.status === 'idle' || it.status === 'stopped' || it.status === 'error' || it.status === 'relogin') && 
+             !tags.includes('account_deactivated');
+    });
+
+    if (pool.length === 0) {
+      return addToast('Không tìm thấy tài khoản nào hợp lệ ở trạng thái Idle/Error/Stopped/Re-login', 'error');
+    }
+
+    let targetCount = pool.length;
+    if (bulkDeployCount !== '') {
+      targetCount = Math.min(Number(bulkDeployCount), pool.length);
+    }
+    if (targetCount <= 0) {
+      return addToast('Số lượng deploy phải lớn hơn 0', 'error');
+    }
+
+    let targets = [...pool];
+    if (bulkDeployOrder === 'random') {
+      targets.sort(() => Math.random() - 0.5);
+    }
+    targets = targets.slice(0, targetCount);
+
+    setIsBulkDeployingAuto(true);
+    let success = 0;
+    
+    for (const it of targets) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${it.id}/retry-connect`, { method: 'POST' });
+        const d = await r.json();
+        if (!d.error) {
+          patchAccountLocal(it.id, { status: 'pending' });
+          success++;
+        }
+      } catch (e) {}
+    }
+
+    setIsBulkDeployingAuto(false);
+    if (success > 0) {
+      fetch('/api/processes/worker/start', { method: 'POST' }).catch(() => { });
+      addToast(`🤖 Đã tự động xếp hàng Deploy ${success}/${targets.length} tài khoản`, 'success');
+      setIsBulkDeployFormOpen(false);
+      setBulkDeployCount('');
+      loadAccounts();
+    } else {
+      addToast('Deploy hàng loạt thất bại', 'error');
+    }
+  };
+
   const bulkSave = async () => {
     if (!uiState.bulkText.trim()) return;
     const lines = uiState.bulkText.split('\n').filter(l => l.trim().includes('|'));
@@ -590,10 +647,13 @@ export function VaultAccountsView() {
           <Button variant="ghost" onClick={syncDeadTags} disabled={syncingDeadTags}>
             {syncingDeadTags ? <RefreshCw size={16} className="animate-spin" /> : <Tag size={16} />} {syncingDeadTags ? 'Đang đồng bộ...' : 'Sync Dead Tags'}
           </Button>
-          <Button variant="ghost" onClick={() => setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null }))}>
+          <Button variant="ghost" className="!text-emerald-400 hover:!bg-emerald-500/10" onClick={() => { setIsBulkDeployFormOpen(!isBulkDeployFormOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); }}>
+            {isBulkDeployFormOpen ? <X size={16} /> : <Bot size={16} />} Auto Deploy
+          </Button>
+          <Button variant="ghost" onClick={() => { setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null })); setIsBulkDeployFormOpen(false); }}>
             {uiState.isBulk ? <X size={16} /> : <FileUp size={16} />} Nhập hàng loạt
           </Button>
-          <Button variant="primary" onClick={() => setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' }))}>
+          <Button variant="primary" onClick={() => { setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' })); setIsBulkDeployFormOpen(false); }}>
             {uiState.isAdding ? <X size={16} /> : <Plus size={16} />} {uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}
           </Button>
         </div>
@@ -679,6 +739,75 @@ export function VaultAccountsView() {
               <Button variant="primary" onClick={bulkSave} disabled={loading}>
                 <Save size={16} /> {loading ? 'Đang xử lý...' : 'Bắt đầu nhập vào Vault'}
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ AUTO BULK DEPLOY FORM ═══ */}
+      {isBulkDeployFormOpen && (
+        <Card className="mb-6 animate-slideDown border-emerald-500/20 bg-emerald-500/[0.02]">
+          <CardHeader>
+            <CardTitle className="text-emerald-400">
+              <Bot size={14} className="text-emerald-400" /> Tự động Deploy Hàng Loạt
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Số lượng tài khoản cần Deploy</label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="number" 
+                    min={1} 
+                    className="flex-1" 
+                    placeholder={`Tối đa ${items.filter(it => {
+                      const tags = safeParseTags(it.tags);
+                      return isOpenAI(it.provider) && 
+                             (it.status === 'idle' || it.status === 'stopped' || it.status === 'error' || it.status === 'relogin') && 
+                             !tags.includes('account_deactivated');
+                    }).length} tài khoản`} 
+                    value={bulkDeployCount} 
+                    onChange={e => setBulkDeployCount(e.target.value === '' ? '' : Number(e.target.value))} 
+                  />
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    onClick={() => setBulkDeployCount(items.filter(it => {
+                      const tags = safeParseTags(it.tags);
+                      return isOpenAI(it.provider) && 
+                             (it.status === 'idle' || it.status === 'stopped' || it.status === 'error' || it.status === 'relogin') && 
+                             !tags.includes('account_deactivated');
+                    }).length)}
+                  >
+                    Tất cả
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Thứ tự lựa chọn</label>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-indigo-500/50" 
+                  value={bulkDeployOrder} 
+                  onChange={e => setBulkDeployOrder(e.target.value as 'sequential' | 'random')}
+                >
+                  <option value="sequential" className="bg-[#0f172a]">Theo thứ tự (từ trên xuống)</option>
+                  <option value="random" className="bg-[#0f172a]">Ngẫu nhiên (Random)</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 text-right">
+                <Button 
+                  variant="primary" 
+                  className="bg-emerald-600 hover:bg-emerald-500 border-emerald-500/30 text-white" 
+                  onClick={startAutoBulkDeploy} 
+                  disabled={isBulkDeployingAuto}
+                >
+                  {isBulkDeployingAuto ? <RefreshCw size={14} className="animate-spin mr-1.5" /> : <Bot size={14} className="mr-1.5" />} 
+                  {isBulkDeployingAuto ? 'Đang kích hoạt...' : 'Bắt đầu Auto Deploy'}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

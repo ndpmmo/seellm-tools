@@ -180,7 +180,8 @@ export const SyncManager = {
     const cfg = loadConfig();
     const now = new Date().toISOString();
     const version = Date.now();
-    const cacheKey = `${type}:${data.id}`;
+    const cacheKeyId = data.email || data.id;
+    const cacheKey = `${type}:${cacheKeyId}`;
     const createdAt = data.created_at || data.createdAt || now;
     const updatedAt = data.updated_at || data.updatedAt || now;
 
@@ -473,6 +474,12 @@ export const SyncManager = {
 
       return result;
     } catch (e) {
+      // Clear cache on failure to allow retrying
+      lastPushCache.delete(cacheKey);
+      if (type === 'account') {
+        lastPushState.delete(cacheKey);
+      }
+
       // Rollback gateway_status on failure (kể cả rollback về null)
       if (type === 'account' && data.id) {
         try {

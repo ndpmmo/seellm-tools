@@ -91,6 +91,7 @@ const ERROR_TYPE_LABELS: Record<string, string> = {
   token_expired: 'Token Expired', upstream_rate_limited: 'Rate Limited',
   upstream_unavailable: 'Upstream Unavailable', network_error: 'Network Error',
   unsupported: 'Test Unsupported', upstream_error: 'Upstream Error',
+  account_deactivated: 'Deactivated',
 };
 
 function inferErrorType(it: any, isCooldown: boolean): string | null {
@@ -119,6 +120,9 @@ function getStatusPresentation(it: any) {
   const isCooldown = !!rateLimitedUntil && new Date(rateLimitedUntil).getTime() > Date.now();
   const errorType = inferErrorType(it, isCooldown);
   const testStatus = String(it?.test_status || it?.status || '').toLowerCase();
+
+  if (testStatus === 'dead')
+    return { label: 'Dead', colorClass: 'text-rose-500 font-bold', bgClass: 'bg-rose-950/40', borderClass: 'border-rose-900/30', errorType: 'account_deactivated' };
 
   if (!isActive) {
     if (['upstream_auth_error','auth_missing','token_refresh_failed','token_expired'].includes(errorType!))
