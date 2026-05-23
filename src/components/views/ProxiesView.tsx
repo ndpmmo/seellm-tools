@@ -87,6 +87,29 @@ function parseBulkProxies(raw: string) {
     .filter(r => r.url.startsWith('http://') || r.url.startsWith('https://') || r.url.startsWith('socks'));
 }
 
+async function runWithConcurrencyLimit<T, R>(
+  limit: number,
+  items: T[],
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  const queue = [...items];
+
+  const runNext = async (): Promise<void> => {
+    if (queue.length === 0) return;
+    const item = queue.shift()!;
+    try {
+      const res = await fn(item);
+      results.push(res);
+    } catch (_) {}
+    await runNext();
+  };
+
+  const pool = Array.from({ length: Math.min(limit, items.length) }, () => runNext());
+  await Promise.all(pool);
+  return results;
+}
+
 export function ProxiesView() {
   const { addToast } = useApp();
   const [proxies, setProxies] = useState<ProxyItem[]>([]);
@@ -213,11 +236,15 @@ export function ProxiesView() {
   };
 
   const importBulk = async () => {
-    if (!bulkRows.length) return; setBulkBusy(true);
+    if (!bulkRows.length) return;
+    setBulkBusy(true);
     let ok = 0;
-    for (const row of bulkRows) {
-      try { const d = await apiPost('/api/d1/proxies/add', row); if (!d.error) ok++; } catch { }
-    }
+    await runWithConcurrencyLimit(10, bulkRows, async (row) => {
+      try {
+        const d = await apiPost('/api/d1/proxies/add', row);
+        if (!d.error) ok++;
+      } catch {}
+    });
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
     addToast(`✅ Imported ${ok}/${bulkRows.length} proxy`, 'success');
     await loadData();

@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.37] - 2026-05-24 00:28:00
+
+### 🚀 Đồng bộ tối ưu hóa cho Giao diện Proxies cũ (`?view=proxies`)
+
+**Bối cảnh:**
+Trang giao diện quản lý proxy cũ (`?view=proxies` tương ứng với `ProxiesView.tsx`) mặc dù không tích hợp tính năng tự động kiểm tra proxy (auto-test/ping) ngay khi thêm, nhưng có tính năng **Import hàng loạt (Bulk Import)**. 
+Trong tính năng này, hệ thống trước đó chạy vòng lặp tuần tự gửi yêu cầu tạo proxy (`/api/d1/proxies/add`) đến backend. Khi import 1000 proxy, việc gửi 1000 HTTP requests tuần tự từ trình duyệt tốn rất nhiều thời gian.
+
+**Thay đổi:**
+- **Triển khai Concurrency Pool trong `ProxiesView.tsx`:**
+  - Tích hợp hàm helper `runWithConcurrencyLimit(limit, items, fn)` tương tự như bên Vault.
+  - Cập nhật hàm `importBulk` trong `ProxiesView.tsx` để thực hiện việc gửi yêu cầu thêm proxy song song với giới hạn **tối đa 10 requests đồng thời**.
+- **Kết quả:** Quá trình import hàng loạt trên giao diện cũ nhanh hơn gấp nhiều lần, hạn chế nghẽn đường truyền HTTP của trình duyệt.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.37`.
+
+---
+
 ## [0.3.36] - 2026-05-24 00:24:00
 
 ### 🚀 Tối ưu hóa Hiệu suất: Chạy Kiểm tra Proxy Song song có Giới hạn Concurrency
