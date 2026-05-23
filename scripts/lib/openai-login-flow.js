@@ -221,7 +221,7 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         isConsentScreen: isConsentScr,
-        isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || lowerUrl.includes('sign-in-with-chatgpt') || WORKSPACE_KW.some(k => body.includes(k))),
+        isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || (lowerUrl.includes('sign-in-with-chatgpt') && !lowerUrl.includes('consent')) || WORKSPACE_KW.some(k => body.includes(k))),
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
       };
     })()

@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.33] - 2026-05-23 22:35:00
+
+### 🛡️ Khắc phục nhận diện nhầm Workspace (isWorkspaceScreen False Positive) & Đồng bộ hóa Nhãn Workspace chính xác
+
+**Bối cảnh:**
+Phát hiện lỗi tài khoản standard free (không có workspace) vẫn bị Tools gắn nhãn `workspace` (Briefcase xanh dương) tương tự tài khoản free có workspace.
+Nguyên nhân gốc rễ là do trong `scripts/lib/openai-login-flow.js`, điều kiện nhận diện `isWorkspaceScreen` kiểm tra URL chứa `sign-in-with-chatgpt`. Tuy nhiên, trang **Consent** (ủy quyền) của luồng Codex OAuth luôn có URL dạng `auth.openai.com/sign-in-with-chatgpt/codex/consent` chứa từ khóa này, dẫn đến việc trang Consent bị nhận diện nhầm là Workspace Screen.
+Khi đó, worker tự động đánh dấu `task.hasWorkspace = true` cho mọi tài khoản đi qua Codex consent page, ghi đè lên kết quả phân tích cookie workspaces chính xác.
+
+**Thay đổi:**
+- **Sửa lỗi Nhận diện Workspace Screen (`scripts/lib/openai-login-flow.js`):**
+  - Thắt chặt điều kiện: Nếu URL chứa `sign-in-with-chatgpt` nhưng chứa `consent`, KHÔNG nhận diện là Workspace Screen.
+  - Loại bỏ hoàn toàn false positive của `isWorkspaceScreen` tại trang Consent ủy quyền.
+- **Bảo toàn cơ chế Phân tích Cookie Workspaces (`scripts/auto-worker.js`):**
+  - Giữ nguyên cơ chế trích xuất cookie và kiểm tra `kind !== 'personal'` (hoàn toàn chính xác) để phân loại tài khoản có workspace thực tế.
+  - Đảm bảo tài khoản free bình thường (`zyphor@gptmail.biz.id`) sẽ gửi `hasWorkspace = false`, trong khi tài khoản free có workspace thực tế (`jackchadmoore7872@hotmail.com`) gửi `hasWorkspace = true`.
+- **Nâng cấp phiên bản:**
+  - Bump version `package.json` lên `0.3.33`.
+
+**Kết quả:**
+- Tài khoản free standard sẽ không còn bị gắn nhãn tag `workspace` rác.
+- Tag `workspace` hiển thị chính xác 100% chỉ cho các tài khoản thuộc Team/Enterprise/Organization thực sự.
+
+---
+
 ## [0.3.32] - 2026-05-23 21:19:00
 
 ### 🛡️ Ổn định hoá Auto-Worker: Ngăn chặn Bulk Execution & Tăng cường Độ tin cậy Camofox API
