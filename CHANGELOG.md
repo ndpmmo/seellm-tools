@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.42] - 2026-05-24 01:10:00
+
+### 🗳️ Nâng cấp tính năng chọn hàng loạt (Bulk Selection) & Kiểm tra kết nối độc lập trên Giao diện Gateway Proxies (`?view=proxies`)
+
+**Thay đổi:**
+- **Thành phần giao diện chọn hàng loạt:**
+  - Tích hợp ô checkbox (sử dụng icon `CheckSquare`/`Square`) cho từng card proxy và nút chọn tất cả (Select All) trên `CardHeader`.
+  - Tích hợp thanh Toolbar thao tác hàng loạt (Bulk Action Bar) xuất hiện động khi có ít nhất 1 proxy được chọn:
+    - **Xóa hàng loạt (Bulk Delete):** Hỗ trợ xóa đồng thời nhiều proxy cùng với toàn bộ các slots liên quan khỏi database D1.
+    - **Kiểm tra hàng loạt (Bulk Test):** Hỗ trợ ping kiểm tra đồng thời cho các proxy đã chọn với concurrency limit = 10, cập nhật trực tiếp độ trễ (latency) mà không chặn UI thread.
+- **Tính năng kiểm tra độc lập (Individual Connection Check):**
+  - Thêm nút kiểm tra kết nối (hình nhịp tim `Activity`) trên góc mỗi card proxy, cho phép ping trực tiếp đến proxy đó và hiển thị latency hoặc thông báo lỗi cụ thể.
+- **Tối ưu hóa Trải nghiệm:**
+  - Reset trạng thái chọn (Selected Set) khi người dùng thay đổi từ khóa tìm kiếm hoặc chuyển trang/page size nhằm tránh thao tác nhầm trên các proxy bị ẩn.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.42`.
+
+---
+
 ## [0.3.41] - 2026-05-24 00:55:00
 
 ### ⚙️ Bổ sung tùy chọn Số lượng hiển thị mỗi trang (Page Size Selector) cho cả hai giao diện Proxy

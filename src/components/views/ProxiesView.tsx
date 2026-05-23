@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Plus, Upload, Search, RefreshCw,
   Trash2, Globe, Server, Activity, ChevronUp, ChevronDown, Check, X,
-  AlertCircle, Edit2, Save
+  AlertCircle, Edit2, Save, CheckSquare, Square
 } from 'lucide-react';
 import { useApp } from '../AppContext';
 import { ConfirmModal } from '../Views';
@@ -131,6 +131,10 @@ export function ProxiesView() {
   const [editProxyId, setEditProxyId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState({ url: '', label: '' });
 
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [testingAll, setTestingAll] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -161,7 +165,12 @@ export function ProxiesView() {
 
   useEffect(() => {
     setCurrentPage(1);
+    setSelected(new Set());
   }, [search]);
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [currentPage, pageSize]);
 
   // Group slots by proxy_id
   const slotsByProxyId = useMemo(() => {
@@ -200,6 +209,79 @@ export function ProxiesView() {
   const paginated = useMemo(() => {
     return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   }, [filtered, currentPage, pageSize]);
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+
+  const toggleAll = () => {
+    const visibleIds = paginated.map(p => p.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (allSelected) {
+        visibleIds.forEach(id => n.delete(id));
+      } else {
+        visibleIds.forEach(id => n.add(id));
+      }
+      return n;
+    });
+  };
+
+  const deleteSelected = async () => {
+    if (!selected.size) return;
+    setConfirmModal({
+      title: `Xóa ${selected.size} Proxy`,
+      message: `Bạn có chắc chắn muốn xóa ${selected.size} proxy đã chọn? Toàn bộ các slot liên quan cũng sẽ bị xóa khỏi D1 Cloud.`,
+      onConfirm: async () => {
+        let okCount = 0;
+        await runWithConcurrencyLimit(10, Array.from(selected), async (id) => {
+          try {
+            const res = await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
+            if (res.ok) okCount++;
+          } catch {}
+        });
+        addToast(`✅ Đã xóa thành công ${okCount}/${selected.size} proxy`, 'success');
+        setSelected(new Set());
+        setConfirmModal(null);
+        loadData();
+      }
+    });
+  };
+
+  const testSelected = async (targetIds?: Set<string>) => {
+    const listToTest = targetIds || selected;
+    if (!listToTest.size) return;
+    const selectedList = filtered.filter(p => listToTest.has(p.id));
+    if (!selectedList.length) return;
+    setTestingAll(true);
+    addToast(`🔍 Đang kiểm tra kết nối cho ${selectedList.length} proxy...`, 'info');
+    let ok = 0, fail = 0;
+    await runWithConcurrencyLimit(10, selectedList, async (p) => {
+      setTestingIds(prev => { const n = new Set(prev); n.add(p.id); return n; });
+      try {
+        const res = await fetch(`/api/vault/proxies/${p.id}/test`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok && data.status === 'active') {
+          ok++;
+          setProxies(prev => prev.map(x => x.id === p.id ? { ...x, last_latency_ms: data.latency } : x));
+        } else {
+          fail++;
+          setProxies(prev => prev.map(x => x.id === p.id ? { ...x, last_latency_ms: undefined } : x));
+        }
+      } catch {
+        fail++;
+      }
+      setTestingIds(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+    });
+    addToast(`✅ Đã test xong: ${ok} hoạt động, ${fail} lỗi`, ok > 0 ? 'success' : 'error');
+    setTestingAll(false);
+  };
 
   const totalSlots = slots.length;
   const busySlots = slots.filter(s => s.connection_id).length;
@@ -352,12 +434,33 @@ export function ProxiesView() {
       {/* Table */}
       <Card className="!overflow-visible">
         <CardHeader>
-          <CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <button onClick={toggleAll} title="Chọn tất cả trên trang này" className="text-slate-500 hover:text-slate-200 transition-colors mr-1">
+              {paginated.length > 0 && paginated.every(i => selected.has(i.id)) ? (
+                <CheckSquare size={16} className="text-indigo-400" />
+              ) : (
+                <Square size={16} />
+              )}
+            </button>
             <Globe size={14} className="text-indigo-400" />
             Proxy Pool
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
           </CardTitle>
           <div className="flex gap-2 items-center ml-auto">
+            {selected.size > 0 && (
+              <>
+                <Button variant="danger" size="sm" onClick={deleteSelected}>
+                  <Trash2 size={12} /> Xóa ({selected.size})
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => testSelected()} disabled={testingAll} className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10">
+                  {testingAll ? <span className="w-3 h-3 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" /> : <Activity size={12} />}
+                  Test ({selected.size})
+                </Button>
+              </>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => testSelected(new Set(filtered.map(p => p.id)))} disabled={testingAll || !filtered.length} className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10">
+              <Activity size={12} /> Test All ({filtered.length})
+            </Button>
             <div className="relative flex items-center">
               <Search size={13} className="absolute left-2.5 text-slate-500 pointer-events-none" />
               <Input className="pl-7 h-8 w-[180px] text-xs bg-white/5 border-white/10" placeholder="Tìm proxy…" value={search} onChange={e => setSearch(e.target.value)} />
@@ -389,94 +492,124 @@ export function ProxiesView() {
             const proxyBindings = combined.sort((a, b) => (a.email || '').localeCompare(b.email || ''));
             const isEditing = editProxyId === p.id;
             return (
-              <div key={p.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-indigo-500/5 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex-1 min-w-0 mr-4">
-                    {isEditing ? (
-                      <div className="flex gap-2 mb-2">
-                        <Input className="flex-[2] h-8 text-xs font-mono" value={editValues.url} onChange={e => setEditValues(v => ({ ...v, url: e.target.value }))} autoFocus />
-                        <Input className="flex-1 h-8 text-xs" value={editValues.label} onChange={e => setEditValues(v => ({ ...v, label: e.target.value }))} placeholder="Label..." />
-                      </div>
-                    ) : (
-                      <>
-                        <div className="font-mono text-[13px] font-semibold text-indigo-300 break-all">{p.url}</div>
-                        <div className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-2 flex-wrap">
-                          {p.label && <span className="px-2 py-0.5 bg-white/5 rounded border border-white/10">{p.label}</span>}
-                          <span>Nguồn: {p.source}</span>
-                          <span>•</span>
-                          <span className="flex items-center gap-1">
-                            <Activity size={10} className={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'} />
-                            Ping: {p.last_latency_ms || '?'}ms
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Server size={10} className="text-slate-400" />
-                            {busyCount}/{pSlots.length} slots
-                          </span>
+              <div key={p.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-indigo-500/5 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/10'} flex gap-3 items-start`}>
+                <button onClick={() => toggleSelect(p.id)} className="text-slate-500 hover:text-slate-200 mt-1 shrink-0">
+                  {selected.has(p.id) ? <CheckSquare size={15} className="text-indigo-400" /> : <Square size={15} />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex-1 min-w-0 mr-4">
+                      {isEditing ? (
+                        <div className="flex gap-2 mb-2">
+                          <Input className="flex-[2] h-8 text-xs font-mono" value={editValues.url} onChange={e => setEditValues(v => ({ ...v, url: e.target.value }))} autoFocus />
+                          <Input className="flex-1 h-8 text-xs" value={editValues.label} onChange={e => setEditValues(v => ({ ...v, label: e.target.value }))} placeholder="Label..." />
                         </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex gap-1.5 shrink-0">
-                    {isEditing ? (
-                      <>
-                        <Button variant="ghost" size="icon-sm" title="Hủy" onClick={() => setEditProxyId(null)}><X size={14} /></Button>
-                        <Button variant="success" size="icon-sm" title="Lưu" onClick={saveEdit}><Save size={14} /></Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button variant="ghost" size="icon-sm" title="Chỉnh sửa" onClick={() => { setEditProxyId(p.id); setEditValues({ url: p.url, label: p.label || '' }); }}>
-                          <Edit2 size={14} />
-                        </Button>
-                        <Button variant="danger" size="icon-sm" title="Xóa Proxy" onClick={() => deleteProxy(p.id)}>
-                          <Trash2 size={14} />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  {pSlots.map(s => {
-                    const isBusy = !!s.connection_id;
-                    const owner = combined.find(b => b.account_id === s.connection_id);
-                    return (
-                      <div
-                        key={s.id}
-                        title={isBusy ? `Đang dùng bởi ${owner?.email || s.connection_id}\n\n• Click: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống • Click: Xóa slot'}
-                        onClick={e => { if (isBusy && !e.altKey) resetSlot(s.id); else removeSlot(s.id, isBusy); }}
-                        className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold cursor-pointer border transition-all ${isBusy ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.15)]' : 'bg-white/5 text-slate-500 border-white/5 hover:border-white/20'}`}
-                      >
-                        {s.slot_index}
-                      </div>
-                    );
-                  })}
-                  <button onClick={() => addSlot(p.id)} title="Thêm slot"
-                    className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-indigo-400 border border-dashed border-white/10 hover:border-indigo-500/50 transition-all">
-                    <Plus size={12} />
-                  </button>
-                </div>
-                <div className="mt-3 pt-3 border-t border-white/5">
-                  <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Assigned Accounts ({proxyBindings.length})</div>
-                  {!proxyBindings.length ? (
-                    <div className="text-[11px] text-slate-500 italic">Chưa có tài khoản gán vào proxy này.</div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {proxyBindings.map(b => (
-                        <div key={`${p.id}-${b.account_id}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20">
-                          <span className="text-[10px] font-semibold text-cyan-300">{b.email || b.account_id}</span>
-                          {b.slot_index !== null && b.slot_index !== undefined && (
-                            <span className="text-[10px] text-slate-400">slot {b.slot_index}</span>
-                          )}
-                          <button
-                            onClick={() => unassignAccount(b.account_id)}
-                            className="text-amber-400 hover:text-amber-300"
-                            title="Gỡ proxy khỏi tài khoản này"
-                          >
-                            <X size={11} />
-                          </button>
-                        </div>
-                      ))}
+                      ) : (
+                        <>
+                          <div className="font-mono text-[13px] font-semibold text-indigo-300 break-all">{p.url}</div>
+                          <div className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-2 flex-wrap">
+                            {p.label && <span className="px-2 py-0.5 bg-white/5 rounded border border-white/10">{p.label}</span>}
+                            <span>Nguồn: {p.source}</span>
+                            <span>•</span>
+                            <span className="flex items-center gap-1">
+                              <Activity size={10} className={p.last_latency_ms ? (p.last_latency_ms < 500 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'} />
+                              Ping: {p.last_latency_ms || '?'}ms
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Server size={10} className="text-slate-400" />
+                              {busyCount}/{pSlots.length} slots
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  )}
+                    <div className="flex gap-1.5 shrink-0">
+                      {isEditing ? (
+                        <>
+                          <Button variant="ghost" size="icon-sm" title="Hủy" onClick={() => setEditProxyId(null)}><X size={14} /></Button>
+                          <Button variant="success" size="icon-sm" title="Lưu" onClick={saveEdit}><Save size={14} /></Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Kiểm tra kết nối"
+                            disabled={testingIds.has(p.id)}
+                            onClick={async () => {
+                              setTestingIds(prev => { const n = new Set(prev); n.add(p.id); return n; });
+                              try {
+                                const res = await fetch(`/api/vault/proxies/${p.id}/test`, { method: 'POST' });
+                                const data = await res.json();
+                                if (data.ok && data.status === 'active') {
+                                  addToast(`✅ Hoạt động: ${data.latency}ms`, 'success');
+                                  setProxies(prev => prev.map(x => x.id === p.id ? { ...x, last_latency_ms: data.latency } : x));
+                                } else {
+                                  addToast(`❌ Lỗi: ${data.error || 'không thể kết nối'}`, 'error');
+                                  setProxies(prev => prev.map(x => x.id === p.id ? { ...x, last_latency_ms: undefined } : x));
+                                }
+                              } catch (e: any) {
+                                addToast(e.message, 'error');
+                              }
+                              setTestingIds(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+                            }}
+                          >
+                            <Activity size={14} className={testingIds.has(p.id) ? 'animate-pulse text-indigo-400' : 'text-slate-400'} />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" title="Chỉnh sửa" onClick={() => { setEditProxyId(p.id); setEditValues({ url: p.url, label: p.label || '' }); }}>
+                            <Edit2 size={14} />
+                          </Button>
+                          <Button variant="danger" size="icon-sm" title="Xóa Proxy" onClick={() => deleteProxy(p.id)}>
+                            <Trash2 size={14} />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {pSlots.map(s => {
+                      const isBusy = !!s.connection_id;
+                      const owner = combined.find(b => b.account_id === s.connection_id);
+                      return (
+                        <div
+                          key={s.id}
+                          title={isBusy ? `Đang dùng bởi ${owner?.email || s.connection_id}\n\n• Click: Giải phóng\n• Alt+Click: Xóa slot` : 'Trống • Click: Xóa slot'}
+                          onClick={e => { if (isBusy && !e.altKey) resetSlot(s.id); else removeSlot(s.id, isBusy); }}
+                          className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold cursor-pointer border transition-all ${isBusy ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.15)]' : 'bg-white/5 text-slate-500 border-white/5 hover:border-white/20'}`}
+                        >
+                          {s.slot_index}
+                        </div>
+                      );
+                    })}
+                    <button onClick={() => addSlot(p.id)} title="Thêm slot"
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-indigo-400 border border-dashed border-white/10 hover:border-indigo-500/50 transition-all">
+                      <Plus size={12} />
+                    </button>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-white/5">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Assigned Accounts ({proxyBindings.length})</div>
+                    {!proxyBindings.length ? (
+                      <div className="text-[11px] text-slate-500 italic">Chưa có tài khoản gán vào proxy này.</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {proxyBindings.map(b => (
+                          <div key={`${p.id}-${b.account_id}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20">
+                            <span className="text-[10px] font-semibold text-cyan-300">{b.email || b.account_id}</span>
+                            {b.slot_index !== null && b.slot_index !== undefined && (
+                              <span className="text-[10px] text-slate-400">slot {b.slot_index}</span>
+                            )}
+                            <button
+                              onClick={() => unassignAccount(b.account_id)}
+                              className="text-amber-400 hover:text-amber-300"
+                              title="Gỡ proxy khỏi tài khoản này"
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
