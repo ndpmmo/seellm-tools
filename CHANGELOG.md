@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.43] - 2026-05-24 01:25:00
+
+### 🚀 Tối ưu hóa Xóa hàng loạt & Nhập hàng loạt qua Batch APIs cho cả hai Giao diện Proxy
+
+**Thay đổi:**
+- **Sử dụng API Bulk trong hoạt động hàng loạt:**
+  - Thay thế việc gửi hàng trăm request HTTP tuần tự bằng API bulk hợp nhất để tối ưu hóa hiệu năng và tốc độ xử lý khi người dùng xóa/import hàng nghìn proxy cùng lúc.
+  - Giao diện **Gateway Proxies (`?view=proxies`)**:
+    - Sử dụng `POST /api/d1/proxies/bulk-add` để nhập proxy hàng loạt lên D1 Worker chỉ trong 1 request.
+  - Giao diện **Local Vault Proxies (`?view=vault-proxies`)**:
+    - Sử dụng `POST /api/vault/proxies/bulk-delete` để xóa các proxy được chọn trong một SQLite transaction cục bộ.
+    - Sử dụng `POST /api/vault/proxies/bulk-add` để import hàng loạt và kích hoạt luồng tự động kiểm tra nhanh đồng thời (concurrency limit = 10).
+- **Chuẩn hóa số liệu Slot hiển thị:**
+  - Tối ưu hóa bộ đếm real-time slots, chỉ lấy và tính toán trạng thái slot của các active proxies, loại bỏ hoàn toàn các slot mồ côi khỏi thống kê.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.43`.
+
+---
+
 ## [0.3.42] - 2026-05-24 01:10:00
 
 ### 🗳️ Nâng cấp tính năng chọn hàng loạt (Bulk Selection) & Kiểm tra kết nối độc lập trên Giao diện Gateway Proxies (`?view=proxies`)

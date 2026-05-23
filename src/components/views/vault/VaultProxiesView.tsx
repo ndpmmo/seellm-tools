@@ -296,16 +296,24 @@ export function VaultProxiesView() {
 
   const delSelected = async () => {
     if (!confirm(`Xóa ${selected.size} proxy đã chọn?`)) return;
-    let failed = 0;
-    for (const id of Array.from(selected)) {
-      const res = await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' }).catch(() => null);
-      if (!res || !res.ok) failed++;
+    try {
+      const res = await fetch('/api/vault/proxies/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selected) })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        addToast(`✅ Đã xóa ${selected.size} proxy`, 'info');
+        const deletedIds = new Set(selected);
+        setItems(prev => prev.filter(it => !deletedIds.has(it.id)));
+      } else {
+        addToast(`❌ Lỗi xóa: ${data.error || 'Server error'}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
     }
-    const deletedIds = new Set(selected);
-    setItems(prev => prev.filter(it => !deletedIds.has(it.id)));
     setSelected(new Set());
-    if (failed > 0) addToast(`Đã xóa ${selected.size - failed}/${selected.size} (${failed} lỗi)`, 'error');
-    else addToast(`Đã xóa ${selected.size} proxy`, 'info');
     load();
   };
 
@@ -373,29 +381,36 @@ export function VaultProxiesView() {
   const importBulk = async () => {
     if (!bulkRows.length) return;
     setBulkBusy(true);
-    let ok = 0;
-    const newIds: string[] = [];
-    for (const row of bulkRows) {
-      try {
-        const d = await (await fetch('/api/vault/proxies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) })).json();
-        if (!d.error && d.id) {
-          ok++;
-          newIds.push(d.id);
-        }
-      } catch {}
+    let newIds: string[] = [];
+    try {
+      const res = await fetch('/api/vault/proxies/bulk-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: bulkRows })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        newIds = data.items.map((x: any) => x.id);
+        addToast(`✅ Import thành công ${data.count}/${bulkRows.length} proxy. Đang tự động kiểm tra... (Song song: tối đa 10)`, 'info');
+      } else {
+        addToast(`❌ Import lỗi: ${data.error || 'Server error'}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
     }
-    addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra... (Song song: tối đa 10)`, 'info');
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
     await load();
     
-    // Auto-test newly added proxies with concurrency limit of 10
-    let testOk = 0;
-    let testFail = 0;
-    await runWithConcurrencyLimit(10, newIds, async (id) => {
-      const isSuccess = await testOne(id, true);
-      if (isSuccess) testOk++; else testFail++;
-    });
-    addToast(`⚡ Đã tự động kiểm tra xong: ${testOk} hoạt động, ${testFail} lỗi.`, testOk > 0 ? 'success' : 'error');
+    if (newIds.length > 0) {
+      // Auto-test newly added proxies with concurrency limit of 10
+      let testOk = 0;
+      let testFail = 0;
+      await runWithConcurrencyLimit(10, newIds, async (id) => {
+        const isSuccess = await testOne(id, true);
+        if (isSuccess) testOk++; else testFail++;
+      });
+      addToast(`⚡ Đã tự động kiểm tra xong: ${testOk} hoạt động, ${testFail} lỗi.`, testOk > 0 ? 'success' : 'error');
+    }
   };
 
   const copyUrl = (url: string) => {

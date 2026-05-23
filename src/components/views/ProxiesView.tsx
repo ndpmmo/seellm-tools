@@ -239,14 +239,21 @@ export function ProxiesView() {
       title: `Xóa ${selected.size} Proxy`,
       message: `Bạn có chắc chắn muốn xóa ${selected.size} proxy đã chọn? Toàn bộ các slot liên quan cũng sẽ bị xóa khỏi D1 Cloud.`,
       onConfirm: async () => {
-        let okCount = 0;
-        await runWithConcurrencyLimit(10, Array.from(selected), async (id) => {
-          try {
-            const res = await fetch(`/api/d1/proxies/${id}`, { method: 'DELETE' });
-            if (res.ok) okCount++;
-          } catch {}
-        });
-        addToast(`✅ Đã xóa thành công ${okCount}/${selected.size} proxy`, 'success');
+        try {
+          const res = await fetch('/api/d1/proxies/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: Array.from(selected) })
+          });
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            addToast(`✅ Đã xóa thành công ${selected.size} proxy`, 'success');
+          } else {
+            addToast(`❌ Xóa lỗi: ${data.error || 'D1 Worker error'}`, 'error');
+          }
+        } catch (e: any) {
+          addToast(`❌ Gặp lỗi kết nối: ${e.message}`, 'error');
+        }
         setSelected(new Set());
         setConfirmModal(null);
         loadData();
@@ -283,8 +290,10 @@ export function ProxiesView() {
     setTestingAll(false);
   };
 
-  const totalSlots = slots.length;
-  const busySlots = slots.filter(s => s.connection_id).length;
+  const activeProxyIds = useMemo(() => new Set(proxies.map(p => p.id)), [proxies]);
+  const activeSlots = useMemo(() => slots.filter(s => s && activeProxyIds.has(s.proxy_id)), [slots, activeProxyIds]);
+  const totalSlots = activeSlots.length;
+  const busySlots = activeSlots.filter(s => s.connection_id).length;
   const freeSlots = totalSlots - busySlots;
 
   async function apiPost(url: string, body: object) {
@@ -364,15 +373,22 @@ export function ProxiesView() {
   const importBulk = async () => {
     if (!bulkRows.length) return;
     setBulkBusy(true);
-    let ok = 0;
-    await runWithConcurrencyLimit(10, bulkRows, async (row) => {
-      try {
-        const d = await apiPost('/api/d1/proxies/add', row);
-        if (!d.error) ok++;
-      } catch {}
-    });
+    try {
+      const res = await fetch('/api/d1/proxies/bulk-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: bulkRows.map(r => ({ url: r.url, label: r.label, slotCount: r.slotCount })) })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        addToast(`✅ Đã import thành công ${data.count}/${bulkRows.length} proxy`, 'success');
+      } else {
+        addToast(`❌ Import lỗi: ${data.error || 'Server error'}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
+    }
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
-    addToast(`✅ Imported ${ok}/${bulkRows.length} proxy`, 'success');
     await loadData();
   };
 

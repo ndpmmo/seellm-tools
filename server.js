@@ -1795,6 +1795,95 @@ app.prepare().then(async () => {
     }
   });
 
+  // ▶ Intercept: POST /api/d1/proxies/bulk-delete → mirror bulk proxy deletion
+  ex.post('/api/d1/proxies/bulk-delete', async (req, res, next) => {
+    try {
+      const { ids } = req.body || {};
+      if (Array.isArray(ids) && ids.length > 0) {
+        console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa bulk proxy từ UI (Gateway). Số lượng: ${ids.length}`);
+        const now = dayjs().toISOString();
+        const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
+        const transaction = vault.db.transaction((proxyIds) => {
+          for (const id of proxyIds) {
+            stmt.run(now, now, id);
+          }
+        });
+        transaction(ids);
+
+        for (const id of ids) {
+          const record = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+          if (record) {
+            SyncManager.pushVault('proxy', record).catch(() => {});
+          }
+        }
+      }
+      return next();
+    } catch (e) {
+      console.error(`[D1 Proxy] bulk-delete interceptor error:`, e.message);
+      return next();
+    }
+  });
+
+  // ▶ Intercept: POST /api/d1/proxies/bulk-add → mirror bulk proxy add
+  ex.post('/api/d1/proxies/bulk-add', async (req, res, next) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return next();
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) return next();
+
+    try {
+      const d1Res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/proxies/bulk-add`, {
+        method: 'POST',
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const d1Data = await d1Res.json();
+
+      if (d1Data.ok && Array.isArray(d1Data.ids)) {
+        const now = dayjs().toISOString();
+        const transaction = vault.db.transaction((addedItems, addedIds) => {
+          for (let i = 0; i < addedItems.length; i++) {
+            const item = addedItems[i];
+            const id = addedIds[i];
+            if (!id) continue;
+            
+            let normUrl = item.url || '';
+            if (!normUrl.includes('://')) {
+              const parts = normUrl.split(':');
+              if (parts.length === 4 && !normUrl.includes('@')) {
+                normUrl = `http://${parts[2]}:${parts[3]}@${parts[0]}:${parts[1]}`;
+              } else {
+                normUrl = `http://${normUrl}`;
+              }
+            }
+            vault.upsertProxy({
+              id,
+              url: normUrl,
+              label: item.label || '',
+              type: normUrl.startsWith('socks5://') ? 'socks5' : normUrl.startsWith('https://') ? 'https' : 'http',
+            }, true);
+          }
+        });
+        transaction(items, d1Data.ids);
+
+        for (const id of d1Data.ids) {
+          const record = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+          if (record) {
+            SyncManager.pushVault('proxy', record).catch(() => {});
+          }
+        }
+        console.log(`[D1 Proxy] ✅ Mirrored Bulk Add to local: ${d1Data.ids.length} proxies`);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(d1Res.status).json(d1Data);
+    } catch (e) {
+      console.error(`[D1 Proxy] proxies/bulk-add interceptor error:`, e.message);
+      return next();
+    }
+  });
+
   // ▶ Intercept: PATCH /api/automation/accounts/:provider/:id → Toggle is_active locally & push to D1
   ex.patch('/api/automation/accounts/:provider/:id', async (req, res) => {
     console.log(`[D1 Proxy] 🎯 Nhận yêu cầu: ${req.method} ${req.url}`);

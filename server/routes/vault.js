@@ -425,6 +425,76 @@ router.delete('/proxies/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+router.post('/proxies/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Missing or invalid ids' });
+    }
+
+    const now = dayjs().toISOString();
+    const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
+    const transaction = vault.db.transaction((proxyIds) => {
+      for (const id of proxyIds) {
+        stmt.run(now, now, id);
+      }
+    });
+    transaction(ids);
+
+    for (const id of ids) {
+      const record = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+      if (record) {
+        SyncManager.pushVault('proxy', record).catch(() => {});
+      }
+    }
+
+    res.json({ ok: true, count: ids.length });
+
+    logAudit({
+      action: 'delete',
+      entity: 'proxy',
+      entityId: 'bulk',
+      entityLabel: `Bulk delete ${ids.length} proxies`,
+      severity: 'warning',
+      source: 'ui',
+      details: { ids },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/proxies/bulk-add', async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Missing or invalid items' });
+    }
+
+    const added = [];
+    const transaction = vault.db.transaction((rows) => {
+      for (const row of rows) {
+        const record = vault.upsertProxy(row, true);
+        added.push(record);
+      }
+    });
+    transaction(items);
+
+    for (const record of added) {
+      SyncManager.pushVault('proxy', record).catch(() => {});
+    }
+
+    res.json({ ok: true, count: added.length, items: added });
+
+    logAudit({
+      action: 'create',
+      entity: 'proxy',
+      entityId: 'bulk',
+      entityLabel: `Bulk add ${added.length} proxies`,
+      severity: 'success',
+      source: 'ui',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/vault/proxies/:id/test — HTTP request to detect public exit IP and version
 router.post('/proxies/:id/test', async (req, res) => {
   const { id } = req.params;
