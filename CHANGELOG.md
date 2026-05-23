@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.39] - 2026-05-24 00:46:00
+
+### 🐛 Khắc phục lỗi cuộn trang (Scroll Lock) tại Giao diện Proxies cũ (`?view=proxies`)
+
+**Bối cảnh:**
+Mặc dù đã phân trang còn 50 proxy, giao diện vẫn bị khóa cuộn (không scroll lên xuống được) và khuất phần dưới cùng của trang. 
+Nguyên nhân cốt lõi là thành phần `Card` dùng chung của dự án có lớp mặc định `overflow-hidden`. Khi `Card` này bọc danh sách proxy, nó đã cắt toàn bộ phần chiều cao tràn ra ngoài (overflow), khiến container ngoài cùng (`absolute inset-0 overflow-y-auto`) không phát hiện được vùng nội dung thừa để kích hoạt thanh cuộn.
+
+**Thay đổi:**
+- **Ghi đè thuộc tính overflow của Card:**
+  - Thêm class `!overflow-visible` cho `Card` bọc Proxy Pool nhằm ghi đè giá trị `overflow-hidden` mặc định.
+- **Kết quả:**
+  - Thanh cuộn dọc (`custom-scrollbar`) đã hiển thị bình thường.
+  - Người dùng có thể cuộn trang lên xuống mượt mà và nhìn thấy đầy đủ các nút phân trang dưới cùng.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.39`.
+
+---
+
 ## [0.3.38] - 2026-05-24 00:33:00
 
 ### ⚡ Cải thiện hiệu năng render và tích hợp Phân trang (Pagination) cho Giao diện Proxies cũ (`?view=proxies`)

@@ -350,7 +350,7 @@ export function ProxiesView() {
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card className="!overflow-visible">
         <CardHeader>
           <CardTitle>
             <Globe size={14} className="text-indigo-400" />
