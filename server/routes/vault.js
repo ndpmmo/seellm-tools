@@ -1364,6 +1364,24 @@ router.post('/accounts/:id/sync', async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════════════════ */
+/*  CONNECT PENDING COUNT  (Worker guard check — non-consuming)               */
+/*  GET /api/vault/connect-pending-count                                      */
+/*  Trả về số account đang có connect_pending > 0 mà KHÔNG lock hay consume.  */
+/*  Worker dùng để ngăn login/D1 poll khi còn deploy task đang chờ.           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+router.get('/connect-pending-count', (req, res) => {
+  try {
+    const row = vault.db.prepare(
+      `SELECT COUNT(*) as count FROM vault_accounts WHERE connect_pending > 0 AND deleted_at IS NULL`
+    ).get();
+    return res.json({ ok: true, count: row?.count || 0 });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════════════ */
 /*  AUTO-CONNECT TASK ENDPOINT  (auto-connect-worker poll)                    */
 /*  GET /api/vault/accounts/connect-task                                      */
 /* ══════════════════════════════════════════════════════════════════════════ */

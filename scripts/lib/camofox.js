@@ -15,6 +15,21 @@ import { CAMOUFOX_API, FORCE_LOCALE_STR, WORKER_AUTH_TOKEN } from '../config.js'
  * @param {number} maxAttempts - Number of retries
  * @returns {Promise<Response>} Fetch Response
  */
+/**
+ * Classify whether a fetch error is a transient connection error worth retrying.
+ * 'fetch failed' = ECONNREFUSED / ECONNRESET (server not up yet or overloaded)
+ * 'TimeoutError' / 'AbortError' = server too slow
+ */
+function isTransientConnectionError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  if (msg.includes('fetch failed')) return true;          // ECONNREFUSED / ECONNRESET
+  if (msg.includes('econnrefused')) return true;
+  if (msg.includes('econnreset')) return true;
+  if (msg.includes('timeout') || msg.includes('timed out')) return true;
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return true;
+  return false;
+}
+
 async function fetchWithRetry(url, options = {}, maxAttempts = 3) {
   let lastError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -27,14 +42,37 @@ async function fetchWithRetry(url, options = {}, maxAttempts = 3) {
       return await fetch(url, finalOptions);
     } catch (err) {
       lastError = err;
-      if (attempt < maxAttempts) {
-        const delay = 1000 + (attempt - 1) * 1500;
+      const transient = isTransientConnectionError(err);
+      if (attempt < maxAttempts && transient) {
+        // Exponential backoff: 1.5s → 3s → 5s (longer waits for busy Camofox)
+        const delay = 1500 * attempt;
         console.log(`⚠️ [camofox-api] Lỗi kết nối (lần ${attempt}/${maxAttempts}): ${err.message || err}. Thử lại sau ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
+      } else if (!transient) {
+        // Non-transient errors (HTTP 4xx, 5xx from server) — fail fast, no retry
+        throw err;
       }
     }
   }
   throw lastError;
+}
+
+/**
+ * Lightweight Camofox health check — ping GET /tabs to see if server is up.
+ * Returns true if Camofox is responding, false otherwise.
+ * Used as pre-flight guard before workers accept new tasks.
+ * @param {number} timeoutMs - How long to wait (default 3000ms)
+ * @returns {Promise<boolean>}
+ */
+export async function checkCamofoxReady(timeoutMs = 3000) {
+  try {
+    const res = await fetch(`${CAMOUFOX_API}/tabs`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return res.ok || res.status === 200;
+  } catch (_) {
+    return false;
+  }
 }
 
 /**

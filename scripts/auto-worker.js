@@ -17,7 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS, WORKER_MODE } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, camofoxGoto, evalJson, navigate, pressKey, tripleClick } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, camofoxGoto, evalJson, navigate, pressKey, tripleClick, checkCamofoxReady } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -2458,6 +2458,12 @@ async function fetchAnyTask() {
     return false;
   };
 
+  // ── FIX Vấn đề 1: Guard chặn D1/login poll khi có connect_pending task ────────
+  // Khi bấm Deploy 1 account → chỉ muốn chạy connect flow đó.
+  // Nếu không có guard, worker ở mode 'auto' sẽ tiếp tục poll login/D1 và kéo
+  // hàng loạt accounts khác có status='pending' hoặc 'relogin' từ Cloud.
+  let hasLocalConnectPending = false;
+
   // 1. Connect tasks (ưu tiên cao — nhanh hơn, trực tiếp)
   if (currentMode === 'auto' || currentMode === 'direct-login') {
     try {
@@ -2474,20 +2480,52 @@ async function fetchAnyTask() {
               body: JSON.stringify({ id: d.task.id, status: 'error', message: 'Skipped due to worker cooldown' }),
               signal: AbortSignal.timeout(5000),
             }).catch(() => {});
+            // Dù skipped vì cooldown, vẫn coi như đang có connect pending để block login/D1
+            hasLocalConnectPending = true;
           } else {
             d.task._flow = 'connect'; d.task.source = d.task.source || 'tools'; return d.task;
           }
         }
+        // Nếu endpoint trả recovered > 0 thì vừa có cp=2→1 reset — cũng coi như có pending
+        if (d?.recovered > 0) hasLocalConnectPending = true;
       } else {
         if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] connect-task HTTP ${res.status}`);
       }
     } catch (e) {
       if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] connect-task error: ${e.message}`);
     }
+
+    // ── Kiểm tra bổ sung: có account nào đang queue connect_pending=1 không? ──
+    // Endpoint connect-task chỉ trả 1 task mỗi lần (do thread đang bận hết slot).
+    // Nếu allThreads = MAX_THREADS, task sẽ không được nhận nhưng vẫn có cp=1 trong DB.
+    // Phải block login/D1 trong trường hợp đó để không pile-on.
+    if (!hasLocalConnectPending) {
+      try {
+        const cpCheckRes = await fetch(`${TOOLS_API}/api/vault/connect-pending-count`, { signal: AbortSignal.timeout(2000) });
+        if (cpCheckRes.ok) {
+          const cpData = await cpCheckRes.json();
+          if ((cpData?.count || 0) > 0) {
+            hasLocalConnectPending = true;
+            console.log(`[Poll] 🔒 ${cpData.count} account(s) có connect_pending > 0 — block login/D1 poll chu kỳ này`);
+          }
+        } else {
+          console.warn(`[Poll] ⚠️ /api/vault/connect-pending-count returned HTTP ${cpCheckRes.status}. Server needs restart?`);
+        }
+      } catch (err) {
+        console.warn(`[Poll] ⚠️ Failed to fetch connect-pending-count: ${err.message}`);
+      }
+    }
   }
 
   // 2. Login tasks (Tools local)
   if (currentMode === 'auto' || currentMode === 'pkce-login') {
+    // ── FIX: Chặn hoàn toàn login/D1 khi có connect_pending tasks ──────────────
+    // Đây là guard chính ngăn việc 1 nút Deploy trigger hàng loạt login từ D1 Cloud.
+    if (hasLocalConnectPending) {
+      if (CHATGPT_LOGIN_DEBUG) console.log(`[Poll] ⏸️ Connect pending detected — skip login/D1 poll this cycle`);
+      return null;
+    }
+
     try {
       const res = await fetch(`${TOOLS_API}/api/vault/accounts/task${excludeParam}`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
@@ -2534,7 +2572,7 @@ async function fetchAnyTask() {
       }
     } catch (_) {}
 
-    // 4. D1 Cloud
+    // 4. D1 Cloud — chỉ poll khi không có local/connect tasks nào đang chờ
     try {
       const configRes = await fetch(`${TOOLS_API}/api/config`, { signal: AbortSignal.timeout(2000) });
       const cfg = await configRes.json();
@@ -2576,9 +2614,32 @@ async function fetchAnyTask() {
   return null;
 }
 
+// Track consecutive Camofox failures để tránh spam log
+let _camofoxFailStreak = 0;
+const CAMOFOX_MAX_FAIL_STREAK = 3; // Sau 3 lần fail liên tiếp → warning
+const CAMOFOX_BACKOFF_MS = 5000;   // Đợi 5s trước khi thử lại
+
 async function pollTasks() {
   if (activeThreads >= MAX_THREADS) return;
   try {
+    // ── FIX Vấn đề 2: Pre-flight Camofox health check ──────────────────────
+    // Kiểm tra Camofox TRƯỚC khi nhận task — tránh nhận task rồi fail ngay
+    // khi mở tab (gây ra 'fetch failed' / 'timeout' spam trong log).
+    const camofoxOk = await checkCamofoxReady(3000);
+    if (!camofoxOk) {
+      _camofoxFailStreak++;
+      if (_camofoxFailStreak === 1 || _camofoxFailStreak % CAMOFOX_MAX_FAIL_STREAK === 0) {
+        console.log(`[Worker] ⚠️ Camofox chưa sẵn sàng (lần ${_camofoxFailStreak}). Thử lại sau ${CAMOFOX_BACKOFF_MS / 1000}s...`);
+      }
+      setTimeout(pollTasks, CAMOFOX_BACKOFF_MS);
+      return;
+    }
+    if (_camofoxFailStreak > 0) {
+      console.log(`[Worker] ✅ Camofox đã sẵn sàng trở lại (sau ${_camofoxFailStreak} lần thất bại)`);
+      _camofoxFailStreak = 0;
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     const task = await fetchAnyTask();
     if (!task?.id) return;
     if (processingIds.has(task.id)) return;

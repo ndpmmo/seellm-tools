@@ -2,6 +2,46 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.32] - 2026-05-23 21:19:00
+
+### 🛡️ Ổn định hoá Auto-Worker: Ngăn chặn Bulk Execution & Tăng cường Độ tin cậy Camofox API
+
+**Bối cảnh:**
+Sau khi phân tích root cause của lỗi "chạy hàng loạt tài khoản khi chỉ Deploy 1 account", đã xác định nguyên nhân cốt lõi là worker âm thầm bỏ qua lỗi khi endpoint guard (`/api/vault/connect-pending-count`) trả về 404 do server cũ chưa được restart, dẫn đến `hasLocalConnectPending=false` sai và tiếp tục poll D1 Cloud.
+
+**Thay đổi:**
+
+- **Guard Endpoint mới (`server/routes/vault.js`):**
+  - Thêm `GET /api/vault/connect-pending-count` — endpoint không tiêu thụ task, chỉ trả về số lượng account có `connect_pending > 0`
+  - Worker dùng để xác minh có cần block login/D1 Cloud polling trong chu kỳ hiện tại không
+  - Thiết kế non-consuming để không ảnh hưởng đến logic task distribution
+
+- **Cơ chế State Locking trong `fetchAnyTask` (`scripts/auto-worker.js`):**
+  - Triển khai guard `hasLocalConnectPending` kiểm tra hai lớp:
+    1. Kết quả từ `accounts/connect-task` (có task connect đang sẵn sàng không?)
+    2. Kiểm tra bổ sung qua `/api/vault/connect-pending-count` (còn account cp>0 nhưng tất cả thread bận?)
+  - Khi `hasLocalConnectPending=true`: block hoàn toàn việc poll login tasks (local) và D1 Cloud tasks trong chu kỳ đó
+  - Thêm cảnh báo tường minh nếu endpoint trả về non-2xx hoặc lỗi kết nối thay vì nuốt lỗi âm thầm (`catch (_) {}` → `catch (err) { console.warn(...) }`)
+
+- **Pre-flight Camofox Health Check (`scripts/auto-worker.js`):**
+  - Thêm kiểm tra sức khoẻ Camofox (`checkCamofoxReady()`) TRƯỚC khi `pollTasks` nhận bất kỳ task nào
+  - Tránh tình trạng worker nhận task rồi fail ngay lập tức khi Camofox chưa khởi động xong
+  - Cơ chế backoff thông minh: đợi 5s và thử lại, chỉ in warning sau mỗi 3 lần fail liên tiếp để giảm log spam
+  - Tự động phục hồi: khi Camofox sẵn sàng trở lại, reset bộ đếm fail và thông báo vào log
+
+- **Cải tiến `fetchWithRetry` (`scripts/lib/camofox.js`):**
+  - Thêm hàm `isTransientConnectionError()` phân loại lỗi kết nối tạm thời (ECONNREFUSED, ECONNRESET, timeout) vs lỗi ứng dụng (HTTP 4xx/5xx)
+  - Chỉ retry với exponential backoff (1.5s → 3s → 4.5s) cho lỗi transient
+  - Fail fast (không retry) cho lỗi non-transient để tránh chờ đợi vô ích
+  - Thêm export `checkCamofoxReady()` — lightweight health check dùng `GET /tabs`
+
+**Kết quả:**
+- D1 Cloud check xác nhận: chỉ `1` account `ready` trong cloud, không có account pending/processing rác
+- Local Vault: `0` account có `connect_pending > 0`, đồng bộ hoàn hảo
+- Hệ thống không còn kích hoạt bulk execution khi chỉ Deploy 1 account
+
+---
+
 ## [0.3.31] - 2026-05-23 18:48:00
 
 ### 🚀 Tối ưu hóa Đồng bộ hóa, Khắc phục Stale Cache & Tính năng Auto Deploy Hàng Loạt trong Vault
