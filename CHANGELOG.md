@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.35] - 2026-05-23 23:22:00
+
+### 🔧 Sửa lỗi Thử nghiệm Proxy & Tối ưu hóa Toast thông báo hàng loạt (Bulk Import Proxy)
+
+**Bối cảnh:**
+Khi người dùng thêm proxy mới hoặc import hàng loạt proxy ở `?view=vault-proxies`, hệ thống tự động kiểm tra trạng thái hoạt động của từng proxy.
+1.  **Lỗi kiểm tra proxy (macOS):** Câu lệnh `curl` kiểm tra sử dụng tùy chọn `--proxy-connect-timeout`. Tuy nhiên, phiên bản `curl` mặc định trên macOS (LibreSSL build) không hỗ trợ cờ này, dẫn đến việc mọi proxy test đều báo lỗi hệ thống liên quan đến option không hợp lệ.
+2.  **Lỗi Spam Toast Thông Báo:** Khi import hàng loạt 1000 proxy, hệ thống tự động chạy kiểm tra tuần tự từng cái và bật lên 1000 thông báo đỏ/xanh xếp đè lên nhau gây tê liệt giao diện.
+
+**Thay đổi:**
+- **Sửa câu lệnh kiểm tra proxy (`server/routes/vault.js`):**
+  - Loại bỏ tùy chọn `--proxy-connect-timeout` không tương thích khỏi lệnh `curl`. Cờ `--connect-timeout` hiện có đã là quá đủ để giới hạn thời gian kết nối (bao gồm cả handshake với proxy).
+- **Tối ưu hóa hiển thị Toast Thông Báo (`VaultProxiesView.tsx`):**
+  - Mở rộng hàm `testOne(id, skipToast = false)` để có thể chạy kiểm tra ngầm không phát sinh toast.
+  - Trong sự kiện `importBulk`, thay vì bắn toast báo lỗi/thành công cho từng proxy, tiến hành chạy kiểm tra ngầm và hiển thị một **Toast tổng hợp duy nhất** khi kết thúc (ví dụ: `⚡ Đã tự động kiểm tra xong: 45 hoạt động, 2 lỗi.`).
+  - Giữ nguyên thông báo toast đơn lẻ khi người dùng nhấn nút Test thủ công cho 1 proxy duy nhất hoặc khi thêm thủ công 1 proxy.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.35`.
+
+---
+
 ## [0.3.34] - 2026-05-23 22:42:00
 
 ### 🎨 Refactor Giao diện Quản lý Vault Accounts: Bộ Lọc Nâng Cao & Thanh Hành động Hàng Loạt thông minh (Floating Batch Actions)

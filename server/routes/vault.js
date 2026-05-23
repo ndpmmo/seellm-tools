@@ -466,7 +466,6 @@ router.post('/proxies/:id/test', async (req, res) => {
           '-L',
           '-sS',
           '--connect-timeout', '5',
-          '--proxy-connect-timeout', '5',
           '--max-time', '12',
           '-x', proxyUrlStr,
           url,

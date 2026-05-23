@@ -263,8 +263,9 @@ export function VaultProxiesView() {
     load();
   };
 
-  const testOne = async (id: string) => {
+  const testOne = async (id: string, skipToast = false) => {
     setTestingIds(prev => new Set(prev).add(id));
+    let success = false;
     try {
       const r = await fetch(`/api/vault/proxies/${id}/test`, { method: 'POST' });
       const d = await r.json();
@@ -275,10 +276,17 @@ export function VaultProxiesView() {
         notes: d.status === 'active' && d.exitIp ? `${d.networkType || (String(d.exitIp).includes(':') ? 'IPv6' : 'IPv4')} (${d.exitIp})` : undefined,
         country: d.country || undefined,
       });
-      if (d.status === 'active') addToast(`${d.isLocalRelay ? '🔒 ' : ''}✅ Active · ${d.latency}ms`, 'success');
-      else addToast(`${d.isLocalRelay ? '🔒 ' : ''}❌ Down: ${d.error || 'unreachable'}`, 'error');
-    } catch (e: any) { addToast(e.message, 'error'); }
+      if (d.status === 'active') {
+        success = true;
+        if (!skipToast) addToast(`${d.isLocalRelay ? '🔒 ' : ''}✅ Active · ${d.latency}ms`, 'success');
+      } else {
+        if (!skipToast) addToast(`${d.isLocalRelay ? '🔒 ' : ''}❌ Down: ${d.error || 'unreachable'}`, 'error');
+      }
+    } catch (e: any) {
+      if (!skipToast) addToast(e.message, 'error');
+    }
     setTestingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    return success;
   };
 
   const testAll = async () => {
@@ -331,14 +339,18 @@ export function VaultProxiesView() {
         }
       } catch {}
     }
-    addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra...`, 'success');
+    addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra...`, 'info');
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
     await load();
     
     // Auto-test newly added proxies one by one
+    let testOk = 0;
+    let testFail = 0;
     for (const id of newIds) {
-      await testOne(id);
+      const isSuccess = await testOne(id, true);
+      if (isSuccess) testOk++; else testFail++;
     }
+    addToast(`⚡ Đã tự động kiểm tra xong: ${testOk} hoạt động, ${testFail} lỗi.`, testOk > 0 ? 'success' : 'error');
   };
 
   const copyUrl = (url: string) => {
