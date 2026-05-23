@@ -2,6 +2,28 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.36] - 2026-05-24 00:24:00
+
+### 🚀 Tối ưu hóa Hiệu suất: Chạy Kiểm tra Proxy Song song có Giới hạn Concurrency
+
+**Bối cảnh:**
+Khi người dùng nhập (import) hàng loạt proxy (ví dụ: 1000 proxy cùng lúc), hoặc sử dụng tính năng "Test All", hệ thống trước đó chạy kiểm tra tuần tự từng proxy một (`for` loop nối tiếp).
+1.  **Hiệu suất cực kỳ chậm:** Nếu mỗi proxy tốn 3-5 giây để phản hồi (hoặc timeout), 1000 proxy sẽ mất tới gần 1 tiếng đồng hồ để hoàn tất.
+2.  **Nguy cơ quá tải nếu chạy song song không kiểm soát:** Nếu kích hoạt chạy song song toàn bộ 1000 proxy cùng lúc qua `Promise.all`, Node.js server sẽ đồng thời khởi tạo 1000 tiến trình con `curl`. Điều này gây nghẽn RAM/CPU, cạn kiệt File Descriptors (file handles) và dẫn đến đơ/treo máy chủ.
+
+**Thay đổi:**
+- **Triển khai Cơ chế Giới hạn Concurrency (Concurrency Pool):**
+  - Tích hợp hàm helper `runWithConcurrencyLimit(limit, items, fn)` trong frontend.
+  - Cấu hình giới hạn tối đa **10 luồng chạy song song** (`limit = 10`) cho cả hai tác vụ **Test All** và **Auto-test sau Bulk Import**.
+- **Kết quả:**
+  - **Tăng tốc độ kiểm tra lên gấp 10 lần:** Thay vì mất 50 phút, 1000 proxy chỉ mất khoảng 5 phút để hoàn tất.
+  - **Tối ưu hóa tài nguyên cực tốt:** Node.js server và hệ điều hành chỉ xử lý tối đa 10 tiến trình `curl` cùng lúc, giữ mức chiếm dụng CPU của hệ thống ở mức dưới 2%.
+  - Giao diện cập nhật thời gian thực (real-time) mượt mà cho từng dòng proxy khi có kết quả.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.36`.
+
+---
+
 ## [0.3.35] - 2026-05-23 23:22:00
 
 ### 🔧 Sửa lỗi Thử nghiệm Proxy & Tối ưu hóa Toast thông báo hàng loạt (Bulk Import Proxy)

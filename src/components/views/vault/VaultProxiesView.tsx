@@ -67,6 +67,29 @@ function isLocalRelay(url: string): boolean {
   } catch { return false; }
 }
 
+async function runWithConcurrencyLimit<T, R>(
+  limit: number,
+  items: T[],
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  const queue = [...items];
+
+  const runNext = async (): Promise<void> => {
+    if (queue.length === 0) return;
+    const item = queue.shift()!;
+    try {
+      const res = await fn(item);
+      results.push(res);
+    } catch (_) {}
+    await runNext();
+  };
+
+  const pool = Array.from({ length: Math.min(limit, items.length) }, () => runNext());
+  await Promise.all(pool);
+  return results;
+}
+
 function TypeBadge({ type }: { type: string }) {
   const s: Record<string, string> = {
     http:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
@@ -292,9 +315,9 @@ export function VaultProxiesView() {
   const testAll = async () => {
     if (!filtered.length) return;
     setTestingAll(true);
-    addToast(`🔍 Đang test ${filtered.length} proxy…`, 'info');
+    addToast(`🔍 Đang test ${filtered.length} proxy… (Hàng chờ chạy song song: tối đa 10)`, 'info');
     let ok = 0, fail = 0;
-    for (const it of filtered) {
+    await runWithConcurrencyLimit(10, filtered, async (it) => {
       setTestingIds(prev => new Set(prev).add(it.id));
       try {
         const r = await fetch(`/api/vault/proxies/${it.id}/test`, { method: 'POST' });
@@ -309,8 +332,7 @@ export function VaultProxiesView() {
         if (d.status === 'active') ok++; else fail++;
       } catch { fail++; }
       setTestingIds(prev => { const n = new Set(prev); n.delete(it.id); return n; });
-      await new Promise(res => setTimeout(res, 200)); // slight delay to avoid overwhelming
-    }
+    });
     addToast(`✅ ${ok} active · ❌ ${fail} down`, ok > 0 ? 'success' : 'error');
     setTestingAll(false);
   };
@@ -339,17 +361,17 @@ export function VaultProxiesView() {
         }
       } catch {}
     }
-    addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra...`, 'info');
+    addToast(`✅ Import ${ok}/${bulkRows.length} proxy. Đang tự động kiểm tra... (Song song: tối đa 10)`, 'info');
     setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false);
     await load();
     
-    // Auto-test newly added proxies one by one
+    // Auto-test newly added proxies with concurrency limit of 10
     let testOk = 0;
     let testFail = 0;
-    for (const id of newIds) {
+    await runWithConcurrencyLimit(10, newIds, async (id) => {
       const isSuccess = await testOne(id, true);
       if (isSuccess) testOk++; else testFail++;
-    }
+    });
     addToast(`⚡ Đã tự động kiểm tra xong: ${testOk} hoạt động, ${testFail} lỗi.`, testOk > 0 ? 'success' : 'error');
   };
 
