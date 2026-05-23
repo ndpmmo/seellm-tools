@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.30] - 2026-05-23 17:25:00
+
+### 🚀 Giao diện người dùng: Tính năng Deploy hàng loạt và Khắc phục lỗi URL
+
+**Thay đổi:**
+- **Thêm tính năng Deploy hàng loạt (Bulk Deploy) vào Vault Accounts:**
+  - Bổ sung nút **"Deploy đã chọn"** vào thanh công cụ thao tác hàng loạt trên giao diện Vault Accounts.
+  - Hỗ trợ người dùng tích chọn nhiều tài khoản và Deploy chúng đồng loạt thay vì phải ấn từng cái. Hệ thống sẽ tự động lọc và chỉ đưa các tài khoản hợp lệ (OpenAI, trạng thái Idle hoặc Error) vào hàng đợi của Auto-Worker.
+- **Khắc phục lỗi hiển thị URL sai khi chuyển tab:**
+  - Sửa lỗi trong `AppContext.tsx` giữ lại các tham số query (như `&tab=pool`, `&status=`, `&gateway=`) không liên quan khi người dùng chuyển sang các view khác (ví dụ: từ `vault-accounts` sang `vault-proxies`). URL giờ đây sẽ được dọn dẹp sạch sẽ khi chuyển hướng giao diện.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `src/components/views/vault/VaultAccountsView.tsx`
+- `src/components/AppContext.tsx`
+
 ## [0.3.29] - 2026-05-23 16:50:00
 
 ### 🛡️ Khôi phục các tài khoản cũ, Đồng bộ hóa D1 Cloud cho Email Pool & Hỗ trợ đồng bộ Cookies lên Cloud

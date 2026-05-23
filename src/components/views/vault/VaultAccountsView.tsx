@@ -474,6 +474,41 @@ export function VaultAccountsView() {
     }
   };
 
+  const bulkDeploy = async () => {
+    const accountIds = Array.from(selectedIds);
+    if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
+    
+    let success = 0;
+    for (const id of accountIds) {
+      try {
+        const it = items.find(a => a.id === id);
+        if (!it) continue;
+        
+        const tags = safeParseTags(it.tags);
+        const allowDeploy = isOpenAI(it.provider) && 
+                            (it.status === 'idle' || it.status === 'stopped' || it.status === 'error' || it.status === 'relogin') && 
+                            !tags.includes('account_deactivated');
+        
+        if (!allowDeploy) continue;
+        
+        const r = await fetch(`/api/vault/accounts/${id}/retry-connect`, { method: 'POST' });
+        const d = await r.json();
+        if (d.error) continue;
+        
+        patchAccountLocal(id, { status: 'pending' });
+        success++;
+      } catch (e: any) { }
+    }
+    
+    if (success > 0) {
+      fetch('/api/processes/worker/start', { method: 'POST' }).catch(() => { });
+      addToast(`🤖 Đã xếp hàng Deploy ${success} tài khoản`, 'success');
+      setSelectedIds(new Set());
+    } else {
+      addToast('Không có tài khoản nào hợp lệ để Deploy (Chỉ ChatGPT/Codex ở trạng thái Idle/Error)', 'error');
+    }
+  };
+
   const bulkSave = async () => {
     if (!uiState.bulkText.trim()) return;
     const lines = uiState.bulkText.split('\n').filter(l => l.trim().includes('|'));
@@ -693,6 +728,9 @@ export function VaultAccountsView() {
             </Button>
             <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
               Gỡ đã chọn
+            </Button>
+            <Button size="sm" variant="secondary" onClick={bulkDeploy} disabled={selectedIds.size === 0} className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+              <Globe size={12} className="mr-1.5" /> Deploy đã chọn
             </Button>
             <Button size="icon-sm" variant="secondary" onClick={() => { loadAccounts(); loadProxies(); }}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />

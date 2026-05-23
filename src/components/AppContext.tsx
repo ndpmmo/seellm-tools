@@ -117,6 +117,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     _setView(v);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('status');
+      url.searchParams.delete('gateway');
       url.searchParams.set('view', v);
       window.history.replaceState({}, '', url.pathname + url.search + url.hash);
     }
