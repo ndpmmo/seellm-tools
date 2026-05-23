@@ -634,20 +634,34 @@ export function VaultProxiesView() {
         </div>
 
         {/* Pagination Controls */}
-        {totalPages > 1 && (
+        {filtered.length > 0 && (
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between px-6 py-4 border-t border-white/5 shrink-0 bg-white/[0.01]">
-            <div className="text-[12px] text-slate-400">
-              Hiển thị <span className="font-semibold text-slate-200">{((currentPage - 1) * pageSize) + 1}</span> -{' '}
-              <span className="font-semibold text-slate-200">{Math.min(currentPage * pageSize, filtered.length)}</span> trên{' '}
-              <span className="font-semibold text-indigo-400">{filtered.length}</span> proxy
+            <div className="flex items-center gap-3 text-[12px] text-slate-400">
+              <span>
+                Hiển thị <span className="font-semibold text-slate-200">{((currentPage - 1) * pageSize) + 1}</span> -{' '}
+                <span className="font-semibold text-slate-200">{Math.min(currentPage * pageSize, filtered.length)}</span> trên{' '}
+                <span className="font-semibold text-indigo-400">{filtered.length}</span> proxy
+              </span>
+              <select
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+              >
+                <option value={50} className="bg-[#0d111c] text-slate-300">50 / trang</option>
+                <option value={100} className="bg-[#0d111c] text-slate-300">100 / trang</option>
+                <option value={500} className="bg-[#0d111c] text-slate-300">500 / trang</option>
+                <option value={1000} className="bg-[#0d111c] text-slate-300">1000 / trang</option>
+              </select>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="h-8 px-2.5">Trang đầu</Button>
-              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 px-2.5">Trước</Button>
-              <div className="text-[12px] px-3 font-semibold text-slate-300">Trang {currentPage} / {totalPages}</div>
-              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 px-2.5">Sau</Button>
-              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="h-8 px-2.5">Trang cuối</Button>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="h-8 px-2.5">Trang đầu</Button>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 px-2.5">Trước</Button>
+                <div className="text-[12px] px-3 font-semibold text-slate-300">Trang {currentPage} / {totalPages}</div>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 px-2.5">Sau</Button>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="h-8 px-2.5">Trang cuối</Button>
+              </div>
+            )}
           </div>
         )}
       </Card>

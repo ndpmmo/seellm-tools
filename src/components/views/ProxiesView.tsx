@@ -483,18 +483,32 @@ export function ProxiesView() {
           })}
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5 text-xs text-slate-400">
-              <div>
-                Hiển thị {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filtered.length)} trên tổng số {filtered.length} proxy
+          {filtered.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between mt-4 pt-4 border-t border-white/5 text-xs text-slate-400">
+              <div className="flex items-center gap-3">
+                <span>
+                  Hiển thị {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filtered.length)} trên tổng số {filtered.length} proxy
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                  className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                >
+                  <option value={50} className="bg-[#0d111c] text-slate-300">50 / trang</option>
+                  <option value={100} className="bg-[#0d111c] text-slate-300">100 / trang</option>
+                  <option value={500} className="bg-[#0d111c] text-slate-300">500 / trang</option>
+                  <option value={1000} className="bg-[#0d111c] text-slate-300">1000 / trang</option>
+                </select>
               </div>
-              <div className="flex gap-1.5">
-                <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>Trang đầu</Button>
-                <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Trước</Button>
-                <span className="px-3 py-1.5 bg-white/5 rounded border border-white/10 font-medium">Trang {currentPage} / {totalPages}</span>
-                <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Sau</Button>
-                <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Trang cuối</Button>
-              </div>
+              {totalPages > 1 && (
+                <div className="flex gap-1.5">
+                  <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>Trang đầu</Button>
+                  <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Trước</Button>
+                  <span className="px-3 py-1.5 bg-white/5 rounded border border-white/10 font-medium">Trang {currentPage} / {totalPages}</span>
+                  <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Sau</Button>
+                  <Button variant="ghost" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>Trang cuối</Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

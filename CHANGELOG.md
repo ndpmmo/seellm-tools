@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.41] - 2026-05-24 00:55:00
+
+### ⚙️ Bổ sung tùy chọn Số lượng hiển thị mỗi trang (Page Size Selector) cho cả hai giao diện Proxy
+
+**Thay đổi:**
+- **Thêm dropdown chọn số lượng hiển thị (Page Size):**
+  - Tích hợp thẻ `<select>` cho phép người dùng cấu hình số dòng/card hiển thị trên một trang gồm các mức: **50 / trang**, **100 / trang**, **500 / trang**, và **1000 / trang**.
+  - Áp dụng đồng bộ cho cả giao diện **Gateway Proxies** (`?view=proxies`) và **Local Proxy Manager** (`?view=vault-proxies`).
+- **Tối ưu hóa hiển thị:**
+  - Thanh phân trang sẽ luôn hiển thị thông tin số lượng phần tử nếu danh sách có dữ liệu (`filtered.length > 0`), giúp người dùng luôn có thể đổi page size ngay cả khi số lượng items ban đầu ít hơn 50.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.41`.
+
+---
+
 ## [0.3.40] - 2026-05-24 00:51:00
 
 ### ⚡ Tích hợp Phân trang (Pagination) & Tối ưu hóa render cho Giao diện Local Proxy Manager (`?view=vault-proxies`)
