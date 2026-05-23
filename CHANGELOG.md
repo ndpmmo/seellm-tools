@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.40] - 2026-05-24 00:51:00
+
+### ⚡ Tích hợp Phân trang (Pagination) & Tối ưu hóa render cho Giao diện Local Proxy Manager (`?view=vault-proxies`)
+
+**Bối cảnh:**
+Khi truy cập vào Proxy Manager cá nhân (`?view=vault-proxies`) với số lượng proxy lớn (ví dụ: 1000 - 2000 proxy), giao diện bị giật lag nặng nề và phản hồi chậm do phải render đồng thời hàng nghìn dòng bảng HTML với nhiều badge, hiệu ứng hover và nút thao tác.
+
+**Thay đổi:**
+- **Tích hợp Phân trang (Pagination):**
+  - Giới hạn hiển thị mặc định **50 proxy trên mỗi trang**.
+  - Bổ sung thanh điều hướng phân trang mượt mà (`Trang đầu`, `Trước`, `Sau`, `Trang cuối`) khớp đồng bộ với giao diện Gateway Proxies.
+- **Tối ưu hóa ghi nhớ (useMemo):**
+  - Áp dụng `useMemo` cho việc tính toán thống kê (`stats`), lọc tìm kiếm (`filtered`) và cắt mảng phân trang (`paginated`).
+  - Tránh tính toán lại không cần thiết khi người dùng nhập dữ liệu form hoặc thay đổi các state phụ khác.
+- **Điều chỉnh cơ chế Checkbox Chọn tất cả (Select All):**
+  - Giới hạn phạm vi của nút "Chọn tất cả" trên header chỉ chọn 50 proxy trên trang hiện tại đang hiển thị thay vì chọn ngầm toàn bộ danh sách, đem lại trải nghiệm trực quan hơn.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.40`.
+
+---
+
 ## [0.3.39] - 2026-05-24 00:46:00
 
 ### 🐛 Khắc phục lỗi cuộn trang (Scroll Lock) tại Giao diện Proxies cũ (`?view=proxies`)

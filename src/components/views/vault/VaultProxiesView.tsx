@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Plus, Upload, Search, RefreshCw, Trash2, Globe, Activity,
   ChevronDown, ChevronUp, Check, X, Pencil, Save, Copy,
@@ -148,6 +148,9 @@ export function VaultProxiesView() {
   const [typeFilter, _setTypeFilter] = useState('all');
   const [statusFilter, _setStatusFilter] = useState('all');
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   const setTypeFilter = useCallback((t: string) => {
     _setTypeFilter(t);
     if (typeof window !== 'undefined') {
@@ -212,22 +215,42 @@ export function VaultProxiesView() {
   }, []);
 
   // Derived stats
-  const stats = {
+  const stats = useMemo(() => ({
     total: items.length,
     active: items.filter(i => i.is_active === 1 && i.last_tested).length,
     down: items.filter(i => i.is_active === 0 && i.last_tested).length,
     unknown: items.filter(i => !i.last_tested).length,
-  };
+  }), [items]);
 
-  const filtered = items.filter(it => {
-    const matchSearch = !search || it.url?.toLowerCase().includes(search.toLowerCase()) || it.label?.toLowerCase().includes(search.toLowerCase());
-    const matchType = typeFilter === 'all' || (it.type || 'http').toLowerCase() === typeFilter;
-    const matchStatus = statusFilter === 'all' ||
-      (statusFilter === 'active' && it.is_active === 1 && it.last_tested) ||
-      (statusFilter === 'down' && it.is_active === 0 && it.last_tested) ||
-      (statusFilter === 'unknown' && !it.last_tested);
-    return matchSearch && matchType && matchStatus;
-  });
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return items.filter(it => {
+      const matchSearch = !search || it.url?.toLowerCase().includes(q) || it.label?.toLowerCase().includes(q);
+      const matchType = typeFilter === 'all' || (it.type || 'http').toLowerCase() === typeFilter;
+      const matchStatus = statusFilter === 'all' ||
+        (statusFilter === 'active' && it.is_active === 1 && it.last_tested) ||
+        (statusFilter === 'down' && it.is_active === 0 && it.last_tested) ||
+        (statusFilter === 'unknown' && !it.last_tested);
+      return matchSearch && matchType && matchStatus;
+    });
+  }, [items, search, typeFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, typeFilter, statusFilter]);
+
+  const paginated = useMemo(() => {
+    return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [filtered, currentPage, pageSize]);
 
   // ── Actions ────────────────────────────────────────────────────────────
   const save = async (editingId?: string) => {
@@ -384,8 +407,8 @@ export function VaultProxiesView() {
 
   const toggleSelect = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => {
-    if (filtered.every(i => selected.has(i.id))) setSelected(prev => { const n = new Set(prev); filtered.forEach(i => n.delete(i.id)); return n; });
-    else setSelected(prev => { const n = new Set(prev); filtered.forEach(i => n.add(i.id)); return n; });
+    if (paginated.every(i => selected.has(i.id))) setSelected(prev => { const n = new Set(prev); paginated.forEach(i => n.delete(i.id)); return n; });
+    else setSelected(prev => { const n = new Set(prev); paginated.forEach(i => n.add(i.id)); return n; });
   };
 
   const startEdit = (it: any) => { setEditId(it.id); setForm({ label: it.label || '', url: it.url, type: it.type || 'http', country: it.country || '', notes: it.notes || '' }); };
@@ -524,7 +547,7 @@ export function VaultProxiesView() {
               <tr className="bg-white/[0.03] border-b border-white/5">
                 <th className="px-4 py-3 w-10">
                   <button onClick={toggleAll} className="text-slate-500 hover:text-slate-200">
-                    {filtered.length > 0 && filtered.every(i => selected.has(i.id)) ? <CheckSquare size={14} className="text-indigo-400" /> : <Square size={14} />}
+                    {paginated.length > 0 && paginated.every(i => selected.has(i.id)) ? <CheckSquare size={14} className="text-indigo-400" /> : <Square size={14} />}
                   </button>
                 </th>
                 <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Proxy URL</th>
@@ -539,7 +562,7 @@ export function VaultProxiesView() {
               {filtered.length === 0 && !loading && (
                 <tr><td colSpan={7} className="text-center py-12 text-slate-500 text-[13px]">{search ? `Không tìm thấy "${search}"` : 'Chưa có proxy nào. Thêm proxy mới hoặc import hàng loạt.'}</td></tr>
               )}
-              {filtered.map(it => {
+              {paginated.map(it => {
                 const isTesting = testingIds.has(it.id);
                 const isEditing = editId === it.id;
                 return (
@@ -609,6 +632,24 @@ export function VaultProxiesView() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between px-6 py-4 border-t border-white/5 shrink-0 bg-white/[0.01]">
+            <div className="text-[12px] text-slate-400">
+              Hiển thị <span className="font-semibold text-slate-200">{((currentPage - 1) * pageSize) + 1}</span> -{' '}
+              <span className="font-semibold text-slate-200">{Math.min(currentPage * pageSize, filtered.length)}</span> trên{' '}
+              <span className="font-semibold text-indigo-400">{filtered.length}</span> proxy
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="h-8 px-2.5">Trang đầu</Button>
+              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 px-2.5">Trước</Button>
+              <div className="text-[12px] px-3 font-semibold text-slate-300">Trang {currentPage} / {totalPages}</div>
+              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 px-2.5">Sau</Button>
+              <Button variant="secondary" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="h-8 px-2.5">Trang cuối</Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
