@@ -2045,9 +2045,10 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       // Merge cached cookies với fresh fetch — ưu tiên fresh nếu có
       let sessionToken = cachedSessionToken;
       let deviceId = cachedDeviceId;
+      let cookies = [];
       try {
         const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
-        const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+        cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
         sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || cachedSessionToken;
         deviceId = cookies.find(c => c.name === 'oai-did')?.value || cachedDeviceId;
       } catch (_) {}
@@ -2057,6 +2058,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         ...tokenData, accessToken, refreshToken, idToken, sessionToken, deviceId, expiresIn,
         accountId: meta.accountId, userId: meta.userId, organizationId: meta.organizationId,
         planType: meta.planType, expiredAt: meta.expiredAt, email: meta.email || email,
+        cookies,
       });
     } catch (exchangeErr) {
       console.error(`[Capture] ❌ Token exchange lỗi: ${exchangeErr.message}`);
@@ -2097,9 +2099,10 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   console.log(`[Timing] capture.session_fallback_done=${elapsedMs(fallbackStartedAt)}ms total=${elapsedMs()}ms`);
   const meta = extractAccountMeta(accessToken);
   let sessionToken = '', deviceId = '';
+  let cookies = [];
   try {
     const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${userId}`, { timeoutMs: 6000 });
-    const cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+    cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
     sessionToken = cookies.find(c => c.name?.includes('session-token'))?.value || '';
     deviceId = cookies.find(c => c.name === 'oai-did')?.value || '';
     console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
@@ -2109,6 +2112,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     access_token: accessToken, refresh_token: '', accessToken, refreshToken: '',
     sessionToken, deviceId, accountId: meta.accountId, userId: meta.userId,
     organizationId: meta.organizationId, planType: meta.planType, email: meta.email || email,
+    cookies,
   });
 }
 
@@ -2332,9 +2336,15 @@ async function runLoginFlow(task) {
       const code = urlObj.searchParams.get('code');
       console.log(`[Login] ✅ Code lấy được: ${code.slice(0, 20)}...`);
       await recorder.after(1, 11, 'code_obtained');
+      let cookies = [];
+      try {
+        const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${USER_ID}`, { timeoutMs: 6000 });
+        cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+      } catch (_) {}
       await sendResult(task, 'success', 'Đã lấy được code thành công', {
         code, codeVerifier: task.codeVerifier || account.codeVerifier,
         userAgent, proxyUrl: account.proxyUrl || account.proxy || undefined, finalUrl: redirectUrl,
+        cookies,
       });
     } else {
       try {

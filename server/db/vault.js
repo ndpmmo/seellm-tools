@@ -185,6 +185,26 @@ function applyMigrations() {
       console.warn('[Vault] ⚠️ Gateway status migration warning:', e.message);
     }
   }
+
+  // Backfill chatgpt_status in vault_email_pool based on active vault_accounts
+  try {
+    db.exec(`
+      UPDATE vault_email_pool
+      SET chatgpt_status = 'done',
+          linked_chatgpt_id = (
+            SELECT id FROM vault_accounts 
+            WHERE LOWER(TRIM(vault_accounts.email)) = LOWER(TRIM(vault_email_pool.email)) 
+              AND deleted_at IS NULL LIMIT 1
+          ),
+          services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'done')
+      WHERE email IN (
+        SELECT email FROM vault_accounts WHERE deleted_at IS NULL AND email IS NOT NULL AND email != ''
+      )
+    `);
+    console.log("[Vault] ✅ Backfilled chatgpt_status in vault_email_pool for active accounts");
+  } catch (e) {
+    console.warn('[Vault] ⚠️ Failed to backfill email pool statuses:', e.message);
+  }
 }
 
 /* ─── Exported API ──────────────────────────────────────────────────────── */
@@ -484,6 +504,42 @@ export const vault = {
       record.exported_to, record.exported_at, record.created_at, record.updated_at, record.deleted_at
     );
 
+    // Keep vault_email_pool in sync with the account's creation/deletion state
+    if (record.email && record.email.trim()) {
+      try {
+        if (record.deleted_at) {
+          db.prepare(`
+            UPDATE vault_email_pool 
+            SET chatgpt_status = 'not_created',
+                linked_chatgpt_id = NULL,
+                services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'not_created')
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+          `).run(record.email.trim());
+        } else {
+          db.prepare(`
+            UPDATE vault_email_pool 
+            SET chatgpt_status = 'done',
+                linked_chatgpt_id = ?,
+                services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'done')
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+          `).run(record.id, record.email.trim());
+        }
+
+        // --- CLOUD SYNC FOR EMAIL POOL ---
+        if (!skipSync) {
+          const updatedEmailPool = db.prepare(`
+            SELECT * FROM vault_email_pool 
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+          `).get(record.email.trim());
+          if (updatedEmailPool) {
+            SyncManager.pushVault('email_pool', updatedEmailPool).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn(`[Vault] Failed to update email pool status for ${record.email}:`, e.message);
+      }
+    }
+
     // [Real-time Push]
     if (!skipSync) {
       SyncManager.pushVault('account', record).catch(() => { });
@@ -496,6 +552,32 @@ export const vault = {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
     const record = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    
+    if (record && record.email) {
+      try {
+        db.prepare(`
+          UPDATE vault_email_pool 
+          SET chatgpt_status = 'not_created',
+              linked_chatgpt_id = NULL,
+              services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'not_created')
+          WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+        `).run(record.email.trim());
+
+        // --- CLOUD SYNC FOR EMAIL POOL ---
+        if (!skipSync) {
+          const updatedEmailPool = db.prepare(`
+            SELECT * FROM vault_email_pool 
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+          `).get(record.email.trim());
+          if (updatedEmailPool) {
+            SyncManager.pushVault('email_pool', updatedEmailPool).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn(`[Vault] Failed to reset email pool status for deleted account ${record.email}:`, e.message);
+      }
+    }
+
     if (!skipSync && record) {
       SyncManager.pushVault('account', record).catch(() => { });
     }
@@ -505,19 +587,47 @@ export const vault = {
   // CRUD EMAIL POOL
   getEmailPool: () => {
     const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
-    return list.map(e => ({
-      ...e,
-      password: '********',
-      services: safeParseJson(e.services_json, {}),
-    }));
+    const activeAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NULL AND email IS NOT NULL AND email != ''").all();
+    const activeEmailMap = new Map(activeAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
+    
+    return list.map(e => {
+      const emailKey = e.email.trim().toLowerCase();
+      const hasAccount = activeEmailMap.has(emailKey);
+      const chatgpt_status = hasAccount ? 'done' : e.chatgpt_status;
+      const linked_chatgpt_id = hasAccount ? activeEmailMap.get(emailKey) : e.linked_chatgpt_id;
+      const services = safeParseJson(e.services_json, {});
+      if (hasAccount) services.chatgpt = 'done';
+      
+      return {
+        ...e,
+        chatgpt_status,
+        linked_chatgpt_id,
+        password: '********',
+        services,
+      };
+    });
   },
 
   getEmailPoolFull: () => {
     const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
-    return list.map(e => ({
-      ...e,
-      services: safeParseJson(e.services_json, {}),
-    }));
+    const activeAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NULL AND email IS NOT NULL AND email != ''").all();
+    const activeEmailMap = new Map(activeAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
+    
+    return list.map(e => {
+      const emailKey = e.email.trim().toLowerCase();
+      const hasAccount = activeEmailMap.has(emailKey);
+      const chatgpt_status = hasAccount ? 'done' : e.chatgpt_status;
+      const linked_chatgpt_id = hasAccount ? activeEmailMap.get(emailKey) : e.linked_chatgpt_id;
+      const services = safeParseJson(e.services_json, {});
+      if (hasAccount) services.chatgpt = 'done';
+      
+      return {
+        ...e,
+        chatgpt_status,
+        linked_chatgpt_id,
+        services,
+      };
+    });
   },
 
   getEmailPoolByEmail: (email) => {

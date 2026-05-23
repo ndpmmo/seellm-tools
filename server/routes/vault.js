@@ -1068,6 +1068,7 @@ router.post('/accounts/result', async (req, res) => {
           device_id: providerSpecificData?.deviceId || null,
           machine_id: providerSpecificData?.machineId || machineId,
           provider_specific_data: providerSpecificData,
+          cookies: result?.cookies,
           tags: finalTags,
         });
 
@@ -1501,6 +1502,7 @@ router.post('/accounts/connect-result', async (req, res) => {
         machine_id: machineId,
         provider_specific_data: providerSpecificData,
         connect_pending: 0,
+        cookies: tokens.cookies,
         tags: finalTags,
       }, /* skipSync= */ true);
 

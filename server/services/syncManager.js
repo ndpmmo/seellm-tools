@@ -80,6 +80,29 @@ function isCriticalAccountChange(prevState, nextState) {
   return false;
 }
 
+async function triggerGatewaySync(reason = 'manual') {
+  const cfg = loadConfig();
+  if (!cfg.gatewayUrl || !cfg.d1SyncSecret) return;
+  // Skip nếu gatewayUrl trỏ đến D1 Worker
+  if (cfg.gatewayUrl.includes('workers.dev') || cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+    return;
+  }
+  try {
+    const res = await fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
+      method: 'POST',
+      headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      console.log(`[SyncManager] [GatewayTrigger] ✅ Gateway pulled snapshot (reason=${reason})`);
+    } else if (res.status !== 404) {
+      console.log(`[SyncManager] [GatewayTrigger] ⚠️ Gateway trigger HTTP ${res.status} (reason=${reason})`);
+    }
+  } catch (e) {
+    // Silently ignore
+  }
+}
+
 /**
  * SyncManager handles pushing Vault data to Cloudflare D1
  */
@@ -201,6 +224,7 @@ export const SyncManager = {
         is_active: data.is_active ?? 1,
         quota_json: data.quota_json || null,
         proxy_url: data.proxy_url || null,
+        cookies: data.cookies || null,
         notes: data.notes || null,
         tags: data.tags || null,
         created_at: createdAt,
@@ -274,10 +298,10 @@ export const SyncManager = {
           version,
         }];
       }
-      // ✅ Rule 5: Account lỗi (error/need_phone/relogin)
+      // ✅ Rule 5: Account lỗi (error/need_phone/relogin/dead)
       //   → Nếu đã từng ready (ever_ready=1): giữ connection để Gateway hiển thị lỗi trên account đang dùng
       //   → Nếu chưa từng ready: chỉ push managedAccounts, connection tombstone để xóa khỏi Gateway
-      else if (['error', 'need_phone', 'relogin'].includes(data.status)) {
+      else if (['error', 'need_phone', 'relogin', 'dead'].includes(data.status)) {
         payload.managedAccounts = [{
           id: data.id,
           provider: data.provider || 'openai',
@@ -298,7 +322,7 @@ export const SyncManager = {
         }];
 
         const tags = safeParseTags(data.tags);
-        const isDeactivated = tags.includes('account_deactivated');
+        const isDeactivated = tags.includes('account_deactivated') || data.status === 'dead';
         if (data.ever_ready && !isDeactivated) {
           const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
           const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
@@ -396,13 +420,15 @@ export const SyncManager = {
           } else if (data.status === 'ready') {
             // Rule 4: Ready → active
             newGatewayStatus = 'active';
-          } else if (['error', 'need_phone', 'relogin'].includes(data.status)) {
+          } else if (['error', 'need_phone', 'relogin', 'dead'].includes(data.status)) {
             // Rule 5: Error status
-            if (data.ever_ready) {
+            const tags = safeParseTags(data.tags);
+            const isDeactivated = tags.includes('account_deactivated') || data.status === 'dead';
+            if (data.ever_ready && !isDeactivated) {
               // Keep active if was ever ready
               newGatewayStatus = 'active';
             } else {
-              // Set revoked if never ready
+              // Set revoked if never ready or deactivated/dead
               newGatewayStatus = 'revoked';
             }
           } else {
@@ -437,6 +463,12 @@ export const SyncManager = {
       if (data.deleted_at) {
         lastPushCache.delete(cacheKey);
         lastPushState.delete(cacheKey);
+      }
+
+      // Best-effort trigger to tell the gateway to sync/pull right away
+      if (type === 'account') {
+        const emailOrId = data.email || data.id;
+        triggerGatewaySync(`push:${emailOrId}`).catch(() => {});
       }
 
       return result;

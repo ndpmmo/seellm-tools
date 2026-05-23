@@ -1870,6 +1870,7 @@ export async function runAutoRegister(taskInput) {
         status: 'idle',
         skipSync: true,
         restore_deleted: true,
+        cookies: tokens,
         tags: JSON.stringify([
           'auto-register',
           'vault-register',

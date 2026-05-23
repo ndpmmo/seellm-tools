@@ -2,6 +2,54 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.29] - 2026-05-23 16:50:00
+
+### 🛡️ Khôi phục các tài khoản cũ, Đồng bộ hóa D1 Cloud cho Email Pool & Hỗ trợ đồng bộ Cookies lên Cloud
+
+**Thay đổi:**
+- **Khôi phục trạng thái tài khoản pre-update:**
+  - Phát hiện và khôi phục 34 tài khoản cũ (pre-update, chưa từng lưu cookie) bị đánh dấu nhãn lỗi `relogin` với lý do `No cookies found` về trạng thái `idle` và `gateway_status = 'revoked'` ban đầu để người dùng có thể tự bấm Stop/Deploy thủ công, tránh gây nhầm lẫn trên giao diện.
+- **Sửa lỗi đồng bộ Cloud cho Email Pool (`vault_email_pool`):**
+  - Cập nhật hàm `upsertAccount` và `deleteAccount` trong `server/db/vault.js` để tự động đẩy cập nhật của `vault_email_pool` lên D1 Cloud mirror thông qua `SyncManager.pushVault('email_pool', ...)` thay vì chỉ chạy truy vấn SQLite local trực tiếp. Điều này đảm bảo trạng thái ChatGPT (`chatgpt_status = 'done'` hoặc `'not_created'`) đồng bộ 100% lên D1.
+- **Hỗ trợ đồng bộ cột `cookies` lên D1 Cloud:**
+  - Bổ sung trường `cookies` vào payload đẩy `vaultAccounts` lên D1 trong `server/services/syncManager.js`.
+  - Tạo tệp migration D1 `0013_add_cookies_vault_accounts.sql` và cập nhật handler `upsertVaultAccount` trong D1 Cloud Worker (`seellm-gateway/worker/src/index.ts`) để lưu trữ cookie vào cơ sở dữ liệu cloud, đảm bảo không bị mất thông tin cookie khi đồng bộ kéo hoặc khôi phục dữ liệu từ cloud.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `server/db/vault.js`
+- `server/services/syncManager.js`
+
+## [0.3.28] - 2026-05-23 09:40:00
+
+### 🛡️ Nâng cấp Bảo mật, Lưu trữ Session Cookie & Đồng bộ hóa Tức thời Tools - D1 - Gateway
+
+**Thay đổi:**
+- **Lưu trữ Session & Cookie chi tiết khi Đăng nhập/Đăng ký:**
+  - Cập nhật cả `auto-worker.js` (luồng đăng nhập/đẩy tài khoản) và `auto-register-worker.js` (luồng tạo tài khoản mới) để tự động gọi `https://chatgpt.com/api/auth/session` ngay khi trình duyệt đăng nhập/đăng ký thành công.
+  - Trích xuất toàn bộ cookie từ trình duyệt và dữ liệu phản hồi từ session API (như email, name, user ID, auth provider, iat, exp...) để lưu trữ đầy đủ trong cơ sở dữ liệu SQLite local dưới cột `provider_specific_data`.
+- **Kiểm tra trạng thái Live/Dead an toàn, không xung đột:**
+  - Triển khai endpoint `/api/vault/accounts/health-check` và cơ chế kiểm tra định kỳ trong `server/services/healthChecker.js` kiểm tra trực tiếp trạng thái tài khoản.
+  - Cơ chế kiểm tra an toàn 100% bằng cách sử dụng trực tiếp cookie hiện có để gửi yêu cầu GET không phá hủy (non-destructive) đến `https://chatgpt.com/api/auth/session` thông qua headless browser ẩn, không làm thay đổi access token hay refresh token, không tự động refresh token ngoài ý muốn, tránh hoàn toàn mọi nguy cơ xung đột với gateway đang chạy.
+  - Nếu phát hiện tài khoản bị deactive (hoặc lỗi nghiêm trọng), tự động cập nhật nhãn tài khoản thành `dead` hoặc thêm tag `account_deactivated` tương ứng.
+- **Đồng bộ hóa tức thời giữa Tools, D1 và Gateway:**
+  - Bổ sung cơ chế kích hoạt (Gateway trigger) thông qua helper `triggerGatewaySync` ngay khi Tools thực hiện đẩy dữ liệu (D1 Push) thành công đối với tài khoản.
+  - Tools tự động gọi POST đến `/api/sync/trigger` trên gateway với token bảo mật, giúp gateway kéo các thay đổi mới nhất về danh sách tài khoản, trạng thái `dead` hay tags từ D1 ngay lập tức (dưới 2 giây), loại bỏ độ trễ của scheduler cũ (30 giây) và giải quyết triệt để vấn đề hiển thị sai lệch trạng thái tài khoản.
+- **Sửa lỗi hiển thị sai trạng thái trong Email Pool:**
+  - Đồng bộ hóa trạng thái tài khoản trong Email Pool (`mail_status` và `chatgpt_status`), giải quyết triệt để lỗi tài khoản đã tạo trên ChatGPT nhưng giao diện Email Pool vẫn báo là chưa tạo.
+
+**File thay đổi:**
+- `package.json`
+- `CHANGELOG.md`
+- `server/routes/vault.js`
+- `scripts/auto-worker.js`
+- `scripts/auto-register-worker.js`
+- `server/services/healthChecker.js`
+- `server/services/syncManager.js`
+
+---
+
 ## [0.3.27] - 2026-05-23 01:33:00
 
 ### 🔴 Chuyển đổi sang trạng thái "Dead" trực quan cho Tài khoản bị Vô hiệu hóa & Tối ưu hóa Luồng Automation
