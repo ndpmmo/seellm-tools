@@ -2,6 +2,33 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.34] - 2026-05-23 22:42:00
+
+### 🎨 Refactor Giao diện Quản lý Vault Accounts: Bộ Lọc Nâng Cao & Thanh Hành động Hàng Loạt thông minh (Floating Batch Actions)
+
+**Bối cảnh:**
+Giao diện quản lý tài khoản Vault (`?view=vault-accounts`) trước đó có hàng loạt nút bấm chức năng rải rác trong `CardHeader`, gây lộn xộn, chật chội và không có bộ lọc tùy chỉnh đủ mạnh mẽ để phân loại tài khoản (ví dụ: Workspace vs Personal, Free vs Paid, hay theo các nhãn trạng thái cụ thể).
+
+**Thay đổi:**
+- **Nâng cấp Bộ Lọc tùy chỉnh mạnh mẽ (Advanced Custom Filtering System):**
+  - Tích hợp nút **"Bộ Lọc"** với biểu tượng `Filter` và badge số lượng bộ lọc đang hoạt động trực tiếp kế bên thanh tìm kiếm.
+  - Xây dựng bảng **"Bộ Lọc Nâng Cao"** dạng expandable card, hỗ trợ 5 chiều lọc chuyên sâu:
+    1. **Nhà cung cấp (Provider):** Tất cả / ChatGPT | Codex / Anthropic / Gemini / Cursor.
+    2. **Loại tài khoản (Workspace Type):** Tất cả / Chỉ Workspace (💼) / Chỉ Cá nhân (Personal).
+    3. **Gói dịch vụ (Plan Type):** Tất cả / Chỉ Free / Chỉ Plus / Chỉ Pro / Chỉ Team hoặc Business.
+    4. **Trạng thái chạy (Status):** Ready, Idle, Pending, Processing, Error (Cần SĐT), Dead (🔴), Re-login.
+    5. **Nhãn đặc biệt (Special tags):** Tự động tạo (Bot), Tạo thủ công, Cần số điện thoại, Email đã chết, Có bảo mật 2FA.
+  - Tự động hiển thị các active chips (nhãn lọc đang áp dụng) để người dùng dễ dàng theo dõi và nút "Đặt lại bộ lọc" nhanh chóng.
+  - Mở rộng chức năng tìm kiếm: Cho phép tìm kiếm toàn văn theo Email, Nhãn (Label), Proxy URL và Ghi chú (Notes).
+- **Hành động hàng loạt thông minh (Floating Batch Actions Bar):**
+  - Thu dọn toàn bộ các nút hành động hàng loạt lộn xộn (Deploy đã chọn, Gán Proxy, Gỡ Proxy, Đồng bộ D1, Xóa đã chọn) khỏi `CardHeader`.
+  - Thay thế bằng **Thanh hành động nổi (Floating Action Bar)** ở cạnh dưới màn hình, tự động trượt lên và sáng rực rỡ với hiệu ứng glassmorphism và pulse animation khi người dùng chọn ít nhất 1 tài khoản.
+  - Gom toàn bộ hành động hàng loạt vào thanh nổi này, giữ cho `CardHeader` của bảng tài khoản luôn gọn gàng, thanh lịch và chuyên nghiệp như các giao diện Vercel, Shopify hay Slack.
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.34`.
+
+---
+
 ## [0.3.33] - 2026-05-23 22:35:00
 
 ### 🛡️ Khắc phục nhận diện nhầm Workspace (isWorkspaceScreen False Positive) & Đồng bộ hóa Nhãn Workspace chính xác

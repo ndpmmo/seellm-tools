@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
-  ChevronRight, Users, Tag,
+  ChevronRight, Users, Tag, Filter,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
   Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase
 } from 'lucide-react';
@@ -222,6 +222,13 @@ export function VaultAccountsView() {
   const [bulkDeployOrder, setBulkDeployOrder] = useState<'sequential' | 'random'>('sequential');
   const [isBulkDeployingAuto, setIsBulkDeployingAuto] = useState(false);
 
+  // Custom Advanced Filter States
+  const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'workspace' | 'personal'>('all');
+  const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterTag, setFilterTag] = useState<string>('all');
+  const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+
   const [uiState, setUiState] = useState({
     isAdding: false,
     isBulk: false,
@@ -288,8 +295,36 @@ export function VaultAccountsView() {
         : providerFilter === 'openai'
           ? isOpenAI(it.provider)  // nhóm openai + codex cùng bucket
           : it.provider === providerFilter;
-    const searchMatch = !search || it.email.toLowerCase().includes(search.toLowerCase()) || it.label?.toLowerCase().includes(search.toLowerCase());
-    return providerMatch && searchMatch;
+          
+    const searchMatch = !search || 
+      it.email.toLowerCase().includes(search.toLowerCase()) || 
+      (it.label && it.label.toLowerCase().includes(search.toLowerCase())) ||
+      (it.proxy_url && it.proxy_url.toLowerCase().includes(search.toLowerCase())) ||
+      (it.notes && it.notes.toLowerCase().includes(search.toLowerCase()));
+
+    // Custom advanced filter matching
+    const tags = safeParseTags(it.tags);
+    const hasWorkspaceTag = tags.includes('workspace');
+    const workspaceMatch = 
+      filterWorkspace === 'all' ? true :
+      filterWorkspace === 'workspace' ? hasWorkspaceTag : !hasWorkspaceTag;
+
+    const planLower = (it.plan || '').toLowerCase();
+    const planMatch =
+      filterPlan === 'all' ? true :
+      filterPlan === 'free' ? (!planLower || planLower.includes('free')) :
+      filterPlan === 'plus' ? planLower.includes('plus') :
+      filterPlan === 'pro' ? planLower.includes('pro') :
+      filterPlan === 'team' ? (planLower.includes('team') || planLower.includes('business')) : true;
+
+    const statusMatch = filterStatus === 'all' ? true : it.status === filterStatus;
+
+    const tagMatch =
+      filterTag === 'all' ? true :
+      filterTag === 'has_2fa' ? !!it.two_fa_secret :
+      tags.includes(filterTag);
+
+    return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch;
   });
 
   /* ── CRUD ── */
@@ -638,26 +673,185 @@ export function VaultAccountsView() {
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
       {/* ═══ ACTIONS ═══ */}
-      <div className="flex gap-3 mb-6 mt-2 relative z-10">
+      <div className="flex gap-3 mb-4 mt-2 relative z-10">
         <div className="flex-1 relative flex items-center">
           <Search size={15} className="absolute left-3 text-slate-500" />
-          <Input className="pl-9" placeholder="Tìm trong Vault (Email, Label...)" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input className="pl-9 pr-24" placeholder="Tìm theo email, nhãn, proxy hoặc ghi chú..." value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="absolute right-2 flex items-center">
+            <Button 
+              size="sm"
+              variant="secondary" 
+              onClick={() => { setIsAdvancedFilterOpen(!isAdvancedFilterOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsBulkDeployFormOpen(false); }} 
+              className={`h-7 px-2.5 border-white/10 ${isAdvancedFilterOpen ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'text-slate-400 hover:bg-white/5'}`}
+            >
+              <Filter size={12} className="mr-1.5" />
+              Bộ Lọc
+              {((filterWorkspace !== 'all' ? 1 : 0) + (filterPlan !== 'all' ? 1 : 0) + (filterStatus !== 'all' ? 1 : 0) + (filterTag !== 'all' ? 1 : 0) + (providerFilter !== 'all' ? 1 : 0)) > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500 text-white font-bold leading-none">
+                  {(filterWorkspace !== 'all' ? 1 : 0) + (filterPlan !== 'all' ? 1 : 0) + (filterStatus !== 'all' ? 1 : 0) + (filterTag !== 'all' ? 1 : 0) + (providerFilter !== 'all' ? 1 : 0)}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={syncDeadTags} disabled={syncingDeadTags}>
             {syncingDeadTags ? <RefreshCw size={16} className="animate-spin" /> : <Tag size={16} />} {syncingDeadTags ? 'Đang đồng bộ...' : 'Sync Dead Tags'}
           </Button>
-          <Button variant="ghost" className="!text-emerald-400 hover:!bg-emerald-500/10" onClick={() => { setIsBulkDeployFormOpen(!isBulkDeployFormOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); }}>
+          <Button variant="ghost" className="!text-emerald-400 hover:!bg-emerald-500/10" onClick={() => { setIsBulkDeployFormOpen(!isBulkDeployFormOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsAdvancedFilterOpen(false); }}>
             {isBulkDeployFormOpen ? <X size={16} /> : <Bot size={16} />} Auto Deploy
           </Button>
-          <Button variant="ghost" onClick={() => { setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null })); setIsBulkDeployFormOpen(false); }}>
+          <Button variant="ghost" onClick={() => { setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null })); setIsBulkDeployFormOpen(false); setIsAdvancedFilterOpen(false); }}>
             {uiState.isBulk ? <X size={16} /> : <FileUp size={16} />} Nhập hàng loạt
           </Button>
-          <Button variant="primary" onClick={() => { setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' })); setIsBulkDeployFormOpen(false); }}>
+          <Button variant="primary" onClick={() => { setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' })); setIsBulkDeployFormOpen(false); setIsAdvancedFilterOpen(false); }}>
             {uiState.isAdding ? <X size={16} /> : <Plus size={16} />} {uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}
           </Button>
         </div>
       </div>
+
+      {/* ═══ ADVANCED FILTER PANEL ═══ */}
+      {isAdvancedFilterOpen && (
+        <Card className="mb-2 border-indigo-500/20 bg-indigo-500/[0.01] animate-slideDown overflow-visible relative z-20">
+          <CardContent className="py-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
+              {/* Provider Selection */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nhà cung cấp</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={providerFilter}
+                  onChange={e => setProviderFilter(e.target.value)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả Provider</option>
+                  {PROVIDERS.map(p => <option key={p.id} value={p.id} className="bg-[#0f172a]">{p.name}</option>)}
+                </select>
+              </div>
+
+              {/* Workspace Type */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Loại tài khoản</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={filterWorkspace}
+                  onChange={e => setFilterWorkspace(e.target.value as any)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả loại</option>
+                  <option value="workspace" className="bg-[#0f172a]">Chỉ Workspace (💼)</option>
+                  <option value="personal" className="bg-[#0f172a]">Chỉ cá nhân (Personal)</option>
+                </select>
+              </div>
+
+              {/* Plan Type */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Gói dịch vụ</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={filterPlan}
+                  onChange={e => setFilterPlan(e.target.value as any)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả gói</option>
+                  <option value="free" className="bg-[#0f172a]">Chỉ Gói Free</option>
+                  <option value="plus" className="bg-[#0f172a]">Chỉ Gói Plus</option>
+                  <option value="pro" className="bg-[#0f172a]">Chỉ Gói Pro</option>
+                  <option value="team" className="bg-[#0f172a]">Chỉ Gói Team / Business</option>
+                </select>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Trạng thái chạy</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả trạng thái</option>
+                  <option value="ready" className="bg-[#0f172a]">Ready</option>
+                  <option value="idle" className="bg-[#0f172a]">Idle</option>
+                  <option value="pending" className="bg-[#0f172a]">Pending</option>
+                  <option value="processing" className="bg-[#0f172a]">Processing</option>
+                  <option value="error" className="bg-[#0f172a]">Error (Gồm Cần SĐT)</option>
+                  <option value="dead" className="bg-[#0f172a]">Dead (🔴)</option>
+                  <option value="relogin" className="bg-[#0f172a]">Re-login</option>
+                </select>
+              </div>
+
+              {/* System tags */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nhãn đặc biệt</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={filterTag}
+                  onChange={e => setFilterTag(e.target.value)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả nhãn</option>
+                  <option value="auto-register" className="bg-[#0f172a]">Tự động tạo (Bot)</option>
+                  <option value="vault-register" className="bg-[#0f172a]">Tạo thủ công</option>
+                  <option value="need_phone" className="bg-[#0f172a]">Cần Số điện thoại</option>
+                  <option value="email_dead" className="bg-[#0f172a]">Email đã chết</option>
+                  <option value="has_2fa" className="bg-[#0f172a]">Có bảo mật 2FA</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Active Chips & Reset */}
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+              <div className="flex gap-2 flex-wrap items-center">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Đang áp dụng:</span>
+                {providerFilter !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded">
+                    Provider: {getProviderName(providerFilter)}
+                    <button onClick={() => setProviderFilter('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {filterWorkspace !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded">
+                    Loại: {filterWorkspace === 'workspace' ? 'Workspace' : 'Cá nhân'}
+                    <button onClick={() => setFilterWorkspace('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {filterPlan !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded">
+                    Gói: {filterPlan.toUpperCase()}
+                    <button onClick={() => setFilterPlan('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {filterStatus !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded">
+                    Trạng thái: {filterStatus.toUpperCase()}
+                    <button onClick={() => setFilterStatus('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {filterTag !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded">
+                    Nhãn: {filterTag}
+                    <button onClick={() => setFilterTag('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {providerFilter === 'all' && filterWorkspace === 'all' && filterPlan === 'all' && filterStatus === 'all' && filterTag === 'all' && (
+                  <span className="text-[11px] text-slate-500 italic">Chưa chọn bộ lọc nào</span>
+                )}
+              </div>
+              
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={() => {
+                  setProviderFilter('all');
+                  setFilterWorkspace('all');
+                  setFilterPlan('all');
+                  setFilterStatus('all');
+                  setFilterTag('all');
+                }} 
+                className="text-[11px] text-slate-500 hover:text-slate-300"
+              >
+                <RotateCcw size={11} className="mr-1" /> Đặt lại bộ lọc
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ═══ FORM ═══ */}
       {uiState.isAdding && (
@@ -815,15 +1009,16 @@ export function VaultAccountsView() {
 
       {/* ═══ TABLE ═══ */}
       <Card className="flex-1 min-h-[320px] flex flex-col !overflow-visible">
-        <CardHeader>
-          <CardTitle>
-            <Shield size={14} className="text-indigo-400" /> Tài Khoản Vault
-            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
+        <CardHeader className="border-b border-white/5 py-4 flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Shield size={16} className="text-indigo-400" /> 
+            <span>Tài Khoản Vault</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{filtered.length}</span>
           </CardTitle>
-          <div className="flex gap-2 ml-auto shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="relative">
               <Button size="sm" variant="secondary" onClick={() => setLegendOpen(v => !v)} className="border-white/10 text-slate-400 hover:bg-white/5">
-                <HelpCircle size={12} className="mr-1" /> Nhãn
+                <HelpCircle size={12} className="mr-1" /> Chú thích nhãn
               </Button>
               <TagLegend open={legendOpen} onClose={() => setLegendOpen(false)} />
             </div>
@@ -834,34 +1029,13 @@ export function VaultAccountsView() {
               disabled={syncingAll || filtered.length === 0}
               className="!text-indigo-400 !border-indigo-500/30 hover:!bg-indigo-500/10"
             >
-              {syncingAll ? <RefreshCw size={12} className="animate-spin" /> : <Database size={12} />}
-              Sync All to D1
+              {syncingAll ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Database size={12} className="mr-1" />}
+              Đẩy Tất cả lên D1
             </Button>
-            <Button size="sm" variant={providerFilter === 'all' ? 'primary' : 'secondary'} onClick={() => setProviderFilter('all')}>All</Button>
-            {PROVIDERS.map(p => (
-              <Button size="sm" key={p.id} variant={providerFilter === p.id ? 'primary' : 'secondary'} onClick={() => setProviderFilter(p.id)}>{p.name}</Button>
-            ))}
             <Button size="sm" variant="secondary" onClick={autoAssignFromPool} disabled={autoAssigning} className="border-white/10 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500/30">
-              <Globe size={12} className="mr-1.5" /> {autoAssigning ? 'Đang gán…' : 'Auto Assign Proxy'}
+              <Globe size={12} className="mr-1.5" /> {autoAssigning ? 'Đang gán…' : 'Tự Động Gán Proxy'}
             </Button>
-            <select
-              className="h-8 rounded-md bg-black/40 border border-white/10 text-[11px] text-slate-300 px-2 outline-none focus:border-indigo-500/50"
-              value={bulkProxyId}
-              onChange={e => setBulkProxyId(e.target.value)}
-            >
-              <option value="">(Auto proxy tốt nhất)</option>
-              {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}
-            </select>
-            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('assign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
-              Gán đã chọn ({selectedIds.size})
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-              Gỡ đã chọn
-            </Button>
-            <Button size="sm" variant="secondary" onClick={bulkDeploy} disabled={selectedIds.size === 0} className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
-              <Globe size={12} className="mr-1.5" /> Deploy đã chọn
-            </Button>
-            <Button size="icon-sm" variant="secondary" onClick={() => { loadAccounts(); loadProxies(); }}>
+            <Button size="icon-sm" variant="secondary" onClick={() => { loadAccounts(); loadProxies(); }} title="Làm mới">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </Button>
           </div>
@@ -1138,6 +1312,75 @@ export function VaultAccountsView() {
               <span>Tổng {inboxModal.messages.length} email</span>
               <span>Sắp xếp theo thời gian mới nhất</span>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ═══ FLOATING BATCH ACTIONS BAR ═══ */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#0d111c]/95 backdrop-blur-md border border-indigo-500/30 rounded-2xl shadow-[0_0_30px_rgba(99,102,241,0.25)] px-6 py-4 flex items-center gap-6 animate-slideUp transition-all duration-300">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+            <span className="text-xs font-bold text-slate-200 whitespace-nowrap">Đã chọn {selectedIds.size} tài khoản</span>
+          </div>
+          <div className="h-6 w-[1px] bg-white/10 shrink-0" />
+          <div className="flex items-center gap-2 shrink-0">
+            <Button size="sm" variant="secondary" onClick={bulkDeploy} className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[11px] font-semibold">
+              <Globe size={11} className="mr-1" /> Deploy ({selectedIds.size})
+            </Button>
+            <div className="h-4 w-[1px] bg-white/10 shrink-0" />
+            <select
+              className="h-8 rounded-md bg-black/40 border border-white/10 text-[11px] text-slate-300 px-2 outline-none focus:border-indigo-500/50"
+              value={bulkProxyId}
+              onChange={e => setBulkProxyId(e.target.value)}
+            >
+              <option value="">(Auto proxy tốt nhất)</option>
+              {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}
+            </select>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('assign')} disabled={bulkProxyRunning} className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 h-8 text-[11px] font-semibold">
+              Gán Proxy
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => bulkProxyAction('unassign')} disabled={bulkProxyRunning} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 h-8 text-[11px] font-semibold">
+              Gỡ Proxy
+            </Button>
+            <div className="h-4 w-[1px] bg-white/10 shrink-0" />
+            <Button size="sm" variant="secondary" onClick={async () => {
+              if (confirm(`Đồng bộ ${selectedIds.size} tài khoản đã chọn lên D1?`)) {
+                setSyncingAll(true);
+                let success = 0;
+                for (const id of Array.from(selectedIds)) {
+                  try {
+                    const r = await fetch(`/api/vault/accounts/${id}/sync`, { method: 'POST' });
+                    const d = await r.json();
+                    if (!d.error) success++;
+                  } catch {}
+                }
+                addToast(`☁️ Đã đồng bộ ${success} tài khoản lên D1`, 'success');
+                setSyncingAll(false);
+                setSelectedIds(new Set());
+                loadAccounts();
+              }
+            }} className="border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 h-8 text-[11px] font-semibold">
+              <Database size={11} className="mr-1" /> Đồng bộ D1
+            </Button>
+            <Button size="sm" variant="danger" onClick={async () => {
+              if (confirm(`Xác nhận XÓA ${selectedIds.size} tài khoản đã chọn khỏi Vault?`)) {
+                let success = 0;
+                for (const id of Array.from(selectedIds)) {
+                  try {
+                    const r = await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
+                    if (r.ok) success++;
+                  } catch {}
+                }
+                addToast(`🗑️ Đã xóa ${success} tài khoản khỏi Vault`, 'info');
+                setSelectedIds(new Set());
+                loadAccounts();
+              }
+            }} className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 h-8 text-[11px] font-semibold">
+              <Trash2 size={11} className="mr-1" /> Xóa đã chọn
+            </Button>
+            <Button size="icon-sm" variant="ghost" onClick={() => setSelectedIds(new Set())} title="Hủy chọn" className="h-8 w-8 hover:bg-white/5">
+              <X size={13} className="text-slate-400 hover:text-slate-200" />
+            </Button>
           </div>
         </div>
       )}
