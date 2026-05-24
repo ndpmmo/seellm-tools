@@ -179,21 +179,36 @@ export async function getState(tabId, userId) {
       const isChatgptHome   = (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
       const looksLoggedIn   = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
 
+      const isVisible = el => {
+        if (!el) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      };
+
       // ── Auth pages (auth.openai.com hoặc /auth/*) ──
       const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
-      const hasEmailInput   = !!document.querySelector(
-        'input[type="email"], input[name="username"], input[id="username"], input[name="email"], input[autocomplete="email"]'
-      );
-      const hasPasswordInput = !!document.querySelector(
-        'input[type="password"], input[name="password"], input[id="password"], input[autocomplete="current-password"]'
-      );
+      
+      const hasEmailInput = (() => {
+        const selectors = [
+          'input[type="email"]', 'input[name="username"]', 'input[id="username"]', 'input[name="email"]', 'input[autocomplete="email"]'
+        ];
+        return selectors.some(s => isVisible(document.querySelector(s)));
+      })();
+
+      const hasPasswordInput = (() => {
+        const selectors = [
+          'input[type="password"]', 'input[name="password"]', 'input[id="password"]', 'input[autocomplete="current-password"]'
+        ];
+        return selectors.some(s => isVisible(document.querySelector(s)));
+      })();
 
       // ── MFA: URL chứa /mfa hoặc có input one-time-code ──
       const isAddPhonePage = href.includes('/add-phone');
       const hasMfaInput = !isAddPhonePage && !!(
         href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') ||
         body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
-        document.querySelector('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]')
+        Array.from(document.querySelectorAll('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]')).some(isVisible)
       );
 
       const COOKIE_KW = ${JSON.stringify(MULTILANG.acceptCookie)};
@@ -205,12 +220,6 @@ export async function getState(tabId, userId) {
 
       // ── Cookie banner ──
       const hasCookieBanner = (() => {
-        const isVisible = el => {
-          if (!el) return false;
-          const s = window.getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-        };
         return !!Array.from(document.querySelectorAll('button, [role="button"], a'))
           .filter(isVisible)
           .find(el => {

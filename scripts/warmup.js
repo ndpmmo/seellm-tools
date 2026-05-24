@@ -274,7 +274,9 @@ async function runWarmup() {
       
       const maxLoginAttempts = 15;
       let emailFilled = false;
+      let emailWaitCount = 0;
       let passwordFilled = false;
+      let passwordWaitCount = 0;
       let mfaFilled = false;
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
@@ -394,56 +396,76 @@ async function runWarmup() {
           continue;
         }
         
-        // 5. Handle Email Input
-        if (state.hasEmailInput) {
-          if (emailFilled) {
-            console.log(`[Warmup] 📧 Email đã được điền ở lượt trước, đang chờ chuyển trang...`);
-            // Retrigger the continue click just in case
-            await evalJson(tabId, USER_ID, `(() => {
-              const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-                .find(el => {
-                  const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-                  return t === 'continue' || t === 'next' || t === 'tiếp tục';
-                });
-              if (btn) {
-                btn.click();
-                btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              }
-            })()`).catch(() => {});
-            await delay(3000);
-            continue;
-          }
-          console.log(`[Warmup] 📧 Điền email: ${account.email}`);
-          await fillEmail(tabId, USER_ID, account.email);
-          emailFilled = true;
-          await delay(5000);
-          continue;
-        }
-        
-        // 6. Handle Password Input
+        // 5. Handle Password Input
         if (state.hasPasswordInput) {
           if (passwordFilled) {
-            console.log(`[Warmup] 🔑 Password đã được điền ở lượt trước, đang chờ đăng nhập...`);
-            // Retrigger password submit click just in case
-            await evalJson(tabId, USER_ID, `(() => {
-              const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-                .find(el => {
-                  const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-                  return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
-                });
-              if (btn) {
-                btn.click();
-                btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              }
-            })()`).catch(() => {});
-            await delay(3000);
+            passwordWaitCount++;
+            if (passwordWaitCount < 3) {
+              console.log(`[Warmup] 🔑 Password đã được điền ở lượt trước, đang chờ đăng nhập (lần đợi ${passwordWaitCount})...`);
+              // Retrigger password submit click just in case
+              await evalJson(tabId, USER_ID, `(() => {
+                const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                  .find(el => {
+                    const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+                  });
+                if (btn) {
+                  btn.click();
+                  btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                }
+              })()`).catch(() => {});
+              await delay(3000);
+              continue;
+            } else {
+              console.log(`[Warmup] ⚠️ Đã đợi lâu nhưng vẫn ở màn hình password -> Tiến hành điền lại password...`);
+              passwordFilled = false;
+              passwordWaitCount = 0;
+            }
+          }
+          if (!passwordFilled) {
+            console.log(`[Warmup] 🔑 Điền password...`);
+            await fillPassword(tabId, USER_ID, account.password);
+            passwordFilled = true;
+            passwordWaitCount = 0;
+            await delay(6000);
             continue;
           }
-          console.log(`[Warmup] 🔑 Điền password...`);
-          await fillPassword(tabId, USER_ID, account.password);
-          passwordFilled = true;
-          await delay(6000);
-          continue;
+        }
+        
+        // 6. Handle Email Input
+        if (state.hasEmailInput) {
+          if (emailFilled) {
+            emailWaitCount++;
+            if (emailWaitCount < 3) {
+              console.log(`[Warmup] 📧 Email đã được điền ở lượt trước, đang chờ chuyển trang (lần đợi ${emailWaitCount})...`);
+              // Retrigger the continue click just in case
+              await evalJson(tabId, USER_ID, `(() => {
+                const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                  .find(el => {
+                    const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                  });
+                if (btn) {
+                  btn.click();
+                  btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                }
+              })()`).catch(() => {});
+              await delay(3000);
+              continue;
+            } else {
+              console.log(`[Warmup] ⚠️ Đã đợi lâu nhưng vẫn ở màn hình email -> Tiến hành điền lại email...`);
+              emailFilled = false;
+              emailWaitCount = 0;
+            }
+          }
+          if (!emailFilled) {
+            console.log(`[Warmup] 📧 Điền email: ${account.email}`);
+            await fillEmail(tabId, USER_ID, account.email);
+            emailFilled = true;
+            emailWaitCount = 0;
+            await delay(5000);
+            continue;
+          }
         }
         
         // 7. Handle MFA Input

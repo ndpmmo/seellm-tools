@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.53] - 2026-05-24 20:00:00
+
+### 🚀 Khắc phục Lỗi Bị Kẹt tại Email Input & Tự động Phục hồi khi Gặp Sự cố Điền Form Đăng Nhập
+
+**Thay đổi:**
+- **Giải quyết triệt để lỗi kẹt tại bước "Email đã được điền..." (`scripts/warmup.js` & `scripts/lib/openai-login-flow.js`)**:
+  - **Kiểm tra hiển thị thực tế của phần tử (Input visibility)**: Cập nhật hàm `getState` để `hasEmailInput`, `hasPasswordInput` và `hasMfaInput` kiểm tra tính hiển thị thực tế (`isVisible`) của phần tử thay vì chỉ kiểm tra sự tồn tại trong DOM. Điều này tránh việc nhận diện nhầm email input ẩn (khi trang đã chuyển sang màn hình mật khẩu) là đang hiển thị.
+  - **Thay đổi thứ tự ưu tiên kiểm tra**: Đưa bước kiểm tra password `hasPasswordInput` lên trước email `hasEmailInput` trong vòng lặp đăng nhập của `warmup.js`, đảm bảo khi trang đã hiển thị mật khẩu thì script sẽ điền mật khẩu ngay mà không bị chặn bởi bộ lọc email.
+  - **Tự động phục hồi (Self-Healing Login Form)**: Thêm các bộ đếm số lần đợi (`emailWaitCount` và `passwordWaitCount`). Nếu trang bị đơ hoặc kẹt quá 3 lượt quét (khoảng 9 giây) mà không chuyển tiếp, script sẽ tự động reset trạng thái điền và thực hiện điền lại thông tin (Email/Password), ngăn chặn tình trạng bị treo vô hạn.
+
 ## [0.3.52] - 2026-05-24 19:55:00
 
 ### 🚀 Sửa Lỗi Lặp Vô Hạn Cookie Banner & Nâng Cấp Chọn Workspace Đa Ngôn Ngữ
