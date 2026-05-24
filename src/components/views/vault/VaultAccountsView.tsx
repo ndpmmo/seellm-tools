@@ -338,6 +338,7 @@ export function VaultAccountsView() {
     const tagMatch =
       filterTag === 'all' ? true :
       filterTag === 'has_2fa' ? !!it.two_fa_secret :
+      filterTag === 'no_2fa' ? !it.two_fa_secret :
       tags.includes(filterTag);
 
     return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch;
@@ -1081,6 +1082,7 @@ export function VaultAccountsView() {
                   <option value="need_phone" className="bg-[#0f172a]">Cần Số điện thoại</option>
                   <option value="email_dead" className="bg-[#0f172a]">Email đã chết</option>
                   <option value="has_2fa" className="bg-[#0f172a]">Có bảo mật 2FA</option>
+                  <option value="no_2fa" className="bg-[#0f172a]">Không có 2FA</option>
                 </select>
               </div>
             </div>
@@ -1115,7 +1117,15 @@ export function VaultAccountsView() {
                 )}
                 {filterTag !== 'all' && (
                   <span className="inline-flex items-center gap-1 text-[11px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded">
-                    Nhãn: {filterTag}
+                    Nhãn: {
+                      filterTag === 'auto-register' ? 'Tự động tạo (Bot)' :
+                      filterTag === 'vault-register' ? 'Tạo thủ công' :
+                      filterTag === 'need_phone' ? 'Cần Số điện thoại' :
+                      filterTag === 'email_dead' ? 'Email đã chết' :
+                      filterTag === 'has_2fa' ? 'Có bảo mật 2FA' :
+                      filterTag === 'no_2fa' ? 'Không có 2FA' :
+                      filterTag
+                    }
                     <button onClick={() => setFilterTag('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
                   </span>
                 )}

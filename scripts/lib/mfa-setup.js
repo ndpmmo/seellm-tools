@@ -50,9 +50,25 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     const log = (...args) => console.log('[MFA]', ...args);
     const wait = ms => new Promise(r => setTimeout(r, ms));
 
-    const run = async (code) => {
-        const res = await apiHelper(`/tabs/${tabId}/evaluate`, { userId, expression: code });
-        return res?.result;
+    const run = async (code, maxRetries = 3) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const res = await apiHelper(`/tabs/${tabId}/evaluate`, { userId, expression: code });
+                return res?.result;
+            } catch (err) {
+                const msg = err.message || String(err);
+                const isTransient = msg.includes('context was destroyed') || 
+                                    msg.includes('navigation') || 
+                                    msg.includes('destroyed') || 
+                                    msg.includes('500');
+                if (isTransient && attempt < maxRetries) {
+                    log(`⚠️ Eval failed (Attempt ${attempt}/${maxRetries}): ${msg.slice(0, 80)}. Retrying in 1.5s...`);
+                    await wait(1500);
+                    continue;
+                }
+                throw err;
+            }
+        }
     };
 
     try {
@@ -60,7 +76,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Điều hướng đến Security settings...');
         
         // Cố gắng mở settings thông qua cả hash URL và direct path URL
-        await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`);
+        try {
+            await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`);
+        } catch (navErr) {
+            log(`⚠️ Lỗi khi đổi location.href (có thể do redirect ngay lập tức): ${navErr.message}`);
+        }
         await wait(3000);
 
         // Hàm helper chạy trong browser để tự động mở Settings dialog nếu chưa được mở
