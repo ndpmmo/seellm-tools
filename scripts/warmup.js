@@ -373,9 +373,11 @@ async function runWarmup() {
         // 3. Handle Cookie Banner
         if (state.hasCookieBanner) {
           console.log(`[Warmup] 🍪 Phát hiện cookie banner -> Chấp nhận cookies...`);
-          await tryAcceptCookies(tabId, USER_ID);
+          const clicked = await tryAcceptCookies(tabId, USER_ID);
           await delay(2000);
-          continue;
+          if (clicked) {
+            continue;
+          }
         }
         
         // 4. Handle Workspace Selection (Image 2)

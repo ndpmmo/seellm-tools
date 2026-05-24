@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.52] - 2026-05-24 19:55:00
+
+### 🚀 Sửa Lỗi Lặp Vô Hạn Cookie Banner & Nâng Cấp Chọn Workspace Đa Ngôn Ngữ
+
+**Thay đổi:**
+- **Khắc phục lỗi lặp vô hạn chấp nhận Cookie Banner (`scripts/warmup.js`)**:
+  - Sửa lỗi kẹt đăng nhập (lượt 1/15 đến 15/15) khi `hasCookieBanner` bị nhận diện sai hoặc cookies đã chấp nhận nhưng phần tử vẫn khớp CSS selector.
+  - Cập nhật hàm `getState` để chỉ báo `hasCookieBanner: true` khi thực sự tìm thấy nút chấp nhận cookie **hiển thị trên màn hình** (`isVisible`).
+  - Cập nhật luồng xử lý trong `warmup.js` để chỉ thực hiện lệnh `continue` bắt đầu lại lượt lặp khi thực sự click được nút cookie (`clicked === true`). Nếu không, sẽ bỏ qua và chuyển sang các bước tiếp theo (nhập Email, Password, Workspace...).
+- **Nâng cấp Chọn Workspace Cá Nhân Đa Ngôn Ngữ (`scripts/lib/openai-login-flow.js`)**:
+  - Bổ dung bộ từ khóa `personal` đa ngôn ngữ vào `MULTILANG` (hỗ trợ Tiếng Anh, Đức, Pháp, Tây Ban Nha, Ý, Bồ Đào Nha, Tiếng Việt, Nga, Nhật, Trung).
+  - Cập nhật hàm `selectPersonalWorkspaceOnWorkspacePage` để dò tìm nút chọn tài khoản cá nhân ("Personal account", "Tài khoản cá nhân"...) tương ứng với mọi cài đặt ngôn ngữ hiển thị của ChatGPT, đảm bảo luôn tự động chọn đúng Personal account khi gặp màn hình phân chia Workspace.
+
 ## [0.3.51] - 2026-05-24 19:43:00
 
 ### 🚀 Tự động Giải phóng Cổng và Bản vá Tương thích Camofox Browser

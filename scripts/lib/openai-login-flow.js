@@ -105,6 +105,18 @@ export const MULTILANG = {
     'seleccionar organización',
     'chọn tổ chức',
   ],
+  personal: [
+    'personal account', 'personal',
+    'persönliches konto', 'persönlich',
+    'compte personnel', 'personnel',
+    'cuenta personal',
+    'account personale', 'personale',
+    'conta pessoal', 'pessoal',
+    'tài khoản cá nhân', 'cá nhân',
+    'lichnyy akkaunt', 'личný аккаунт', 'личный',
+    '個人用アカウント', '個人用', '個人',
+    '个人帐户', '个人'
+  ],
   // Generic error UI
   somethingWrong: [
     'something went wrong', 'try again',
@@ -192,10 +204,20 @@ export async function getState(tabId, userId) {
       const ORG_KW = ${JSON.stringify(MULTILANG.organization)};
 
       // ── Cookie banner ──
-      const hasCookieBanner = !!(
-        document.querySelector('[aria-label*="cookie" i], [id*="cookie" i], [class*="cookie" i]') ||
-        COOKIE_KW.some(k => body.includes(k))
-      );
+      const hasCookieBanner = (() => {
+        const isVisible = el => {
+          if (!el) return false;
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+        };
+        return !!Array.from(document.querySelectorAll('button, [role="button"], a'))
+          .filter(isVisible)
+          .find(el => {
+            const t = (el.innerText || el.textContent || '').toLowerCase().trim();
+            return COOKIE_KW.some(k => t === k || t.includes(k));
+          });
+      })();
 
       // ── Phone verify ──
       const hasPhoneScreen = isAddPhonePage || PHONE_KW.some(k => body.includes(k));
@@ -410,15 +432,27 @@ export async function fillMfa(tabId, userId, otp) {
 export async function tryAcceptCookies(tabId, userId) {
   return evalJson(tabId, userId, `
     (() => {
-      const isVisible = el => { if (!el) return false; const s = window.getComputedStyle(el); const r = el.getBoundingClientRect(); return s.display !== 'none' && r.width > 0; };
+      const isVisible = el => {
+        if (!el) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      };
       const KW = ${JSON.stringify(MULTILANG.acceptCookie)};
-      const btn = Array.from(document.querySelectorAll('button'))
+      const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
         .filter(isVisible)
         .find(el => {
           const t = (el.innerText || el.textContent || '').toLowerCase().trim();
           return KW.some(k => t === k || t.includes(k));
         });
-      if (btn) btn.click();
+      if (btn) {
+        btn.click();
+        try {
+          btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        } catch (_) {}
+      }
       return !!btn;
     })()
   `, 3000);
@@ -658,12 +692,13 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
       (() => {
         const buttons = document.querySelectorAll('button, [role="button"], a');
         let personalBtn = null;
+        const personalKeywords = ${JSON.stringify(MULTILANG.personal)};
 
         // Strategy 1: Find button containing "personal account" text
         for (const el of buttons) {
           if (el.offsetParent === null) continue;
           const text = (el.textContent || '').toLowerCase();
-          if (text.includes('personal account') || text.includes('personal')) {
+          if (personalKeywords.some(k => text.includes(k))) {
             personalBtn = el;
             break;
           }
@@ -682,7 +717,7 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
             const spans = el.querySelectorAll('span');
             for (const span of spans) {
               const spanText = (span.textContent || '').toLowerCase();
-              if (spanText.includes('personal')) {
+              if (personalKeywords.some(k => spanText.includes(k))) {
                 personalBtn = el;
                 break;
               }
