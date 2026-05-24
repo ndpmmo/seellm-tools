@@ -317,6 +317,18 @@ export const vault = {
       }
     }
 
+    // [TIMESTAMP SYNC GUARD]
+    // Nếu skipSync=true (từ pullVault/mirror) và local record tồn tại và có data.updated_at:
+    // Chỉ cập nhật nếu remote mới hơn local (hơn 1000ms để tránh lệch miliseconds/clock skew nhỏ).
+    if (skipSync && existing && data.updated_at && existing.updated_at) {
+      const localTime = new Date(existing.updated_at).getTime();
+      const remoteTime = new Date(data.updated_at).getTime();
+      if (localTime > remoteTime + 1000) {
+        console.log(`[upsertAccount] 🛡️ Skip remote overwrite for ${data.email || id}: local is newer (${existing.updated_at} > ${data.updated_at})`);
+        return existing;
+      }
+    }
+
     // Mapping D1 schema `last_error` to Tools schema `notes`
     let rawNotes = data.notes !== undefined ? data.notes :
       (data.last_error !== undefined ? data.last_error :
@@ -417,6 +429,28 @@ export const vault = {
       if (typeof val === 'object') return val;
       try { return JSON.parse(val); } catch (e) { return []; }
     };
+    const mergeCookies = (oldCookies, newCookies) => {
+      const parsedOld = parseJSON(oldCookies);
+      const parsedNew = parseJSON(newCookies);
+      
+      if (!Array.isArray(parsedOld) || parsedOld.length === 0) return parsedNew;
+      if (!Array.isArray(parsedNew) || parsedNew.length === 0) return parsedOld;
+
+      const cookieMap = new Map();
+      for (const c of parsedOld) {
+        if (c && c.name) {
+          const key = `${c.domain || ''}:${c.name}`;
+          cookieMap.set(key, c);
+        }
+      }
+      for (const c of parsedNew) {
+        if (c && c.name) {
+          const key = `${c.domain || ''}:${c.name}`;
+          cookieMap.set(key, c);
+        }
+      }
+      return Array.from(cookieMap.values());
+    };
     const parseJSONObject = (val) => {
       if (!val) return null;
       if (typeof val === 'object' && !Array.isArray(val)) return val;
@@ -470,9 +504,13 @@ export const vault = {
       password: data.password !== undefined ? data.password : (existing ? existing.password : null),
       two_fa_secret: data.two_fa_secret !== undefined ? data.two_fa_secret : (existing ? existing.two_fa_secret : null),
       proxy_url: data.proxy_url !== undefined ? data.proxy_url : (existing ? existing.proxy_url : null),
-      cookies: JSON.stringify(parseJSON(data.cookies || (existing ? existing.cookies : '[]'))),
-      access_token: data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null),
-      refresh_token: data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null),
+      cookies: JSON.stringify(mergeCookies(existing?.cookies, data.cookies)),
+      access_token: (skipSync && existing?.access_token && !data.access_token)
+        ? existing.access_token
+        : (data.access_token !== undefined ? data.access_token : (existing ? existing.access_token : null)),
+      refresh_token: (skipSync && existing?.refresh_token && !data.refresh_token)
+        ? existing.refresh_token
+        : (data.refresh_token !== undefined ? data.refresh_token : (existing ? existing.refresh_token : null)),
       workspace_id: workspaceId,
       device_id: deviceId,
       machine_id: machineId,

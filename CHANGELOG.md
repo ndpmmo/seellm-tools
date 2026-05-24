@@ -2,6 +2,38 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.59] - 2026-05-24 22:20:00
+
+### 🔄 Đồng Bộ Realtime Trước Khi Kiểm Tra Session & Đảm Bảo An Toàn Token
+
+**Thay đổi:**
+- **Triển khai cơ chế Pull D1 trước khi chạy Check Session (`server/routes/vault.js`)**:
+  - Khi người dùng click nút "Check Session" trên giao diện, route handler `POST /api/vault/accounts/:id/check-session` sẽ chủ động trigger `SyncManager.pullVault()` để kéo ngay các cập nhật mới nhất từ D1 về local SQLite trước khi spawn tiến trình kiểm tra.
+  - Đảm bảo nếu Gateway vừa thực hiện Refresh Token thành công và đẩy lên D1, phía Tools sẽ ngay lập tức nhận được `access_token` và `refresh_token` mới nhất, giúp quy trình Fast Check qua API diễn ra chính xác mà không gặp tình trạng lệch token hay cache cũ.
+  - Phục vụ việc đồng bộ hoàn hảo, liền mạch và thông minh giữa hai hệ thống Gateway & Tools.
+
+## [0.3.58] - 2026-05-24 21:15:00
+
+### ⚡ Tích Hợp Kiểm Tra Trực Tiếp Trạng Thái Phiên Qua API (Fast Check)
+
+**Thay đổi:**
+- **Tích hợp Fast API Check dùng `curl_cffi` (`scripts/check-session.js`)**:
+  - Khi bắt đầu kiểm tra session (`check-session.js`), nếu phát hiện tài khoản đã có `access_token` hợp lệ trong DB, hệ thống sẽ thực hiện một truy vấn API siêu nhẹ (Fast Check) trực tiếp tới endpoint `/backend-api/models` của OpenAI qua Proxy bằng `curl_cffi` (giả lập TLS vân tay Chrome).
+  - Nếu kết quả trả về thành công (HTTP 200 OK), tài khoản được xác nhận là đang hoạt động (`ready`). Hệ thống lập tức cập nhật DB và hoàn tất mà **không cần khởi động trình duyệt Camofox**.
+  - Rút ngắn thời gian kiểm tra xuống còn **~1-2 giây** thay vì 15-20 giây, giảm tải CPU/RAM gần như bằng 0.
+  - Nếu Access Token hết hạn, hệ thống tự động fallback sang cơ chế khởi động Camofox để làm mới session qua Cookies như cũ.
+
+## [0.3.57] - 2026-05-24 20:55:00
+
+### 🚀 Sửa Lỗi Lệch Token (Token Mismatch) Do Cloud Sync Overwrite
+
+**Thay đổi:**
+- **Thêm cơ chế kiểm tra Timestamp bảo vệ dữ liệu local (`server/db/vault.js`)**:
+  - Triển khai `[TIMESTAMP SYNC GUARD]` trong hàm `upsertAccount` khi chạy ở chế độ `skipSync=true` (đồng bộ nền từ D1).
+  - So sánh `existing.updated_at` (local) và `data.updated_at` (remote). Nếu dữ liệu local mới hơn remote (hơn 1000ms), hệ thống sẽ bỏ qua việc ghi đè để bảo vệ các thông tin credentials (tokens, cookies, provider_specific_data) mới nhất vừa được Worker cập nhật sau khi deploy/connect thành công.
+- **Thêm cơ chế Fallback bảo vệ Token**:
+  - Trong quá trình sync, nếu dữ liệu remote trả về `access_token` hoặc `refresh_token` trống/null nhưng cơ sở dữ liệu local đang nắm giữ token hợp lệ, hệ thống sẽ tự động giữ lại token cũ thay vì xóa sạch hoặc ghi đè bằng giá trị rỗng, loại bỏ triệt để hiện tượng "re-login" loop.
+
 ## [0.3.56] - 2026-05-24 20:35:00
 
 ### 🚀 Sửa Lỗi Khởi Tạo Tab với Scheme Bị Chặn Trong Check Session

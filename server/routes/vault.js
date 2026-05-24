@@ -2879,6 +2879,36 @@ router.post('/accounts/:id/check-session', async (req, res) => {
   try {
     const { id } = req.params;
     
+    // 🔄 Tự động đồng bộ nhanh từ D1 về local trước khi check để đảm bảo nhận được token mới nhất nếu Gateway vừa refresh
+    try {
+      const cfg = loadConfig();
+      if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+        const CURSOR_FILE = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+        let cursor = '1970-01-01T00:00:00.000Z';
+        try {
+          if (fs.existsSync(CURSOR_FILE)) {
+            const parsed = JSON.parse(fs.readFileSync(CURSOR_FILE, 'utf-8'));
+            if (parsed.cursor) cursor = parsed.cursor;
+          }
+        } catch (_) {}
+        
+        console.log(`[CheckSessionRoute] 🔄 Pulling latest changes from D1 (current cursor: ${cursor})`);
+        const pullResult = await SyncManager.pullVault(cursor);
+        if (pullResult && pullResult.cursor > cursor) {
+          console.log(`[CheckSessionRoute] ✅ Found new updates from D1 (new cursor: ${pullResult.cursor}). Saving to local DB...`);
+          pullResult.accounts.forEach(a => vault.upsertAccount(a, true));
+          pullResult.proxies.forEach(p => vault.upsertProxy(p, true));
+          pullResult.keys.forEach(k => vault.upsertApiKey(k, true));
+          
+          try {
+            fs.writeFileSync(CURSOR_FILE, JSON.stringify({ cursor: pullResult.cursor, savedAt: new Date().toISOString() }));
+          } catch (_) {}
+        }
+      }
+    } catch (syncErr) {
+      console.warn(`[CheckSessionRoute] ⚠️ Không thể đồng bộ nhanh từ D1:`, syncErr.message);
+    }
+
     const account = vault.getAccount(id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     
