@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.49] - 2026-05-24 18:52:00
+
+### 🚀 Cập nhật Ngôn ngữ Tiếng Anh Độc nhất cho Tiến trình Warmup Tài khoản
+
+**Thay đổi:**
+- **Chuyển đổi toàn bộ câu hỏi Warmup sang Tiếng Anh**:
+  - Cập nhật module tạo câu hỏi `scripts/lib/warmup-prompts.js` để buộc sử dụng các gói dữ liệu tiếng Anh (`TOPICS`, `PERSONAS`, `FORMATS`) cho tiến trình nuôi tài khoản.
+  - Loại bỏ việc sinh ngẫu nhiên câu hỏi tiếng Việt nhằm tăng tính đồng nhất và tối ưu hóa hiệu quả tương tác giả lập trong các môi trường quốc tế.
+
 ## [0.3.48] - 2026-05-24 18:35:00
 
 ### 🚀 Khắc Phục Lỗi Nhận Diện Sai Màn Hình OpenAI & Tự Động Đóng Hộp Thoại Giới Thiệu (Onboarding Modals)

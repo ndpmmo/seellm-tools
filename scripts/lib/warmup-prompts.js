@@ -186,8 +186,8 @@ export function generateWarmupPrompts(count = 3) {
   const usedTopics = new Set();
   
   for (let i = 0; i < count; i++) {
-    // 50% chance of Vietnamese vs English prompts for extreme natural behavior diversity
-    const isVi = Math.random() < 0.4;
+    // Force English prompts for warmup
+    const isVi = false;
     
     const activeTopics = isVi ? TOPICS_VI : TOPICS;
     const activePersonas = isVi ? PERSONAS_VI : PERSONAS;
