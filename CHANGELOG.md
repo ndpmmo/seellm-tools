@@ -18,14 +18,17 @@
 - **Thiết lập API quản lý lưu trữ cục bộ (`server/routes/profiles.js`)**:
   - `GET /api/profiles/storage/info`: Quét toàn bộ thư mục `~/.camofox/profiles`, tính toán dung lượng đĩa thực tế của từng thư mục, hash SHA256 ID tài khoản để đối chiếu và phát hiện các thư mục mồ côi (orphaned/trash profiles).
   - `DELETE /api/profiles/storage/:folderName`: Hỗ trợ xóa vĩnh viễn thư mục profile cụ thể ra khỏi đĩa để giải phóng dung lượng thủ công.
-  - `POST /api/profiles/storage/cleanup`: Kích hoạt tiến trình dọn dẹp thông minh (Smart Housekeeping) để tự động xóa sạch các thư mục profile mồ côi hoặc của tài khoản đã chết (dead).
+  - `POST /api/profiles/storage/cleanup`: Hỗ trợ dọn dẹp thông minh (Smart Housekeeping) linh hoạt với các tham số nâng cao (`cleanOrphans`, `cleanDead`, `cleanInactive`, `minAgeHours`) giúp bảo vệ các profile mới tương tác.
+  - `POST /api/profiles/storage/bulk-delete`: Cho phép xóa hàng loạt (Bulk Delete) nhiều thư mục profile được chọn cùng lúc để tối ưu thao tác quản trị.
   - `POST /api/profiles/storage/toggle-persistence`: Lưu trữ cài đặt tắt/bật persistent profile của người dùng.
-- **Giao diện quản lý dung lượng cao cấp (`SettingsView.tsx`)**:
+- **Giao diện quản lý dung lượng cao cấp nâng cao (`SettingsView.tsx`)**:
   - Bổ sung switch-toggle **Lưu trữ Trình duyệt (Persistent Profiles)** trực quan trong thẻ *Worker Config*.
-  - Tích hợp module **Quản lý Dung lượng Profiles (Camoufox)** dạng Card kính mờ (glassmorphism) hiển thị:
+  - Tích hợp module **Quản lý Dung lượng Profiles (Camoufox)** dạng Card kính mờ (glassmorphism) thế hệ mới hiển thị:
     - Tổng quan dung lượng đĩa sử dụng, số lượng thư mục profile hiện có và số thư mục mồ côi.
-    - Bảng chi tiết toàn bộ thư mục profile thực tế (ánh xạ tài khoản, kích thước, trạng thái hoạt động/mồ côi/dead, ngày cập nhật cuối) cùng nút **Xóa đĩa** riêng lẻ.
-    - Tích hợp nút tác vụ **Quét lại** và **Dọn dẹp rác (Housekeeping)** nhanh chóng.
+    - **Thanh tác vụ Bulk Actions động**: Tự động hiển thị khi người dùng tích chọn một hoặc nhiều thư mục qua Checkbox để thực hiện **Xóa vĩnh viễn hàng loạt** hoặc **Bỏ chọn tất cả**.
+    - **Bộ lọc & Tìm kiếm Thời gian Thực**: Hỗ trợ tìm kiếm theo Email/Hash ID thư mục, lọc nhanh theo trạng thái: *Tất cả*, *Chỉ mồ côi (rác)*, *Đang hoạt động*, *Đã chết*, hoặc *Deactivated* kèm số lượng đếm tức thời.
+    - **Bảng Chi tiết Tương tác**: Cho phép tích chọn Checkbox từng dòng hoặc Checkbox tổng ở Header để chọn tất cả danh sách đang hiển thị, hỗ trợ xem thông tin trạng thái, kích thước đĩa và ngày cập nhật cuối.
+    - **Bảng Cấu hình Dọn dẹp nâng cao**: Collapsible panel cho phép tùy chọn chi tiết các điều kiện dọn dẹp (xóa mồ côi, xóa dead, xóa inactive) và cấu hình **Khoảng thời gian bảo an (giờ)** nhằm bảo vệ an toàn cho các profile vừa hoạt động gần đây.
 - **package.json**:
   - Nâng phiên bản của Tools lên `0.3.62`.
 

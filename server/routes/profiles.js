@@ -485,8 +485,15 @@ router.post('/storage/toggle-persistence', (req, res) => {
   }
 });
 
-/** Run Smart Housekeeping instantly */
+/** Run Smart Housekeeping instantly with customized options */
 router.post('/storage/cleanup', (req, res) => {
+  const {
+    cleanOrphans = true,
+    cleanDead = true,
+    cleanInactive = true,
+    minAgeHours = 0
+  } = req.body;
+
   try {
     const profilesDir = getProfilesDir();
     if (!fs.existsSync(profilesDir)) {
@@ -529,6 +536,7 @@ router.post('/storage/cleanup', (req, res) => {
 
     let cleanedCount = 0;
     let recoveredBytes = 0;
+    const now = Date.now();
 
     for (const dirName of subdirs) {
       // Only clean folder names that look like sha256 hashes
@@ -536,12 +544,22 @@ router.post('/storage/cleanup', (req, res) => {
 
       const fullPath = path.join(profilesDir, dirName);
       let sizeBytes = 0;
+      let mtimeMs = 0;
       try {
         const stat = fs.statSync(fullPath);
         if (!stat.isDirectory()) continue;
         sizeBytes = getDirSize(fullPath);
+        mtimeMs = stat.mtimeMs;
       } catch (e) {
         continue;
+      }
+
+      // Check minAgeHours guard
+      if (minAgeHours > 0) {
+        const ageHours = (now - mtimeMs) / (1000 * 60 * 60);
+        if (ageHours < minAgeHours) {
+          continue; // Skip because it is too young
+        }
       }
 
       const matched = hashMap.get(dirName);
@@ -549,14 +567,23 @@ router.post('/storage/cleanup', (req, res) => {
       let reason = '';
 
       if (!matched) {
-        shouldDelete = true;
-        reason = 'Orphaned';
+        if (cleanOrphans) {
+          shouldDelete = true;
+          reason = 'Orphaned';
+        }
       } else if (matched.deletedAt) {
         shouldDelete = true;
         reason = 'Account deleted';
-      } else if (matched.status === 'dead' || !matched.isActive) {
-        shouldDelete = true;
-        reason = 'Account is dead/inactive';
+      } else if (matched.status === 'dead') {
+        if (cleanDead) {
+          shouldDelete = true;
+          reason = 'Account is dead';
+        }
+      } else if (!matched.isActive || matched.status === 'inactive') {
+        if (cleanInactive) {
+          shouldDelete = true;
+          reason = 'Account is inactive';
+        }
       }
 
       if (shouldDelete) {
@@ -576,8 +603,46 @@ router.post('/storage/cleanup', (req, res) => {
       action: 'smart_housekeeping',
       entity: 'storage',
       entityLabel: 'Smart Housekeeping Cleanup',
-      details: { cleanedCount, recoveredBytes },
+      details: { cleanedCount, recoveredBytes, cleanOrphans, cleanDead, cleanInactive, minAgeHours },
       severity: 'success',
+      source: 'ui',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Delete multiple physical profile folders at once */
+router.post('/storage/bulk-delete', (req, res) => {
+  const { folderNames } = req.body;
+  if (!Array.isArray(folderNames)) {
+    return res.status(400).json({ error: 'folderNames must be an array of strings' });
+  }
+
+  const profilesDir = getProfilesDir();
+  let deletedCount = 0;
+  let recoveredBytes = 0;
+
+  try {
+    for (const folderName of folderNames) {
+      if (!folderName || !/^[a-zA-Z0-9_\-]+$/.test(folderName)) continue;
+      const targetDir = path.join(profilesDir, folderName);
+      if (fs.existsSync(targetDir)) {
+        let sizeBytes = getDirSize(targetDir);
+        fs.rmSync(targetDir, { recursive: true, force: true });
+        deletedCount++;
+        recoveredBytes += sizeBytes;
+      }
+    }
+
+    res.json({ ok: true, deletedCount, recoveredBytes });
+
+    logAudit({
+      action: 'bulk_delete_storage_profiles',
+      entity: 'storage',
+      entityLabel: 'Bulk Delete Storage Profiles',
+      details: { deletedCount, recoveredBytes, folderNames },
+      severity: 'warning',
       source: 'ui',
     });
   } catch (err) {

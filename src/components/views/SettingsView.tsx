@@ -2,7 +2,11 @@
 import React, { useEffect, useState } from 'react';
 import { useApp, AppConfig } from '../AppContext';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
-import { Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, HardDrive, Trash2, RefreshCw } from 'lucide-react';
+import { 
+  Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, 
+  HardDrive, Trash2, RefreshCw, Filter, Search, ChevronDown, ChevronUp, 
+  SlidersHorizontal, AlertTriangle, Trash, CheckSquare, Square 
+} from 'lucide-react';
 
 const DATA_DIRS = [
   ['data/screenshots/', '📸 Ảnh chụp màn hình từ các phiên login'],
@@ -62,6 +66,17 @@ export function SettingsView() {
   const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
   const [profilesExpanded, setProfilesExpanded] = useState(false);
 
+  // Advanced Filtering, Search & Bulk Actions states
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'orphaned' | 'active' | 'dead' | 'inactive'>('all');
+  const [showAdvancedCleanup, setShowAdvancedCleanup] = useState(false);
+  const [cleanOrphans, setCleanOrphans] = useState(true);
+  const [cleanDead, setCleanDead] = useState(true);
+  const [cleanInactive, setCleanInactive] = useState(false);
+  const [minAgeHours, setMinAgeHours] = useState(0);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   useEffect(() => { if (config) setF(config); }, [config]);
 
   const fetchStorageInfo = async () => {
@@ -90,10 +105,20 @@ export function SettingsView() {
   const runCleanup = async () => {
     setCleaning(true);
     try {
-      const res = await fetch('/api/profiles/storage/cleanup', { method: 'POST' });
+      const res = await fetch('/api/profiles/storage/cleanup', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cleanOrphans,
+          cleanDead,
+          cleanInactive,
+          minAgeHours
+        })
+      });
       const data = await res.json();
       if (data.ok) {
-        addToast(`🧹 Đã dọn dẹp xong! Đã xóa ${data.cleanedCount} profiles rác và giải phóng ${formatBytes(data.recoveredBytes)}`, 'success');
+        addToast(`🧹 Đã dọn dẹp xong! Đã xóa ${data.cleanedCount} profiles và giải phóng ${formatBytes(data.recoveredBytes)}`, 'success');
+        setSelectedFolders(new Set());
         fetchStorageInfo();
       } else {
         addToast(`Lỗi dọn dẹp: ${data.error}`, 'error');
@@ -115,6 +140,11 @@ export function SettingsView() {
       const data = await res.json();
       if (data.ok) {
         addToast('🗑️ Đã xóa profile khỏi đĩa cứng!', 'success');
+        setSelectedFolders(prev => {
+          const next = new Set(prev);
+          next.delete(folderName);
+          return next;
+        });
         fetchStorageInfo();
       } else {
         addToast(`Lỗi: ${data.error}`, 'error');
@@ -123,6 +153,73 @@ export function SettingsView() {
       addToast(`Lỗi kết nối: ${e.message}`, 'error');
     } finally {
       setDeletingFolder(null);
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (selectedFolders.size === 0) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn ${selectedFolders.size} profile đã chọn khỏi đĩa cứng không? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setBulkDeleting(true);
+    try {
+      const res = await fetch('/api/profiles/storage/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderNames: Array.from(selectedFolders)
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        addToast(`🗑️ Đã xóa thành công ${data.deletedCount} profile và giải phóng ${formatBytes(data.recoveredBytes)}!`, 'success');
+        setSelectedFolders(new Set());
+        fetchStorageInfo();
+      } else {
+        addToast(`Lỗi xóa: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelectFolder = (folderName: string) => {
+    setSelectedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderName)) {
+        next.delete(folderName);
+      } else {
+        next.add(folderName);
+      }
+      return next;
+    });
+  };
+
+  const filteredProfiles = storageInfo?.profiles.filter(p => {
+    // 1. Filter by Search Query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchEmail = p.email ? p.email.toLowerCase().includes(query) : false;
+      const matchFolder = p.folderName.toLowerCase().includes(query);
+      if (!matchEmail && !matchFolder) return false;
+    }
+    // 2. Filter by Status
+    if (filterStatus !== 'all') {
+      if (filterStatus === 'orphaned' && !p.isOrphaned) return false;
+      if (filterStatus === 'active' && p.status !== 'active') return false;
+      if (filterStatus === 'dead' && p.status !== 'dead') return false;
+      if (filterStatus === 'inactive' && p.status !== 'inactive') return false;
+    }
+    return true;
+  }) || [];
+
+  const toggleSelectAll = () => {
+    if (selectedFolders.size === filteredProfiles.length && filteredProfiles.length > 0) {
+      setSelectedFolders(new Set());
+    } else {
+      setSelectedFolders(new Set(filteredProfiles.map(p => p.folderName)));
     }
   };
 
@@ -309,74 +406,243 @@ export function SettingsView() {
         </Card>
 
         {/* 🦊 Camoufox Profile & Storage Management Section */}
-        <Card className="col-span-1 lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-white/5">
+        <Card className="col-span-1 lg:col-span-2 overflow-hidden border border-white/10 shadow-xl bg-slate-900/40 backdrop-blur-md">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/5 bg-white/[0.01]">
             <CardTitle className="flex items-center gap-2">
-              <HardDrive size={16} className="text-indigo-400" />
-              <span>Quản lý Dung lượng Profiles (Camoufox)</span>
+              <HardDrive size={18} className="text-indigo-400 animate-pulse" />
+              <span className="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent font-extrabold tracking-tight">
+                Quản lý Dung lượng Profiles (Camoufox)
+              </span>
             </CardTitle>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={fetchStorageInfo}
                 disabled={loadingStorage}
-                className="flex items-center gap-1.5 text-xs text-slate-300 border-white/10 bg-white/5 hover:bg-white/10"
+                className="flex items-center gap-1.5 text-xs text-slate-300 border-white/10 bg-white/5 hover:bg-white/10 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 <RefreshCw size={12} className={loadingStorage ? 'animate-spin' : ''} />
                 Quét lại
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowAdvancedCleanup(!showAdvancedCleanup)}
+                className={`flex items-center gap-1.5 text-xs transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                  showAdvancedCleanup
+                    ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/35'
+                    : 'text-slate-300 border-white/10 bg-white/5 hover:bg-white/10'
+                }`}
+              >
+                <SlidersHorizontal size={12} />
+                Cấu hình Dọn dẹp
+                {showAdvancedCleanup ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </Button>
               <Button
                 variant="primary"
                 size="sm"
                 onClick={runCleanup}
                 disabled={cleaning}
-                className="flex items-center gap-1.5 text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
+                className="flex items-center gap-1.5 text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 shadow-lg shadow-red-500/5 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 <Trash2 size={12} className={cleaning ? 'animate-spin' : ''} />
-                Dọn dẹp rác (Housekeeping)
+                Chạy dọn dẹp ngay
               </Button>
             </div>
           </CardHeader>
 
           <CardContent className="pt-4 flex flex-col gap-4">
+            {/* Advanced Housekeeping Options Form */}
+            {showAdvancedCleanup && (
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-4 animate-fadeIn transition-all">
+                <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs uppercase tracking-wider">
+                  <SlidersHorizontal size={14} />
+                  <span>Cấu hình tiến trình dọn dẹp (Smart Housekeeping)</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <label className="flex items-start gap-2.5 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={cleanOrphans}
+                      onChange={e => setCleanOrphans(e.target.checked)}
+                      className="mt-0.5 rounded border-white/20 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-semibold text-slate-300">Xóa thư mục mồ côi</span>
+                      <span className="text-[10px] text-slate-500 leading-relaxed">Xóa các thư mục profile rác không khớp với tài khoản nào trong hệ thống.</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={cleanDead}
+                      onChange={e => setCleanDead(e.target.checked)}
+                      className="mt-0.5 rounded border-white/20 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-semibold text-slate-300">Xóa profile của tài khoản đã chết</span>
+                      <span className="text-[10px] text-slate-500 leading-relaxed">Tự động xóa đĩa cứng profile của tài khoản được xác nhận đã chết (dead).</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={cleanInactive}
+                      onChange={e => setCleanInactive(e.target.checked)}
+                      className="mt-0.5 rounded border-white/20 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-semibold text-slate-300">Xóa cả profile ngưng hoạt động</span>
+                      <span className="text-[10px] text-slate-500 leading-relaxed">Xóa các profile của tài khoản Deactivated hoặc không active.</span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-indigo-500/[0.02] border border-indigo-500/10 rounded-lg">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[12px] font-semibold text-indigo-300">Thời gian bỏ qua an toàn (giờ)</span>
+                    <span className="text-[10.5px] text-slate-400 leading-relaxed">
+                      Giữ lại các thư mục profile mới được ghi đè hoặc tạo mới trong vòng X giờ để tránh ảnh hưởng tới phiên làm việc đang chạy.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={minAgeHours}
+                      onChange={e => setMinAgeHours(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-20 font-mono text-center text-xs !py-1.5"
+                    />
+                    <span className="text-xs text-slate-400">giờ qua</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Storage Sizing Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Tổng dung lượng đĩa</span>
+              <div className="px-4 py-3 bg-gradient-to-br from-indigo-500/[0.03] to-purple-500/[0.03] rounded-xl border border-white/5 flex flex-col gap-1 shadow-inner">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Tổng dung lượng đĩa</span>
                 <span className="text-2xl font-bold font-mono text-indigo-400">
                   {storageInfo ? formatBytes(storageInfo.totalSizeBytes) : '...'}
                 </span>
               </div>
-              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Số lượng thư mục</span>
+              <div className="px-4 py-3 bg-gradient-to-br from-cyan-500/[0.03] to-teal-500/[0.03] rounded-xl border border-white/5 flex flex-col gap-1 shadow-inner">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Số lượng thư mục</span>
                 <span className="text-2xl font-bold font-mono text-cyan-400">
                   {storageInfo ? storageInfo.folderCount : '...'}
                 </span>
               </div>
-              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Thư mục mồ côi (rác)</span>
+              <div className="px-4 py-3 bg-gradient-to-br from-rose-500/[0.03] to-red-500/[0.03] rounded-xl border border-white/5 flex flex-col gap-1 shadow-inner">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Thư mục mồ côi (rác)</span>
                 <span className="text-2xl font-bold font-mono text-rose-400">
                   {storageInfo ? storageInfo.profiles.filter(p => p.isOrphaned).length : '...'}
                 </span>
               </div>
             </div>
 
-            <div className="border border-white/5 rounded-lg overflow-hidden bg-white/[0.01]">
-              <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/5">
-                <span className="text-[11.5px] font-semibold text-slate-300">Danh sách Thư mục Trình duyệt vật lý</span>
-                <button
-                  onClick={() => setProfilesExpanded(!profilesExpanded)}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-                >
-                  {profilesExpanded ? 'Thu gọn' : 'Hiển thị chi tiết'}
-                </button>
+            {/* List and Actions Table Panel */}
+            <div className="border border-white/5 rounded-xl overflow-hidden bg-white/[0.01]">
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 px-4 py-3 bg-white/[0.02] border-b border-white/5">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[12px] font-bold text-slate-300">Danh sách Thư mục Trình duyệt vật lý</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+                    {filteredProfiles.length} thư mục
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Search bar */}
+                  <div className="relative w-full sm:w-48 shrink-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={12} />
+                    <input
+                      type="text"
+                      placeholder="Tìm email, hash folder..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1 bg-white/5 border border-white/10 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder-slate-500"
+                    />
+                  </div>
+
+                  {/* Filter Dropdown */}
+                  <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 shrink-0">
+                    <Filter size={11} className="text-indigo-400" />
+                    <select
+                      value={filterStatus}
+                      onChange={e => setFilterStatus(e.target.value as any)}
+                      className="bg-transparent text-xs text-slate-300 border-none outline-none focus:ring-0 pr-6 py-0 cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-900 text-slate-300">Tất cả trạng thái</option>
+                      <option value="orphaned" className="bg-slate-900 text-rose-400">Chỉ Thư mục Mồ côi</option>
+                      <option value="active" className="bg-slate-900 text-emerald-400">Chỉ Hoạt động (Active)</option>
+                      <option value="dead" className="bg-slate-900 text-rose-400">Chỉ Đã chết (Dead)</option>
+                      <option value="inactive" className="bg-slate-900 text-amber-400">Chỉ Deactivated</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setProfilesExpanded(!profilesExpanded)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium ml-2"
+                  >
+                    {profilesExpanded ? 'Thu gọn' : 'Hiển thị danh sách'}
+                  </button>
+                </div>
               </div>
 
+              {/* Dynamic Bulk Action Bar */}
+              {selectedFolders.size > 0 && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 border-b border-indigo-500/20 text-xs animate-slideDown">
+                  <div className="flex items-center gap-2">
+                    <CheckSquare size={13} className="text-indigo-400" />
+                    <span className="text-slate-300">
+                      Đang chọn <strong className="text-indigo-300 font-mono">{selectedFolders.size}</strong> profile
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedFolders(new Set())}
+                      className="!text-[11px] !px-2.5 !py-1 text-slate-400 border border-white/10 hover:bg-white/5"
+                    >
+                      Bỏ chọn tất cả
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={runBulkDelete}
+                      disabled={bulkDeleting}
+                      className="!text-[11px] !px-2.5 !py-1 bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/35 flex items-center gap-1"
+                    >
+                      <Trash size={11} className={bulkDeleting ? 'animate-spin' : ''} />
+                      {bulkDeleting ? 'Đang xóa các mục...' : 'Xóa vĩnh viễn các thư mục đã chọn'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {profilesExpanded && (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-white/[0.02] border-b border-white/5 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
+                      <tr className="bg-white/[0.02] border-b border-white/5 text-[10px] text-slate-400 uppercase tracking-wider font-mono select-none">
+                        <th className="px-4 py-3 font-semibold w-8 text-center">
+                          <input
+                            type="checkbox"
+                            checked={filteredProfiles.length > 0 && selectedFolders.size === filteredProfiles.length}
+                            ref={el => {
+                              if (el) {
+                                el.indeterminate = selectedFolders.size > 0 && selectedFolders.size < filteredProfiles.length;
+                              }
+                            }}
+                            onChange={toggleSelectAll}
+                            className="rounded border-white/20 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </th>
                         <th className="px-4 py-3 font-semibold">Tài khoản / ID thư mục</th>
                         <th className="px-4 py-3 font-semibold">Dung lượng</th>
                         <th className="px-4 py-3 font-semibold">Trạng thái</th>
@@ -387,64 +653,85 @@ export function SettingsView() {
                     <tbody className="divide-y divide-white/5 text-xs text-slate-300">
                       {loadingStorage ? (
                         <tr>
-                          <td colSpan={5} className="text-center py-8 text-slate-500">
-                            Đang quét thư mục profile...
+                          <td colSpan={6} className="text-center py-10 text-slate-500">
+                            <div className="flex flex-col items-center gap-2">
+                              <RefreshCw size={20} className="animate-spin text-indigo-400" />
+                              <span>Đang quét sâu và đo kích thước thư mục profile...</span>
+                            </div>
                           </td>
                         </tr>
-                      ) : !storageInfo || storageInfo.profiles.length === 0 ? (
+                      ) : filteredProfiles.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="text-center py-8 text-slate-500">
-                            Chưa có profile trình duyệt nào được lưu trữ trên đĩa.
+                          <td colSpan={6} className="text-center py-10 text-slate-500 italic">
+                            Không tìm thấy thư mục profile nào khớp với bộ lọc hiện tại.
                           </td>
                         </tr>
                       ) : (
-                        storageInfo.profiles.map(p => (
-                          <tr key={p.folderName} className="hover:bg-white/[0.02] transition-colors">
-                            <td className="px-4 py-3 max-w-[280px]">
-                              {p.email ? (
-                                <div className="font-semibold text-slate-200 truncate" title={p.email}>
-                                  {p.email}
+                        filteredProfiles.map(p => {
+                          const isSelected = selectedFolders.has(p.folderName);
+                          return (
+                            <tr
+                              key={p.folderName}
+                              onClick={() => toggleSelectFolder(p.folderName)}
+                              className={`hover:bg-white/[0.03] transition-colors cursor-pointer select-none ${
+                                isSelected ? 'bg-indigo-500/5 hover:bg-indigo-500/8' : ''
+                              }`}
+                            >
+                              <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelectFolder(p.folderName)}
+                                  className="rounded border-white/20 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-4 py-3 max-w-[280px]">
+                                {p.email ? (
+                                  <div className="font-semibold text-slate-200 truncate" title={p.email}>
+                                    {p.email}
+                                  </div>
+                                ) : (
+                                  <div className="text-rose-400/80 italic font-semibold flex items-center gap-1">
+                                    <AlertTriangle size={11} className="text-rose-400 shrink-0" />
+                                    [Mồ côi] Profile rác
+                                  </div>
+                                )}
+                                <div className="text-[10px] font-mono text-slate-500 truncate mt-0.5" title={p.folderName}>
+                                  {p.folderName}
                                 </div>
-                              ) : (
-                                <div className="text-rose-400/80 italic truncate">
-                                  [Mồ côi] Profile rác
-                                </div>
-                              )}
-                              <div className="text-[10px] font-mono text-slate-500 truncate mt-0.5" title={p.folderName}>
-                                {p.folderName}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 font-mono font-medium">{formatBytes(p.sizeBytes)}</td>
-                            <td className="px-4 py-3">
-                              {p.status === 'active' && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Hoạt động</span>
-                              )}
-                              {p.status === 'dead' && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Đã Chết</span>
-                              )}
-                              {p.status === 'inactive' && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Deactivated</span>
-                              )}
-                              {p.status === 'orphaned' && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">Mồ Côi (Rác)</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-[11px] text-slate-400">
-                              {new Date(p.updatedAt).toLocaleString('vi-VN')}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deleteFolder(p.folderName)}
-                                disabled={deletingFolder === p.folderName}
-                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 !px-2.5 !py-1 text-xs"
-                              >
-                                {deletingFolder === p.folderName ? 'Đang xóa...' : 'Xóa đĩa'}
-                              </Button>
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                              <td className="px-4 py-3 font-mono font-medium">{formatBytes(p.sizeBytes)}</td>
+                              <td className="px-4 py-3">
+                                {p.status === 'active' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Hoạt động</span>
+                                )}
+                                {p.status === 'dead' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Đã Chết</span>
+                                )}
+                                {p.status === 'inactive' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Deactivated</span>
+                                )}
+                                {p.status === 'orphaned' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Mồ Côi (Rác)</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-[11px] text-slate-400">
+                                {new Date(p.updatedAt).toLocaleString('vi-VN')}
+                              </td>
+                              <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => deleteFolder(p.folderName)}
+                                  disabled={deletingFolder === p.folderName}
+                                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 !px-2.5 !py-1 text-xs transition-all hover:scale-105"
+                                >
+                                  {deletingFolder === p.folderName ? 'Đang xóa...' : 'Xóa đĩa'}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
