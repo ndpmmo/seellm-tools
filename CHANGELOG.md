@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.56] - 2026-05-24 20:35:00
+
+### 🚀 Sửa Lỗi Khởi Tạo Tab với Scheme Bị Chặn Trong Check Session
+
+**Thay đổi:**
+- **Thay thế scheme khởi tạo tab (`scripts/check-session.js`)**: Thay đổi URL khởi tạo tab từ `about:blank` thành `https://example.com/`. Điều này giải quyết lỗi `Blocked URL scheme: about: (only http/https allowed)` xảy ra khi Camofox chặn các URL scheme không thuộc giao thức http/https, giúp quy trình kiểm tra session chạy trơn tru.
+
 ## [0.3.55] - 2026-05-24 20:30:00
 
 ### 🚀 Tự Động Thu Thập Session Data & Bảo Vệ Refresh Token Khi Đăng Nhập/Đăng Ký
