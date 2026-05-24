@@ -1857,6 +1857,33 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
 
     let accountId = null;
+    let sessionData = null;
+    let deviceId = '';
+    try {
+      console.log(`[Capture] 🔄 Lấy session metadata từ /api/auth/session...`);
+      const sessionRes = await evalJson(tabId, USER_ID, `
+        (async () => {
+          try {
+            const r = await fetch('https://chatgpt.com/api/auth/session', {
+              credentials: 'include',
+              headers: { 'Accept': 'application/json' },
+            });
+            return r.ok ? r.json() : null;
+          } catch (e) {
+            return null;
+          }
+        })()
+      `);
+      if (sessionRes && typeof sessionRes === 'object') {
+        sessionData = sessionRes;
+        deviceId = tokens.find(c => c.name === 'oai-did')?.value || '';
+        console.log(`[Capture] 👤 Lấy session thành công (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${sessionData?.account?.planType || 'n/a'})`);
+      } else {
+        console.log(`[Capture] ⚠️ Không lấy được session data (định dạng rỗng hoặc null)`);
+      }
+    } catch (err) {
+      console.warn(`[Capture] ⚠️ Lỗi khi gọi /api/auth/session: ${err.message}`);
+    }
 
     // Lưu vào kho account (status=idle, chờ Deploy - KHÔNG phải sẽ được deploy ngay)
     const accRes = await fetch(`http://localhost:4000/api/vault/accounts`, {
@@ -1879,7 +1906,14 @@ export async function runAutoRegister(taskInput) {
           ...(codexRefreshToken ? ['codex-oauth'] : []),
           ...(oauthError ? ['oauth-failed'] : [])
         ]),
-        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${phoneBypassAttempted ? ` | Phone Verify: ${phoneBypassSuccess ? 'Bypass OK' : 'Bypass Failed'}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''}${oauthError ? ` | OAuth Error: ${oauthError}` : ''} | Tạo: ${new Date().toISOString()}`
+        notes: `[Auto-Register] Email Pool: ${email} | MS Pass: ${emailPassword} | ChatGPT Pass: ${chatGptPassword}${twoFaSecret ? ` | 2FA: ${twoFaSecret}` : ''}${phoneBypassAttempted ? ` | Phone Verify: ${phoneBypassSuccess ? 'Bypass OK' : 'Bypass Failed'}` : ''}${codexRefreshToken ? ` | Codex RT: ${codexRefreshToken.slice(0, 30)}...` : ''}${oauthError ? ` | OAuth Error: ${oauthError}` : ''} | Tạo: ${new Date().toISOString()}`,
+        plan: sessionData?.account?.planType || 'free',
+        workspace_id: sessionData?.account?.id || null,
+        device_id: deviceId || null,
+        providerSpecificData: {
+          sessionData,
+          chatgptUserId: sessionData?.user?.id || null,
+        }
       }),
     });
     const accData = await accRes.json();

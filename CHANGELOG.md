@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.55] - 2026-05-24 20:30:00
+
+### 🚀 Tự Động Thu Thập Session Data & Bảo Vệ Refresh Token Khi Đăng Nhập/Đăng Ký
+
+**Thay đổi:**
+- **Tự động trích xuất Session Metadata từ `/api/auth/session`**:
+  - Cập nhật `scripts/auto-worker.js` để tự động fetch `/api/auth/session` ngay sau khi đăng nhập thành công (cho cả hai luồng PKCE token exchange và Session Fallback).
+  - Cập nhật `scripts/auto-register-worker.js` để tự động fetch `/api/auth/session` ngay sau khi đăng ký tài khoản thành công và điền đầy đủ thông tin metadata trước khi gửi POST lên server.
+- **Cải tiến Route Xử lý Kết quả (Server-side)**:
+  - Cập nhật `/accounts/connect-result` và `/accounts/result` (cả 2 nhánh PKCE và Direct Token) trong `server/routes/vault.js` để hợp nhất và lưu trữ `sessionData` trực tiếp vào `provider_specific_data`, đồng thời tự động cập nhật các trường cột như `plan`, `workspace_id`, `device_id`.
+  - **Bảo vệ an toàn refresh token**: Đảm bảo trong mọi tình huống cập nhật hoặc kiểm tra session, nếu không lấy được token mới, hệ thống sẽ tự động fallback giữ nguyên giá trị `refresh_token` cũ trong cơ sở dữ liệu để tránh bị mất quyền truy cập lâu dài.
+
 ## [0.3.54] - 2026-05-24 20:15:00
 
 ### 🚀 Tối Ưu Hóa Persistence Warmup & Tính Năng Kiểm Tra Trạng Thái Live/Dead Không Cần Login

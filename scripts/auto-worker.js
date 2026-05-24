@@ -2053,12 +2053,26 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
         deviceId = cookies.find(c => c.name === 'oai-did')?.value || cachedDeviceId;
       } catch (_) {}
       console.log(`[Capture] 🍪 sessionToken=${sessionToken ? 'found' : 'missing'} deviceId=${deviceId ? deviceId.slice(0, 8) + '...' : 'missing'}`);
+
+      let sessionData = null;
+      try {
+        console.log(`[Capture] 🔄 Lấy session metadata từ /api/auth/session...`);
+        const sessionRes = await fetchSessionInPage(tabId, userId);
+        if (sessionRes?.ok && sessionRes.body) {
+          sessionData = JSON.parse(sessionRes.body);
+          console.log(`[Capture] 👤 Lấy session thành công (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${sessionData?.account?.planType || 'n/a'})`);
+        }
+      } catch (err) {
+        console.warn(`[Capture] ⚠️ Không lấy được session data: ${err.message}`);
+      }
+
       console.log(`[Timing] capture.pkce_success_total=${elapsedMs()}ms`);
       return sendResult(task, 'success', 'OAuth PKCE login + token exchange thành công', null, {
         ...tokenData, accessToken, refreshToken, idToken, sessionToken, deviceId, expiresIn,
         accountId: meta.accountId, userId: meta.userId, organizationId: meta.organizationId,
         planType: meta.planType, expiredAt: meta.expiredAt, email: meta.email || email,
         cookies,
+        sessionData,
       });
     } catch (exchangeErr) {
       console.error(`[Capture] ❌ Token exchange lỗi: ${exchangeErr.message}`);
@@ -2074,6 +2088,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   await new Promise(r => setTimeout(r, 2000));
   await recorder.checkpoint(2, 2, 'session_fallback_chatgpt_loaded');
   let accessToken = '';
+  let sessionData = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attempt === 2) {
       console.log(`[Capture] 🔄 Session fallback: reload chatgpt.com (attempt ${attempt + 1})...`);
@@ -2085,7 +2100,15 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     console.log(`[Capture] 🔄 Session fallback: fetching /api/auth/session (attempt ${attempt + 1}/5)...`);
     const sessionRes = await fetchSessionInPage(tabId, userId);
     if (sessionRes?.ok && sessionRes.body?.length > 10) {
-      try { const d = JSON.parse(sessionRes.body); accessToken = d?.accessToken || ''; if (accessToken) { console.log(`[Capture] ✅ Session fallback: accessToken found (attempt ${attempt + 1})`); break; } } catch (_) {}
+      try {
+        const d = JSON.parse(sessionRes.body);
+        accessToken = d?.accessToken || '';
+        if (accessToken) {
+          sessionData = d;
+          console.log(`[Capture] ✅ Session fallback: accessToken found (attempt ${attempt + 1})`);
+          break;
+        }
+      } catch (_) {}
     } else {
       console.log(`[Capture] ⚠️ Session fallback attempt ${attempt + 1}: ok=${sessionRes?.ok} bodyLen=${sessionRes?.body?.length || 0}`);
     }
@@ -2113,6 +2136,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     sessionToken, deviceId, accountId: meta.accountId, userId: meta.userId,
     organizationId: meta.organizationId, planType: meta.planType, email: meta.email || email,
     cookies,
+    sessionData,
   });
 }
 

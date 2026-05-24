@@ -1105,14 +1105,21 @@ router.post('/accounts/result', async (req, res) => {
           existingProviderData = localAccount.provider_specific_data;
         }
         const providerSpecificData = mergeCodexProviderData(existingProviderData, {
-          workspaceId: accessMeta?.accountId || tokenMeta?.workspaceId || null,
-          workspacePlanType: accessMeta?.planType || tokenMeta?.workspacePlanType || null,
-          chatgptUserId: tokenMeta?.chatgptUserId || null,
+          workspaceId: accessMeta?.accountId || tokenMeta?.workspaceId || result?.sessionData?.account?.id || null,
+          workspacePlanType: accessMeta?.planType || tokenMeta?.workspacePlanType || result?.sessionData?.account?.planType || null,
+          chatgptUserId: tokenMeta?.chatgptUserId || result?.sessionData?.user?.id || null,
           organizations: tokenMeta?.organizations || null,
           machineId,
           deviceId: buildStableDeviceId(existingProviderData, targetId),
           proxyUrl: localAccount?.proxy_url || null,
         });
+
+        if (result?.sessionData) {
+          providerSpecificData.sessionData = result.sessionData;
+          if (result.sessionData.user?.id) providerSpecificData.chatgptUserId = result.sessionData.user.id;
+          if (result.sessionData.account?.id) providerSpecificData.workspaceId = result.sessionData.account.id;
+          if (result.sessionData.account?.planType) providerSpecificData.workspacePlanType = result.sessionData.account.planType;
+        }
 
         const tags = safeParseTags(localAccount?.tags);
         const hasWorkspace = !!req.body.hasWorkspace;
@@ -1129,11 +1136,11 @@ router.post('/accounts/result', async (req, res) => {
           id: targetId,
           status: 'ready',
           notes: '',
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
+          access_token: tokens.access_token || localAccount?.access_token || undefined,
+          refresh_token: tokens.refresh_token || localAccount?.refresh_token || undefined,
           email: targetEmail || undefined,
-          plan: accessMeta?.planType || tokenMeta?.workspacePlanType || null,
-          workspace_id: accessMeta?.accountId || tokenMeta?.workspaceId || null,
+          plan: accessMeta?.planType || tokenMeta?.workspacePlanType || result?.sessionData?.account?.planType || null,
+          workspace_id: accessMeta?.accountId || tokenMeta?.workspaceId || result?.sessionData?.account?.id || null,
           device_id: providerSpecificData?.deviceId || null,
           machine_id: providerSpecificData?.machineId || machineId,
           provider_specific_data: providerSpecificData,
@@ -1233,6 +1240,20 @@ router.post('/accounts/result', async (req, res) => {
     } else if (status === 'success') {
       // ─── Path 2: Direct tokens (cookie-based / no-code) ──────────────────
       const localAccount = vault.getAccountFull(id);
+      let existingProviderData = null;
+      try { existingProviderData = localAccount?.provider_specific_data ? JSON.parse(localAccount.provider_specific_data) : null; } catch (_) { }
+
+      const providerSpecificData = {
+        ...(existingProviderData || {}),
+      };
+      if (result?.sessionData) {
+        providerSpecificData.sessionData = result.sessionData;
+        if (result.sessionData.user?.id) providerSpecificData.chatgptUserId = result.sessionData.user.id;
+        if (result.sessionData.account?.id) providerSpecificData.workspaceId = result.sessionData.account.id;
+        if (result.sessionData.account?.planType) providerSpecificData.workspacePlanType = result.sessionData.account.planType;
+      }
+      if (result?.deviceId) providerSpecificData.deviceId = result.deviceId;
+
       const tags = safeParseTags(localAccount?.tags);
       const hasWorkspace = !!req.body.hasWorkspace;
       let finalTags = tags;
@@ -1248,11 +1269,15 @@ router.post('/accounts/result', async (req, res) => {
         id,
         status: 'ready',
         notes: message || '',
-        access_token: result?.access_token,
-        refresh_token: result?.refresh_token,
+        access_token: result?.access_token || localAccount?.access_token || undefined,
+        refresh_token: result?.refresh_token || localAccount?.refresh_token || undefined,
         cookies: result?.cookies,
         machine_id: getConsistentMachineId(),
         tags: finalTags,
+        provider_specific_data: providerSpecificData,
+        plan: result?.sessionData?.account?.planType || localAccount?.plan || undefined,
+        workspace_id: result?.sessionData?.account?.id || localAccount?.workspace_id || undefined,
+        device_id: result?.deviceId || providerSpecificData.deviceId || localAccount?.device_id || undefined,
       });
       removeNeedPhoneTag(id);
       pkceStore.delete(id);
@@ -1551,14 +1576,21 @@ router.post('/accounts/connect-result', async (req, res) => {
       try { existingProviderData = localAccount?.provider_specific_data ? JSON.parse(localAccount.provider_specific_data) : null; } catch (_) { }
 
       const providerSpecificData = mergeCodexProviderData(existingProviderData, {
-        workspaceId: tokens.accountId || tokens.organizationId || null, // 🔥 Fix: Dùng accountId (chatgpt_account_id) thay vì orgId
-        workspacePlanType: tokens.planType || 'free',
-        chatgptUserId: tokens.userId || null,
+        workspaceId: tokens.accountId || tokens.organizationId || tokens.sessionData?.account?.id || null,
+        workspacePlanType: tokens.planType || tokens.sessionData?.account?.planType || 'free',
+        chatgptUserId: tokens.userId || tokens.sessionData?.user?.id || null,
         organizations: null,
         machineId,
-        deviceId: tokens.deviceId || buildStableDeviceId(existingProviderData, id), // 🔥 Fix: Ưu tiên deviceId từ worker
+        deviceId: tokens.deviceId || buildStableDeviceId(existingProviderData, id),
         proxyUrl: localAccount?.proxy_url || null,
       });
+
+      if (tokens.sessionData) {
+        providerSpecificData.sessionData = tokens.sessionData;
+        if (tokens.sessionData.user?.id) providerSpecificData.chatgptUserId = tokens.sessionData.user.id;
+        if (tokens.sessionData.account?.id) providerSpecificData.workspaceId = tokens.sessionData.account.id;
+        if (tokens.sessionData.account?.planType) providerSpecificData.workspacePlanType = tokens.sessionData.account.planType;
+      }
 
       const hasRefreshToken = !!(tokens.refresh_token || tokens.refreshToken);
       const isFallbackOnly = !hasRefreshToken; // session fallback — chỉ có access_token
@@ -1580,8 +1612,8 @@ router.post('/accounts/connect-result', async (req, res) => {
         status: 'ready',
         ever_ready: 1,
         notes: '',
-        access_token: tokens.access_token || tokens.accessToken,
-        refresh_token: tokens.refresh_token || tokens.refreshToken || '',
+        access_token: tokens.access_token || tokens.accessToken || localAccount?.access_token,
+        refresh_token: tokens.refresh_token || tokens.refreshToken || localAccount?.refresh_token || '',
         email: tokens.email || localAccount?.email || '',
         plan: tokens.planType || null,
         workspace_id: tokens.accountId || tokens.organizationId || null,
