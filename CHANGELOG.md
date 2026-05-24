@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.51] - 2026-05-24 19:43:00
+
+### 🚀 Tự động Giải phóng Cổng và Bản vá Tương thích Camofox Browser
+
+**Thay đổi:**
+- **Giải quyết lỗi Xung đột Cổng khi chạy Warmup**:
+  - Phát triển module `killProcessOnPort` (`lib/port-killer.js` trong thư mục cài đặt Camofox) giúp dò tìm và cưỡng chế tắt bất kỳ tiến trình cũ nào đang chiếm dụng cổng `PORT` (mặc định là `9377`) trước khi khởi động server, loại bỏ hoàn toàn lỗi kẹt cổng `EADDRINUSE`.
+  - Tích hợp gọi module này ngay từ giai đoạn tải cấu hình ban đầu trong `server.js` của `camofox-browser`.
+- **Tạo Bản vá Backup & Tài liệu hướng dẫn**:
+  - Tạo tệp tin `patch_camofox_port_killer.patch` tại thư mục gốc của `seellm-tools` làm bản sao lưu và hỗ trợ khôi phục tự động thông qua `git apply` khi cài lại/nâng cấp Camofox.
+  - Cập nhật hướng dẫn vá cổng và khắc phục xung đột chi tiết trong tài liệu custom Camofox (`docs/camofox-custom.md` hiển thị tại giao diện `?view=camofox-docs`).
+
 ## [0.3.50] - 2026-05-24 18:58:00
 
 ### 🚀 Tính Năng Tự Động Warmup Hàng Loạt (Auto Warmup)
