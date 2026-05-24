@@ -22,6 +22,7 @@ const defaults = {
   workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
   protocolFirst: true, // default true — đã có curl transport + Datadog headers để impersonate Chrome
   warmupScreenshots: true,
+  usePersistentProfiles: true,
 };
 
 export function loadConfig() {
@@ -53,4 +54,6 @@ export const PROTOCOL_FIRST = process.env.PROTOCOL_FIRST !== undefined ? process
 /** Locale string truyền cho camofox khi bật forceEnLocale */
 export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;
 export const WARMUP_SCREENSHOTS = config.warmupScreenshots !== false; // default true
+export const USE_PERSISTENT_PROFILES = config.usePersistentProfiles !== false; // default true
+
 

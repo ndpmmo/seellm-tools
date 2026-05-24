@@ -5,7 +5,42 @@
  * Consolidated from auto-login, auto-connect, and auto-register.
  */
 
-import { CAMOUFOX_API, FORCE_LOCALE_STR, WORKER_AUTH_TOKEN } from '../config.js';
+import { CAMOUFOX_API, FORCE_LOCALE_STR, WORKER_AUTH_TOKEN, GATEWAY_URL, USE_PERSISTENT_PROFILES } from '../config.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import os from 'node:os';
+
+function getSha256(str) {
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
+
+/**
+ * Fetches the global usePersistentProfiles settings from local configuration
+ * @returns {Promise<boolean>}
+ */
+export async function getGlobalUsePersistent() {
+  return USE_PERSISTENT_PROFILES;
+}
+
+/**
+ * Checks if a physical profile directory exists on the disk for a given userId
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function checkProfileExists(userId) {
+  if (!userId) return false;
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir() || '';
+    const profilesDir = process.env.CAMOFOX_PROFILE_DIR || path.join(homeDir, '.camofox', 'profiles');
+    const hash = getSha256(userId);
+    const targetDir = path.join(profilesDir, hash);
+    const stat = await fs.stat(targetDir);
+    return stat.isDirectory();
+  } catch (e) {
+    return false;
+  }
+}
 
 /**
  * Helper to fetch with retry for resilient local Camoufox server communication.

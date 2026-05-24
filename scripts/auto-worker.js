@@ -17,7 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, POLL_INTERVAL_MS, MAX_THREADS, WORKER_MODE } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, camofoxGoto, evalJson, navigate, pressKey, tripleClick, checkCamofoxReady } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, camofoxGoto, evalJson, navigate, pressKey, tripleClick, checkCamofoxReady, checkProfileExists, getGlobalUsePersistent } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -683,10 +683,11 @@ async function runConnectFlow(task) {
     }
 
     const LOGIN_URL = 'https://chatgpt.com/auth/login';
-    console.log(`[Connect] [1] Mở ${LOGIN_URL}...`);
+    const usePersistent = task.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
+    console.log(`[Connect] [1] Mở ${LOGIN_URL}... (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
     const opened = await camofoxPost('/tabs', {
       userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: LOGIN_URL,
-      proxy: effectiveProxy || undefined, persistent: false, os: 'macos',
+      proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
       screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
     }, { timeoutMs: 25000 });
     tabId = opened.tabId;
@@ -2183,10 +2184,11 @@ async function runLoginFlow(task) {
     }
 
     const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
-    console.log(`[Login] [1] Mở URL: ${loginUrl}`);
+    const usePersistent = account.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
+    console.log(`[Login] [1] Mở URL: ${loginUrl} (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
     const { tabId: tid, userAgent } = await camofoxPost('/tabs', {
       userId: USER_ID, sessionKey: SESSION_KEY, url: loginUrl,
-      proxy: effectiveProxy || undefined, persistent: false, os: 'macos',
+      proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
       screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
     });
     tabId = tid;

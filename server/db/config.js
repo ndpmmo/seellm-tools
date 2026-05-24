@@ -21,6 +21,7 @@ export function loadConfig() {
     workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
     protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
     warmupScreenshots: true,
+    usePersistentProfiles: true,
   };
   try {
     if (existsSync(CONFIG_PATH)) {

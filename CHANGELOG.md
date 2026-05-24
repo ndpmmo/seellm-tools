@@ -2,6 +2,35 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.62] - 2026-05-25 00:26:00
+
+### 🦊 Địa Phương Hóa Quản Lý Persistent Profiles & Dung Lượng Camoufox
+
+**Bối cảnh:** Trước đây cấu hình lưu trữ profile của Camoufox (`usePersistentProfiles`) và quy trình dọn dẹp các thư mục profile trên đĩa bị phụ thuộc một phần vào API từ `seellm-gateway`. Nhằm nâng cao tính tự trị, bảo mật dữ liệu cục bộ và loại bỏ hoàn toàn các request mạng không cần thiết, toàn bộ hạ tầng quản lý profile và lưu trữ này đã được địa phương hóa (localize) hoàn toàn trong `seellm-tools`.
+
+**Thay đổi:**
+- **Địa phương hóa Cấu hình (Localized Configuration)**:
+  - Tích hợp mặc định `usePersistentProfiles: true` vào hệ thống cấu hình cục bộ của Tools tại `server/db/config.js` và `scripts/config.js`.
+  - Export hằng số `USE_PERSISTENT_PROFILES` để các background workers tự động sử dụng mà không cần truy vấn Gateway API.
+  - Refactor helper `getGlobalUsePersistent()` tại `scripts/lib/camofox.js` để đọc trực tiếp từ cấu hình local.
+- **TypeScript Type Safety**:
+  - Bổ sung trường tùy chọn `usePersistentProfiles?: boolean` vào frontend interface `AppConfig` trong `src/components/AppContext.tsx` giúp biên dịch code an toàn kiểu dữ liệu tuyệt đối.
+- **Thiết lập API quản lý lưu trữ cục bộ (`server/routes/profiles.js`)**:
+  - `GET /api/profiles/storage/info`: Quét toàn bộ thư mục `~/.camofox/profiles`, tính toán dung lượng đĩa thực tế của từng thư mục, hash SHA256 ID tài khoản để đối chiếu và phát hiện các thư mục mồ côi (orphaned/trash profiles).
+  - `DELETE /api/profiles/storage/:folderName`: Hỗ trợ xóa vĩnh viễn thư mục profile cụ thể ra khỏi đĩa để giải phóng dung lượng thủ công.
+  - `POST /api/profiles/storage/cleanup`: Kích hoạt tiến trình dọn dẹp thông minh (Smart Housekeeping) để tự động xóa sạch các thư mục profile mồ côi hoặc của tài khoản đã chết (dead).
+  - `POST /api/profiles/storage/toggle-persistence`: Lưu trữ cài đặt tắt/bật persistent profile của người dùng.
+- **Giao diện quản lý dung lượng cao cấp (`SettingsView.tsx`)**:
+  - Bổ sung switch-toggle **Lưu trữ Trình duyệt (Persistent Profiles)** trực quan trong thẻ *Worker Config*.
+  - Tích hợp module **Quản lý Dung lượng Profiles (Camoufox)** dạng Card kính mờ (glassmorphism) hiển thị:
+    - Tổng quan dung lượng đĩa sử dụng, số lượng thư mục profile hiện có và số thư mục mồ côi.
+    - Bảng chi tiết toàn bộ thư mục profile thực tế (ánh xạ tài khoản, kích thước, trạng thái hoạt động/mồ côi/dead, ngày cập nhật cuối) cùng nút **Xóa đĩa** riêng lẻ.
+    - Tích hợp nút tác vụ **Quét lại** và **Dọn dẹp rác (Housekeeping)** nhanh chóng.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.62`.
+
+---
+
 ## [0.3.61] - 2026-05-24 23:44:00
 
 ### 🚀 Nâng Cấp Hạ Tầng Camofox Browser v1.8.15 → v1.11.2

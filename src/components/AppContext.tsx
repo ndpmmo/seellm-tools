@@ -57,6 +57,8 @@ export interface AppConfig {
   protocolFirst?: boolean;
   /** Bật chụp ảnh màn hình trong quá trình warmup (true = Bật, false = Tắt) */
   warmupScreenshots?: boolean;
+  /** Bật/tắt lưu giữ profile trình duyệt để tái sử dụng */
+  usePersistentProfiles?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

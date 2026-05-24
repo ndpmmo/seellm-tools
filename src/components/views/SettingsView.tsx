@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp, AppConfig } from '../AppContext';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
-import { Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, HardDrive, Trash2, RefreshCw } from 'lucide-react';
 
 const DATA_DIRS = [
   ['data/screenshots/', '📸 Ảnh chụp màn hình từ các phiên login'],
@@ -45,12 +45,93 @@ export function SettingsView() {
     forceEnLocale: true,
     workerMode: 'auto',
     protocolFirst: true,
+    usePersistentProfiles: true,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [modeChanged, setModeChanged] = useState(false);
 
+  // Profile Storage State
+  const [storageInfo, setStorageInfo] = useState<{
+    profiles: { folderName: string; sizeBytes: number; email: string | null; status: string; isOrphaned: boolean; updatedAt: string }[];
+    totalSizeBytes: number;
+    folderCount: number;
+  } | null>(null);
+  const [loadingStorage, setLoadingStorage] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
+  const [profilesExpanded, setProfilesExpanded] = useState(false);
+
   useEffect(() => { if (config) setF(config); }, [config]);
+
+  const fetchStorageInfo = async () => {
+    setLoadingStorage(true);
+    try {
+      const res = await fetch('/api/profiles/storage/info');
+      const data = await res.json();
+      if (data.ok) {
+        setStorageInfo({
+          profiles: data.profiles,
+          totalSizeBytes: data.totalSizeBytes,
+          folderCount: data.folderCount,
+        });
+      }
+    } catch (e) {
+      console.error('Failed to fetch profile storage info', e);
+    } finally {
+      setLoadingStorage(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStorageInfo();
+  }, []);
+
+  const runCleanup = async () => {
+    setCleaning(true);
+    try {
+      const res = await fetch('/api/profiles/storage/cleanup', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        addToast(`🧹 Đã dọn dẹp xong! Đã xóa ${data.cleanedCount} profiles rác và giải phóng ${formatBytes(data.recoveredBytes)}`, 'success');
+        fetchStorageInfo();
+      } else {
+        addToast(`Lỗi dọn dẹp: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối dọn dẹp: ${e.message}`, 'error');
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  const deleteFolder = async (folderName: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn profile "${folderName.substring(0, 10)}..." khỏi đĩa cứng không? Hành động này không thể hoàn tác.`)) {
+      return;
+    }
+    setDeletingFolder(folderName);
+    try {
+      const res = await fetch(`/api/profiles/storage/${folderName}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        addToast('🗑️ Đã xóa profile khỏi đĩa cứng!', 'success');
+        fetchStorageInfo();
+      } else {
+        addToast(`Lỗi: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+      setDeletingFolder(null);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const set = (k: keyof AppConfig, v: any) => {
     setF(p => ({ ...p, [k]: v }));
@@ -191,6 +272,26 @@ export function SettingsView() {
               {f.warmupScreenshots !== false ? 'BẬT — Chụp ảnh logs Warmup' : 'TẮT — Không chụp ảnh'}
             </button>
           </Field>
+          <Field
+            label="Lưu trữ Trình duyệt (Persistent Profiles)"
+            hint="Khi BẬT: Trình duyệt lưu giữ cookie, phiên đăng nhập và vân tay (fingerprint) để tái sử dụng. Khi TẮT: Trình duyệt mở ẩn danh tạm thời để tiết kiệm dung lượng đĩa."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('usePersistentProfiles', f.usePersistentProfiles !== false ? false : true)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.usePersistentProfiles !== false
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.usePersistentProfiles !== false ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.usePersistentProfiles !== false ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.usePersistentProfiles !== false ? 'BẬT — Lưu trữ Persistent Profiles' : 'TẮT — Dùng trình duyệt tạm thời'}
+            </button>
+          </Field>
         </Section>
 
         <Card>
@@ -207,7 +308,153 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        <div className="flex gap-3">
+        {/* 🦊 Camoufox Profile & Storage Management Section */}
+        <Card className="col-span-1 lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-white/5">
+            <CardTitle className="flex items-center gap-2">
+              <HardDrive size={16} className="text-indigo-400" />
+              <span>Quản lý Dung lượng Profiles (Camoufox)</span>
+            </CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={fetchStorageInfo}
+                disabled={loadingStorage}
+                className="flex items-center gap-1.5 text-xs text-slate-300 border-white/10 bg-white/5 hover:bg-white/10"
+              >
+                <RefreshCw size={12} className={loadingStorage ? 'animate-spin' : ''} />
+                Quét lại
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={runCleanup}
+                disabled={cleaning}
+                className="flex items-center gap-1.5 text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
+              >
+                <Trash2 size={12} className={cleaning ? 'animate-spin' : ''} />
+                Dọn dẹp rác (Housekeeping)
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="pt-4 flex flex-col gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Tổng dung lượng đĩa</span>
+                <span className="text-2xl font-bold font-mono text-indigo-400">
+                  {storageInfo ? formatBytes(storageInfo.totalSizeBytes) : '...'}
+                </span>
+              </div>
+              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Số lượng thư mục</span>
+                <span className="text-2xl font-bold font-mono text-cyan-400">
+                  {storageInfo ? storageInfo.folderCount : '...'}
+                </span>
+              </div>
+              <div className="px-4 py-3 bg-white/[0.02] rounded-lg border border-white/5 flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Thư mục mồ côi (rác)</span>
+                <span className="text-2xl font-bold font-mono text-rose-400">
+                  {storageInfo ? storageInfo.profiles.filter(p => p.isOrphaned).length : '...'}
+                </span>
+              </div>
+            </div>
+
+            <div className="border border-white/5 rounded-lg overflow-hidden bg-white/[0.01]">
+              <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/5">
+                <span className="text-[11.5px] font-semibold text-slate-300">Danh sách Thư mục Trình duyệt vật lý</span>
+                <button
+                  onClick={() => setProfilesExpanded(!profilesExpanded)}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  {profilesExpanded ? 'Thu gọn' : 'Hiển thị chi tiết'}
+                </button>
+              </div>
+
+              {profilesExpanded && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-white/[0.02] border-b border-white/5 text-[10px] text-slate-400 uppercase tracking-wider font-mono">
+                        <th className="px-4 py-3 font-semibold">Tài khoản / ID thư mục</th>
+                        <th className="px-4 py-3 font-semibold">Dung lượng</th>
+                        <th className="px-4 py-3 font-semibold">Trạng thái</th>
+                        <th className="px-4 py-3 font-semibold">Cập nhật lần cuối</th>
+                        <th className="px-4 py-3 font-semibold text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-xs text-slate-300">
+                      {loadingStorage ? (
+                        <tr>
+                          <td colSpan={5} className="text-center py-8 text-slate-500">
+                            Đang quét thư mục profile...
+                          </td>
+                        </tr>
+                      ) : !storageInfo || storageInfo.profiles.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="text-center py-8 text-slate-500">
+                            Chưa có profile trình duyệt nào được lưu trữ trên đĩa.
+                          </td>
+                        </tr>
+                      ) : (
+                        storageInfo.profiles.map(p => (
+                          <tr key={p.folderName} className="hover:bg-white/[0.02] transition-colors">
+                            <td className="px-4 py-3 max-w-[280px]">
+                              {p.email ? (
+                                <div className="font-semibold text-slate-200 truncate" title={p.email}>
+                                  {p.email}
+                                </div>
+                              ) : (
+                                <div className="text-rose-400/80 italic truncate">
+                                  [Mồ côi] Profile rác
+                                </div>
+                              )}
+                              <div className="text-[10px] font-mono text-slate-500 truncate mt-0.5" title={p.folderName}>
+                                {p.folderName}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 font-mono font-medium">{formatBytes(p.sizeBytes)}</td>
+                            <td className="px-4 py-3">
+                              {p.status === 'active' && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Hoạt động</span>
+                              )}
+                              {p.status === 'dead' && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Đã Chết</span>
+                              )}
+                              {p.status === 'inactive' && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Deactivated</span>
+                              )}
+                              {p.status === 'orphaned' && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">Mồ Côi (Rác)</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-[11px] text-slate-400">
+                              {new Date(p.updatedAt).toLocaleString('vi-VN')}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteFolder(p.folderName)}
+                                disabled={deletingFolder === p.folderName}
+                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 !px-2.5 !py-1 text-xs"
+                              >
+                                {deletingFolder === p.folderName ? 'Đang xóa...' : 'Xóa đĩa'}
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-3 col-span-1 lg:col-span-2 mt-2">
           <Button variant="primary" size="lg" onClick={save} disabled={saving} className="min-w-[140px]">
             {saving
               ? <><span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> Đang lưu...</>

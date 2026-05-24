@@ -1,6 +1,6 @@
 {
   "name": "seellm-tools",
-  "version": "0.3.61",
+  "version": "0.3.62",
   "description": "SeeLLM Development Tools",
   "private": true,
   "type": "module",
@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
     "next:dev": "next dev",
-    "lint": "eslint"
+    "lint": "eslint",
+    "housekeeping": "node scripts/housekeeping.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",

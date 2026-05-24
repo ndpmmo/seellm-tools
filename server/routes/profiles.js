@@ -7,7 +7,9 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import crypto from 'crypto';
 import { vault } from '../db/vault.js';
+import { loadConfig, saveConfig } from '../db/config.js';
 import {
   launchProfile, closeProfile, getProfileApiUrl, getProfileVncUrl, findAvailablePort
 } from '../profileManager.js';
@@ -304,6 +306,282 @@ router.get('/:id/storage-state', async (req, res) => {
     res.json({ ok: true, storageState: data });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─── Camofox Storage & Housekeeping Management ─────────────────────────────
+
+function getDirSize(dirPath) {
+  let size = 0;
+  try {
+    const files = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const file of files) {
+      const filePath = path.join(dirPath, file.name);
+      if (file.isDirectory()) {
+        size += getDirSize(filePath);
+      } else if (file.isFile()) {
+        const stats = fs.statSync(filePath);
+        size += stats.size;
+      }
+    }
+  } catch (e) {}
+  return size;
+}
+
+function getSha256(str) {
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
+
+function getProfilesDir() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir() || '';
+  return process.env.CAMOFOX_PROFILE_DIR || path.join(homeDir, '.camofox', 'profiles');
+}
+
+/** Get physical storage space info and list of profiles */
+router.get('/storage/info', (req, res) => {
+  try {
+    const profilesDir = getProfilesDir();
+    let subdirs = [];
+    if (fs.existsSync(profilesDir)) {
+      subdirs = fs.readdirSync(profilesDir);
+    }
+
+    // Load accounts from local database
+    let accounts = [];
+    try {
+      accounts = vault.db.prepare('SELECT id, email, status, is_active FROM vault_accounts').all();
+    } catch (e) {
+      // If table doesn't exist yet, handle gracefully
+    }
+
+    // Build hash mapping
+    const hashMap = new Map();
+    for (const acc of accounts) {
+      const email = acc.email || '';
+      const id = acc.id || '';
+      const status = acc.status || '';
+      const isActive = acc.is_active !== 0;
+
+      const variations = [
+        `seellm_connect_${id}`,
+        `register_${email}`,
+        `warmup_${id}`,
+        `seellm_${id}`,
+        `seellm_${email}`,
+        `seellm_worker_${id}`,
+        id,
+        email,
+      ];
+
+      for (const val of variations) {
+        if (val) {
+          hashMap.set(getSha256(val), { email, id, status, isActive });
+        }
+      }
+    }
+
+    let totalSizeBytes = 0;
+    const profilesList = [];
+
+    for (const dirName of subdirs) {
+      const fullPath = path.join(profilesDir, dirName);
+      let sizeBytes = 0;
+      let mtime = new Date();
+
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isDirectory()) continue;
+        sizeBytes = getDirSize(fullPath);
+        mtime = stat.mtime;
+      } catch (e) {
+        continue;
+      }
+
+      totalSizeBytes += sizeBytes;
+
+      const matched = hashMap.get(dirName);
+      profilesList.push({
+        folderName: dirName,
+        sizeBytes,
+        email: matched ? matched.email : null,
+        status: matched ? (matched.isActive ? matched.status : 'inactive') : 'orphaned',
+        isOrphaned: !matched,
+        updatedAt: mtime.toISOString(),
+      });
+    }
+
+    // Sort by size desc
+    profilesList.sort((a, b) => b.sizeBytes - a.sizeBytes);
+
+    const cfg = loadConfig();
+
+    res.json({
+      ok: true,
+      profiles: profilesList,
+      totalSizeBytes,
+      folderCount: profilesList.length,
+      usePersistentProfiles: cfg.usePersistentProfiles !== false,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Delete a specific physical profile folder */
+router.delete('/storage/:folderName', (req, res) => {
+  const { folderName } = req.params;
+  if (!folderName || !/^[a-zA-Z0-9_\-]+$/.test(folderName)) {
+    return res.status(400).json({ error: 'Invalid folder name' });
+  }
+
+  const profilesDir = getProfilesDir();
+  const targetDir = path.join(profilesDir, folderName);
+
+  if (!fs.existsSync(targetDir)) {
+    return res.status(404).json({ error: 'Folder not found' });
+  }
+
+  try {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    res.json({ ok: true, message: `Successfully deleted folder ${folderName}` });
+
+    logAudit({
+      action: 'delete_storage_profile',
+      entity: 'storage',
+      entityId: folderName,
+      entityLabel: `Physical Profile: ${folderName}`,
+      severity: 'warning',
+      source: 'ui',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Toggle persistent profiles setting locally */
+router.post('/storage/toggle-persistence', (req, res) => {
+  const { usePersistentProfiles } = req.body;
+  if (typeof usePersistentProfiles !== 'boolean') {
+    return res.status(400).json({ error: 'usePersistentProfiles must be a boolean' });
+  }
+
+  try {
+    const cfg = loadConfig();
+    cfg.usePersistentProfiles = usePersistentProfiles;
+    saveConfig(cfg);
+    res.json({ ok: true, usePersistentProfiles });
+
+    logAudit({
+      action: 'toggle_persistence',
+      entity: 'config',
+      entityId: 'usePersistentProfiles',
+      entityLabel: 'Persistent Profiles Toggle',
+      details: { usePersistentProfiles },
+      severity: 'info',
+      source: 'ui',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Run Smart Housekeeping instantly */
+router.post('/storage/cleanup', (req, res) => {
+  try {
+    const profilesDir = getProfilesDir();
+    if (!fs.existsSync(profilesDir)) {
+      return res.json({ ok: true, cleanedCount: 0, recoveredBytes: 0 });
+    }
+
+    const subdirs = fs.readdirSync(profilesDir);
+
+    // Load accounts from SQLite
+    let accounts = [];
+    try {
+      accounts = vault.db.prepare('SELECT id, email, status, is_active, deleted_at FROM vault_accounts').all();
+    } catch (e) {}
+
+    const hashMap = new Map();
+    for (const acc of accounts) {
+      const email = acc.email || '';
+      const id = acc.id || '';
+      const status = acc.status || '';
+      const isActive = acc.is_active !== 0;
+      const deletedAt = acc.deleted_at || null;
+
+      const variations = [
+        `seellm_connect_${id}`,
+        `register_${email}`,
+        `warmup_${id}`,
+        `seellm_${id}`,
+        `seellm_${email}`,
+        `seellm_worker_${id}`,
+        id,
+        email,
+      ];
+
+      for (const val of variations) {
+        if (val) {
+          hashMap.set(getSha256(val), { email, id, status, isActive, deletedAt });
+        }
+      }
+    }
+
+    let cleanedCount = 0;
+    let recoveredBytes = 0;
+
+    for (const dirName of subdirs) {
+      // Only clean folder names that look like sha256 hashes
+      if (!/^[a-f0-9]{64}$/i.test(dirName)) continue;
+
+      const fullPath = path.join(profilesDir, dirName);
+      let sizeBytes = 0;
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isDirectory()) continue;
+        sizeBytes = getDirSize(fullPath);
+      } catch (e) {
+        continue;
+      }
+
+      const matched = hashMap.get(dirName);
+      let shouldDelete = false;
+      let reason = '';
+
+      if (!matched) {
+        shouldDelete = true;
+        reason = 'Orphaned';
+      } else if (matched.deletedAt) {
+        shouldDelete = true;
+        reason = 'Account deleted';
+      } else if (matched.status === 'dead' || !matched.isActive) {
+        shouldDelete = true;
+        reason = 'Account is dead/inactive';
+      }
+
+      if (shouldDelete) {
+        try {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+          cleanedCount++;
+          recoveredBytes += sizeBytes;
+        } catch (err) {
+          console.error(`[Housekeeping] Failed to prune ${fullPath}:`, err.message);
+        }
+      }
+    }
+
+    res.json({ ok: true, cleanedCount, recoveredBytes });
+
+    logAudit({
+      action: 'smart_housekeeping',
+      entity: 'storage',
+      entityLabel: 'Smart Housekeeping Cleanup',
+      details: { cleanedCount, recoveredBytes },
+      severity: 'success',
+      source: 'ui',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

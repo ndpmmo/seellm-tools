@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey, checkProfileExists, getGlobalUsePersistent } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -672,7 +672,7 @@ export async function runAutoRegister(taskInput) {
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
   console.log(`==========================================`);
 
-  const USER_ID = `register_${Date.now()}`;
+  const USER_ID = `register_${email}`;
   console.log(`SESSION_ID: ${USER_ID}`); // Quan trọng để frontend link ảnh chụp
   const runDir = path.join(IMAGES_DIR, USER_ID);
   await fs.mkdir(runDir, { recursive: true }).catch(() => { });
@@ -768,11 +768,14 @@ export async function runAutoRegister(taskInput) {
 
     // 1. Khởi động - Đi từ trang login để tránh bị blank page
     console.log(`🚀 [Phase 1] Truy cập trang Login...`);
+    const usePersistent = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
+    console.log(`[Register] Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'}`);
     const tabRes = await camofoxPostWithSessionKey('/tabs', {
       userId: USER_ID,
       url: "https://chatgpt.com/auth/login",
       headless: false,
       humanize: true,
+      persistent: usePersistent,
       ...(proxyUrl ? { proxy: proxyUrl } : {})
     });
     console.log(proxyUrl ? `🔌 Dùng proxy: ${proxyUrl}` : '🌐 Không dùng proxy');
