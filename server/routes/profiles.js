@@ -369,13 +369,17 @@ router.get('/storage/info', (req, res) => {
         `seellm_${id}`,
         `seellm_${email}`,
         `seellm_worker_${id}`,
+        `profile-${id}`,
+        `profile-${email}`,
         id,
         email,
       ];
 
       for (const val of variations) {
         if (val) {
-          hashMap.set(getSha256(val), { email, id, status, isActive });
+          const hash64 = getSha256(val);
+          hashMap.set(hash64, { email, id, status, isActive });
+          hashMap.set(hash64.slice(0, 32), { email, id, status, isActive });
         }
       }
     }
@@ -523,13 +527,17 @@ router.post('/storage/cleanup', (req, res) => {
         `seellm_${id}`,
         `seellm_${email}`,
         `seellm_worker_${id}`,
+        `profile-${id}`,
+        `profile-${email}`,
         id,
         email,
       ];
 
       for (const val of variations) {
         if (val) {
-          hashMap.set(getSha256(val), { email, id, status, isActive, deletedAt });
+          const hash64 = getSha256(val);
+          hashMap.set(hash64, { email, id, status, isActive, deletedAt });
+          hashMap.set(hash64.slice(0, 32), { email, id, status, isActive, deletedAt });
         }
       }
     }
@@ -539,8 +547,8 @@ router.post('/storage/cleanup', (req, res) => {
     const now = Date.now();
 
     for (const dirName of subdirs) {
-      // Only clean folder names that look like sha256 hashes
-      if (!/^[a-f0-9]{64}$/i.test(dirName)) continue;
+      // Only clean folder names that look like sha256 or md5 hashes
+      if (!/^[a-f0-9]{32,64}$/i.test(dirName)) continue;
 
       const fullPath = path.join(profilesDir, dirName);
       let sizeBytes = 0;

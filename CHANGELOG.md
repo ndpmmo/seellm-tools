@@ -16,6 +16,7 @@
 - **TypeScript Type Safety**:
   - Bổ sung trường tùy chọn `usePersistentProfiles?: boolean` vào frontend interface `AppConfig` trong `src/components/AppContext.tsx` giúp biên dịch code an toàn kiểu dữ liệu tuyệt đối.
 - **Thiết lập API quản lý lưu trữ cục bộ (`server/routes/profiles.js`)**:
+  - **Sửa Lỗi Khớp Hash Thư Mục (Fix Hash Matching Bug)**: Khắc phục lỗi tất cả thư mục profile hiển thị là `Mồ côi (Rác)` và không thể dọn dẹp. Lý do là Playwright/Camoufox sử dụng thuật toán hash SHA256 và cắt lấy 32 ký tự đầu tiên (sliced to 32 chars) để tạo tên thư mục trên đĩa, trong khi hệ thống cũ so khớp chính xác 64 ký tự hash đầy đủ. Đã cập nhật để hỗ trợ so khớp cả định dạng hash 32 ký tự và 64 ký tự của các loại `userId` (bao gồm `profile-${id}`, `profile-${email}`, `seellm_connect_${id}`, `register_${email}`, v.v.).
   - `GET /api/profiles/storage/info`: Quét toàn bộ thư mục `~/.camofox/profiles`, tính toán dung lượng đĩa thực tế của từng thư mục, hash SHA256 ID tài khoản để đối chiếu và phát hiện các thư mục mồ côi (orphaned/trash profiles).
   - `DELETE /api/profiles/storage/:folderName`: Hỗ trợ xóa vĩnh viễn thư mục profile cụ thể ra khỏi đĩa để giải phóng dung lượng thủ công.
   - `POST /api/profiles/storage/cleanup`: Hỗ trợ dọn dẹp thông minh (Smart Housekeeping) linh hoạt với các tham số nâng cao (`cleanOrphans`, `cleanDead`, `cleanInactive`, `minAgeHours`) giúp bảo vệ các profile mới tương tác.
