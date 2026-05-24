@@ -223,6 +223,10 @@ export function VaultAccountsView() {
   const [bulkDeployOrder, setBulkDeployOrder] = useState<'sequential' | 'random'>('sequential');
   const [isBulkDeployingAuto, setIsBulkDeployingAuto] = useState(false);
 
+  const [isBulkWarmupFormOpen, setIsBulkWarmupFormOpen] = useState(false);
+  const [bulkWarmupFilter, setBulkWarmupFilter] = useState<'all_ready' | 'no_warmup_today' | 'no_warmup_24h' | 'no_warmup_3d' | 'no_warmup_7d' | 'never_warmed'>('no_warmup_today');
+  const [isBulkWarmingAuto, setIsBulkWarmingAuto] = useState(false);
+
   // Custom Advanced Filter States
   const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'workspace' | 'personal'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
@@ -517,6 +521,110 @@ export function VaultAccountsView() {
     setSelectedIds(new Set());
   };
 
+  const getAutoWarmupTargets = useCallback((filter: string) => {
+    return items.filter(it => {
+      const tags = safeParseTags(it.tags);
+      // Only ChatGPT / Codex accounts
+      if (!isOpenAI(it.provider)) return false;
+      // Only Ready accounts
+      if (it.status !== 'ready') return false;
+      // Must not be deactivated
+      if (tags.includes('account_deactivated')) return false;
+
+      const ps = it.provider_specific_data || {};
+      const lastWarmed = ps.lastWarmedAt;
+
+      // If pending, don't trigger it again
+      if (ps.warmupStatus === 'pending') return false;
+
+      if (filter === 'all_ready') return true;
+      if (filter === 'never_warmed') return !lastWarmed;
+
+      if (!lastWarmed) {
+        // If it has never been warmed up, it matches any "has not been warmed up in X" criteria
+        return true; 
+      }
+
+      const nowVN = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+      const warmedVN = new Date(new Date(lastWarmed).toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+
+      if (filter === 'no_warmup_today') {
+        // Compare calendar dates (Year, Month, Day) in VN timezone
+        return nowVN.toDateString() !== warmedVN.toDateString();
+      }
+
+      const diffMs = nowVN.getTime() - warmedVN.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+      if (filter === 'no_warmup_24h') {
+        return diffDays >= 1;
+      }
+      if (filter === 'no_warmup_3d') {
+        return diffDays >= 3;
+      }
+      if (filter === 'no_warmup_7d') {
+        return diffDays >= 7;
+      }
+
+      return false;
+    });
+  }, [items]);
+
+  const startAutoWarmup = async () => {
+    const targets = getAutoWarmupTargets(bulkWarmupFilter);
+    if (targets.length === 0) {
+      return addToast('Không tìm thấy tài khoản nào phù hợp với bộ lọc đã chọn', 'warning');
+    }
+
+    if (!await askConfirm(
+      'Tự Động Warmup', 
+      `Kích hoạt Warmup cho ${targets.length} tài khoản phù hợp với điều kiện đã chọn?`, 
+      { variant: 'info', confirmLabel: 'Bắt đầu' }
+    )) return;
+
+    setIsBulkWarmingAuto(true);
+    let success = 0;
+
+    for (const it of targets) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${it.id}/warmup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questionsCount: 0 })
+        });
+        const text = await r.text();
+        let d;
+        try {
+          d = JSON.parse(text);
+        } catch (err) {
+          throw new Error(`⚠️ Backend Server.js cần được khởi động lại.`);
+        }
+        if (!d.error) {
+          success++;
+          const psData = it.provider_specific_data || {};
+          patchAccountLocal(it.id, {
+            provider_specific_data: {
+              ...psData,
+              warmupStatus: 'pending',
+              lastWarmedAt: new Date().toISOString(),
+              warmupError: null
+            }
+          });
+        }
+      } catch (e: any) {
+        addToast(e.message, 'error');
+        break;
+      }
+    }
+
+    setIsBulkWarmingAuto(false);
+    if (success > 0) {
+      addToast(`🔥 Đã kích hoạt Warmup cho ${success}/${targets.length} tài khoản`, 'success');
+      setIsBulkWarmupFormOpen(false);
+      loadAccounts();
+    }
+  };
+
   const bulkDeleteSelected = async () => {
     if (!await askConfirm('Xóa Hàng Loạt', `Xác nhận XÓA ${selectedIds.size} tài khoản đã chọn khỏi Vault? Thao tác này không thể hoàn tác.`)) return;
     let success = 0;
@@ -796,7 +904,7 @@ export function VaultAccountsView() {
             <Button 
               size="sm"
               variant="secondary" 
-              onClick={() => { setIsAdvancedFilterOpen(!isAdvancedFilterOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsBulkDeployFormOpen(false); }} 
+              onClick={() => { setIsAdvancedFilterOpen(!isAdvancedFilterOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsBulkDeployFormOpen(false); setIsBulkWarmupFormOpen(false); }} 
               className={`h-7 px-2.5 border-white/10 ${isAdvancedFilterOpen ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'text-slate-400 hover:bg-white/5'}`}
             >
               <Filter size={12} className="mr-1.5" />
@@ -813,13 +921,16 @@ export function VaultAccountsView() {
           <Button variant="ghost" onClick={syncDeadTags} disabled={syncingDeadTags}>
             {syncingDeadTags ? <RefreshCw size={16} className="animate-spin" /> : <Tag size={16} />} {syncingDeadTags ? 'Đang đồng bộ...' : 'Sync Dead Tags'}
           </Button>
-          <Button variant="ghost" className="!text-emerald-400 hover:!bg-emerald-500/10" onClick={() => { setIsBulkDeployFormOpen(!isBulkDeployFormOpen); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsAdvancedFilterOpen(false); }}>
+          <Button variant="ghost" className="!text-emerald-400 hover:!bg-emerald-500/10" onClick={() => { setIsBulkDeployFormOpen(!isBulkDeployFormOpen); setIsBulkWarmupFormOpen(false); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsAdvancedFilterOpen(false); }}>
             {isBulkDeployFormOpen ? <X size={16} /> : <Bot size={16} />} Auto Deploy
           </Button>
-          <Button variant="ghost" onClick={() => { setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null })); setIsBulkDeployFormOpen(false); setIsAdvancedFilterOpen(false); }}>
+          <Button variant="ghost" className="!text-orange-400 hover:!bg-orange-500/10" onClick={() => { setIsBulkWarmupFormOpen(!isBulkWarmupFormOpen); setIsBulkDeployFormOpen(false); setUiState(s => ({ ...s, isBulk: false, isAdding: false })); setIsAdvancedFilterOpen(false); }}>
+            {isBulkWarmupFormOpen ? <X size={16} /> : <Flame size={16} />} Auto Warmup
+          </Button>
+          <Button variant="ghost" onClick={() => { setUiState(s => ({ ...s, isBulk: !s.isBulk, isAdding: false, editId: null })); setIsBulkDeployFormOpen(false); setIsBulkWarmupFormOpen(false); setIsAdvancedFilterOpen(false); }}>
             {uiState.isBulk ? <X size={16} /> : <FileUp size={16} />} Nhập hàng loạt
           </Button>
-          <Button variant="primary" onClick={() => { setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' })); setIsBulkDeployFormOpen(false); setIsAdvancedFilterOpen(false); }}>
+          <Button variant="primary" onClick={() => { setUiState(s => ({ ...s, isAdding: !s.isAdding, isBulk: false, editId: null, email: '', password: '', twoFaSecret: '', label: '' })); setIsBulkDeployFormOpen(false); setIsBulkWarmupFormOpen(false); setIsAdvancedFilterOpen(false); }}>
             {uiState.isAdding ? <X size={16} /> : <Plus size={16} />} {uiState.isAdding ? 'Hủy bỏ' : 'Thêm Tài Khoản'}
           </Button>
         </div>
@@ -1115,6 +1226,57 @@ export function VaultAccountsView() {
                 >
                   {isBulkDeployingAuto ? <RefreshCw size={14} className="animate-spin mr-1.5" /> : <Bot size={14} className="mr-1.5" />} 
                   {isBulkDeployingAuto ? 'Đang kích hoạt...' : 'Bắt đầu Auto Deploy'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ AUTO BULK WARMUP FORM ═══ */}
+      {isBulkWarmupFormOpen && (
+        <Card className="mb-6 animate-slideDown border-orange-500/20 bg-orange-500/[0.02]">
+          <CardHeader>
+            <CardTitle className="text-orange-400">
+              <Flame size={14} className="text-orange-400 mr-1.5 inline" /> Tự động Warmup Hàng Loạt
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Tiêu chí lựa chọn tài khoản</label>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-indigo-500/50" 
+                  value={bulkWarmupFilter} 
+                  onChange={e => setBulkWarmupFilter(e.target.value as any)}
+                >
+                  <option value="no_warmup_today" className="bg-[#0f172a]">Chưa warmup hôm nay (Múi giờ VN)</option>
+                  <option value="no_warmup_24h" className="bg-[#0f172a]">Chưa warmup &gt; 24 giờ</option>
+                  <option value="no_warmup_3d" className="bg-[#0f172a]">Chưa warmup &gt; 3 ngày</option>
+                  <option value="no_warmup_7d" className="bg-[#0f172a]">Chưa warmup &gt; 7 ngày</option>
+                  <option value="never_warmed" className="bg-[#0f172a]">Chưa từng warmup</option>
+                  <option value="all_ready" className="bg-[#0f172a]">Tất cả tài khoản Ready</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="text-[12px] text-slate-300 font-medium">
+                  Có <span className="font-bold text-orange-400 text-[14px]">{getAutoWarmupTargets(bulkWarmupFilter).length}</span> tài khoản Ready phù hợp tiêu chí.
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                  Chỉ áp dụng cho tài khoản ChatGPT/Codex có trạng thái Ready và không bị khóa.
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 text-right">
+                <Button 
+                  variant="primary" 
+                  className="bg-orange-600 hover:bg-orange-500 border-orange-500/30 text-white" 
+                  onClick={startAutoWarmup} 
+                  disabled={isBulkWarmingAuto}
+                >
+                  {isBulkWarmingAuto ? <RefreshCw size={14} className="animate-spin mr-1.5" /> : <Flame size={14} className="mr-1.5" />} 
+                  {isBulkWarmingAuto ? 'Đang kích hoạt...' : 'Bắt đầu Auto Warmup'}
                 </Button>
               </div>
             </div>

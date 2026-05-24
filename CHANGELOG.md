@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.50] - 2026-05-24 18:58:00
+
+### 🚀 Tính Năng Tự Động Warmup Hàng Loạt (Auto Warmup)
+
+**Thay đổi:**
+- **Thêm bảng điều khiển Auto Warmup**:
+  - Tích hợp thêm nút "Auto Warmup" trên thanh chức năng của giao diện quản lý Vault Accounts (`VaultAccountsView.tsx`).
+  - Cho phép người dùng cấu hình lọc tự động các tài khoản phù hợp với các tiêu chí thời gian cụ thể:
+    - *Chưa warmup hôm nay (Múi giờ VN)*: So sánh ngày dương lịch hiện tại của Việt Nam để xác định tài khoản nào chưa chạy trong ngày.
+    - *Chưa warmup > 24 giờ / > 3 ngày / > 7 ngày*: Tính toán chính xác số giờ trôi qua kể từ lần warmup cuối.
+    - *Chưa từng warmup*: Lọc ra các tài khoản mới hoàn toàn chưa từng được chạy.
+    - *Tất cả tài khoản Ready*: Chọn toàn bộ tài khoản có trạng thái Ready.
+  - Hiển thị trực quan số lượng tài khoản Ready phù hợp tương ứng với tiêu chí được chọn trước khi bấm kích hoạt.
+- **Tương thích Proxy**:
+  - Xác nhận và làm rõ cơ chế của script warmup (`scripts/warmup.js`) khi tài khoản được gán proxy qua các proxy slot/pool. Trích xuất chính xác `proxy_url` từ cơ sở dữ liệu để áp dụng và kiểm tra tính kết nối của proxy qua Camofox.
+
 ## [0.3.49] - 2026-05-24 18:52:00
 
 ### 🚀 Cập nhật Ngôn ngữ Tiếng Anh Độc nhất cho Tiến trình Warmup Tài khoản
