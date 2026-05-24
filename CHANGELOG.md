@@ -2,6 +2,32 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.63] - 2026-05-25 01:45:00
+
+### 🛡️ Tối Ưu Hóa & Tăng Cường Độ Ổn Định Quy Trình Đăng Ký Tự Động & Bật MFA (Camoufox)
+
+**Bối cảnh:** Quy trình đăng ký tự động và bật MFA (2FA) trước đây đôi khi gặp bất ổn định: (1) Trình duyệt chụp session metadata quá nhanh qua `/api/auth/session` khi cookie hoặc trang chưa tải xong dẫn đến kết quả trả về `null`; (2) Việc chụp ảnh màn hình ở chế độ `fullPage=true` đôi khi bị treo (timeout) do Playwright cuộn trang liên tục trên các proxy chậm; (3) Cấu hình MFA đôi khi thất bại do không tìm thấy nút bật/toggle (do thay đổi DOM cấu trúc React của OpenAI) hoặc bỏ sót Secret Key hiển thị dạng có dấu cách; (4) Tài khoản đã tồn tại (`isExistingAccount`) nhưng worker vẫn chạy theo luồng tạo mật khẩu ngẫu nhiên mới thay vì dùng mật khẩu hiện tại trong Vault và ưu tiên click nút "Log in" trên giao diện.
+
+**Thay đổi:**
+- **Quy Trình Trích Xuất Session Siêu Kháng Lỗi (Resilient Auth-Ready Session Capture)**:
+  - Tự động điều hướng trình duyệt trở lại trang chủ `https://chatgpt.com/` để làm sạch modal/dialog và ổn định cookies trước khi trích xuất session.
+  - Thiết lập vòng lặp thăm dò (polling loop) tối đa **5 lần thử** với độ trễ tăng dần (`1.5s`, `2s`, `3s`, `4s`, `5s`).
+  - Thực hiện reload trang cứng ở lần thử thứ 3 nhằm kích hoạt làm tươi trạng thái authentication.
+  - **Node-based HTTP Fallback**: Nếu fetch trong trang context bị chặn bởi Cloudflare hoặc thất bại vì bất kỳ lý do gì, worker sẽ tự động chuyển sang cơ chế dự phòng: Gửi một HTTP Request trực tiếp bằng Node.js đến `https://chatgpt.com/api/auth/session` sử dụng User-Agent của tab và chuỗi cookie được ghép đầy đủ để trích xuất session an toàn tuyệt đối.
+- **Ổn Định Hóa Quy Trình Thiết Lập MFA (`scripts/lib/mfa-setup.js`)**:
+  - **Tự động kích hoạt Settings Modal**: Nếu Security Tab không xuất hiện ngay lập tức, một tập lệnh JS nội trang sẽ tự động kiểm tra xem Settings Dialog có mở hay không. Nếu chưa, nó sẽ tìm và click nút Profile, đợi menu mở ra, sau đó click "Settings" hoặc "Cài đặt". Nếu vẫn thất bại, nó sẽ chuyển hướng trực tiếp sang direct path `/settings/security`.
+  - **Nhận Diện Toggle & Nút Bật Thông Minh**: Thay vì so khớp cứng văn bản "Authenticator app" ở phần tử lá không con, hệ thống sử dụng thuật toán tìm kiếm phần tử sâu nhất chứa chuỗi text (deepest text matching). Đồng thời hỗ trợ cả layout nút bấm "Enable/Set up/Turn on/Bật/Thiết lập" lẫn nút gạt dạng switch/checkbox gạt.
+  - **Khớp Secret Key Không Khớp Dấu Cách**: Hỗ trợ bóc tách dấu cách (`replace(/\s+/g, '')`) từ các chuỗi khóa bí mật được hiển thị thưa trên UI, đảm bảo regex `^[A-Z2-7]{16,64}$` không bỏ sót bất kỳ Secret Key nào.
+- **Tối Ưu Chụp Ảnh Màn Hình Diagnostic (`scripts/lib/screenshot.js`)**:
+  - Chuyển cấu hình chụp ảnh từ `fullPage=true` sang viewport-only (`fullPage=false`) và giới hạn thời gian chờ tối đa 6000ms. Điều này giúp loại bỏ hoàn toàn các lỗi timeout/treo Playwright khi xử lý trang cuộn dài qua proxy latency cao.
+- **Tương Thích Luồng Tài Khoản Đã Tồn Tại (`auto-register-worker.js`)**:
+  - Hỗ trợ luồng `isExistingAccount` ở giai đoạn khởi động: Khi phát hiện email đã tồn tại, hệ thống sẽ ưu tiên chọn chiến lược `log_in` thay vì `sign_up`.
+  - Đồng bộ mật khẩu hiện tại trong Vault (`chatGptPassword`) làm ứng viên password duy nhất thay vì sinh ngẫu nhiên 3 mật khẩu mới, giúp quá trình đăng nhập và bật MFA cho các tài khoản hiện có diễn ra liền mạch.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.63`.
+
+---
+
 ## [0.3.62] - 2026-05-25 00:26:00
 
 ### 🦊 Địa Phương Hóa Quản Lý Persistent Profiles & Dung Lượng Camoufox

@@ -866,7 +866,7 @@ export async function runAutoRegister(taskInput) {
     await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
 
     // Detect the current signup UI variant before choosing an action.
-    console.log(`🖱️  Chuyển sang luồng Đăng ký...`);
+    console.log(isExistingAccount ? `🖱️  Chuyển sang luồng Đăng nhập (Account đã tồn tại)...` : `🖱️  Chuyển sang luồng Đăng ký...`);
     const urlBeforeSignup = await evalJson(tabId, USER_ID, `location.href`);
     console.log(`[Sign-up step] Starting URL: ${urlBeforeSignup}`);
     let signupUiState = await collectSignupUiState(tabId, USER_ID);
@@ -877,14 +877,23 @@ export async function runAutoRegister(taskInput) {
 
 
     const signupStrategies = [];
-    if (signupVariant.actions.signup) {
-      signupStrategies.push({ name: 'sign_up_for_free', labels: ['Sign up for free', 'Sign up'] });
-    }
-    if (signupVariant.actions.moreOptions) {
-      signupStrategies.push({ name: 'more_options', labels: ['More options'] });
-    }
-    if (signupVariant.actions.emailOption) {
-      signupStrategies.push({ name: 'continue_with_email', labels: ['Continue with email', 'Use email', 'Email address', 'Email'] });
+    if (isExistingAccount) {
+      // Nếu là tài khoản đã tồn tại, ta ưu tiên click Đăng nhập (Log in) thay vì Đăng ký (Sign up)
+      signupStrategies.push({ name: 'log_in', labels: ['Log in', 'Login', 'Đăng nhập'] });
+      // Thêm nút phụ đề phòng nút Log in chính không có mặt
+      if (signupVariant.actions.emailOption) {
+        signupStrategies.push({ name: 'continue_with_email', labels: ['Continue with email', 'Use email', 'Email address', 'Email'] });
+      }
+    } else {
+      if (signupVariant.actions.signup) {
+        signupStrategies.push({ name: 'sign_up_for_free', labels: ['Sign up for free', 'Sign up'] });
+      }
+      if (signupVariant.actions.moreOptions) {
+        signupStrategies.push({ name: 'more_options', labels: ['More options'] });
+      }
+      if (signupVariant.actions.emailOption) {
+        signupStrategies.push({ name: 'continue_with_email', labels: ['Continue with email', 'Use email', 'Email address', 'Email'] });
+      }
     }
     if (!signupStrategies.length) {
       signupStrategies.push({ name: 'direct_log_in_or_create_account', directNavigate: 'https://auth.openai.com/log-in-or-create-account' });
@@ -1131,14 +1140,20 @@ export async function runAutoRegister(taskInput) {
     // Điền password (cả 2 flow đều cần) — retry với tối đa 3 candidates
     const hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
     if (hasPwdInput) {
-      // Sinh tối đa 3 password candidates
-      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-      const pwdCandidates = [];
-      while (pwdCandidates.length < 3) {
-        const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
-          PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
-        ).join('');
-        if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
+      let pwdCandidates = [];
+      if (isExistingAccount) {
+        // Nếu là account đã tồn tại, dùng mật khẩu cũ đã được cấu hình trong Vault
+        pwdCandidates = [chatGptPassword];
+        console.log(`[3] Luồng Account đã tồn tại: Sử dụng mật khẩu hiện tại...`);
+      } else {
+        // Sinh tối đa 3 password candidates cho account mới
+        const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+        while (pwdCandidates.length < 3) {
+          const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
+            PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
+          ).join('');
+          if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
+        }
       }
 
       let passwordSuccess = false;
@@ -1862,30 +1877,91 @@ export async function runAutoRegister(taskInput) {
     let accountId = null;
     let sessionData = null;
     let deviceId = '';
+    
+    // Đảm bảo trình duyệt điều hướng về trang chủ và ổn định trước khi capture session
     try {
-      console.log(`[Capture] 🔄 Lấy session metadata từ /api/auth/session...`);
-      const sessionRes = await evalJson(tabId, USER_ID, `
-        (async () => {
-          try {
-            const r = await fetch('https://chatgpt.com/api/auth/session', {
-              credentials: 'include',
-              headers: { 'Accept': 'application/json' },
-            });
-            return r.ok ? r.json() : null;
-          } catch (e) {
-            return null;
-          }
-        })()
-      `);
-      if (sessionRes && typeof sessionRes === 'object') {
-        sessionData = sessionRes;
-        deviceId = tokens.find(c => c.name === 'oai-did')?.value || '';
-        console.log(`[Capture] 👤 Lấy session thành công (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${sessionData?.account?.planType || 'n/a'})`);
-      } else {
-        console.log(`[Capture] ⚠️ Không lấy được session data (định dạng rỗng hoặc null)`);
+      console.log(`[Capture] 🔄 Đưa trình duyệt về trang chủ https://chatgpt.com để ổn định session...`);
+      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+      await new Promise(r => setTimeout(r, 4000));
+    } catch (navErr) {
+      console.log(`[Capture] ⚠️ Không thể điều hướng về trang chủ: ${navErr.message}`);
+    }
+
+    // Vòng lặp retry 5 lần để đảm bảo lấy được session metadata ổn định
+    for (let attempt = 0; attempt < 5; attempt++) {
+      console.log(`[Capture] 🔄 Thử lấy session metadata từ browser (Lần thử ${attempt + 1}/5)...`);
+      
+      if (attempt === 2) {
+        console.log(`[Capture] 🔄 Reloading chatgpt.com to refresh session...`);
+        try {
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 3000));
+        } catch (reloadErr) {
+          console.log(`[Capture] ⚠️ Reload failed: ${reloadErr.message}`);
+        }
       }
-    } catch (err) {
-      console.warn(`[Capture] ⚠️ Lỗi khi gọi /api/auth/session: ${err.message}`);
+
+      try {
+        const sessionRes = await evalJson(tabId, USER_ID, `
+          (async () => {
+            try {
+              const r = await fetch('https://chatgpt.com/api/auth/session', {
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' },
+              });
+              return r.ok ? r.json() : null;
+            } catch (e) {
+              return null;
+            }
+          })()
+        `);
+        
+        if (sessionRes && typeof sessionRes === 'object' && sessionRes.user) {
+          sessionData = sessionRes;
+          deviceId = tokens.find(c => c.name === 'oai-did')?.value || '';
+          console.log(`[Capture] 👤 Lấy session thành công qua browser context (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${sessionData?.account?.planType || 'n/a'})`);
+          break;
+        } else {
+          console.log(`[Capture] ⚠️ Lần thử ${attempt + 1} chưa lấy được session data (định dạng rỗng hoặc null)`);
+        }
+      } catch (err) {
+        console.warn(`[Capture] ⚠️ Lỗi trong lúc fetch session ở tab: ${err.message}`);
+      }
+
+      await new Promise(r => setTimeout(r, [1500, 2000, 3000, 4000, 5000][attempt]));
+    }
+
+    // 🌐 FALLBACK: Node-based HTTP probing method if browser-side fetch fails
+    if (!sessionData) {
+      console.log(`[Capture] 🌐 Browser-side fetch failed/empty. Chạy Node-based HTTP fallback...`);
+      try {
+        const cookieString = tokens.map(c => `${c.name}=${c.value}`).join('; ');
+        const nodeRes = await fetch('https://chatgpt.com/api/auth/session', {
+          headers: {
+            'Cookie': cookieString,
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://chatgpt.com/',
+          }
+        });
+        if (nodeRes.ok) {
+          const nodeData = await nodeRes.json();
+          if (nodeData && typeof nodeData === 'object' && nodeData.user) {
+            sessionData = nodeData;
+            deviceId = tokens.find(c => c.name === 'oai-did')?.value || '';
+            console.log(`[Capture] 👤 Node-based HTTP fallback THÀNH CÔNG! (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${sessionData?.account?.planType || 'n/a'})`);
+          }
+        } else {
+          console.log(`[Capture] ⚠️ Node-based fallback HTTP error: ${nodeRes.status}`);
+        }
+      } catch (nodeErr) {
+        console.log(`[Capture] ⚠️ Node-based fallback thất bại: ${nodeErr.message}`);
+      }
+    }
+
+    if (!sessionData) {
+      console.log(`[Capture] ❌ Thất bại hoàn toàn khi lấy session metadata (cả browser và Node fallback)`);
     }
 
     // Lưu vào kho account (status=idle, chờ Deploy - KHÔNG phải sẽ được deploy ngay)

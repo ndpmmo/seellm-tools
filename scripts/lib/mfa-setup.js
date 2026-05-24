@@ -56,22 +56,76 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     };
 
     try {
-        // ── 1. Điều hướng đến Security settings ──────────────────
-        log('Điều hướng đến #settings/Security ...');
+        // ── 1. Điều hướng đến Security settings và đảm bảo settings modal được mở ──────────────────
+        log('Điều hướng đến Security settings...');
+        
+        // Cố gắng mở settings thông qua cả hash URL và direct path URL
         await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`);
-        await wait(5000);
+        await wait(3000);
 
-        // Đảm bảo Security tab active (dùng data-testid ổn định)
-        const hasSecTab = await run(`!!document.querySelector('[data-testid="security-tab"]')`);
-        if (!hasSecTab) {
-            log('⚠️  Security tab không tìm thấy, thử lại...');
-            await wait(3000);
-        }
+        // Hàm helper chạy trong browser để tự động mở Settings dialog nếu chưa được mở
+        log('Kiểm tra và tự động kích hoạt Settings modal...');
         await run(`
-            const sec = document.querySelector('[data-testid="security-tab"]');
-            if (sec) sec.click();
+            (async () => {
+                const isDialogOpen = () => {
+                    const dialog = document.querySelector('[role="dialog"]');
+                    if (!dialog) return false;
+                    const text = (dialog.innerText || '').toLowerCase();
+                    return text.includes('settings') || text.includes('cài đặt') || text.includes('security') || text.includes('bảo mật');
+                };
+
+                if (isDialogOpen()) return 'already_open';
+
+                // Thử click Profile Button để mở user menu
+                const profileBtn = document.querySelector('[data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])');
+                if (profileBtn) {
+                    profileBtn.click();
+                    await new Promise(r => setTimeout(r, 1000));
+                    
+                    // Tìm mục Settings/Cài đặt trong menu
+                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                    const settingsItem = menuItems.find(el => {
+                        const t = (el.textContent || '').trim().toLowerCase();
+                        return t === 'settings' || t === 'cài đặt';
+                    });
+                    
+                    if (settingsItem) {
+                        settingsItem.click();
+                        await new Promise(r => setTimeout(r, 1500));
+                        return 'opened_via_profile';
+                    }
+                }
+                
+                // Nếu vẫn chưa mở được, thử redirect trực tiếp sang URL path-based settings
+                window.location.href = 'https://chatgpt.com/settings/security';
+                await new Promise(r => setTimeout(r, 2000));
+                return 'fallback_navigate';
+            })()
         `);
-        await wait(2000);
+
+        // Đảm bảo Security tab active (tìm cả data-testid và text chứa Security/Bảo mật)
+        const activeSecTab = await run(`
+            (() => {
+                let sec = document.querySelector('[data-testid="security-tab"]');
+                if (!sec) {
+                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a')).find(el => {
+                        const text = (el.textContent || '').toLowerCase().trim();
+                        return text === 'security' || text === 'bảo mật';
+                    });
+                }
+                if (sec) {
+                    sec.click();
+                    return true;
+                }
+                return false;
+            })()
+        `);
+        
+        if (!activeSecTab) {
+            log('⚠️  Security tab không tìm thấy qua selector/text, chờ thêm...');
+            await wait(2000);
+        }
+        await wait(1500);
 
         // ── 2. Cài network sniffer (để debug nếu cần) ─────────────
         await run(`
@@ -85,27 +139,49 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             };
         `);
 
-        // ── 3. Click toggle "Authenticator app" ──────────────────
-        log('Click toggle Authenticator app...');
+        // ── 3. Click toggle "Authenticator app" hoặc nút Enable/Set up ──────────────────
+        log('Click toggle/enable Authenticator app...');
         const toggled = await run(`
             (() => {
-                const allEls = Array.from(document.querySelectorAll('*'));
-                const idx = allEls.findIndex(el =>
-                    el.childElementCount === 0 && el.textContent.trim() === 'Authenticator app'
-                );
-                if (idx >= 0) {
-                    let par = allEls[idx].parentElement;
+                // Tìm kiếm sâu nhất (deepest element matching text) để lấy text element chính xác
+                const elements = Array.from(document.querySelectorAll('*'));
+                const authTextEl = elements.find(el => {
+                    const text = el.textContent || '';
+                    if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
+                    // Đảm bảo không có child nào cũng match (để lấy node lá)
+                    return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                });
+
+                if (authTextEl) {
+                    let par = authTextEl;
                     for (let d = 0; d < 8; d++) {
                         if (!par) break;
-                        const sw = par.querySelector('button[role="switch"]');
-                        if (sw) { sw.click(); return 'toggled'; }
+                        
+                        // Phương án A: switch/checkbox toggle
+                        const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
+                        if (sw) { 
+                            sw.click(); 
+                            return 'toggled_switch'; 
+                        }
+                        
+                        // Phương án B: Nút Enable / Set up / Turn on / Bật
+                        const btn = Array.from(par.querySelectorAll('button')).find(b => {
+                            const bt = b.textContent.toLowerCase().trim();
+                            return bt.includes('enable') || bt.includes('set up') || bt.includes('turn on') || bt.includes('bật') || bt.includes('thiết lập');
+                        });
+                        if (btn) { 
+                            btn.click(); 
+                            return 'clicked_enable_button'; 
+                        }
+                        
                         par = par.parentElement;
                     }
                 }
+                
                 // Fallback: tất cả switch trong tabpanel Security
                 const panels = document.querySelectorAll('[role="tabpanel"]');
                 for (const p of panels) {
-                    if ((p.innerText||'').includes('Authenticator')) {
+                    if ((p.innerText||'').toLowerCase().includes('authenticator')) {
                         const sw = p.querySelector('button[role="switch"]');
                         if (sw) { sw.click(); return 'toggled_fallback'; }
                     }
@@ -113,10 +189,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 return 'not_found';
             })()
         `);
-        log(`  Toggle: ${toggled}`);
+        log(`  Toggle result: ${toggled}`);
 
         if (toggled === 'not_found') {
-            return { success: false, secret: null, totp: null, error: 'Toggle Authenticator app not found' };
+            return { success: false, secret: null, totp: null, error: 'Toggle/Button Authenticator app not found' };
         }
         await wait(4000);
 
@@ -125,7 +201,14 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         const trouble = await run(`
             (() => {
                 const el = Array.from(document.querySelectorAll('a, button, span, p'))
-                    .find(e => e.textContent.toLowerCase().includes('trouble scanning'));
+                    .find(e => {
+                        const t = e.textContent.toLowerCase();
+                        return t.includes('trouble scanning') || 
+                               t.includes('can\\'t scan') || 
+                               t.includes('không thể quét') || 
+                               t.includes('nhập khóa') ||
+                               t.includes('nhập mã');
+                    });
                 if (el) { el.click(); return 'clicked'; }
                 return 'not_found';
             })()
@@ -139,9 +222,13 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             (() => {
                 const candidates = Array.from(document.querySelectorAll('*'))
                     .filter(el => el.childElementCount === 0)
-                    .map(el => el.textContent.trim())
-                    .filter(t => /^[A-Z2-7]{16,}$/.test(t));
-                return candidates[0] || null;
+                    .map(el => {
+                        const raw = el.textContent.trim();
+                        const cleaned = raw.replace(/\\s+/g, '');
+                        return { raw, cleaned };
+                    })
+                    .filter(item => /^[A-Z2-7]{16,64}$/i.test(item.cleaned));
+                return candidates[0]?.cleaned || null;
             })()
         `);
 
@@ -159,7 +246,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await run(`
             (() => {
                 const input = document.querySelector(
-                    'input[placeholder*="code"], input[placeholder*="Code"], input[inputmode="numeric"], input[type="text"]'
+                    'input[autocomplete="one-time-code"], input[maxlength="6"], input[placeholder*="code" i], input[placeholder*="Code"], input[inputmode="numeric"], input[type="text"]'
                 );
                 if (!input) return false;
                 const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -175,7 +262,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Click Verify...');
         await run(`
             const btn = Array.from(document.querySelectorAll('button'))
-                .find(b => b.textContent.trim().toLowerCase() === 'verify');
+                .find(b => {
+                    const t = b.textContent.trim().toLowerCase();
+                    return t === 'verify' || t.includes('verify') || t.includes('xác minh');
+                });
             if (btn) btn.click();
         `);
         await wait(5000);
@@ -183,6 +273,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // ── 8. Kiểm tra kết quả ───────────────────────────────────
         const confirmed = await run(`
             document.body.innerText.includes('Authenticator app enabled') ||
+            document.body.innerText.includes('enabled') ||
+            document.body.innerText.includes('bật') ||
             document.querySelector('[data-testid="security-tab"]')?.innerText?.includes('Authenticator app enabled') ||
             !!document.querySelector('[aria-label*="enabled"]')
         `);

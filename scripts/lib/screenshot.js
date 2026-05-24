@@ -48,8 +48,9 @@ export function createStepRecorder(runDir, {
     const filename = `${phaseNum}_phase${phaseNum}_step${stepNum}_${slug}_${moment}.png`;
     
     try {
-      const res = await fetch(`${camofoxApi}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=true`, {
-        signal: AbortSignal.timeout(8000),
+      // Changed to fullPage=false and timeout to 6000ms to prevent Playwright screenshot hangs on slow proxies
+      const res = await fetch(`${camofoxApi}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=false`, {
+        signal: AbortSignal.timeout(6000),
       });
       if (res.ok) {
         const buffer = Buffer.from(await res.arrayBuffer());
@@ -127,8 +128,9 @@ export function createStepRecorder(runDir, {
     stepCount++;
     const filename = `${String(stepCount).padStart(2, '0')}_${label}.png`;
     try {
-      const res = await fetch(`${camofoxApi}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=true`, {
-        signal: AbortSignal.timeout(8000),
+      // Changed to fullPage=false and timeout to 6000ms to prevent Playwright screenshot hangs on slow proxies
+      const res = await fetch(`${camofoxApi}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=false`, {
+        signal: AbortSignal.timeout(6000),
       });
       if (res.ok) {
         await fs.writeFile(path.join(runDir, filename), Buffer.from(await res.arrayBuffer()));
