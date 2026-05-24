@@ -11,27 +11,37 @@ import { fmtDateTimeVN, useConfirm } from '../../Views';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../../ui';
 
 /* ── Helpers ── */
-function StatusBadge({ status, notes }: { status: string; notes?: string }) {
-  // Trường hợp đặc biệt: lỗi yêu cầu số điện thoại.
-  // Dùng `includes` để bền vững với mọi prefix (vd: "Lỗi Worker: NEED_PHONE: ...",
-  // "Exception: NEED_PHONE: ..." từ catch block của các worker đời cũ).
-  if (status === 'error' && notes && notes.includes('NEED_PHONE')) {
+function StatusBadge({ status, notes, tags = [] }: { status: string; notes?: string; tags?: string[] }) {
+  // 1. Trường hợp đặc biệt cao nhất: tài khoản bị Vô hiệu hóa (Dead / Deactivated)
+  if (tags.includes('account_deactivated') || status === 'dead') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-orange-500/10 text-orange-500 border border-orange-500/20">
-        <span className="w-1.5 h-1.5 rounded-full bg-current" />
+      <span title={notes} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-500 font-bold border border-rose-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+        💀 Dead
+      </span>
+    );
+  }
+
+  // 2. Trường hợp đặc biệt tiếp theo: lỗi yêu cầu số điện thoại (Need Phone)
+  // Dùng tags.includes('need_phone') để bền vững kể cả khi status đã bị chuyển thành 'idle' hoặc 'error' khác.
+  if (tags.includes('need_phone') || (status === 'error' && notes && notes.includes('NEED_PHONE'))) {
+    return (
+      <span title={notes} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-orange-500/10 text-orange-500 border border-orange-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
         📵 Cần SĐT
       </span>
     );
   }
+
   const m: Record<string, { color: string; bg: string; border: string; label: string }> = {
     ready: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Ready' },
     idle: { color: 'text-slate-400', bg: 'bg-white/5', border: 'border-white/5', label: 'Idle' },
     error: { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', label: 'Error' },
-    dead: { color: 'text-rose-500 font-bold', bg: 'bg-rose-950/40', border: 'border-rose-900/30', label: 'Dead' },
     pending: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', label: 'Pending' },
     processing: { color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', label: 'Processing' },
     relogin: { color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20', label: 'Re-login' },
   };
+
   const s = m[status] || { color: 'text-slate-400', bg: 'bg-white/5', border: 'border-white/5', label: status.toUpperCase() };
   const isPulsing = status === 'pending' || status === 'processing';
   return (
@@ -100,6 +110,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'need_phone':    { icon: PhoneOff, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Cần số điện thoại — yêu cầu xác thực SMS' },
   'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
   'workspace':     { icon: Briefcase, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', tip: 'Tài khoản có Workspace — thuộc tổ chức/doanh nghiệp' },
+  'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
 };
 
 function TagIcons({ tags, twoFa }: { tags: string[]; twoFa?: string }) {
@@ -1461,7 +1472,7 @@ export function VaultAccountsView() {
                           })()}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} /></td>
+                      <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} tags={tags} /></td>
                       <td className="px-4 py-2.5"><TagIcons tags={tags} twoFa={it.two_fa_secret} /></td>
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">

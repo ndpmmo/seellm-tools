@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.60] - 2026-05-24 22:45:00
+
+### 🛡️ Thiết Kế Trạng Thái Ưu Tiên Thông Minh (Smart Status Priority Design)
+
+**Bối cảnh:** Trước đây trong giao diện `#vault-accounts`, badge trạng thái (`StatusBadge`) chỉ hiển thị trực tiếp trường `status` lưu trong cơ sở dữ liệu. Điều này dẫn đến sự cố xung đột trạng thái (clashing/overwriting) khi tài khoản có nhiều trạng thái chồng lấn:
+- Ví dụ: Khi tài khoản bị vô hiệu hóa (`account_deactivated`) hoặc cần xác thực số điện thoại (`need_phone`), nếu người dùng hoặc hệ thống kích hoạt hành động dừng tài khoản (thu hồi về kho lạnh), `status` của tài khoản sẽ bị chuyển sang `idle` khiến giao diện hiển thị badge `Idle` xám, che lấp hoàn toàn nhãn `Dead` hoặc `Cần SĐT` cực kỳ quan trọng.
+
+**Thay đổi:**
+- **Thiết lập Phân Cấp Ưu Thế Trạng Thái thông minh (`StatusBadge`)**:
+  - Nhận thêm tham số `tags` để tính toán trạng thái thực tế hiển thị (Effective Status).
+  - **Ưu tiên 1 (Dead - Vô hiệu hóa)**: Nếu tài khoản có tag `account_deactivated` hoặc status là `dead` -> Luôn hiển thị badge `💀 Dead` đỏ rực rỡ, không bị ghi đè.
+  - **Ưu tiên 2 (Cần SĐT)**: Nếu tài khoản có tag `need_phone` hoặc notes chứa `NEED_PHONE` -> Hiển thị badge `📵 Cần SĐT` cam nổi bật kể cả khi status đã bị chuyển sang `idle`.
+  - **Ưu tiên 3 (Các trạng thái động)**: Giữ nguyên `Pending`, `Processing`, `Re-login`, `Ready`, `Error` và `Idle` theo cấu hình nguyên bản.
+- **Bổ sung tag `account_deactivated` vào Metadata & Legend**:
+  - Thêm định nghĩa tag `account_deactivated` vào `TAG_META` để tự động vẽ icon cảnh báo `XCircle` màu đỏ cùng tooltip trong cột danh sách và bảng giải thích biểu tượng (TagLegend).
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.60`.
+
+---
+
 ## [0.3.59] - 2026-05-24 22:20:00
 
 ### 🔄 Đồng Bộ Realtime Trước Khi Kiểm Tra Session & Đảm Bảo An Toàn Token
