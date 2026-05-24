@@ -220,15 +220,57 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Đọc Secret Key từ DOM...');
         const secret = await run(`
             (() => {
-                const candidates = Array.from(document.querySelectorAll('*'))
-                    .filter(el => el.childElementCount === 0)
-                    .map(el => {
-                        const raw = el.textContent.trim();
-                        const cleaned = raw.replace(/\\s+/g, '');
-                        return { raw, cleaned };
-                    })
-                    .filter(item => /^[A-Z2-7]{16,64}$/i.test(item.cleaned));
-                return candidates[0]?.cleaned || null;
+                const elements = Array.from(document.querySelectorAll('*'))
+                    .filter(el => el.childElementCount === 0);
+                
+                const candidates = elements.map(el => {
+                    const raw = el.textContent.trim();
+                    const cleaned = raw.replace(/\\s+/g, '');
+                    
+                    // Điểm ưu tiên dựa trên các class, ID hoặc text cha liên quan đến copy/secret/key
+                    let score = 0;
+                    let par = el;
+                    for (let d = 0; d < 5; d++) {
+                        if (!par) break;
+                        const classAndId = String(par.className || '') + ' ' + String(par.id || '');
+                        if (/copy|secret|key|code|authenticator/i.test(classAndId)) {
+                            score += 10;
+                        }
+                        // Thêm điểm nếu có nút copy hoặc icon copy ở gần
+                        if (par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
+                            score += 5;
+                        }
+                        par = par.parentElement;
+                    }
+                    return { el, raw, cleaned, score };
+                });
+
+                // Bộ lọc 1: Ưu tiên regex cực kỳ nghiêm ngặt: Chỉ chữ HOA và số 2-7 (đúng chuẩn RFC 4648 Base32)
+                let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/.test(item.cleaned));
+                
+                // Bộ lọc 2: Nếu không tìm thấy, fallback sang case-insensitive để an toàn
+                if (filtered.length === 0) {
+                    filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
+                }
+
+                // Loại trừ các cụm từ tĩnh phổ biến trong UI khảo sát/welcome của OpenAI có độ dài khớp regex
+                const excludes = [
+                    'funandentertainment', 
+                    'termsofservice', 
+                    'privacypolicy', 
+                    'aboutyou', 
+                    'whatwilluse', 
+                    'chatgptplus',
+                    'personaluse',
+                    'educationuse',
+                    'workuse'
+                ];
+                filtered = filtered.filter(item => !excludes.includes(item.cleaned.toLowerCase()));
+
+                // Sắp xếp các ứng viên theo điểm ưu tiên giảm dần
+                filtered.sort((a, b) => b.score - a.score);
+
+                return filtered[0]?.cleaned || null;
             })()
         `);
 
