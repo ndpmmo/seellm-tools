@@ -571,6 +571,33 @@ async function runWarmup() {
     const newCookiesRes = await camofoxGet(`/tabs/${tabId}/cookies?userId=${USER_ID}`).catch(() => null);
     const newCookies = Array.isArray(newCookiesRes?.cookies) ? newCookiesRes.cookies : (Array.isArray(newCookiesRes) ? newCookiesRes : null);
     
+    // Fetch session data to get accessToken, plan, etc.
+    let accessToken = undefined;
+    let plan = undefined;
+    let workspaceId = undefined;
+    let deviceId = undefined;
+    let sessionData = undefined;
+    try {
+      console.log(`[Warmup] 🔄 Lấy thông tin session từ /api/auth/session...`);
+      const sessionRes = await evalJson(tabId, USER_ID, `
+        fetch('/api/auth/session')
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      `);
+      if (sessionRes && typeof sessionRes === 'object') {
+        sessionData = sessionRes;
+        accessToken = sessionRes.accessToken;
+        plan = sessionRes.account?.planType;
+        workspaceId = sessionRes.account?.id;
+        deviceId = newCookies ? (newCookies.find(c => c.name === 'oai-did')?.value || '') : '';
+        console.log(`[Warmup] 👤 Lấy session thành công (UserId: ${sessionData?.user?.id || 'n/a'}, Plan: ${plan || 'n/a'})`);
+      } else {
+        console.log(`[Warmup] ⚠️ Không lấy được session data (định dạng rỗng hoặc null)`);
+      }
+    } catch (sessionErr) {
+      console.warn(`[Warmup] ⚠️ Lỗi khi gọi /api/auth/session: ${sessionErr.message}`);
+    }
+
     // Save success result back to server
     await fetch(`${TOOLS_API_URL}/api/vault/accounts/${accountId}/warmup-result`, {
       method: 'POST',
@@ -578,7 +605,12 @@ async function runWarmup() {
       body: JSON.stringify({
         status: 'success',
         questionsAsked,
-        cookies: newCookies || undefined
+        cookies: newCookies || undefined,
+        accessToken,
+        plan,
+        workspaceId,
+        deviceId,
+        sessionData
       })
     });
     

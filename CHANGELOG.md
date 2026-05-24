@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.54] - 2026-05-24 20:15:00
+
+### 🚀 Tối Ưu Hóa Persistence Warmup & Tính Năng Kiểm Tra Trạng Thái Live/Dead Không Cần Login
+
+**Thay đổi:**
+- **Lưu trữ Session & Metadata sau Warmup (`scripts/warmup.js`)**: Sau khi tương tác warmup thành công, script tự động gọi endpoint `/api/auth/session` của ChatGPT để trích xuất `accessToken`, thông tin gói (`plan`), ID tài khoản (`workspaceId`), và gửi toàn bộ dữ liệu này cùng cookies mới nhất về server để lưu trữ.
+- **Tích hợp Endpoint `/api/vault/accounts/:id/check-session`**: Thêm route kiểm tra trực tiếp trạng thái của tài khoản bằng cách sử dụng script độc lập `scripts/check-session.js`. Endpoint này sẽ khởi chạy Camofox với proxy riêng của tài khoản, nạp cookies hiện tại, truy cập ChatGPT và gọi `/api/auth/session` để kiểm tra tính hợp lệ mà không cần chạy lại toàn bộ quy trình đăng nhập.
+- **Giao diện Quản lý Vault (`VaultAccountsView.tsx`)**:
+  - Bổ sung nút **Check Session (Live/Dead)** trực tiếp trên từng dòng tài khoản.
+  - Bổ sung nút **Check Session** hàng loạt trên thanh floating actions bar cho các tài khoản đã chọn.
+  - Hoàn thiện tính năng **Auto Warmup** hàng loạt dựa trên múi giờ Việt Nam và các bộ lọc thời gian tiện lợi.
+  - Cập nhật tự động đồng bộ hóa trạng thái tài khoản lên Cloud D1 qua `SyncManager`.
+
 ## [0.3.53] - 2026-05-24 20:00:00
 
 ### 🚀 Khắc phục Lỗi Bị Kẹt tại Email Input & Tự động Phục hồi khi Gặp Sự cố Điền Form Đăng Nhập

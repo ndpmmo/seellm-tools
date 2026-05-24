@@ -2842,20 +2842,88 @@ router.post('/accounts/:id/warmup', async (req, res) => {
   }
 });
 
-// POST /api/vault/accounts/:id/warmup-result
-router.post('/accounts/:id/warmup-result', async (req, res) => {
+// POST /api/vault/accounts/:id/check-session
+router.post('/accounts/:id/check-session', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, error = null, questionsAsked = 0, cookies = null } = req.body;
     
     const account = vault.getAccount(id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     
-    const existingProviderData = account.provider_specific_data || {};
+    // Set status to pending in database
+    vault.upsertAccount({
+      id,
+      status: 'pending',
+      notes: 'Checking cookie/session...'
+    });
+    
+    // Spawn scripts/check-session.js as a detached background child process
+    const { fileURLToPath } = await import('node:url');
+    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/check-session.js');
+    
+    if (processManager.spawnProcess) {
+      const procId = `check_session_${id}_${Date.now()}`;
+      console.log(`[Server] Spawning check-session process ${procId} via processManager`);
+      processManager.spawnProcess(
+        procId, 
+        `🛡️ Check Session ${account.email}`, 
+        'node', 
+        [scriptPath, '--accountId', id], 
+        process.cwd(), 
+        { env: { ...process.env } }
+      );
+    } else {
+      const { spawn } = await import('node:child_process');
+      console.log(`[Server] Spawning session checker for ${account.email} (${id})`);
+      const child = spawn('node', [scriptPath, '--accountId', id], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    }
+    
+    res.json({ ok: true, message: 'Session check task triggered successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/:id/warmup-result
+router.post('/accounts/:id/warmup-result', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      status, 
+      error = null, 
+      questionsAsked = 0, 
+      cookies = null,
+      accountStatus = null,
+      notes = null,
+      accessToken = null,
+      plan = null,
+      workspaceId = null,
+      deviceId = null,
+      sessionData = null
+    } = req.body;
+    
+    const account = vault.getAccount(id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    
+    const existingProviderData = typeof account.provider_specific_data === 'string'
+      ? JSON.parse(account.provider_specific_data)
+      : (account.provider_specific_data || {});
+      
     existingProviderData.warmupStatus = status; // 'success' | 'failed'
     existingProviderData.lastWarmedAt = new Date().toISOString();
     existingProviderData.warmupError = error;
     existingProviderData.warmupQuestionsAsked = questionsAsked;
+    
+    if (sessionData) {
+      existingProviderData.sessionData = sessionData;
+      if (sessionData.user?.id) existingProviderData.userId = sessionData.user.id;
+      if (sessionData.account?.id) existingProviderData.accountId = sessionData.account.id;
+      if (sessionData.account?.planType) existingProviderData.planType = sessionData.account.planType;
+    }
     
     const updateData = {
       id,
@@ -2867,6 +2935,13 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       // Trả lại trạng thái ready cho tài khoản nếu login thành công và lấy được cookies
       updateData.status = 'ready';
     }
+    
+    if (accountStatus) updateData.status = accountStatus;
+    if (notes !== null) updateData.notes = notes;
+    if (accessToken) updateData.access_token = accessToken;
+    if (plan) updateData.plan = plan;
+    if (workspaceId) updateData.workspace_id = workspaceId;
+    if (deviceId) updateData.device_id = deviceId;
     
     vault.upsertAccount(updateData);
     

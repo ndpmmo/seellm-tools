@@ -468,6 +468,59 @@ export function VaultAccountsView() {
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
+  const checkSession = async (id: string, email: string) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/check-session`, {
+        method: 'POST'
+      });
+      const text = await r.text();
+      let d;
+      try {
+        d = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`⚠️ Backend Server.js cần được khởi động lại để nhận diện API Route mới. Vui lòng tắt server (Ctrl+C) và chạy lại 'pnpm dev' (hoặc 'npm run dev').`);
+      }
+      if (d.error) throw new Error(d.error);
+      addToast(`🛡️ Đã bắt đầu kiểm tra Session cho ${email}`, 'success');
+      
+      patchAccountLocal(id, {
+        status: 'pending',
+        notes: 'Checking cookie/session...'
+      });
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const bulkCheckSessionSelected = async () => {
+    const checkableSelected = Array.from(selectedIds).filter(id => {
+      const acc = items.find(it => it.id === id);
+      return acc && isOpenAI(acc.provider) && acc.cookies;
+    });
+
+    if (checkableSelected.length === 0) {
+      addToast('⚠️ Vui lòng chọn ít nhất một tài khoản OpenAI có sẵn Cookies để kiểm tra', 'warning');
+      return;
+    }
+
+    if (!await askConfirm('Kiểm tra Session', `Kiểm tra Cookie/Session của ${checkableSelected.length} tài khoản đã chọn?`, { variant: 'warning', confirmLabel: 'Kiểm tra' })) return;
+    
+    let triggered = 0;
+    for (const id of checkableSelected) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${id}/check-session`, { method: 'POST' });
+        const d = await r.json();
+        if (!d.error) {
+          triggered++;
+          patchAccountLocal(id, {
+            status: 'pending',
+            notes: 'Checking cookie/session...'
+          });
+        }
+      } catch {}
+    }
+    addToast(`🛡️ Đã kích hoạt kiểm tra Session cho ${triggered} tài khoản`, 'success');
+    setSelectedIds(new Set());
+  };
+
   const bulkWarmupSelected = async () => {
     const readySelected = Array.from(selectedIds).filter(id => {
       const acc = items.find(it => it.id === id);
@@ -1422,6 +1475,16 @@ export function VaultAccountsView() {
                               <Flame size={13} />
                             </Button>
                           )}
+                          {isOpenAI(it.provider) && it.cookies && (
+                            <Button 
+                              size="icon-sm" 
+                              title="🛡️ Kiểm tra Session (Live/Dead)" 
+                              onClick={() => checkSession(it.id, it.email)} 
+                              className="!text-blue-400 border-blue-500/20 hover:bg-blue-500/10"
+                            >
+                              <Shield size={13} />
+                            </Button>
+                          )}
                           {allowDeploy && (
                             <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
                           )}
@@ -1694,6 +1757,9 @@ export function VaultAccountsView() {
             </Button>
             <Button size="sm" variant="secondary" onClick={bulkWarmupSelected} className="border-orange-500/30 text-orange-400 hover:bg-orange-500/10 h-8 text-[11px] font-semibold">
               <Flame size={11} className="mr-1 animate-pulse" /> Warmup
+            </Button>
+            <Button size="sm" variant="secondary" onClick={bulkCheckSessionSelected} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 h-8 text-[11px] font-semibold" title="Kiểm tra Session mà không cần login">
+              <Shield size={11} className="mr-1" /> Check Session
             </Button>
             <div className="h-4 w-[1px] bg-white/10 shrink-0" />
             <select
