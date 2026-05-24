@@ -7,45 +7,8 @@ import { CAMOUFOX_API, TOOLS_API_URL } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson } from './lib/camofox.js';
 import { normalizeProxyUrl, assertProxyApplied, probeProxyExitIp, getLocalPublicIp, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { getFreshTOTP } from './lib/totp.js';
+import { generateWarmupPrompts } from './lib/warmup-prompts.js';
 
-// Pre-defined set of highly realistic, conversational, human-like prompts
-const QUESTIONS = [
-  "Can you help me brainstorm some catchy names for a startup that builds AI-powered calendar tools?",
-  "Explain the difference between SQL and NoSQL databases like I am five.",
-  "Write a polite email to my manager asking for feedback on my recent project performance.",
-  "What are some highly-rated non-touristy restaurants or cafes in Tokyo?",
-  "Can you give me 3 quick, healthy, and delicious dinner recipes that take under 20 minutes to make?",
-  "How does the virtual DOM work in React, and why is it faster than standard DOM manipulation?",
-  "Help me outline a 4-week training plan for running a 5K race from scratch.",
-  "What are the most common coding patterns or practices in clean architecture?",
-  "Can you explain the main ideas behind Stoic philosophy and how to apply them to daily work stress?",
-  "Give me some creative writing prompts involving a time traveler who gets stuck in the 1920s.",
-  "What's the best way to optimize CSS delivery and reduce render-blocking resources in a web app?",
-  "Help me draft a concise response to a client who wants to decrease the budget of a software project.",
-  "What are the key differences between REST APIs and GraphQL, and when should I choose one over the other?",
-  "Can you recommend some must-read science fiction novels from the last decade?",
-  "How do I implement a custom debounce function in vanilla JavaScript?",
-  "What are the pros and cons of using Tailwind CSS compared to vanilla CSS?",
-  "Write a humorous short story about an AI coding assistant that becomes overly dramatic.",
-  "Explain how HTTPS encryption works using an easy-to-understand analogy.",
-  "What are the best strategies for learning a new programming language quickly?",
-  "Can you review these design principles for a modern, sleek dashboard application?",
-  "What is the difference between declarative and imperative programming? Give examples in JS.",
-  "Can you write a python script to parse a large JSON file and group objects by a key?",
-  "Explain what Docker is and how containers differ from virtual machines.",
-  "Write a cover letter for a Senior Software Engineer position at a remote-first fintech company.",
-  "What are the best practices for handling authentication and session state in Next.js?",
-  "Write a poem about the beauty of a quiet morning in the mountains.",
-  "What are some fun weekend road trip destinations within 3 hours of San Francisco?",
-  "How do modern search engines rank websites? Explain the key ranking signals.",
-  "What are the core concepts of object-oriented programming with simple examples?",
-  "Explain the difference between deep learning and traditional machine learning.",
-  "What are some practical tips to improve my presentation skills for tech conferences?",
-  "Write a SQL query to find duplicate records in a table based on email address.",
-  "What is the Page Visibility API in browsers, and what is a practical use case for it?",
-  "Can you write a beautiful CSS grid template for a standard 3-column blog layout?",
-  "Explain how DNS resolution works step-by-step when I type a URL in the browser."
-];
 
 // Helper to get random number between min and max inclusive
 function randomInt(min, max) {
@@ -323,9 +286,8 @@ async function runWarmup() {
     // 7. Perform conversational Q&A warmup
     console.log(`\n💬 [Warmup] Bắt đầu tương tác Q&A (${qCountArg} câu hỏi)...`);
     
-    // Shuffle prompts
-    const shuffled = [...QUESTIONS].sort(() => 0.5 - Math.random());
-    const selectedPrompts = shuffled.slice(0, qCountArg);
+    // Generate random conversational prompts dynamically using dynamic combinations
+    const selectedPrompts = generateWarmupPrompts(qCountArg);
     
     for (let idx = 0; idx < selectedPrompts.length; idx++) {
       const promptText = selectedPrompts[idx];
