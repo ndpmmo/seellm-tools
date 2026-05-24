@@ -432,7 +432,7 @@ router.post('/proxies/bulk-delete', async (req, res) => {
       return res.status(400).json({ error: 'Missing or invalid ids' });
     }
 
-    const now = dayjs().toISOString();
+    const now = new Date().toISOString();
     const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
     const transaction = vault.db.transaction((proxyIds) => {
       for (const id of proxyIds) {
