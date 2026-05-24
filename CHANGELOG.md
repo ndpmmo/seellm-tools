@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.44] - 2026-05-24 14:05:00
+
+### 🐛 Sửa lỗi ReferenceError dayjs is not defined trong luồng Quản lý và Đồng bộ Proxy
+
+**Thay đổi:**
+- **Giải quyết lỗi biến chưa định nghĩa (ReferenceError):**
+  - Khắc phục triệt để lỗi `ReferenceError: dayjs is not defined` xảy ra khi xóa proxy từ Local Vault (`?view=vault-proxies`) và Gateway Proxies (`?view=proxies`).
+  - Thay thế toàn bộ lời gọi `dayjs().toISOString()` bằng hàm JavaScript thuần `new Date().toISOString()` trong cả bộ định tuyến Vault (`server/routes/vault.js`) và các bộ đánh chặn đồng bộ trung gian (`server.js`).
+- **Nâng cấp phiên bản:**
+  - Bump version lên `0.3.44`.
+
+---
+
 ## [0.3.43] - 2026-05-24 01:25:00
 
 ### 🚀 Tối ưu hóa Xóa hàng loạt & Nhập hàng loạt qua Batch APIs cho cả hai Giao diện Proxy

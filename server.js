@@ -1801,7 +1801,7 @@ app.prepare().then(async () => {
       const { ids } = req.body || {};
       if (Array.isArray(ids) && ids.length > 0) {
         console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa bulk proxy từ UI (Gateway). Số lượng: ${ids.length}`);
-        const now = dayjs().toISOString();
+        const now = new Date().toISOString();
         const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
         const transaction = vault.db.transaction((proxyIds) => {
           for (const id of proxyIds) {
@@ -1841,7 +1841,7 @@ app.prepare().then(async () => {
       const d1Data = await d1Res.json();
 
       if (d1Data.ok && Array.isArray(d1Data.ids)) {
-        const now = dayjs().toISOString();
+        const now = new Date().toISOString();
         const transaction = vault.db.transaction((addedItems, addedIds) => {
           for (let i = 0; i < addedItems.length; i++) {
             const item = addedItems[i];
