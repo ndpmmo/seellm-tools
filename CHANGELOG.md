@@ -2,6 +2,42 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.61] - 2026-05-24 23:44:00
+
+### 🚀 Nâng Cấp Hạ Tầng Camofox Browser v1.8.15 → v1.11.2
+
+**Bối cảnh:** Camofox Browser là thành phần cốt lõi mà SeeLLM Tools sử dụng để tự động hoá trình duyệt (đăng nhập, kiểm tra phiên, thu thập cookie). Phiên bản v1.11.2 mang lại nhiều cải tiến đáng kể về hiệu năng, bảo mật và độ ổn định.
+
+**Thay đổi hạ tầng (không ảnh hưởng tới code seellm-tools):**
+- **Merge upstream v1.11.2**: Nâng cấp thành công từ nhánh `custom/v1.8.15-seellm` lên `custom/v1.11.2-seellm` trên local. Giải quyết toàn bộ 4 conflict trong `server.js` và `camofox.config.json`, bảo toàn 100% tính năng tuỳ biến của SeeLLM.
+- **Tính năng mới từ upstream v1.9.0–v1.11.2**:
+  - **Viewport API** (`POST /tabs/:tabId/viewport`): Đặt kích thước viewport tuỳ ý cho từng tab — hữu ích khi cần giả lập độ phân giải màn hình cụ thể.
+  - **Tab Memory Leak Self-Healing**: Cơ chế `Orphan Page Reaper` tự động force-close các Playwright pages bị leak khỏi `tabGroups` (chạy mỗi 60 giây), ngăn Firefox bị nghẽn DOM threads sau thời gian dài chạy.
+  - **Navigation Retry với Proxy Rotation**: Khi điều hướng thất bại do lỗi proxy/timeout, hệ thống tự động rotate sang proxy mới và thử lại — giảm tỷ lệ lỗi trong môi trường proxy pool.
+  - **Sentry Error Tracking** (optional): Tích hợp `lib/sentry.js` ghi nhận crash và unhandled rejection. Vô hiệu hóa bằng cách không đặt biến môi trường `SENTRY_DSN`.
+  - **External Camoufox Executable** (`lib/camoufox-executable.js`): Hỗ trợ trỏ tới binary Camoufox tuỳ chỉnh qua biến môi trường `CAMOUFOX_EXECUTABLE_PATH`.
+  - **CLI Binary** (`bin/camofox-browser.js`): Thêm entry point dòng lệnh để chạy Camofox như một lệnh toàn cục.
+  - **Fly.io Session Overflow Redirect**: Cơ chế phân phối phiên thông minh giữa nhiều máy ảo Fly.io (không ảnh hưởng khi chạy local).
+  - **Browser RSS Pressure Restart**: Tự động khởi động lại trình duyệt nếu RSS của tiến trình Firefox vượt ngưỡng cài đặt.
+- **Bảo mật Auth Gate (v1.11.0 — không ảnh hưởng local)**:
+  - Một số route nhạy cảm (`/evaluate`, `/sessions/:userId`) hiện yêu cầu `CAMOFOX_API_KEY` trong môi trường `production`.
+  - **Không ảnh hưởng SeeLLM Tools**: Tất cả script tự động của SeeLLM đều gọi từ `127.0.0.1` — loopback được miễn xác thực hoàn toàn trong mọi môi trường.
+- **Plugin `seellm-tools` — 4 route tuỳ biến bảo toàn nguyên vẹn**:
+  - `GET /sessions/:userId/cookies` — Xuất cookie toàn phiên.
+  - `GET /tabs/:tabId/cookies` — Xuất cookie từng tab.
+  - `POST /tabs/:tabId/wait-for-selector` — Chờ CSS selector xuất hiện trên trang.
+  - `POST /tabs/:tabId/wait-for-url` — Chờ URL khớp với pattern/regex.
+- **Rebuild native module `better-sqlite3`**: Biên dịch lại `better-sqlite3` nhắm đúng Node v22 (giải quyết `ERR_DLOPEN_FAILED` sau khi cập nhật môi trường).
+- **Kiểm thử sau nâng cấp**:
+  - OpenAPI spec test (`tests/unit/openapi.test.js`): **16/16 passed** — 35 routes đều được lập chỉ mục.
+  - Security test suite (`tests/unit/security.test.js`): **19/19 passed**.
+  - Dry run thực tế: Tab tạo thành công, cookie export trả về JSON đúng, pre-warm chỉ mất 406ms.
+
+**package.json:**
+- Nâng phiên bản lên `0.3.61`.
+
+---
+
 ## [0.3.60] - 2026-05-24 22:45:00
 
 ### 🛡️ Thiết Kế Trạng Thái Ưu Tiên Thông Minh (Smart Status Priority Design)
