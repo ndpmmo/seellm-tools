@@ -115,10 +115,22 @@ curl -X POST http://localhost:3144/tabs/tab123/wait-for-url \
 
 ### Custom patches trong server.js (khong the chuyen sang plugin)
 
-2 patch sau được áp dụng trực tiếp vào `server.js` vì cần truy cập internal state:
+3 patch sau được áp dụng trực tiếp vào `server.js` vì cần truy cập hoặc khởi chạy trước trạng thái hệ thống:
 
 1. **Per-request proxy** — Cho phép truyền `proxy`/`proxyUrl` trong `POST /tabs` body, persist proxy per user session, tự recreate context khi proxy thay đổi.
 2. **forceLocale** — Cho phép truyền `locale`/`forceLocale` trong `POST /tabs` body, ép locale + Accept-Language bất kể proxy GeoIP.
+3. **Port Conflict Killer** — Tự động quét và tắt tiến trình đang chiếm cổng `PORT` (mặc định là `9377`) trước khi lắng nghe, tránh lỗi `EADDRINUSE` khi khởi động song song hoặc chạy lại.
+
+#### Chi tiết thay đổi của Port Conflict Killer:
+* **Tạo file mới**: `lib/port-killer.js` định nghĩa hàm `killProcessOnPort(port)`.
+* **Cập nhật server.js**: Import và gọi `killProcessOnPort(CONFIG.port)` ngay sau khi `CONFIG` được tải.
+* **Tệp bản vá backup**: Tệp tin `patch_camofox_port_killer.patch` được lưu tại gốc của `seellm-tools` để tái áp dụng bản vá nếu bạn có cài đặt lại hoặc nâng cấp Camofox.
+
+Để áp dụng tệp bản vá này trên thư mục cài đặt Camofox:
+```bash
+cd /Users/ndpmmo/Documents/Tools/camofox-browser
+git apply /Users/ndpmmo/Documents/Github/seellm-tools/patch_camofox_port_killer.patch
+```
 
 ### Plugin config (`camofox.config.json`)
 
@@ -636,3 +648,4 @@ await act(tabId, userId, 'click', { ref: 'e1' });
 await act(tabId, userId, 'type', { ref: 'e2', text: 'hello' });
 await act(tabId, userId, 'press', { key: 'Enter' });
 await act(tabId, userId, 'scroll', { direction: 'down', amount: 500 });
+```
