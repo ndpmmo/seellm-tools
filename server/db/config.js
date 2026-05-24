@@ -20,6 +20,7 @@ export function loadConfig() {
     forceEnLocale: true,
     workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
     protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
+    warmupScreenshots: true,
   };
   try {
     if (existsSync(CONFIG_PATH)) {

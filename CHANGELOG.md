@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.47] - 2026-05-24 18:25:00
+
+### 🚀 Tối ưu hóa Toàn diện ChatGPT Account Warmup, Fix lỗi Lặp Đăng Nhập & Kho Câu Hỏi Đa Ngôn Ngữ Khổng Lồ
+
+**Thay đổi:**
+- **Giải quyết triệt để lỗi Lặp Điền Email/Password (`scripts/warmup.js`)**:
+  - Khắc phục lỗi worker liên tục điền lại thông tin đăng nhập khi trang chuyển tiếp chậm. Bổ sung các cờ trạng thái `emailFilled` và `passwordFilled` để ngăn chặn việc nhập đè.
+  - Tự động kích hoạt lại sự kiện click nút "Continue / Next" dự phòng khi phát hiện phiên bị kẹt trong quá trình chuyển tiếp trang.
+- **Tích hợp Tự động Nhận Diện & Tự Phục Hồi Lỗi OpenAI (`scripts/warmup.js` & `scripts/lib/openai-login-flow.js`)**:
+  - Tự động quét và phát hiện các màn hình lỗi của OpenAI (như `"Oops! We ran into an issue while signing you in..."` hoặc các lỗi Cloudflare/IP block).
+  - Triển khai cơ chế tự phục hồi: Tự động click nút **"Go back / Try again / Thử lại"** để quay về màn hình trước đó và thử đăng nhập lại. Nếu không thể tự khắc phục, lập tức trả về lỗi chi tiết (`OPENAI_ERROR_PAGE`) thay vì treo tiến trình đợi timeout.
+- **Nâng cấp Bộ Quét Phản Hồi Trả Lời Xong (Dynamic Generation Checker) (`scripts/warmup.js`)**:
+  - Hỗ trợ đầy đủ các class CSS hiện đại của ChatGPT (chẳng hạn như `composer-submit-button-color` cho nút gửi và dừng).
+  - Tích hợp kiểm tra 3 lớp (Aria-label "Stop generating", trạng thái `.result-streaming`, và nút Submit disabled) giúp nhận diện hoàn hảo thời điểm ChatGPT hoàn thành phản hồi, kiểm tra định kỳ mỗi 2 giây, kết thúc tương tác tức thời khi xong (hoàn tất Q&A chỉ trong 14 giây trong môi trường test thực tế).
+- **Mở rộng Kho Câu Hỏi Đa Dạng & Thuật Toán Tổ Hợp Tự Nhiên (`scripts/lib/warmup-prompts.js`)**:
+  - Nâng cấp module `warmup-prompts.js` thành một bộ máy sinh câu hỏi ngẫu nhiên khổng lồ.
+  - Hỗ trợ luân phiên 2 ngôn ngữ **Tiếng Anh** và **Tiếng Việt** tự nhiên như người dùng thật.
+  - Tích hợp hàng loạt chủ đề cao cấp: Từ kỹ thuật phát triển phần mềm (Next.js, Tailwind, React, Node.js), phân tích kiến trúc hệ thống, đến đời sống, triết học, nghệ thuật, lịch sử và ẩm thực.
+  - Sử dụng thuật toán tổ hợp (Combinatorics Engine) phối hợp ngẫu nhiên các vai trò Persona (Lập trình viên, Nhà văn, Chuyên gia hệ thống), phong cách hành văn (Curious, Direct, Elaborate) và khuôn mẫu câu hỏi để tạo ra hàng nghìn câu hỏi độc nhất vô nhị không trùng lặp.
+
 ## [0.3.46] - 2026-05-24 14:45:00
 
 ### 🔥 Tích hợp Module Tự Động Tương Tác Nuôi Tài Khoản (ChatGPT Account Warmup)

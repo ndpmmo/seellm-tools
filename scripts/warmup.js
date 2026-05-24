@@ -3,11 +3,24 @@
  * Automates conversational Q&A interactions using Camofox to maintain account health.
  */
 
-import { CAMOUFOX_API, TOOLS_API_URL } from './config.js';
+import { CAMOUFOX_API, TOOLS_API_URL, WARMUP_SCREENSHOTS } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson } from './lib/camofox.js';
 import { normalizeProxyUrl, assertProxyApplied, probeProxyExitIp, getLocalPublicIp, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { getFreshTOTP } from './lib/totp.js';
 import { generateWarmupPrompts } from './lib/warmup-prompts.js';
+import { createStepRecorder } from './lib/screenshot.js';
+import {
+  getState,
+  fillEmail,
+  fillPassword,
+  fillMfa,
+  tryAcceptCookies,
+  dismissGooglePopupAndClickLogin,
+  selectPersonalWorkspaceOnWorkspacePage
+} from './lib/openai-login-flow.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 
 
 // Helper to get random number between min and max inclusive
@@ -48,7 +61,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   while (Date.now() - startTime < timeoutMs) {
     const status = await evalJson(tabId, userId, `(() => {
       // 1. Check for visible "Stop generating" button
-      const stopBtn = document.querySelector('button[aria-label*="Stop"], button[data-testid*="stop"], button[data-testid="stop-generating-button"]');
+      const stopBtn = document.querySelector('button[aria-label*="Stop"], button[data-testid*="stop"], button[data-testid="stop-generating-button"], button[class*="composer-submit"] svg[use*="stop"]');
       if (stopBtn && stopBtn.offsetParent !== null) {
         return 'generating (stop button visible)';
       }
@@ -59,12 +72,22 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
         return 'generating (streaming element active)';
       }
       
-      // 3. Check send button state (it turns back to enabled/Send prompt when done)
-      const sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[data-testid*="send"]');
-      if (sendBtn) {
-        const isDisabled = sendBtn.hasAttribute('disabled') || sendBtn.disabled;
-        if (isDisabled) {
-          return 'generating (send button disabled)';
+      // 3. Check submit/voice button state
+      const submitBtn = document.querySelector('button[class*="composer-submit"], button[aria-label="Start Voice"], button[aria-label="Send prompt"], button[data-testid="send-button"]');
+      if (submitBtn && submitBtn.offsetParent !== null) {
+        // If it's a stop button or disabled
+        const ariaLabel = (submitBtn.getAttribute('aria-label') || '').toLowerCase();
+        const className = (submitBtn.className || '').toLowerCase();
+        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]') || !!submitBtn.querySelector('svg rect'); // stop icon has rect
+        
+        if (ariaLabel.includes('stop') || className.includes('stop') || hasStopSvg) {
+          return 'generating (composer-submit stop active)';
+        }
+        
+        // If it's idle/voice or send is enabled (meaning ready for next prompt)
+        const isDisabled = submitBtn.hasAttribute('disabled') || submitBtn.disabled;
+        if (isDisabled && !ariaLabel.includes('voice')) {
+          return 'generating (submit button disabled)';
         }
         return 'complete';
       }
@@ -124,6 +147,7 @@ async function runWarmup() {
   let tabId = null;
   let preFlightResult = null;
   let questionsAsked = 0;
+  let stepRecorder = null;
   
   try {
     // 2. Pre-flight Proxy Assert (traffic isolation security)
@@ -158,7 +182,7 @@ async function runWarmup() {
     const opened = await camofoxPost('/tabs', {
       userId: USER_ID,
       sessionKey: SESSION_KEY,
-      url: 'about:blank',
+      url: 'https://example.com/',
       proxy: effectiveProxy || undefined,
       persistent: true, // Reuse profiles/cookies inside Camofox
       os: 'macos',
@@ -169,6 +193,16 @@ async function runWarmup() {
     
     tabId = opened.tabId;
     await delay(3000);
+    
+    // Set up step recorder for screenshots if enabled
+    if (WARMUP_SCREENSHOTS) {
+      const runDir = path.join(process.cwd(), 'data', 'screenshots', `warmup_${account.id}`);
+      await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
+      await fs.mkdir(runDir, { recursive: true });
+      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+      console.log(`[Warmup] 📸 Chụp ảnh logs đã bật! Thư mục ảnh: ${runDir}`);
+    }
+
     
     // 4. Import cookies from database if present
     if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
@@ -189,98 +223,229 @@ async function runWarmup() {
     await navigate(tabId, USER_ID, 'https://chatgpt.com/');
     await delay(5000);
     
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(1, 1, 'chatgpt_initial_page');
+    }
+    
     // 6. Check login state
-    let isLoggedIn = await evalJson(tabId, USER_ID, `!!document.querySelector('#prompt-textarea')`);
+    const checkLoginState = async () => {
+      const state = await getState(tabId, USER_ID);
+      return state.looksLoggedIn;
+    };
+
+    let isLoggedIn = await checkLoginState();
     
     if (!isLoggedIn) {
       console.log(`[Warmup] 👤 Chưa đăng nhập hoặc cookie hết hạn! Tiến hành đăng nhập...`);
-      await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login');
-      await delay(5000);
       
-      // 6.1 Accept cookies
-      await evalJson(tabId, USER_ID, `(() => {
-        const btns = document.querySelectorAll('button');
-        for (const b of btns) {
-          const t = b.textContent?.toLowerCase() || '';
-          if (t.includes('accept all') || t.includes('đồng ý') || t.includes('accept cookies')) {
-            b.click();
-            return 'clicked_accept';
+      const maxLoginAttempts = 15;
+      let emailFilled = false;
+      let passwordFilled = false;
+      let mfaFilled = false;
+      
+      for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
+        console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
+        
+        // Take a screenshot of the login step
+        if (WARMUP_SCREENSHOTS && stepRecorder) {
+          await stepRecorder.checkpoint(1, 10 + attempt, `login_loop_step_${attempt}`);
+        }
+        
+        // 1. Get current state
+        const state = await getState(tabId, USER_ID);
+        
+        if (state.looksLoggedIn) {
+          console.log(`[Warmup] 👤 Đăng nhập thành công (trạng thái looksLoggedIn = true)!`);
+          isLoggedIn = true;
+          break;
+        }
+        
+        if (state.hasDeactivated) {
+          throw new Error('ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa');
+        }
+        
+        // 1.5. Handle OpenAI/ChatGPT Error screen with self-healing click
+        if (state.hasError) {
+          console.log(`[Warmup] ⚠️ Phát hiện lỗi trên trang OpenAI/ChatGPT!`);
+          const errorHealed = await evalJson(tabId, USER_ID, `(() => {
+            const btn = Array.from(document.querySelectorAll('button, a, [role=\"button\"]'))
+              .find(el => {
+                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                return t.includes('go back') || t.includes('try again') || t.includes('thử lại') || t.includes('quay lại');
+              });
+            if (btn) {
+              btn.click();
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return true;
+            }
+            return false;
+          })()`).catch(() => false);
+          
+          if (errorHealed) {
+            console.log(`[Warmup] 🔄 Đã bấm nút "Go back / Try again" để tự khắc phục lỗi...`);
+            await delay(5000);
+            continue;
+          } else {
+            throw new Error(`OPENAI_ERROR_PAGE: Phát hiện màn hình báo lỗi của OpenAI (${state.href})`);
           }
         }
-        return 'no_cookie_banner';
-      })()`);
-      await delay(1500);
-      
-      // 6.2 Click main log in button if presented
-      await evalJson(tabId, USER_ID, `(() => {
-        const btns = document.querySelectorAll('button, a');
-        for (const b of btns) {
-          const t = b.textContent?.toLowerCase() || '';
-          if (t === 'log in' || t === 'đăng nhập') {
-            b.click();
-            return 'clicked_login';
+        
+        // 2. Handle Welcome Back dialog (Diane Mitchell dialog in Image 1)
+        const chooseResult = await evalJson(tabId, USER_ID, `(() => {
+          const body = (document.body?.innerText || '').toLowerCase();
+          const hasWelcomeBack = body.includes('welcome back') || body.includes('chào mừng quay trở lại') || body.includes('choose an account') || body.includes('chọn một tài khoản');
+          if (!hasWelcomeBack) return null;
+          
+          // Strategy 1: Look for button, [role="button"], [role="option"], or anchor elements first
+          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a');
+          for (const el of clickables) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
+            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
+              el.click();
+              // Dispatch MouseEvents for extra security
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return 'clicked_btn: ' + text.slice(0, 60);
+            }
           }
+          
+          // Strategy 2: Fallback to child divs with classes containing account/item/button
+          const divs = document.querySelectorAll('div[class*="account"], div[class*="item"], div[class*="button"]');
+          for (const el of divs) {
+            if (el.offsetParent === null) continue;
+            // Ensure we are clicking a leaf-like div, not the outer modal container
+            if (el.querySelector('div[class*="account"], div[class*="item"]')) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
+            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
+              el.click();
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return 'clicked_div: ' + text.slice(0, 60);
+            }
+          }
+          return null;
+        })()`);
+        if (chooseResult) {
+          console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã chọn tài khoản: ${chooseResult}`);
+          await delay(4000);
+          continue;
         }
-        return 'already_on_login_form';
-      })()`);
-      await delay(4000);
-      
-      // 6.3 Fill Email
-      console.log(`[Warmup] 📧 Điền email: ${account.email}`);
-      const emailInputSelector = 'input[name="username"], #username, input[type="email"]';
-      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: emailInputSelector, text: account.email });
-      await pressKey(tabId, USER_ID, 'Enter');
-      await delay(3000);
-      
-      // 6.4 Fill Password
-      console.log(`[Warmup] 🔑 Điền password...`);
-      const pwdSelector = 'input[type="password"], input[name="password"], #password';
-      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: pwdSelector, text: account.password });
-      await pressKey(tabId, USER_ID, 'Enter');
-      await delay(5000);
-      
-      // 6.5 Handle 2FA if needed
-      const isAtMFA = await evalJson(tabId, USER_ID, `(() => {
-        const url = location.href.toLowerCase();
-        const txt = document.body?.innerText?.toLowerCase() || '';
-        return url.includes('mfa') || url.includes('/verify') || txt.includes('one-time code') || txt.includes('authenticator');
-      })()`);
-      
-      if (isAtMFA) {
-        console.log(`[Warmup] 🛡️ Phát hiện màn hình 2FA!`);
-        const totpSecret = account.two_fa_secret || account.twoFaSecret;
-        if (!totpSecret) {
-          throw new Error('Tài khoản yêu cầu 2FA nhưng không có Secret Key!');
+        
+        // 3. Handle Cookie Banner
+        if (state.hasCookieBanner) {
+          console.log(`[Warmup] 🍪 Phát hiện cookie banner -> Chấp nhận cookies...`);
+          await tryAcceptCookies(tabId, USER_ID);
+          await delay(2000);
+          continue;
         }
-        const { otp } = await getFreshTOTP(totpSecret);
-        console.log(`[Warmup] 🔢 Tạo mã OTP: ${otp}`);
-        const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"]';
-        await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
-        await pressKey(tabId, USER_ID, 'Enter');
-        await delay(5000);
-      }
-      
-      // 6.6 Verify redirect back
-      for (let waitSec = 0; waitSec < 10; waitSec++) {
-        isLoggedIn = await evalJson(tabId, USER_ID, `!!document.querySelector('#prompt-textarea')`);
-        if (isLoggedIn) break;
-        await delay(2000);
+        
+        // 4. Handle Workspace Selection (Image 2)
+        if (state.isWorkspaceScreen) {
+          console.log(`[Warmup] 🗂️ Phát hiện màn hình chọn Workspace -> Chọn Personal account...`);
+          const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
+          if (wsResult?.ok) {
+            console.log(`[Warmup] ✅ Đã chọn Personal workspace: ${wsResult.text || ''}`);
+            await delay(4000);
+          } else {
+            console.warn(`[Warmup] ⚠️ Chọn Workspace thất bại: ${wsResult?.reason}`);
+            await delay(2000);
+          }
+          continue;
+        }
+        
+        // 5. Handle Email Input
+        if (state.hasEmailInput) {
+          if (emailFilled) {
+            console.log(`[Warmup] 📧 Email đã được điền ở lượt trước, đang chờ chuyển trang...`);
+            // Retrigger the continue click just in case
+            await evalJson(tabId, USER_ID, `(() => {
+              const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                .find(el => {
+                  const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                  return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                });
+              if (btn) {
+                btn.click();
+                btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              }
+            })()`).catch(() => {});
+            await delay(3000);
+            continue;
+          }
+          console.log(`[Warmup] 📧 Điền email: ${account.email}`);
+          await fillEmail(tabId, USER_ID, account.email);
+          emailFilled = true;
+          await delay(5000);
+          continue;
+        }
+        
+        // 6. Handle Password Input
+        if (state.hasPasswordInput) {
+          if (passwordFilled) {
+            console.log(`[Warmup] 🔑 Password đã được điền ở lượt trước, đang chờ đăng nhập...`);
+            // Retrigger password submit click just in case
+            await evalJson(tabId, USER_ID, `(() => {
+              const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                .find(el => {
+                  const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                  return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+                });
+              if (btn) {
+                btn.click();
+                btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              }
+            })()`).catch(() => {});
+            await delay(3000);
+            continue;
+          }
+          console.log(`[Warmup] 🔑 Điền password...`);
+          await fillPassword(tabId, USER_ID, account.password);
+          passwordFilled = true;
+          await delay(6000);
+          continue;
+        }
+        
+        // 7. Handle MFA Input
+        if (state.hasMfaInput) {
+          console.log(`[Warmup] 🛡️ Phát hiện màn hình 2FA!`);
+          const totpSecret = account.two_fa_secret || account.twoFaSecret;
+          if (!totpSecret) {
+            throw new Error('Tài khoản yêu cầu 2FA nhưng không có Secret Key!');
+          }
+          const { otp } = await getFreshTOTP(totpSecret);
+          console.log(`[Warmup] 🔢 Điền mã OTP: ${otp}`);
+          await fillMfa(tabId, USER_ID, otp);
+          mfaFilled = true;
+          await delay(5000);
+          continue;
+        }
+        
+        // 8. If stuck on chatgpt.com landing/homepage but not logged in and not on auth domain
+        if (!state.onAuthDomain) {
+          console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
+          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+          await delay(4000);
+          continue;
+        }
+        
+        // Fallback sleep
+        await delay(3000);
       }
       
       if (!isLoggedIn) {
-        const snapText = await evalJson(tabId, USER_ID, `document.body?.innerText?.toLowerCase() || ''`);
-        if (snapText.includes('phone') || snapText.includes('sđt') || snapText.includes('số điện thoại')) {
-          throw new Error('NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
-        }
-        if (snapText.includes('deactivated') || snapText.includes('vô hiệu hóa') || snapText.includes('bị khóa')) {
-          throw new Error('ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa');
-        }
-        throw new Error('Đăng nhập thất bại hoặc cookie hết hạn!');
+        throw new Error('Đăng nhập thất bại hoặc hết thời gian chờ!');
       }
-      
-      console.log(`[Warmup] 👤 Đăng nhập thành công!`);
     } else {
       console.log(`[Warmup] ✅ Session hợp lệ!`);
+    }
+    
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(2, 1, 'chatgpt_logged_in_dashboard');
     }
     
     // 7. Perform conversational Q&A warmup
@@ -304,6 +469,9 @@ async function runWarmup() {
       }
       
       // Type message
+      if (WARMUP_SCREENSHOTS && stepRecorder) {
+        await stepRecorder.before(3 + idx, 1, `q${idx + 1}_sending`);
+      }
       await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: '#prompt-textarea', text: promptText });
       await delay(1000);
       
@@ -313,6 +481,10 @@ async function runWarmup() {
       
       // Wait for complete response
       await waitForGenerationComplete(tabId, USER_ID);
+      
+      if (WARMUP_SCREENSHOTS && stepRecorder) {
+        await stepRecorder.after(3 + idx, 2, `q${idx + 1}_response_complete`);
+      }
       
       questionsAsked++;
       // Sleep between questions to simulate human reading/thinking
@@ -345,6 +517,10 @@ async function runWarmup() {
     
   } catch (err) {
     console.error(`\n❌ [Warmup] Lỗi trong quá trình chạy: ${err.message}`);
+    
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.error(99, 1, 'warmup_error').catch(() => {});
+    }
     
     // Save failure status back to server
     try {

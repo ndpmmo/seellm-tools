@@ -171,6 +171,26 @@ export function SettingsView() {
               {f.forceEnLocale ? 'BẬT — Ép en-US' : 'TẮT — Theo GeoIP của proxy'}
             </button>
           </Field>
+          <Field
+            label="Chụp ảnh kết quả Warmup (Screenshots)"
+            hint="Khi BẬT: Camofox sẽ tự động chụp lại các bước tương tác Q&A và kết quả chat của ChatGPT. Ảnh sẽ được lưu trữ để theo dõi trực quan tương tự như quá trình tạo hay deploy."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('warmupScreenshots', f.warmupScreenshots === false ? true : false)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.warmupScreenshots !== false
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.warmupScreenshots !== false ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.warmupScreenshots !== false ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.warmupScreenshots !== false ? 'BẬT — Chụp ảnh logs Warmup' : 'TẮT — Không chụp ảnh'}
+            </button>
+          </Field>
         </Section>
 
         <Card>

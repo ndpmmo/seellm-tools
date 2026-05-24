@@ -55,6 +55,8 @@ export interface AppConfig {
   workerMode?: string;
   /** Bật protocol-mode registration làm primary flow (true = API-first, false = browser-only) */
   protocolFirst?: boolean;
+  /** Bật chụp ảnh màn hình trong quá trình warmup (true = Bật, false = Tắt) */
+  warmupScreenshots?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

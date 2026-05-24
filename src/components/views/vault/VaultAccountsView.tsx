@@ -178,7 +178,7 @@ const getProviderName = (provider: string) =>
 
 /* ══════════════════════════════════════════════════════════ */
 export function VaultAccountsView() {
-  const { addToast } = useApp();
+  const { addToast, setView } = useApp();
   const { confirm: askConfirm, modal: confirmModal } = useConfirm();
   const [items, setItems] = useState<any[]>([]);
   const [proxies, setProxies] = useState<any[]>([]);
@@ -442,7 +442,13 @@ export function VaultAccountsView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questionsCount: 0 })
       });
-      const d = await r.json();
+      const text = await r.text();
+      let d;
+      try {
+        d = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`⚠️ Backend Server.js cần được khởi động lại để nhận diện API Route mới. Vui lòng tắt server (Ctrl+C) và chạy lại 'pnpm dev' (hoặc 'npm run dev').`);
+      }
       if (d.error) throw new Error(d.error);
       addToast(`🔥 Đã kích hoạt Warmup cho ${email}`, 'success');
       
@@ -480,7 +486,13 @@ export function VaultAccountsView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ questionsCount: 0 })
         });
-        const d = await r.json();
+        const text = await r.text();
+        let d;
+        try {
+          d = JSON.parse(text);
+        } catch (err) {
+          throw new Error(`⚠️ Backend Server.js cần được khởi động lại để nhận diện API Route mới. Vui lòng tắt server (Ctrl+C) và chạy lại 'pnpm dev' (hoặc 'npm run dev').`);
+        }
         if (!d.error) {
           success++;
           const psData = acc?.provider_specific_data || {};
@@ -493,10 +505,15 @@ export function VaultAccountsView() {
             }
           });
         }
-      } catch {}
+      } catch (e: any) {
+        addToast(e.message, 'error');
+        break; // Stop bulk loop if server is not updated
+      }
     }
     
-    addToast(`🔥 Đã kích hoạt Warmup cho ${success} tài khoản`, 'success');
+    if (success > 0) {
+      addToast(`🔥 Đã kích hoạt Warmup cho ${success} tài khoản`, 'success');
+    }
     setSelectedIds(new Set());
   };
 
@@ -1338,43 +1355,63 @@ export function VaultAccountsView() {
                             {isOpenAI(it.provider) && (
                               <div>
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Trạng thái Warmup</div>
-                                <div className="flex items-center gap-1.5 text-[11px]">
+                                <div className="flex flex-col gap-1 text-[11px]">
+                                  <div>
+                                    {(() => {
+                                      const ps = it.provider_specific_data || {};
+                                      const lastWarmed = ps.lastWarmedAt;
+                                      const status = ps.warmupStatus;
+                                      const error = ps.warmupError;
+                                      const qAsked = ps.warmupQuestionsAsked;
+                                      
+                                      if (status === 'pending') {
+                                        return (
+                                          <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
+                                            <RefreshCw size={10} className="animate-spin" /> Đang chạy...
+                                          </span>
+                                        );
+                                      }
+                                      if (status === 'success') {
+                                        return (
+                                          <div>
+                                            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                                              <Flame size={11} className="text-orange-400 animate-pulse" /> Đã Warm ({qAsked} câu)
+                                            </span>
+                                            <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
+                                          </div>
+                                        );
+                                      }
+                                      if (status === 'failed') {
+                                        return (
+                                          <div title={error || 'Unknown error'}>
+                                            <span className="inline-flex items-center gap-1 text-rose-400 font-medium">
+                                              ⚠️ Warmup Lỗi
+                                            </span>
+                                            <div className="text-[9px] text-rose-500/80 truncate max-w-[150px]">{error || 'Unknown error'}</div>
+                                            <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
+                                          </div>
+                                        );
+                                      }
+                                      return <span className="text-slate-600 italic">Chưa Warmup</span>;
+                                    })()}
+                                  </div>
                                   {(() => {
                                     const ps = it.provider_specific_data || {};
-                                    const lastWarmed = ps.lastWarmedAt;
-                                    const status = ps.warmupStatus;
-                                    const error = ps.warmupError;
-                                    const qAsked = ps.warmupQuestionsAsked;
-                                    
-                                    if (status === 'pending') {
+                                    if (ps.warmupStatus && ps.warmupStatus !== 'idle') {
                                       return (
-                                        <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
-                                          <RefreshCw size={10} className="animate-spin" /> Đang chạy...
-                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setView('screenshots');
+                                          }}
+                                          className="mt-1.5 flex items-center gap-1 text-[10px] text-orange-400 hover:text-orange-300 font-medium transition-all"
+                                        >
+                                          📸 Xem ảnh logs
+                                        </button>
                                       );
                                     }
-                                    if (status === 'success') {
-                                      return (
-                                        <div>
-                                          <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
-                                            <Flame size={11} className="text-orange-400 animate-pulse" /> Đã Warm ({qAsked} câu)
-                                          </span>
-                                          <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
-                                        </div>
-                                      );
-                                    }
-                                    if (status === 'failed') {
-                                      return (
-                                        <div title={error || 'Unknown error'}>
-                                          <span className="inline-flex items-center gap-1 text-rose-400 font-medium">
-                                            ⚠️ Warmup Lỗi
-                                          </span>
-                                          <div className="text-[9px] text-rose-500/80 truncate max-w-[150px]">{error || 'Unknown error'}</div>
-                                          <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
-                                        </div>
-                                      );
-                                    }
-                                    return <span className="text-slate-600 italic">Chưa Warmup</span>;
+                                    return null;
                                   })()}
                                 </div>
                               </div>

@@ -708,6 +708,11 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
         }
 
         personalBtn.click();
+        try {
+          personalBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          personalBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          personalBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        } catch (_) {}
         return { ok: true, clicked: true, text: (personalBtn.textContent || '').trim().slice(0, 60) };
       })()
     `, 5000);
