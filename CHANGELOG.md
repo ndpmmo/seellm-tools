@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.46] - 2026-05-24 14:45:00
+
+### 🔥 Tích hợp Module Tự Động Tương Tác Nuôi Tài Khoản (ChatGPT Account Warmup)
+
+**Thay đổi:**
+- **Thêm Worker Warmup (`scripts/warmup.js`)**:
+  - Viết script tương tác hoàn toàn tự động sử dụng Camofox để tránh các thử thách Cloudflare/CAPTCHA.
+  - Tích hợp kho câu hỏi gồm 35 chủ đề đa dạng, tự nhiên để giả lập hành vi người dùng thật (1 đến 3 câu ngẫu nhiên).
+  - Tự động kiểm tra và nhập cookie sẵn có của tài khoản từ database. Nếu hết hạn, tiến hành đăng nhập lại bằng email, mật khẩu và secret key 2FA/TOTP.
+  - Theo dõi quá trình ChatGPT tạo câu trả lời qua phân tích DOM đa lớp (nút dừng tạo, streaming class, send button trạng thái disabled) đảm bảo không bị gián đoạn.
+  - Tự động ghi lại cookie mới sau khi warmup thành công và cập nhật lại trạng thái tài khoản thành `ready`.
+- **Thêm Cổng Định Tuyến Server (`server/routes/vault.js`)**:
+  - Hỗ trợ endpoint `POST /api/vault/accounts/:id/warmup` để kích hoạt worker chạy ngầm thông qua `processManager.spawnProcess` (cho phép theo dõi log trực tiếp trên trang quản trị).
+  - Hỗ trợ endpoint `POST /api/vault/accounts/:id/warmup-result` giúp đồng bộ kết quả (Thành công / Thất bại) vào DB cục bộ và tự động đồng bộ lên Cloudflare D1.
+- **Nâng Cấp Giao Diện Người Dùng (`VaultAccountsView.tsx`)**:
+  - Thêm nhãn trạng thái và thời gian tương tác cuối cùng ("Last Warmed", "Warming...", "Failed") hiển thị trực quan ngay tại danh sách tài khoản và bảng thông tin chi tiết.
+  - Tích hợp nút kích hoạt Warmup đơn lẻ cho từng tài khoản và nút kích hoạt Warmup hàng loạt trên thanh tác vụ nổi phía dưới.
+
 ## [0.3.45] - 2026-05-24 14:15:00
 
 ### 🎨 Thay thế toàn bộ hộp thoại xác nhận trình duyệt bằng Modal tùy chỉnh

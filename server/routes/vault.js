@@ -2791,4 +2791,96 @@ router.post('/accounts/bulk-register/clear', (req, res) => {
   }
 });
 
+// POST /api/vault/accounts/:id/warmup
+router.post('/accounts/:id/warmup', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { questionsCount = 0 } = req.body;
+    
+    const account = vault.getAccount(id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    
+    // Set the warmup status to pending in provider_specific_data
+    const existingProviderData = account.provider_specific_data || {};
+    existingProviderData.warmupStatus = 'pending';
+    existingProviderData.lastWarmedAt = new Date().toISOString();
+    existingProviderData.warmupError = null;
+    
+    vault.upsertAccount({
+      id,
+      provider_specific_data: existingProviderData
+    });
+    
+    // Spawn scripts/warmup.js as a detached background child process
+    const { fileURLToPath } = await import('node:url');
+    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/warmup.js');
+    
+    if (processManager.spawnProcess) {
+      const procId = `warmup_${id}_${Date.now()}`;
+      console.log(`[Server] Spawning warmup process ${procId} via processManager`);
+      processManager.spawnProcess(
+        procId, 
+        `🔥 Warmup ${account.email}`, 
+        'node', 
+        [scriptPath, '--accountId', id, '--questions', String(questionsCount)], 
+        process.cwd(), 
+        { env: { ...process.env } }
+      );
+    } else {
+      const { spawn } = await import('node:child_process');
+      console.log(`[Server] Spawning warmup worker for ${account.email} (${id})`);
+      const child = spawn('node', [scriptPath, '--accountId', id, '--questions', String(questionsCount)], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    }
+    
+    res.json({ ok: true, message: 'Warmup task triggered successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/:id/warmup-result
+router.post('/accounts/:id/warmup-result', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, error = null, questionsAsked = 0, cookies = null } = req.body;
+    
+    const account = vault.getAccount(id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    
+    const existingProviderData = account.provider_specific_data || {};
+    existingProviderData.warmupStatus = status; // 'success' | 'failed'
+    existingProviderData.lastWarmedAt = new Date().toISOString();
+    existingProviderData.warmupError = error;
+    existingProviderData.warmupQuestionsAsked = questionsAsked;
+    
+    const updateData = {
+      id,
+      provider_specific_data: existingProviderData
+    };
+    
+    if (cookies && Array.isArray(cookies) && cookies.length > 0) {
+      updateData.cookies = cookies;
+      // Trả lại trạng thái ready cho tài khoản nếu login thành công và lấy được cookies
+      updateData.status = 'ready';
+    }
+    
+    vault.upsertAccount(updateData);
+    
+    // Push sync to cloud D1
+    const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    if (fullRecord && fullRecord.email) {
+      console.log(`[Server] Syncing warmed account ${fullRecord.email} to D1`);
+      await SyncManager.pushVault('account', fullRecord).catch(() => {});
+    }
+    
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;

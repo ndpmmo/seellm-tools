@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag, Filter,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase
+  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase, Flame
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
@@ -433,6 +433,71 @@ export function VaultAccountsView() {
     setSyncingAll(false);
     setSelectedIds(new Set());
     loadAccounts();
+  };
+
+  const warmupAccount = async (id: string, email: string, account?: any) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/warmup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questionsCount: 0 })
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      addToast(`🔥 Đã kích hoạt Warmup cho ${email}`, 'success');
+      
+      const psData = account?.provider_specific_data || {};
+      patchAccountLocal(id, {
+        provider_specific_data: {
+          ...psData,
+          warmupStatus: 'pending',
+          lastWarmedAt: new Date().toISOString(),
+          warmupError: null
+        }
+      });
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const bulkWarmupSelected = async () => {
+    const readySelected = Array.from(selectedIds).filter(id => {
+      const acc = items.find(it => it.id === id);
+      return acc && acc.status === 'ready';
+    });
+    
+    if (readySelected.length === 0) {
+      addToast('⚠️ Chỉ có thể Warmup tài khoản ở trạng thái Ready', 'warning');
+      return;
+    }
+    
+    if (!await askConfirm('Warmup Hàng Loạt', `Kích hoạt Warmup cho ${readySelected.length} tài khoản Ready đã chọn?`, { variant: 'info', confirmLabel: 'Bắt đầu' })) return;
+    
+    let success = 0;
+    for (const id of readySelected) {
+      try {
+        const acc = items.find(it => it.id === id);
+        const r = await fetch(`/api/vault/accounts/${id}/warmup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questionsCount: 0 })
+        });
+        const d = await r.json();
+        if (!d.error) {
+          success++;
+          const psData = acc?.provider_specific_data || {};
+          patchAccountLocal(id, {
+            provider_specific_data: {
+              ...psData,
+              warmupStatus: 'pending',
+              lastWarmedAt: new Date().toISOString(),
+              warmupError: null
+            }
+          });
+        }
+      } catch {}
+    }
+    
+    addToast(`🔥 Đã kích hoạt Warmup cho ${success} tài khoản`, 'success');
+    setSelectedIds(new Set());
   };
 
   const bulkDeleteSelected = async () => {
@@ -1149,12 +1214,35 @@ export function VaultAccountsView() {
                           </button>
                           <PlanBadge plan={it.plan} />
                           {it.label && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 border border-white/5 truncate max-w-[80px]">{it.label}</span>}
+                          {isOpenAI(it.provider) && (() => {
+                            const ps = it.provider_specific_data || {};
+                            if (ps.warmupStatus === 'pending') {
+                              return <span className="inline-flex items-center text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20"><RefreshCw size={9} className="animate-spin mr-0.5" /> Warming</span>;
+                            }
+                            if (ps.warmupStatus === 'success') {
+                              return <span className="inline-flex items-center text-[10px] text-orange-400 font-semibold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20"><Flame size={9} className="mr-0.5 animate-pulse" /> Warmed</span>;
+                            }
+                            if (ps.warmupStatus === 'failed') {
+                              return <span className="inline-flex items-center text-[10px] text-rose-400 font-medium bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">⚠️ Failed</span>;
+                            }
+                            return null;
+                          })()}
                         </div>
                       </td>
                       <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} /></td>
                       <td className="px-4 py-2.5"><TagIcons tags={tags} twoFa={it.two_fa_secret} /></td>
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                          {it.status === 'ready' && isOpenAI(it.provider) && (
+                            <Button 
+                              size="icon-sm" 
+                              title="🔥 Warmup tài khoản" 
+                              onClick={() => warmupAccount(it.id, it.email, it)} 
+                              className="!text-orange-400 border-orange-500/20 hover:bg-orange-500/10"
+                            >
+                              <Flame size={13} />
+                            </Button>
+                          )}
                           {allowDeploy && (
                             <Button size="icon-sm" title="🤖 Deploy qua Unified Worker" onClick={() => deploy(it.id, it.email)} className="!text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"><Globe size={13} /></Button>
                           )}
@@ -1246,6 +1334,51 @@ export function VaultAccountsView() {
                               <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Ghi chú</div>
                               <span className="text-[11px] text-slate-400 max-w-[200px] truncate block">{it.notes || <span className="italic text-slate-600">Không có</span>}</span>
                             </div>
+                            {/* Warmup */}
+                            {isOpenAI(it.provider) && (
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Trạng thái Warmup</div>
+                                <div className="flex items-center gap-1.5 text-[11px]">
+                                  {(() => {
+                                    const ps = it.provider_specific_data || {};
+                                    const lastWarmed = ps.lastWarmedAt;
+                                    const status = ps.warmupStatus;
+                                    const error = ps.warmupError;
+                                    const qAsked = ps.warmupQuestionsAsked;
+                                    
+                                    if (status === 'pending') {
+                                      return (
+                                        <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
+                                          <RefreshCw size={10} className="animate-spin" /> Đang chạy...
+                                        </span>
+                                      );
+                                    }
+                                    if (status === 'success') {
+                                      return (
+                                        <div>
+                                          <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                                            <Flame size={11} className="text-orange-400 animate-pulse" /> Đã Warm ({qAsked} câu)
+                                          </span>
+                                          <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
+                                        </div>
+                                      );
+                                    }
+                                    if (status === 'failed') {
+                                      return (
+                                        <div title={error || 'Unknown error'}>
+                                          <span className="inline-flex items-center gap-1 text-rose-400 font-medium">
+                                            ⚠️ Warmup Lỗi
+                                          </span>
+                                          <div className="text-[9px] text-rose-500/80 truncate max-w-[150px]">{error || 'Unknown error'}</div>
+                                          <div className="text-[9px] text-slate-500 mt-0.5">{fmtDateTimeVN(lastWarmed)}</div>
+                                        </div>
+                                      );
+                                    }
+                                    return <span className="text-slate-600 italic">Chưa Warmup</span>;
+                                  })()}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1359,6 +1492,9 @@ export function VaultAccountsView() {
           <div className="flex items-center gap-2 shrink-0">
             <Button size="sm" variant="secondary" onClick={bulkDeploy} className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-8 text-[11px] font-semibold">
               <Globe size={11} className="mr-1" /> Deploy ({selectedIds.size})
+            </Button>
+            <Button size="sm" variant="secondary" onClick={bulkWarmupSelected} className="border-orange-500/30 text-orange-400 hover:bg-orange-500/10 h-8 text-[11px] font-semibold">
+              <Flame size={11} className="mr-1 animate-pulse" /> Warmup
             </Button>
             <div className="h-4 w-[1px] bg-white/10 shrink-0" />
             <select
