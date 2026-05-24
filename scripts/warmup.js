@@ -109,6 +109,40 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   return false;
 }
 
+/**
+ * Automatically detects and clicks "Okay, let's go", "Next", "Done", etc. onboarding buttons.
+ */
+async function dismissOnboardingModals(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    let clickedAny = false;
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, [class*="button"], [class*="btn"]'));
+    for (const btn of buttons) {
+      if (btn.offsetParent === null) continue;
+      const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+      if (
+        text.includes("let's go") ||
+        text.includes("let’s go") ||
+        text === "okay, let's go" ||
+        text === "okay, let’s go" ||
+        text === "okay" ||
+        text === "ok" ||
+        text === "got it" ||
+        text === "done" ||
+        text === "next" ||
+        text === "tiếp tục" ||
+        text === "bắt đầu" ||
+        text.includes("let's get started") ||
+        text.includes("okay, let’s get started")
+      ) {
+        btn.click();
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        clickedAny = true;
+      }
+    }
+    return clickedAny;
+  })()`).catch(() => false);
+}
+
 async function runWarmup() {
   const args = parseArgs();
   const accountId = args.accountId;
@@ -457,6 +491,17 @@ async function runWarmup() {
     for (let idx = 0; idx < selectedPrompts.length; idx++) {
       const promptText = selectedPrompts[idx];
       console.log(`\n[Warmup] ❓ Câu hỏi ${idx + 1}/${selectedPrompts.length}: "${promptText}"`);
+      
+      // Clear onboarding modals (up to 3 screens) if any overlays exist
+      for (let i = 0; i < 3; i++) {
+        const dismissed = await dismissOnboardingModals(tabId, USER_ID);
+        if (dismissed) {
+          console.log(`[Warmup] 🛡️ Phát hiện và đóng hộp thoại giới thiệu / Onboarding Modal (Lượt ${i + 1})...`);
+          await delay(2000);
+        } else {
+          break;
+        }
+      }
       
       // Wait for prompt-textarea to be visible
       const isInputVisible = await evalJson(tabId, USER_ID, `(() => {

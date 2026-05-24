@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.48] - 2026-05-24 18:35:00
+
+### 🚀 Khắc Phục Lỗi Nhận Diện Sai Màn Hình OpenAI & Tự Động Đóng Hộp Thoại Giới Thiệu (Onboarding Modals)
+
+**Thay đổi:**
+- **Giải quyết triệt để lỗi Nhận diện nhầm màn hình Welcome Back / Home của ChatGPT (`scripts/lib/openai-login-flow.js`)**:
+  - Khắc phục lỗi `hasError` trả về `true` (nhầm thành màn hình lỗi OpenAI) trên trang giới thiệu hoặc trang đăng nhập thông thường do bộ lọc CSS Selector `[class*="error"]` quá lỏng lẻo.
+  - Tối ưu hóa biến `rawHasError` chỉ kích hoạt khi tìm thấy chính xác các từ khóa lỗi cụ thể (như `"Oops!"`, `"We ran into an issue"`, `"something went wrong"`) trong danh sách đa ngôn ngữ hệ thống.
+- **Tích hợp Tự động Đóng Hộp thoại Giới thiệu Onboarding của ChatGPT (`scripts/warmup.js`)**:
+  - Triển khai hàm `dismissOnboardingModals` giúp phát hiện và nhấp chuột đóng các màn hình chào mừng, giới thiệu (như `"Okay, let's go"`, `"Next"`, `"Done"`, `"Got it"`, `"Bắt đầu"`) xuất hiện đè lên giao diện khi mới đăng nhập thành công.
+  - Duy trì vòng lặp quét tối đa 3 lớp modal kế tiếp nhau để đảm bảo vùng nhập liệu chat (`#prompt-textarea`) hoàn toàn sẵn sàng trước khi gõ câu hỏi.
+
 ## [0.3.47] - 2026-05-24 18:25:00
 
 ### 🚀 Tối ưu hóa Toàn diện ChatGPT Account Warmup, Fix lỗi Lặp Đăng Nhập & Kho Câu Hỏi Đa Ngôn Ngữ Khổng Lồ

@@ -119,6 +119,8 @@ export const MULTILANG = {
     'authentication error', 'an error occurred during authentication',
     'workspaces not found', 'invalid authorize request',
     'session ended', 'invalid_state',
+    'oops!', 'we ran into an issue', 'signing you in',
+    'please take a break', 'try again soon',
   ],
 };
 
@@ -200,10 +202,9 @@ export async function getState(tabId, userId) {
 
       // ── Error screen ──
       // Only flag as error when on auth domain or NOT logged in.
-      // chatgpt.com homepage may contain "try again" or [class*="error"] elements
-      // that are NOT auth error pages — they're just normal UI elements.
-      const rawHasError = ERROR_KW.some(k => body.includes(k)) ||
-        document.querySelector('[class*="error"]') !== null;
+      // chatgpt.com homepage may contain "try again" or other keywords.
+      // We check for specific ERROR_KW to avoid false positives.
+      const rawHasError = ERROR_KW.some(k => body.includes(k));
       const hasError = rawHasError && (onAuthDomain || !looksLoggedIn);
 
       const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
