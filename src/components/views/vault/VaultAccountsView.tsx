@@ -7,7 +7,7 @@ import {
   Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
-import { fmtDateTimeVN } from '../../Views';
+import { fmtDateTimeVN, useConfirm } from '../../Views';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../../ui';
 
 /* ── Helpers ── */
@@ -179,6 +179,7 @@ const getProviderName = (provider: string) =>
 /* ══════════════════════════════════════════════════════════ */
 export function VaultAccountsView() {
   const { addToast } = useApp();
+  const { confirm: askConfirm, modal: confirmModal } = useConfirm();
   const [items, setItems] = useState<any[]>([]);
   const [proxies, setProxies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -354,7 +355,7 @@ export function VaultAccountsView() {
   };
 
   const del = async (id: string) => {
-    if (!confirm('Xóa tài khoản này khỏi Vault?')) return;
+    if (!await askConfirm('Xóa Tài Khoản', 'Bạn có chắc muốn xóa tài khoản này khỏi Vault?')) return;
     await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
     setItems(prev => prev.filter(it => it.id !== id));
     addToast('Đã xoá', 'info');
@@ -395,7 +396,7 @@ export function VaultAccountsView() {
 
   const syncAll = async () => {
     if (!filtered.length) return;
-    if (!confirm(`Đồng bộ toàn bộ ${filtered.length} tài khoản trong danh sách này lên D1?`)) return;
+    if (!await askConfirm('Đồng bộ D1', `Đồng bộ toàn bộ ${filtered.length} tài khoản trong danh sách này lên D1?`, { variant: 'warning', confirmLabel: 'Đồng bộ' })) return;
 
     setSyncingAll(true);
     let success = 0;
@@ -414,6 +415,37 @@ export function VaultAccountsView() {
 
     addToast(`☁️ Hoàn thành đồng bộ Vault -> D1: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
     setSyncingAll(false);
+    loadAccounts();
+  };
+
+  const bulkSyncSelected = async () => {
+    if (!await askConfirm('Đồng bộ đã chọn', `Đồng bộ ${selectedIds.size} tài khoản đã chọn lên D1?`, { variant: 'warning', confirmLabel: 'Đồng bộ' })) return;
+    setSyncingAll(true);
+    let success = 0;
+    for (const id of Array.from(selectedIds)) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${id}/sync`, { method: 'POST' });
+        const d = await r.json();
+        if (!d.error) success++;
+      } catch {}
+    }
+    addToast(`☁️ Đã đồng bộ ${success} tài khoản lên D1`, 'success');
+    setSyncingAll(false);
+    setSelectedIds(new Set());
+    loadAccounts();
+  };
+
+  const bulkDeleteSelected = async () => {
+    if (!await askConfirm('Xóa Hàng Loạt', `Xác nhận XÓA ${selectedIds.size} tài khoản đã chọn khỏi Vault? Thao tác này không thể hoàn tác.`)) return;
+    let success = 0;
+    for (const id of Array.from(selectedIds)) {
+      try {
+        const r = await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
+        if (r.ok) success++;
+      } catch {}
+    }
+    addToast(`🗑️ Đã xóa ${success} tài khoản khỏi Vault`, 'info');
+    setSelectedIds(new Set());
     loadAccounts();
   };
 
@@ -672,6 +704,7 @@ export function VaultAccountsView() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+      {confirmModal}
       {/* ═══ ACTIONS ═══ */}
       <div className="flex gap-3 mb-4 mt-2 relative z-10">
         <div className="flex-1 relative flex items-center">
@@ -1343,39 +1376,10 @@ export function VaultAccountsView() {
               Gỡ Proxy
             </Button>
             <div className="h-4 w-[1px] bg-white/10 shrink-0" />
-            <Button size="sm" variant="secondary" onClick={async () => {
-              if (confirm(`Đồng bộ ${selectedIds.size} tài khoản đã chọn lên D1?`)) {
-                setSyncingAll(true);
-                let success = 0;
-                for (const id of Array.from(selectedIds)) {
-                  try {
-                    const r = await fetch(`/api/vault/accounts/${id}/sync`, { method: 'POST' });
-                    const d = await r.json();
-                    if (!d.error) success++;
-                  } catch {}
-                }
-                addToast(`☁️ Đã đồng bộ ${success} tài khoản lên D1`, 'success');
-                setSyncingAll(false);
-                setSelectedIds(new Set());
-                loadAccounts();
-              }
-            }} className="border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 h-8 text-[11px] font-semibold">
+            <Button size="sm" variant="secondary" onClick={bulkSyncSelected} className="border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 h-8 text-[11px] font-semibold">
               <Database size={11} className="mr-1" /> Đồng bộ D1
             </Button>
-            <Button size="sm" variant="danger" onClick={async () => {
-              if (confirm(`Xác nhận XÓA ${selectedIds.size} tài khoản đã chọn khỏi Vault?`)) {
-                let success = 0;
-                for (const id of Array.from(selectedIds)) {
-                  try {
-                    const r = await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
-                    if (r.ok) success++;
-                  } catch {}
-                }
-                addToast(`🗑️ Đã xóa ${success} tài khoản khỏi Vault`, 'info');
-                setSelectedIds(new Set());
-                loadAccounts();
-              }
-            }} className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 h-8 text-[11px] font-semibold">
+            <Button size="sm" variant="danger" onClick={bulkDeleteSelected} className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 h-8 text-[11px] font-semibold">
               <Trash2 size={11} className="mr-1" /> Xóa đã chọn
             </Button>
             <Button size="icon-sm" variant="ghost" onClick={() => setSelectedIds(new Set())} title="Hủy chọn" className="h-8 w-8 hover:bg-white/5">

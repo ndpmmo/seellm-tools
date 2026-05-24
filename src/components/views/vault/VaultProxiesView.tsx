@@ -6,7 +6,7 @@ import {
   Zap, MapPin, Server, Clock, AlertCircle, Database, CheckSquare, Square, Lock
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
-import { fmtDateTimeVN } from '../../Views';
+import { fmtDateTimeVN, useConfirm } from '../../Views';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, StatBox } from '../../ui';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -142,6 +142,7 @@ function LatencyBadge({ ms }: { ms?: number | null }) {
 // ── Main View ──────────────────────────────────────────────────────────────
 export function VaultProxiesView() {
   const { addToast } = useApp();
+  const { confirm: askConfirm, modal: confirmModal } = useConfirm();
   const [items, setItems]       = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
@@ -276,7 +277,7 @@ export function VaultProxiesView() {
   };
 
   const del = async (id: string) => {
-    if (!confirm('Xóa proxy này?')) return;
+    if (!await askConfirm('Xóa Proxy', 'Bạn có chắc muốn xóa proxy này không?')) return;
     const res = await fetch(`/api/vault/proxies/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       addToast('Xóa thất bại', 'error');
@@ -295,7 +296,7 @@ export function VaultProxiesView() {
   };
 
   const delSelected = async () => {
-    if (!confirm(`Xóa ${selected.size} proxy đã chọn?`)) return;
+    if (!await askConfirm('Xóa Hàng Loạt', `Xóa ${selected.size} proxy đã chọn khỏi Local Vault?`)) return;
     try {
       const res = await fetch('/api/vault/proxies/bulk-delete', {
         method: 'POST',
@@ -432,6 +433,7 @@ export function VaultProxiesView() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
+      {confirmModal}
       
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mt-2">

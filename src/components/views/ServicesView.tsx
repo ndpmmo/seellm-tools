@@ -570,15 +570,21 @@ export function ServicesView() {
 
   const syncAll = async () => {
     if (!filtered.length) return;
-    if (!confirm(`Đồng bộ ${filtered.length} tài khoản lên D1?`)) return;
-    setSyncingAll(true);
-    let ok = 0, fail = 0;
-    for (const it of filtered) {
-      try { const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' }); const d = await r.json(); if (d.error) fail++; else ok++; }
-      catch { fail++; }
-    }
-    addToast(`☁️ Đồng bộ: ${ok} thành công, ${fail} thất bại`, ok > 0 ? 'success' : 'error');
-    setSyncingAll(false); load();
+    setConfirmModal({
+      title: 'Đồng bộ lên D1',
+      message: `Đồng bộ toàn bộ ${filtered.length} tài khoản đang hiển thị lên D1?`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSyncingAll(true);
+        let ok = 0, fail = 0;
+        for (const it of filtered) {
+          try { const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' }); const d = await r.json(); if (d.error) fail++; else ok++; }
+          catch { fail++; }
+        }
+        addToast(`☁️ Đồng bộ: ${ok} thành công, ${fail} thất bại`, ok > 0 ? 'success' : 'error');
+        setSyncingAll(false); load();
+      }
+    });
   };
 
   const bulkImport = async () => {

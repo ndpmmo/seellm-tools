@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.45] - 2026-05-24 14:15:00
+
+### 🎨 Thay thế toàn bộ hộp thoại xác nhận trình duyệt bằng Modal tùy chỉnh
+
+**Thay đổi:**
+- **Nâng cấp hệ thống modal xác nhận (`src/components/Views.tsx`)**:
+  - Cập nhật `ConfirmModal` hỗ trợ prop `variant` (`danger` / `warning` / `info`), tự động điều chỉnh màu sắc icon và nút theo từng loại hành động.
+  - Hỗ trợ prop `confirmLabel` để tùy chỉnh nội dung nút xác nhận thay vì hardcode "Xác nhận xóa".
+  - Xuất hook mới `useConfirm()` với API `await confirm(title, message, options)` có thể dùng như `confirm()` native nhưng hiển thị modal đẹp thay thế.
+- **Loại bỏ hoàn toàn `confirm()` của trình duyệt**:
+  - **`?view=vault-proxies` (VaultProxiesView)**: Thay 2 `confirm()` cho xóa đơn lẻ và xóa hàng loạt proxy bằng `useConfirm`.
+  - **`?view=vault-accounts` (VaultAccountsView)**: Thay 4 `confirm()` (xóa tài khoản, đồng bộ tất cả, đồng bộ đã chọn, xóa đã chọn) bằng `useConfirm`. Tách 2 handler inline ra thành hàm `bulkSyncSelected` và `bulkDeleteSelected` sạch sẽ hơn.
+  - **`?view=services` (ServicesView)**: Thay `confirm()` trong `syncAll` bằng modal `setConfirmModal` tích hợp sẵn.
+  - **`?view=accounts` (AccountsView)**: Thay `confirm()` trong `syncAll` bằng modal `setConfirmModal` tích hợp sẵn.
+- **Nâng cấp phiên bản**:
+  - Bump version lên `0.3.45`.
+
+---
+
 ## [0.3.44] - 2026-05-24 14:05:00
 
 ### 🐛 Sửa lỗi ReferenceError dayjs is not defined trong luồng Quản lý và Đồng bộ Proxy

@@ -521,26 +521,29 @@ export function AccountsView() {
 
   const syncAll = async () => {
     if (!filtered.length) return;
-    if (!confirm(`Đồng bộ tất cả ${filtered.length} tài khoản đang hiển thị lên D1?`)) return;
-
-    setSyncingAll(true);
-    let success = 0;
-    let fail = 0;
-
-    for (const it of filtered) {
-      try {
-        const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' });
-        const d = await r.json();
-        if (d.error) fail++;
-        else success++;
-      } catch {
-        fail++;
+    setConfirmModal({
+      title: 'Đồng bộ lên D1',
+      message: `Đồng bộ tất cả ${filtered.length} tài khoản đang hiển thị lên D1?`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSyncingAll(true);
+        let success = 0;
+        let fail = 0;
+        for (const it of filtered) {
+          try {
+            const r = await fetch(`/api/vault/accounts/${it.id}/sync`, { method: 'POST' });
+            const d = await r.json();
+            if (d.error) fail++;
+            else success++;
+          } catch {
+            fail++;
+          }
+        }
+        addToast(`☁️ Kết quả đồng bộ: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
+        setSyncingAll(false);
+        load();
       }
-    }
-
-    addToast(`☁️ Kết quả đồng bộ: ${success} thành công, ${fail} thất bại`, success > 0 ? 'success' : 'error');
-    setSyncingAll(false);
-    load();
+    });
   };
 
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
