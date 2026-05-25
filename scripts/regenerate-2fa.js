@@ -470,23 +470,37 @@ async function run2faRegen() {
           }
         }
 
-        // Authenticator App MFA challenge (already active)
+        // MFA / OTP challenge (can be email OTP or authenticator TOTP)
         if (state.hasMfaInput) {
-          console.log(`[2FA Regen] 🛡️ Phát hiện màn hình 2FA challenge!`);
-          const totpSecret = account.two_fa_secret || account.twoFaSecret;
-          if (!totpSecret) {
-            // Check if we can do email-based OTP instead
-            const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
-              const b = (document.body?.innerText || '').toLowerCase();
-              return b.includes('email') || b.includes('verification code') || b.includes('mã xác minh');
-            })()`);
+          console.log(`[2FA Regen] 🛡️ Phát hiện màn hình MFA/2FA challenge!`);
 
-            if (isEmailOtpScreen && emailCreds?.refresh_token && emailCreds?.client_id) {
-              console.log(`[2FA Regen] 📧 Không có 2FA secret nhưng có email OTP challenge. Đang lấy mã OTP từ Email...`);
+          // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
+          const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
+            const b = (document.body?.innerText || '').toLowerCase();
+            const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
+                                  b.includes('sent a code') || b.includes('temporary verification code') || 
+                                  b.includes('vérification') || b.includes('código de verificación') ||
+                                  b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
+            const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
+            if (hasAuthWords) {
+              if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
+                return true;
+              }
+              return false;
+            }
+            return hasEmailWords;
+          })()`);
+
+          if (isEmailOtpScreen) {
+            console.log(`[2FA Regen] 📧 Phát hiện thử thách OTP gửi qua Email!`);
+            const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+            const clientId = emailCreds?.clientId || emailCreds?.client_id;
+            if (refreshToken && clientId) {
+              console.log(`[2FA Regen] 🔄 Đang tự động lấy mã OTP từ Email...`);
               const otpCode = await waitForOTPCode({
                 email: account.email,
-                refreshToken: emailCreds.refresh_token,
-                clientId: emailCreds.client_id,
+                refreshToken: refreshToken,
+                clientId: clientId,
                 senderDomain: 'openai.com',
                 maxWaitSecs: 120
               });
@@ -495,16 +509,26 @@ async function run2faRegen() {
                 await fillMfa(tabId, USER_ID, otpCode);
                 await delay(6000);
                 continue;
+              } else {
+                throw new Error('Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
               }
+            } else {
+              throw new Error('Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!');
             }
-            throw new Error('Tài khoản yêu cầu 2FA Authenticator nhưng không có Secret Key và không thể lấy OTP email!');
+          } else {
+            // Đây là Authenticator App challenge
+            console.log(`[2FA Regen] 🔒 Phát hiện thử thách 2FA Authenticator App!`);
+            const totpSecret = account.two_fa_secret || account.twoFaSecret;
+            if (!totpSecret) {
+              throw new Error('Tài khoản yêu cầu 2FA Authenticator nhưng không có Secret Key!');
+            }
+            const { otp } = await getFreshTOTP(totpSecret);
+            console.log(`[2FA Regen] 🔢 Điền mã OTP sinh từ secret hiện tại: ${otp}`);
+            await fillMfa(tabId, USER_ID, otp);
+            mfaFilled = true;
+            await delay(6000);
+            continue;
           }
-          const { otp } = await getFreshTOTP(totpSecret);
-          console.log(`[2FA Regen] 🔢 Điền mã OTP sinh từ secret hiện tại: ${otp}`);
-          await fillMfa(tabId, USER_ID, otp);
-          mfaFilled = true;
-          await delay(6000);
-          continue;
         }
 
         // Stuck on chatgpt homepage but not logged in

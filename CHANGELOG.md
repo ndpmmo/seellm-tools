@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.76] - 2026-05-26 01:45:00
+
+### 🌐 Tích Hợp Lựa Chọn Tự Động Gán Proxy Theo Pool Của Tài Khoản (Pool Proxy Auto-Assignment)
+- **Bổ Sung Tùy Chọn Mặc Định `Dùng proxy gán ở Pool của Account nếu có` (value: `pool_proxy`)**:
+  - Thêm tùy chọn mới vào danh sách dropdown cấu hình proxy hàng loạt (Bulk Proxy Action) trong cả giao diện Quản lý Tài khoản Vault (`VaultAccountsView.tsx`) và Quản lý Dịch vụ (`ServicesView.tsx`).
+  - Đặt tùy chọn này làm mặc định (`pool_proxy`) để mang lại trải nghiệm tiện dụng tối đa cho người dùng.
+- **Tự Động Phân Giải Mappings Client-Side**:
+  - Khi thực hiện hành động gán proxy hàng loạt với tùy chọn `pool_proxy`, frontend sẽ tự động đọc bảng ánh xạ proxy từ Workshop (`workshopProxyMap_v1`) trong `localStorage` của trình duyệt.
+  - Tự động so khớp địa chỉ email của từng tài khoản được chọn với cấu hình proxy tương ứng, chuẩn hóa URL, và đối chiếu với danh sách các proxies đang khả dụng để tìm ra `proxyId` chính xác trên hệ thống.
+  - Tự động gọi API `/api/proxy-assign/assign` riêng lẻ cho từng tài khoản hợp lệ, giúp gán proxy nhanh chóng và chính xác mà không cần cấu hình thủ công từng dòng.
+
 ## [0.3.75] - 2026-05-26 01:10:00
 
 ### 🛡️ Khắc Phục Lỗi Bỏ Qua Onboarding Modal và Xác Thực 2FA Nghiêm Ngặt

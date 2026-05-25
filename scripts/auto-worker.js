@@ -25,6 +25,7 @@ import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, selectPersonalWorkspaceOnWorkspacePage, MULTILANG } from './lib/openai-login-flow.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { acquireCodexCallbackViaProtocol, acquireCodexCallbackViaSessionSeeding } from './lib/openai-protocol-register.js';
+import { waitForOTPCode } from './lib/ms-graph-email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -820,23 +821,78 @@ async function runConnectFlow(task) {
       await recorder.checkpoint(3, 2, 'after_password_wait');
     }
 
-    // MFA
+    // MFA / Email OTP challenge
     if (state?.hasMfaInput) {
-      if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
-      console.log(`[Connect] [4] MFA → sinh TOTP...`);
-      await recorder.before(4, 1, 'before_mfa');
-      const { otp } = await getFreshTOTP(totpSecret, 8);
-      await fillMfa(tabId, USER_ID, otp);
-      await new Promise(r2 => setTimeout(r2, 4000));
-      await recorder.after(4, 1, 'mfa_filled');
-      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      if (state?.hasMfaInput) {
-        console.log(`[Connect] [4] MFA vẫn còn, thử lần 2...`);
-        const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
-        await fillMfa(tabId, USER_ID, otp2);
+      // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
+      const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
+        const b = (document.body?.innerText || '').toLowerCase();
+        const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
+                              b.includes('sent a code') || b.includes('temporary verification code') || 
+                              b.includes('vérification') || b.includes('código de verificación') ||
+                              b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
+        const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
+        if (hasAuthWords) {
+          if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
+            return true;
+          }
+          return false;
+        }
+        return hasEmailWords;
+      })()`);
+
+      if (isEmailOtpScreen) {
+        console.log(`[Connect] 📧 Phát hiện thử thách OTP gửi qua Email!`);
+        let emailCreds = null;
+        try {
+          const res = await fetch(`${TOOLS_API}/api/vault/email-pool/${encodeURIComponent(task.email)}`);
+          if (res.ok) {
+            const data = await res.json();
+            emailCreds = data.item;
+          }
+        } catch (_) {}
+
+        const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+        const clientId = emailCreds?.clientId || emailCreds?.client_id;
+        if (refreshToken && clientId) {
+          console.log(`[Connect] 🔄 Đang tự động lấy mã OTP từ Email...`);
+          await recorder.before(4, 1, 'before_email_otp');
+          const otpCode = await waitForOTPCode({
+            email: task.email,
+            refreshToken: refreshToken,
+            clientId: clientId,
+            senderDomain: 'openai.com',
+            maxWaitSecs: 120
+          });
+          if (otpCode) {
+            console.log(`[Connect] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+            await fillMfa(tabId, USER_ID, otpCode);
+            await new Promise(r2 => setTimeout(r2, 4000));
+            await recorder.after(4, 1, 'email_otp_filled');
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          } else {
+            return sendResult(task, 'error', 'Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
+          }
+        } else {
+          return sendResult(task, 'error', 'Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!');
+        }
+      } else {
+        // Authenticator TOTP
+        if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
+        console.log(`[Connect] [4] MFA → sinh TOTP...`);
+        await recorder.before(4, 1, 'before_mfa');
+        const { otp } = await getFreshTOTP(totpSecret, 8);
+        await fillMfa(tabId, USER_ID, otp);
         await new Promise(r2 => setTimeout(r2, 4000));
-        await recorder.after(4, 2, 'mfa_retry');
+        await recorder.after(4, 1, 'mfa_filled');
         state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+        if (state?.hasMfaInput) {
+          console.log(`[Connect] [4] MFA vẫn còn, thử lần 2...`);
+          const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
+          await fillMfa(tabId, USER_ID, otp2);
+          await new Promise(r2 => setTimeout(r2, 4000));
+          await recorder.after(4, 2, 'mfa_retry');
+          state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+        }
       }
     }
 
@@ -1223,30 +1279,82 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     }
 
     if (isMfa) {
-      if (!totpSecret) {
-        return { error: 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret' };
-      }
-      log(`MFA challenge detected, submitting TOTP...`);
-      const { otp } = await getFreshTOTP(totpSecret, 8);
-      const mfaResult = await fillMfa(tabId, userId, otp);
-      log(`MFA submit #1: ${JSON.stringify(mfaResult)}`);
-      await new Promise(r => setTimeout(r, 4500));
+      // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
+      const isEmailOtpScreen = await evalJson(tabId, userId, `(() => {
+        const b = (document.body?.innerText || '').toLowerCase();
+        const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
+                              b.includes('sent a code') || b.includes('temporary verification code') || 
+                              b.includes('vérification') || b.includes('código de verificación') ||
+                              b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
+        const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
+        if (hasAuthWords) {
+          if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
+            return true;
+          }
+          return false;
+        }
+        return hasEmailWords;
+      })()`);
 
-      const afterMfaUrl = await _getUrl();
-      const mfaCode = _extractCode(afterMfaUrl) || _extractCode(await _getIntercepted());
-      if (mfaCode) return mfaCode;
+      if (isEmailOtpScreen) {
+        log(`📧 Detected Email OTP challenge in Codex OAuth flow!`);
+        let emailCreds = null;
+        try {
+          const res = await fetch(`${TOOLS_API}/api/vault/email-pool/${encodeURIComponent(email)}`);
+          if (res.ok) {
+            const data = await res.json();
+            emailCreds = data.item;
+          }
+        } catch (_) {}
 
-      if (_isMfaUrl(afterMfaUrl)) {
-        const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
-        const mfaResult2 = await fillMfa(tabId, userId, otp2);
-        log(`MFA submit #2: ${JSON.stringify(mfaResult2)}`);
+        const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+        const clientId = emailCreds?.clientId || emailCreds?.client_id;
+        if (refreshToken && clientId) {
+          log(`🔄 Fetching Email OTP code automatically...`);
+          const otpCode = await waitForOTPCode({
+            email: email,
+            refreshToken: refreshToken,
+            clientId: clientId,
+            senderDomain: 'openai.com',
+            maxWaitSecs: 120
+          });
+          if (otpCode) {
+            log(`🔢 Submitting Email OTP: ${otpCode}`);
+            await fillMfa(tabId, userId, otpCode);
+            await new Promise(r => setTimeout(r, 4500));
+            continue;
+          } else {
+            return { error: 'Không lấy được mã OTP từ email hoặc hết thời gian chờ!' };
+          }
+        } else {
+          return { error: 'Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!' };
+        }
+      } else {
+        if (!totpSecret) {
+          return { error: 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret' };
+        }
+        log(`MFA challenge detected, submitting TOTP...`);
+        const { otp } = await getFreshTOTP(totpSecret, 8);
+        const mfaResult = await fillMfa(tabId, userId, otp);
+        log(`MFA submit #1: ${JSON.stringify(mfaResult)}`);
         await new Promise(r => setTimeout(r, 4500));
 
-        const afterMfaUrl2 = await _getUrl();
-        const mfaCode2 = _extractCode(afterMfaUrl2) || _extractCode(await _getIntercepted());
-        if (mfaCode2) return mfaCode2;
-        if (_isMfaUrl(afterMfaUrl2)) {
-          return { error: 'NEED_MFA: MFA challenge chưa vượt qua sau 2 lần nhập TOTP' };
+        const afterMfaUrl = await _getUrl();
+        const mfaCode = _extractCode(afterMfaUrl) || _extractCode(await _getIntercepted());
+        if (mfaCode) return mfaCode;
+
+        if (_isMfaUrl(afterMfaUrl)) {
+          const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
+          const mfaResult2 = await fillMfa(tabId, userId, otp2);
+          log(`MFA submit #2: ${JSON.stringify(mfaResult2)}`);
+          await new Promise(r => setTimeout(r, 4500));
+
+          const afterMfaUrl2 = await _getUrl();
+          const mfaCode2 = _extractCode(afterMfaUrl2) || _extractCode(await _getIntercepted());
+          if (mfaCode2) return mfaCode2;
+          if (_isMfaUrl(afterMfaUrl2)) {
+            return { error: 'NEED_MFA: MFA challenge chưa vượt qua sau 2 lần nhập TOTP' };
+          }
         }
       }
       continue;

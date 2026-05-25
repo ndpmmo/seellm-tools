@@ -260,7 +260,7 @@ export function ServicesView() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkProxyId, setBulkProxyId] = useState('account_proxy');
+  const [bulkProxyId, setBulkProxyId] = useState('pool_proxy');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -521,6 +521,62 @@ export function ServicesView() {
     if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
     setBulkProxyRunning(true);
     try {
+      if (action === 'assign' && bulkProxyId === 'pool_proxy') {
+        let workshopProxyMap = {};
+        try {
+          workshopProxyMap = JSON.parse(localStorage.getItem('workshopProxyMap_v1') || '{}');
+        } catch (_) {}
+
+        let done = 0;
+        let errorsCount = 0;
+
+        for (const id of accountIds) {
+          const acc = items.find(it => it.id === id);
+          if (!acc || !acc.email) {
+            errorsCount++;
+            continue;
+          }
+
+          const poolProxyUrl = (workshopProxyMap as any)[acc.email];
+          if (!poolProxyUrl) {
+            errorsCount++;
+            continue;
+          }
+
+          const normPool = poolProxyUrl.trim().toLowerCase();
+          const matchedProxy = proxies.find((p: any) => {
+            const normP = (p.url || '').trim().toLowerCase();
+            return normP === normPool || normP.includes(normPool) || normPool.includes(normP);
+          });
+
+          if (!matchedProxy) {
+            errorsCount++;
+            continue;
+          }
+
+          const r = await fetch('/api/proxy-assign/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: id, proxyId: matchedProxy.id }),
+          });
+
+          if (r.ok) {
+            done++;
+            patchItemLocal(id, {
+              proxy_id: matchedProxy.id,
+              proxy_url: matchedProxy.url,
+            });
+          } else {
+            errorsCount++;
+          }
+        }
+
+        addToast(`✅ Đã gán proxy từ pool theo account: Thành công ${done}, Thất bại/Thiếu ${errorsCount}`, done > 0 ? 'success' : 'warning');
+        setSelectedIds(new Set());
+        load();
+        return;
+      }
+
       const r = await fetch('/api/proxy-assign/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -705,6 +761,7 @@ export function ServicesView() {
               value={bulkProxyId}
               onChange={e => setBulkProxyId(e.target.value)}
             >
+              <option value="pool_proxy">(Theo proxy gán ở Pool của Account nếu có)</option>
               <option value="account_proxy">(Theo proxy đã gán của Account)</option>
               <option value="">(Auto proxy tốt nhất)</option>
               {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}

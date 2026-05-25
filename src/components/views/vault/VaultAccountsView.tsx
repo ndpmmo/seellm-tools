@@ -111,6 +111,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
   'workspace':     { icon: Briefcase, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', tip: 'Tài khoản có Workspace — thuộc tổ chức/doanh nghiệp' },
   'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
+  'email_pool_deleted': { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Email liên kết đã bị xóa khỏi Email Pool của Workshop' },
 };
 
 function TagIcons({ 
@@ -258,7 +259,7 @@ export function VaultAccountsView() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkProxyId, setBulkProxyId] = useState('account_proxy');
+  const [bulkProxyId, setBulkProxyId] = useState('pool_proxy');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
   const [syncingDeadTags, setSyncingDeadTags] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -958,6 +959,62 @@ export function VaultAccountsView() {
     if (!accountIds.length) return addToast('Hãy chọn ít nhất 1 tài khoản', 'error');
     setBulkProxyRunning(true);
     try {
+      if (action === 'assign' && bulkProxyId === 'pool_proxy') {
+        let workshopProxyMap = {};
+        try {
+          workshopProxyMap = JSON.parse(localStorage.getItem('workshopProxyMap_v1') || '{}');
+        } catch (_) {}
+
+        let done = 0;
+        let errorsCount = 0;
+
+        for (const id of accountIds) {
+          const acc = items.find(it => it.id === id);
+          if (!acc || !acc.email) {
+            errorsCount++;
+            continue;
+          }
+
+          const poolProxyUrl = (workshopProxyMap as any)[acc.email];
+          if (!poolProxyUrl) {
+            errorsCount++;
+            continue;
+          }
+
+          const normPool = poolProxyUrl.trim().toLowerCase();
+          const matchedProxy = proxies.find((p: any) => {
+            const normP = (p.url || '').trim().toLowerCase();
+            return normP === normPool || normP.includes(normPool) || normPool.includes(normP);
+          });
+
+          if (!matchedProxy) {
+            errorsCount++;
+            continue;
+          }
+
+          const r = await fetch('/api/proxy-assign/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: id, proxyId: matchedProxy.id }),
+          });
+
+          if (r.ok) {
+            done++;
+            patchAccountLocal(id, {
+              proxy_id: matchedProxy.id,
+              proxy_url: matchedProxy.url,
+            });
+          } else {
+            errorsCount++;
+          }
+        }
+
+        addToast(`✅ Đã gán proxy từ pool theo account: Thành công ${done}, Thất bại/Thiếu ${errorsCount}`, done > 0 ? 'success' : 'warning');
+        setSelectedIds(new Set());
+        loadAccounts();
+        return;
+      }
+
       const r = await fetch('/api/proxy-assign/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2092,6 +2149,7 @@ export function VaultAccountsView() {
               value={bulkProxyId}
               onChange={e => setBulkProxyId(e.target.value)}
             >
+              <option value="pool_proxy">(Theo proxy gán ở Pool của Account nếu có)</option>
               <option value="account_proxy">(Theo proxy đã gán của Account)</option>
               <option value="">(Auto proxy tốt nhất)</option>
               {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}

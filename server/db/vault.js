@@ -772,6 +772,25 @@ export const vault = {
       record.services_json, record.last_checked_at, record.notes, record.updated_at, record.created_at
     );
 
+    // Auto-remove "email_pool_deleted" tag from active accounts if the email is upserted/restored in the pool
+    try {
+      const activeAccounts = db.prepare("SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL").all(record.email);
+      for (const acc of activeAccounts) {
+        let tags = [];
+        try { tags = JSON.parse(acc.tags || '[]'); } catch (_) {}
+        if (tags.includes('email_pool_deleted')) {
+          tags = tags.filter(t => t !== 'email_pool_deleted');
+          db.prepare("UPDATE vault_accounts SET tags = ? WHERE id = ?").run(JSON.stringify(tags), acc.id);
+          if (!skipSync) {
+            const updatedAcc = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(acc.id);
+            SyncManager.pushVault('account', updatedAcc).catch(() => {});
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[Vault DB] Error updating tags on email upsert:`, e.message);
+    }
+
     if (!skipSync) {
       SyncManager.pushVault('email_pool', record).catch(() => { });
     }
@@ -782,6 +801,26 @@ export const vault = {
   deleteEmailPool: (email, skipSync = false) => {
     const record = db.prepare('SELECT * FROM vault_email_pool WHERE email = ?').get(email);
     db.prepare('DELETE FROM vault_email_pool WHERE email = ?').run(email);
+
+    // Propagate tag "email_pool_deleted" to active associated accounts in vault_accounts
+    try {
+      const activeAccounts = db.prepare("SELECT * FROM vault_accounts WHERE email = ? AND deleted_at IS NULL").all(email);
+      for (const acc of activeAccounts) {
+        let tags = [];
+        try { tags = JSON.parse(acc.tags || '[]'); } catch (_) {}
+        if (!tags.includes('email_pool_deleted')) {
+          tags.push('email_pool_deleted');
+          db.prepare("UPDATE vault_accounts SET tags = ? WHERE id = ?").run(JSON.stringify(tags), acc.id);
+          if (!skipSync) {
+            const updatedAcc = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(acc.id);
+            SyncManager.pushVault('account', updatedAcc).catch(() => {});
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[Vault DB] Error propagating tags on email delete:`, e.message);
+    }
+
     if (!skipSync && record) {
       // SyncManager delete currently doesn't support a separate delete type, 
       // but we can pass deleted_at if we want to mimic account logic.
