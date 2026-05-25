@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.71] - 2026-05-25 22:50:00
+
+### 🌐 Tùy Chọn Ưu Tiên Proxy Đã Gán Cho Tài Khoản (Smart Proxy Retention & Auto Fallback)
+- **Tùy chọn mới `(Theo proxy đã gán của Account)` (account_proxy)**:
+  - Bổ sung tùy chọn `(Theo proxy đã gán của Account)` làm tùy chọn mặc định đầu tiên trong thanh hành động gán proxy hàng loạt của cả trang Quản lý Tài khoản Vault (`VaultAccountsView.tsx`) và trang Quản lý Dịch vụ (`ServicesView.tsx`).
+  - Nếu tài khoản đã được gán một proxy từ trước (`proxy_url`), hệ thống sẽ giữ nguyên proxy đó và tự động ánh xạ slot hoạt động (rebind) thay vì ghi đè bằng một proxy ngẫu nhiên khác từ pool.
+  - Nếu tài khoản chưa được gán proxy, hệ thống tự động gán proxy rảnh rỗi tốt nhất từ pool (Auto proxy tốt nhất) để đảm bảo tài khoản có proxy hoạt động.
+- **Backend /api/proxy-assign/bulk (`server.js`)**:
+  - Tích hợp logic xử lý thông minh cho giá trị `account_proxy` khi nhận yêu cầu gán proxy hàng loạt từ phía client.
+
 ## [0.3.70] - 2026-05-25 20:42:00
 
 ### 🛡️ Mở Rộng Tính Năng Tái Tạo 2FA Cho Tất Cả Các Trạng Thái Tài Khoản Hoạt Động (Trừ Dead)

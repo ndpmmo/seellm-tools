@@ -1643,11 +1643,31 @@ app.prepare().then(async () => {
           }
 
           let chosen = null;
-          if (proxyId) {
+          if (proxyId === 'account_proxy') {
+            const existingProxyUrl = normalizeProxyUrl(account.proxy_url || account.proxyUrl);
+            const existingProxyId = account.proxy_id || account.proxyId;
+            if (existingProxyUrl) {
+              const matched = proxies.find((p) => p.id === existingProxyId || normalizeProxyUrl(p.url) === existingProxyUrl);
+              if (matched) {
+                chosen = matched;
+              } else {
+                const patchBody = { proxyUrl: existingProxyUrl, proxyId: existingProxyId || null };
+                const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
+                if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+                mirrorPatchedAccountToLocal(accountId, patchBody);
+                const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: null, proxySlots });
+                if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
+                done++;
+                continue;
+              }
+            }
+          } else if (proxyId) {
             chosen = proxies.find((p) => p.id === proxyId) || null;
             if (!chosen) throw new Error('Proxy not found');
             if ((freeByProxy.get(chosen.id) || 0) <= 0) throw new Error('Proxy has no free slot');
-          } else {
+          }
+
+          if (!chosen) {
             const ranked = proxies
               .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
               .filter((x) => x.free > 0)

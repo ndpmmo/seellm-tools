@@ -258,7 +258,7 @@ export function VaultAccountsView() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkProxyId, setBulkProxyId] = useState('');
+  const [bulkProxyId, setBulkProxyId] = useState('account_proxy');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
   const [syncingDeadTags, setSyncingDeadTags] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -1965,6 +1965,7 @@ export function VaultAccountsView() {
               value={bulkProxyId}
               onChange={e => setBulkProxyId(e.target.value)}
             >
+              <option value="account_proxy">(Theo proxy đã gán của Account)</option>
               <option value="">(Auto proxy tốt nhất)</option>
               {proxies.map((p: any) => <option key={p.id} value={p.id}>{p.label || p.url}</option>)}
             </select>
