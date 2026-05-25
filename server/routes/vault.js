@@ -3036,11 +3036,19 @@ router.post('/accounts/:id/check-session', async (req, res) => {
     const account = vault.getAccount(id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     
+    // Save original status in provider_specific_data to avoid auto-deploying non-deployed accounts if check succeeds
+    const existingProviderData = typeof account.provider_specific_data === 'string'
+      ? JSON.parse(account.provider_specific_data)
+      : (account.provider_specific_data || {});
+    
+    existingProviderData.preCheckStatus = account.status;
+    
     // Set status to pending in database
     vault.upsertAccount({
       id,
       status: 'pending',
-      notes: 'Checking cookie/session...'
+      notes: 'Checking cookie/session...',
+      provider_specific_data: existingProviderData
     });
     
     // Spawn scripts/check-session.js as a detached background child process
@@ -3099,6 +3107,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       ? JSON.parse(account.provider_specific_data)
       : (account.provider_specific_data || {});
       
+    // Restore 'idle' status if the account was 'idle' before checking session
+    const preCheckStatus = existingProviderData.preCheckStatus;
+    delete existingProviderData.preCheckStatus; // Clean up
+    
     existingProviderData.warmupStatus = status; // 'success' | 'failed'
     existingProviderData.lastWarmedAt = new Date().toISOString();
     existingProviderData.warmupError = error;
@@ -3122,7 +3134,13 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       updateData.status = 'ready';
     }
     
-    if (accountStatus) updateData.status = accountStatus;
+    let targetStatus = accountStatus;
+    if (preCheckStatus === 'idle') {
+      targetStatus = 'idle';
+      console.log(`[Warmup-Result] Restoring account ${account.email || id} status to 'idle' (was idle before check)`);
+    }
+    
+    if (targetStatus) updateData.status = targetStatus;
     if (notes !== null) updateData.notes = notes;
     if (accessToken) updateData.access_token = accessToken;
     if (plan) updateData.plan = plan;
