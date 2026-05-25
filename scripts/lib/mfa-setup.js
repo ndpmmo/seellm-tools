@@ -310,7 +310,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     const log = (...args) => console.log('[MFA]', ...args);
     const wait = ms => new Promise(r => setTimeout(r, ms));
 
-    const run = async (code, maxRetries = 3) => {
+    const run = async (code, maxRetries = 5) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const res = await apiHelper(`/tabs/${tabId}/evaluate`, { userId, expression: code });
@@ -322,8 +322,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                     msg.includes('destroyed') || 
                                     msg.includes('500');
                 if (isTransient && attempt < maxRetries) {
-                    log(`⚠️ Eval failed (Attempt ${attempt}/${maxRetries}): ${msg.slice(0, 80)}. Retrying in 1.5s...`);
-                    await wait(1500);
+                    log(`⚠️ Eval failed (Attempt ${attempt}/${maxRetries}): ${msg.slice(0, 80)}. Retrying in 3s...`);
+                    await wait(3000);
                     continue;
                 }
                 throw err;
@@ -376,7 +376,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         } catch (navErr) {
             log(`⚠️ Lỗi khi đổi location.href (có thể do redirect ngay lập tức): ${navErr.message}`);
         }
-        await wait(3000);
+        await wait(5000);
 
         // Hàm helper chạy trong browser để tự động mở Settings dialog nếu chưa được mở
         log('Kiểm tra và tự động kích hoạt Settings modal...');
@@ -406,17 +406,17 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     
                     if (settingsItem) {
                         settingsItem.click();
-                        await new Promise(r => setTimeout(r, 1500));
+                        await new Promise(r => setTimeout(r, 2000));
                         return 'opened_via_profile';
                     }
                 }
                 
                 // Nếu vẫn chưa mở được, thử redirect trực tiếp sang URL path-based settings
                 window.location.href = 'https://chatgpt.com/settings/security';
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, 3000));
                 return 'fallback_navigate';
             })()
-        `);
+        `, 6);
 
         // Đảm bảo Security tab active (tìm cả data-testid và text chứa Security/Bảo mật)
         const activeSecTab = await run(`

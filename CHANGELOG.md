@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.78] - 2026-05-26 02:40:00
+
+### 🛡️ Tối Ưu Hóa Khả Năng Tự Phục Hồi Khi Chạy Song Song Tải Nặng (Parallel Run Resilience)
+- **Tăng cường khả năng chịu tải và chống lỗi điều hướng**:
+  - Khắc phục triệt để lỗi `Execution context was destroyed, most likely because of a navigation` xuất hiện khi chạy song song nhiều tài khoản hoặc khi proxy/mạng bị nghẽn.
+  - Tăng thời gian giãn cách chờ trình duyệt chuyển hướng an toàn trong `scripts/lib/mfa-setup.js` từ `3 giây` lên `5 giây`.
+  - Mở rộng vòng lặp tự động thử lại (Retry Loop) khi tiêm mã JavaScript từ **3 lần lên 6 lần**, đồng thời nâng khoảng giãn cách giữa mỗi lần thử từ **1.5 giây lên 3 giây**. Giờ đây kịch bản có thể kiên nhẫn đợi trang tải hoàn tất lên đến 20-30 giây trong môi trường tải nặng mà không lo bị ngắt quãng giữa chừng.
+
 ## [0.3.77] - 2026-05-26 02:15:00
 
 ### 🛡️ Nâng Cấp Hệ Thống Xác Thực Đa Bước (MFA/2FA Sequential Loop) Cực Kỳ Mạnh Mẽ
