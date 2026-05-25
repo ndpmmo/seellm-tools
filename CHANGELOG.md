@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.69] - 2026-05-25 19:25:00
+
+### 🛡️ Khắc Phục Lỗi Tự Động Deploy Khi Check Session & Cho Phép Warmup Các Trạng Thái Khác (Trừ Dead)
+- **Khắc Phục Lỗi Tự Động Deploy Trực Tiếp Lên Gateway (Undeployed State Protection)**:
+  - Tích hợp cơ chế bảo toàn trạng thái ban đầu (`preCheckStatus`) của tài khoản trước khi thực hiện Kiểm Tra Phiên Làm Việc (Check Session).
+  - Đảm bảo nếu tài khoản có trạng thái ban đầu là `idle` (tài khoản đã dừng hoặc chưa deploy), sau khi chạy Kiểm tra Session (dù thành công hay thất bại) trạng thái của nó sẽ **luôn luôn được khôi phục trở lại là `idle`** (nhãn xám, Gateway status `Đã thu hồi` / `revoked`).
+  - Loại bỏ hoàn toàn lỗi tự động đưa các tài khoản dừng/chưa deploy lên Gateway ở trạng thái hoạt động (`active`) ngoài ý muốn của người dùng.
+- **Nâng Cấp Tính Năng Warmup Cho Phép Chạy Trên Nhiều Trạng Thái Khác Nhau (Flexible Warmup Execution)**:
+  - Cập nhật cả Backend (`server/routes/vault.js`) và Frontend (`VaultAccountsView.tsx`) để mở rộng chức năng Warmup tài khoản.
+  - Cho phép người dùng chạy Warmup cho các tài khoản ở các trạng thái khác nhau (như `need_phone`, `relogin`, `error`, `idle`, `ready`) thay vì giới hạn duy nhất ở trạng thái `ready` như trước đây. Điều này cực kỳ hữu dụng vì các tài khoản cần số điện thoại (`need_phone`) hoặc gặp lỗi nhẹ bản chất vẫn sống và có thể tương tác bình thường với ChatGPT.
+  - Thiết lập rào cản chặn tuyệt đối: Cấm chạy Warmup đối với các tài khoản bị khóa/vô hiệu hóa hoàn toàn (**`dead`**).
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.69`.
+
 ## [0.3.68] - 2026-05-25 18:55:00
 
 ### 🛠️ Tích Hợp Bộ Công Cụ Cứu Hộ & Đồng Bộ Cưỡng Bức Codex Remote Sync (D1) Lên Giao Diện Cài Đặt

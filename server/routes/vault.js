@@ -2956,6 +2956,10 @@ router.post('/accounts/:id/warmup', async (req, res) => {
     const account = vault.getAccount(id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     
+    if (account.status === 'dead') {
+      return res.status(400).json({ error: 'Không thể warmup tài khoản đã bị khóa/vô hiệu hóa (dead).' });
+    }
+    
     // Set the warmup status to pending in provider_specific_data
     const existingProviderData = account.provider_specific_data || {};
     existingProviderData.warmupStatus = 'pending';

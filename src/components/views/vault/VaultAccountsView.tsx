@@ -1650,7 +1650,7 @@ export function VaultAccountsView() {
                       </td>
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          {it.status === 'ready' && isOpenAI(it.provider) && (
+                          {it.status !== 'dead' && isOpenAI(it.provider) && (
                             <Button 
                               size="icon-sm" 
                               title="🔥 Warmup tài khoản" 
