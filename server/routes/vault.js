@@ -1774,45 +1774,144 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
 // Sync toàn bộ
 router.post('/sync/all', async (req, res) => {
   try {
+    const force = req.body?.force === true || req.query?.force === 'true';
     const results = { accounts: 0, emailPool: 0, proxies: 0, keys: 0 };
 
     // 1. Sync Accounts
     const accounts = vault.getAccountsFull();
     for (const a of accounts) {
-      await SyncManager.pushVault('account', a);
+      await SyncManager.pushVault('account', a, force);
       results.accounts++;
     }
 
     // 2. Sync Email Pool
     const pool = vault.getEmailPoolFull();
     for (const e of pool) {
-      await SyncManager.pushVault('email_pool', e);
+      await SyncManager.pushVault('email_pool', e, force);
       results.emailPool++;
     }
 
     // 3. Sync Proxies (including soft-deleted ones to ensure D1 is updated)
     const proxies = vault.db.prepare('SELECT * FROM vault_proxies').all();
     for (const p of proxies) {
-      await SyncManager.pushVault('proxy', p);
+      await SyncManager.pushVault('proxy', p, force);
       results.proxies++;
     }
 
     // 4. Sync API Keys (including soft-deleted ones)
     const keys = vault.db.prepare('SELECT * FROM vault_api_keys').all();
     for (const k of keys) {
-      await SyncManager.pushVault('key', k);
+      await SyncManager.pushVault('key', k, force);
       results.keys++;
     }
 
-    console.log(`[Bulk Sync All] Pushed: Accounts=${results.accounts}, Pool=${results.emailPool}, Proxies=${results.proxies}, Keys=${results.keys}`);
+    console.log(`[Bulk Sync All] Pushed: Accounts=${results.accounts}, Pool=${results.emailPool}, Proxies=${results.proxies}, Keys=${results.keys} (force=${force})`);
     res.json({ ok: true, results });
 
     logAudit({
       action: 'sync',
       entity: 'account',
       entityLabel: 'Bulk Sync All',
-      details: results,
+      details: { ...results, force },
       severity: 'info',
+      source: 'ui',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Ép đồng bộ dữ liệu từ D1 về local (bỏ qua cursor hiện tại)
+router.post('/sync/force-pull', async (req, res) => {
+  try {
+    const CURSOR_FILE = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+    console.log('[SyncManager] Triggering full force pull from D1 (beginning of time)...');
+    
+    const pullResult = await SyncManager.pullVault('1970-01-01T00:00:00.000Z');
+    
+    if (pullResult && pullResult.cursor) {
+      fs.writeFileSync(CURSOR_FILE, JSON.stringify({ 
+        cursor: pullResult.cursor, 
+        savedAt: new Date().toISOString() 
+      }));
+    }
+    
+    res.json({ ok: true, pullResult });
+    
+    logAudit({
+      action: 'sync',
+      entity: 'account',
+      entityLabel: 'Force Pull From D1',
+      details: { cursor: pullResult?.cursor },
+      severity: 'info',
+      source: 'ui',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Dọn dẹp các connections & accounts rác / mồ côi trên D1
+router.post('/sync/cleanup-stale', async (req, res) => {
+  try {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: 'Codex D1 Remote Sync not configured.' });
+    }
+    
+    const baseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
+    const headers = { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' };
+
+    // 1. Lấy tất cả active connections trên D1
+    const connRes = await fetch(`${baseUrl}/inspect/connections?active=1`, { headers });
+    const connData = await connRes.json();
+    const connections = connData.items || [];
+
+    // 2. Lấy tất cả managed accounts trên D1
+    const acctRes = await fetch(`${baseUrl}/inspect/accounts`, { headers });
+    const acctData = await acctRes.json();
+    const accounts = acctData.items || [];
+
+    // 3. Tìm các orphaned connections (không có trong managed accounts đang hoạt động)
+    const activeEmails = new Set(accounts.map(a => (a.email || '').toLowerCase()));
+    const activeIds = new Set(accounts.map(a => a.id));
+
+    const orphans = connections.filter(c => {
+      const emailMatch = c.email && activeEmails.has(c.email.toLowerCase());
+      const idMatch = activeIds.has(c.id);
+      return !emailMatch && !idMatch;
+    });
+
+    if (orphans.length === 0) {
+      return res.json({ ok: true, cleanedCount: 0, message: 'No stale connections found.' });
+    }
+
+    const now = new Date().toISOString();
+    const version = Date.now();
+    const tombstones = orphans.map(c => ({
+      id: c.id,
+      email: c.email,
+      deleted_at: now,
+      is_active: 0,
+      updated_at: now,
+      version,
+    }));
+
+    const pushRes = await fetch(`${baseUrl}/sync/push`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ connections: tombstones }),
+    });
+    const pushData = await pushRes.json();
+
+    res.json({ ok: true, cleanedCount: orphans.length, pushData });
+    
+    logAudit({
+      action: 'sync',
+      entity: 'account',
+      entityLabel: 'Remote Sync Cleanup',
+      details: { cleanedCount: orphans.length },
+      severity: 'warning',
       source: 'ui',
     });
   } catch (e) {

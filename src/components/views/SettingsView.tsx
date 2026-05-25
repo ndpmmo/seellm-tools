@@ -5,7 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../ui';
 import { 
   Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, 
   HardDrive, Trash2, RefreshCw, Filter, Search, ChevronDown, ChevronUp, 
-  SlidersHorizontal, AlertTriangle, Trash, CheckSquare, Square 
+  SlidersHorizontal, AlertTriangle, Trash, CheckSquare, Square,
+  Cloud, Wrench
 } from 'lucide-react';
 
 const DATA_DIRS = [
@@ -77,6 +78,10 @@ export function SettingsView() {
   const [cleanInactive, setCleanInactive] = useState(false);
   const [minAgeHours, setMinAgeHours] = useState(0);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const [forcePushing, setForcePushing] = useState(false);
+  const [forcePulling, setForcePulling] = useState(false);
+  const [cleaningStale, setCleaningStale] = useState(false);
 
   useEffect(() => { if (config) setF(config); }, [config]);
 
@@ -246,6 +251,71 @@ export function SettingsView() {
       setModeChanged(false);
     } else {
       addToast('✅ Đã lưu cài đặt', 'success');
+    }
+  };
+
+  const handleForcePushAll = async () => {
+    if (!confirm('Bạn có chắc chắn muốn ép đồng bộ toàn bộ dữ liệu Vault lên D1? Hành động này sẽ bỏ qua bộ nhớ cache và ghi đè trạng thái D1 hiện tại.')) {
+      return;
+    }
+    setForcePushing(true);
+    try {
+      const res = await fetch('/api/vault/sync/all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        addToast(`✅ Ép đồng bộ D1 thành công! Đã đẩy: Accounts=${data.results.accounts}, Pool=${data.results.emailPool}, Proxies=${data.results.proxies}, Keys=${data.results.keys}`, 'success');
+      } else {
+        addToast(`Lỗi đồng bộ: ${data.error || 'D1 push failed'}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+      setForcePushing(false);
+    }
+  };
+
+  const handleForcePullAll = async () => {
+    if (!confirm('Bạn có chắc chắn muốn ép tải toàn bộ dữ liệu D1 về local? Hành động này sẽ kéo mọi thay đổi từ trước đến nay.')) {
+      return;
+    }
+    setForcePulling(true);
+    try {
+      const res = await fetch('/api/vault/sync/force-pull', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        addToast('✅ Ép tải dữ liệu D1 về local thành công!', 'success');
+      } else {
+        addToast(`Lỗi: ${data.error || 'D1 pull failed'}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+      setForcePulling(false);
+    }
+  };
+
+  const handleCleanupStale = async () => {
+    setCleaningStale(true);
+    try {
+      const res = await fetch('/api/vault/sync/cleanup-stale', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        if (data.cleanedCount > 0) {
+          addToast(`🧹 Dọn dẹp thành công! Đã giải phóng/xóa ảo ${data.cleanedCount} connections rác trên D1.`, 'success');
+        } else {
+          addToast('✨ Không phát hiện connection mồ côi nào trên D1!', 'info');
+        }
+      } else {
+        addToast(`Lỗi: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addToast(`Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+      setCleaningStale(false);
     }
   };
 
@@ -423,6 +493,84 @@ export function SettingsView() {
                 <span className="text-[12px] text-slate-500">{desc}</span>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        {/* ☁️ Codex Remote Sync & Troubleshooting Section */}
+        <Card className="col-span-1 lg:col-span-2 overflow-hidden border border-white/10 shadow-xl bg-slate-900/40 backdrop-blur-md">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/5 bg-white/[0.01]">
+            <CardTitle className="flex items-center gap-2">
+              <Cloud size={18} className="text-cyan-400 animate-pulse" />
+              <span className="bg-gradient-to-r from-cyan-300 via-indigo-300 to-purple-300 bg-clip-text text-transparent font-extrabold tracking-tight">
+                Đồng bộ hóa & Khắc phục sự cố Codex Remote Sync (D1)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4 flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-3 hover:bg-white/[0.03] transition-all">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                    <Save size={16} />
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">Ép Đẩy Dữ liệu (Force Push All)</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed min-h-[48px]">
+                  Bỏ qua hoàn toàn bộ nhớ cache so sánh vân tay và ép đẩy toàn bộ 100% dữ liệu Accounts, Proxies, Pool, Keys lên cơ sở dữ liệu Cloud D1 để ghi đè mọi dữ liệu lỗi.
+                </p>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleForcePushAll}
+                  disabled={forcePushing}
+                  className="w-full text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  {forcePushing ? 'Đang ép đẩy...' : 'Ép Đẩy Lên Cloud D1'}
+                </Button>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-3 hover:bg-white/[0.03] transition-all">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+                    <RotateCcw size={16} />
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">Ép Tải Dữ liệu (Force Pull All)</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed min-h-[48px]">
+                  Xóa bộ đếm con trỏ (cursor) đồng bộ cục bộ và kéo toàn bộ lịch sử thay đổi từ Cloud D1 về local Tools để cập nhật, khôi phục hoặc sửa lỗi mất dữ liệu.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleForcePullAll}
+                  disabled={forcePulling}
+                  className="w-full text-xs font-semibold border-white/10 bg-white/5 hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  {forcePulling ? 'Đang ép tải...' : 'Ép Tải Từ Cloud D1'}
+                </Button>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-3 hover:bg-white/[0.03] transition-all">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400">
+                    <Trash2 size={16} />
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">Dọn dẹp liên kết rác trên D1</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed min-h-[48px]">
+                  Tự động quét D1 để tìm các kết nối (connections) hoặc tài khoản con (managed accounts) mồ côi không khớp với bất kỳ tài khoản nào đang hoạt động và soft-delete chúng.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleCleanupStale}
+                  disabled={cleaningStale}
+                  className="w-full text-xs font-semibold text-rose-400 border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  {cleaningStale ? 'Đang dọn dẹp...' : 'Dọn dẹp mồ côi D1'}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
