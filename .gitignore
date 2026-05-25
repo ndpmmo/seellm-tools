@@ -46,3 +46,6 @@ yarn-error.log*
 *.sqlite
 *.db
 
+
+# scratch
+/scratch/
