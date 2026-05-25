@@ -672,20 +672,20 @@ export function VaultAccountsView() {
   };
 
   const bulkRegenerate2FASelected = async () => {
-    const readySelected = Array.from(selectedIds).filter(id => {
+    const eligibleSelected = Array.from(selectedIds).filter(id => {
       const acc = items.find(it => it.id === id);
-      return acc && acc.status === 'ready';
+      return acc && acc.status !== 'dead';
     });
     
-    if (readySelected.length === 0) {
-      addToast('⚠️ Chỉ có thể tái tạo 2FA cho tài khoản ở trạng thái Ready', 'warning');
+    if (eligibleSelected.length === 0) {
+      addToast('⚠️ Chỉ có thể tái tạo 2FA cho tài khoản hoạt động (Khác trạng thái Dead)', 'warning');
       return;
     }
     
-    if (!await askConfirm('Tái tạo 2FA Hàng Loạt', `Kích hoạt Tái tạo 2FA cho ${readySelected.length} tài khoản Ready đã chọn? Quy trình này sẽ tự động thay đổi Secret Key của tài khoản.`, { variant: 'warning', confirmLabel: 'Bắt đầu' })) return;
+    if (!await askConfirm('Tái tạo 2FA Hàng Loạt', `Kích hoạt Tái tạo 2FA cho ${eligibleSelected.length} tài khoản hoạt động đã chọn? Quy trình này sẽ tự động thay đổi Secret Key của tài khoản.`, { variant: 'warning', confirmLabel: 'Bắt đầu' })) return;
     
     let success = 0;
-    for (const id of readySelected) {
+    for (const id of eligibleSelected) {
       try {
         const acc = items.find(it => it.id === id);
         const r = await fetch(`/api/vault/accounts/${id}/regenerate-2fa`, {
@@ -1660,7 +1660,7 @@ export function VaultAccountsView() {
                               <Flame size={13} />
                             </Button>
                           )}
-                          {it.status === 'ready' && isOpenAI(it.provider) && (
+                          {it.status !== 'dead' && isOpenAI(it.provider) && (
                             <Button 
                               size="icon-sm" 
                               title="🛡️ Tái tạo 2FA/MFA" 

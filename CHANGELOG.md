@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.70] - 2026-05-25 20:42:00
+
+### 🛡️ Mở Rộng Tính Năng Tái Tạo 2FA Cho Tất Cả Các Trạng Thái Tài Khoản Hoạt Động (Trừ Dead)
+- **Cập Nhật Điều Kiện Kích Hoạt Tái Tạo 2FA (Flexible 2FA Regeneration Eligibility)**:
+  - Loại bỏ giới hạn cứng chỉ cho phép tài khoản ở trạng thái `ready` mới được tái tạo 2FA/MFA.
+  - Cho phép chạy tái tạo 2FA/MFA cho mọi tài khoản đang hoạt động ở các trạng thái khác (bao gồm cả trạng thái **`idle`** - tài khoản đã dừng/chưa deploy nhưng vẫn sống, cũng như các trạng thái `need_phone`, `relogin`, `error`).
+  - Thiết lập rào cản ngăn chặn tuyệt đối: Cấm chạy tái tạo 2FA đối với các tài khoản bị khóa/vô hiệu hóa hoàn toàn (**`dead`**).
+- **Cập Nhật Giao Diện & Thao Tác Hàng Loạt (`VaultAccountsView.tsx`)**:
+  - Cập nhật hiển thị nút bấm `"🛡️ Tái tạo 2FA/MFA"` trong từng dòng tài khoản cho tất cả các tài khoản hoạt động (`it.status !== 'dead'`).
+  - Nâng cấp tính năng chọn hàng loạt `"Tái tạo 2FA Hàng Loạt"` (`bulkRegenerate2FASelected`) để tự động quét, lọc các tài khoản hợp lệ khác trạng thái `dead` đã chọn và kích hoạt hàng loạt.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.70`.
+
 ## [0.3.69] - 2026-05-25 19:25:00
 
 ### 🛡️ Khắc Phục Lỗi Tự Động Deploy Khi Check Session & Cho Phép Warmup Các Trạng Thái Khác (Trừ Dead)
