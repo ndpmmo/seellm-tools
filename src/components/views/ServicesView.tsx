@@ -362,6 +362,26 @@ export function ServicesView() {
     return () => window.removeEventListener('seellm:vault-update', handleVaultUpdate);
   }, [load]);
 
+  // Poll fallback to handle SSE latency / network drop when any task is pending
+  useEffect(() => {
+    let timer: any = null;
+    const hasPending = items.some(it => {
+      const p = getStatusPresentation(it);
+      return p.label === 'Pending' || it.status === 'pending' || it.test_status === 'pending';
+    });
+
+    if (hasPending && !loading) {
+      timer = setInterval(() => {
+        connCacheRef.current = [];
+        void load();
+      }, 5000);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [items, loading, load]);
+
   // Derived stats per provider
   const providerCounts = Object.keys(PROVIDERS).reduce((acc, k) => {
     acc[k] = items.filter(i => normalizeProvider(i.provider) === k).length;

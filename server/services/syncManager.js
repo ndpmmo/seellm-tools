@@ -223,11 +223,11 @@ export const SyncManager = {
         refresh_token: data.refresh_token || null,
         status: data.status,
         is_active: data.is_active ?? 1,
-        quota_json: data.quota_json || null,
+        quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
         proxy_url: data.proxy_url || null,
-        cookies: data.cookies || null,
+        cookies: typeof data.cookies === 'string' ? data.cookies : (data.cookies ? JSON.stringify(data.cookies) : '[]'),
         notes: data.notes || null,
-        tags: data.tags || null,
+        tags: typeof data.tags === 'string' ? data.tags : (data.tags ? JSON.stringify(data.tags) : '[]'),
         created_at: createdAt,
         updated_at: updatedAt,
         deleted_at: data.deleted_at || null,
@@ -269,7 +269,7 @@ export const SyncManager = {
           proxy_id: null,
           status: data.status,
           is_active: connectionIsActive,
-          quota_json: data.quota_json || null,
+          quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
           last_error: data.notes,
           last_sync_at: now,
           created_at: createdAt,
@@ -313,7 +313,7 @@ export const SyncManager = {
           proxy_id: null,
           status: data.status,
           is_active: data.is_active ?? 1,
-          quota_json: data.quota_json || null,
+          quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
           last_error: data.notes,
           last_sync_at: now,
           created_at: createdAt,
@@ -373,7 +373,7 @@ export const SyncManager = {
           proxy_id: null,
           status: data.status,
           is_active: data.is_active ?? 1,
-          quota_json: data.quota_json || null,
+          quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
           last_error: data.notes,
           last_sync_at: now,
           created_at: createdAt,
@@ -386,7 +386,11 @@ export const SyncManager = {
       }
     }
     if (type === 'email_pool') {
-      payload.vaultEmailPool = [{ ...data, updated_at: data.updated_at || now }];
+      payload.vaultEmailPool = [{
+        ...data,
+        services_json: typeof data.services_json === 'string' ? data.services_json : (data.services_json ? JSON.stringify(data.services_json) : null),
+        updated_at: data.updated_at || now
+      }];
     }
     if (type === 'proxy') payload.vaultProxies = [{ ...data, updated_at: data.updated_at || now }];
     if (type === 'key') payload.vaultKeys = [{ ...data, updated_at: data.updated_at || now }];
@@ -402,7 +406,14 @@ export const SyncManager = {
         body: JSON.stringify(payload),
       });
 
-      const result = await res.json();
+      let result;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        result = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 150).trim() || 'Non-JSON response'}`);
+      }
       if (!res.ok) throw new Error(result.error || 'D1 push failed');
 
       // Update gateway_status on successful push for accounts
@@ -518,7 +529,15 @@ export const SyncManager = {
     const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}&tables=${tables}`, {
       headers: { 'x-sync-secret': cfg.d1SyncSecret }
     });
-    const data = await res.json();
+    
+    let data;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 150).trim() || 'Non-JSON response'}`);
+    }
     if (!res.ok) throw new Error(data.error || 'D1 pull failed');
 
     // Check if we have new data

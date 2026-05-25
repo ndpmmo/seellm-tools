@@ -1,0 +1,617 @@
+/**
+ * SeeLLM Tools - ChatGPT Account 2FA Regeneration Module
+ * Disables existing 2FA and configures a fresh 2FA using Camoufox.
+ */
+
+import { CAMOUFOX_API, TOOLS_API_URL, WARMUP_SCREENSHOTS } from './config.js';
+import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson } from './lib/camofox.js';
+import { normalizeProxyUrl, assertProxyApplied } from './lib/proxy-diag.js';
+import { getFreshTOTP } from './lib/totp.js';
+import { createStepRecorder } from './lib/screenshot.js';
+import { waitForOTPCode } from './lib/ms-graph-email.js';
+import { setupMFA } from './lib/mfa-setup.js';
+import {
+  getState,
+  fillEmail,
+  fillPassword,
+  fillMfa,
+  tryAcceptCookies,
+  dismissGooglePopupAndClickLogin,
+  selectPersonalWorkspaceOnWorkspacePage
+} from './lib/openai-login-flow.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHmac } from 'node:crypto';
+
+// Helper to generate TOTP code locally inside the script
+function generateTOTP(secret) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.toUpperCase().replace(/=+$/, '')) {
+    const v = alphabet.indexOf(c);
+    if (v < 0) continue;
+    bits += v.toString(2).padStart(5, '0');
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  }
+
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const cb = Buffer.alloc(8);
+  cb.writeBigInt64BE(BigInt(counter));
+  const hmac = createHmac('sha1', Buffer.from(bytes)).update(cb).digest();
+  const off = hmac[hmac.length - 1] & 0xf;
+  const code = ((hmac[off] & 0x7f) << 24 | hmac[off+1] << 16 | hmac[off+2] << 8 | hmac[off+3]) % 1_000_000;
+  return code.toString().padStart(6, '0');
+}
+
+// Wait helper
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Parse command line arguments
+function parseArgs() {
+  const args = {};
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const val = process.argv[i + 1];
+      if (val && !val.startsWith('--')) {
+        args[key] = val;
+        i++;
+      } else {
+        args[key] = true;
+      }
+    }
+  }
+  return args;
+}
+
+/**
+ * Automatically detects and clicks "Okay, let's go", "Next", "Done", etc. onboarding buttons.
+ */
+async function dismissOnboardingModals(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    let clickedAny = false;
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, [class*="button"], [class*="btn"]'));
+    for (const btn of buttons) {
+      if (btn.offsetParent === null) continue;
+      const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+      if (
+        text.includes("let's go") ||
+        text.includes("let’s go") ||
+        text === "okay, let's go" ||
+        text === "okay, let’s go" ||
+        text === "okay" ||
+        text === "ok" ||
+        text === "got it" ||
+        text === "done" ||
+        text === "next" ||
+        text === "tiếp tục" ||
+        text === "bắt đầu" ||
+        text.includes("let's get started") ||
+        text.includes("okay, let’s get started")
+      ) {
+        btn.click();
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        clickedAny = true;
+      }
+    }
+    return clickedAny;
+  })()`).catch(() => false);
+}
+
+async function run2faRegen() {
+  const args = parseArgs();
+  const accountId = args.accountId;
+
+  if (!accountId) {
+    console.error('❌ Thiếu đối số --accountId');
+    process.exit(1);
+  }
+
+  console.log(`\n🛡️ [2FA Regen] BẮT ĐẦU TÁO TẠO 2FA CHO TÀI KHOẢN: ${accountId}\n`);
+
+  // 1. Fetch account info from local API
+  let account;
+  try {
+    const res = await fetch(`${TOOLS_API_URL}/api/vault/accounts/${encodeURIComponent(accountId)}`);
+    if (!res.ok) {
+      throw new Error(`GET account returned status ${res.status}: ${await res.text()}`);
+    }
+    const data = await res.json();
+    account = data.account;
+  } catch (err) {
+    console.error(`❌ Không tìm thấy thông tin tài khoản: ${err.message}`);
+    process.exit(1);
+  }
+
+  // 2. Fetch email credentials from local email pool for MS Graph OTP bypass
+  let emailCreds = null;
+  try {
+    const res = await fetch(`${TOOLS_API_URL}/api/vault/email-pool/${encodeURIComponent(account.email)}`);
+    if (res.ok) {
+      const data = await res.json();
+      emailCreds = data.item;
+      console.log(`[2FA Regen] ✅ Đã tải thông tin email pool cho ${account.email}`);
+    }
+  } catch (err) {
+    console.warn(`[2FA Regen] ⚠️ Không tìm thấy email credentials trong pool: ${err.message}`);
+  }
+
+  const USER_ID = `seellm_2fa_${account.id}`;
+  const SESSION_KEY = `2fa_${account.id}`;
+  const effectiveProxy = normalizeProxyUrl(account.proxy_url || account.proxyUrl || account.proxy || null);
+
+  let tabId = null;
+  let preFlightResult = null;
+  let stepRecorder = null;
+
+  try {
+    // 3. Pre-flight Proxy Assert (traffic isolation security)
+    if (effectiveProxy) {
+      console.log(`[2FA Regen] 🔒 [PreFlight] Kiểm tra proxy: ${effectiveProxy}`);
+      try {
+        let lastErr = null;
+        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+          try {
+            preFlightResult = await assertProxyApplied(effectiveProxy);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || '');
+            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP');
+            if (!isTransient || preflightAttempt === 2) break;
+            console.log(`[2FA Regen] ⚠️ [PreFlight] Thử lại ${preflightAttempt + 1}/2 sau lỗi: ${msg}`);
+            await delay(2000 + preflightAttempt * 1500);
+          }
+        }
+        if (!preFlightResult && lastErr) throw lastErr;
+        console.log(`[2FA Regen] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
+      } catch (err) {
+        console.error(`[2FA Regen] 🛑 [PreFlight] Proxy verification FAILED: ${err.message}`);
+        throw err;
+      }
+    }
+
+    // 4. Open Camofox Tab
+    console.log(`[2FA Regen] 🦊 Khởi động Camofox tab...`);
+    const opened = await camofoxPost('/tabs', {
+      userId: USER_ID,
+      sessionKey: SESSION_KEY,
+      url: 'https://example.com/',
+      proxy: effectiveProxy || undefined,
+      persistent: true, // Reuse profiles/cookies inside Camofox
+      os: 'macos',
+      screen: { width: 1440, height: 900 },
+      humanize: true,
+      headless: false,
+    }, { timeoutMs: 35000 });
+
+    tabId = opened.tabId;
+    await delay(3000);
+
+    // Set up step recorder
+    if (WARMUP_SCREENSHOTS) {
+      const runDir = path.join(process.cwd(), 'data', 'screenshots', `2fa_regen_${account.id}`);
+      await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
+      await fs.mkdir(runDir, { recursive: true });
+      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+      console.log(`[2FA Regen] 📸 Chụp ảnh logs đã bật! Thư mục ảnh: ${runDir}`);
+    }
+
+    // 5. Import cookies from database if present
+    if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
+      console.log(`[2FA Regen] 🍪 Nạp ${account.cookies.length} cookies từ database...`);
+      try {
+        await fetch(`${CAMOUFOX_API}/sessions/${USER_ID}/cookies`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: account.cookies })
+        });
+      } catch (err) {
+        console.warn(`⚠️ [2FA Regen] Lỗi khi import cookies: ${err.message}`);
+      }
+    }
+
+    // 6. Navigate to ChatGPT
+    console.log(`[2FA Regen] 🌐 Mở trang ChatGPT...`);
+    await navigate(tabId, USER_ID, 'https://chatgpt.com/');
+    await delay(5000);
+
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(1, 1, 'chatgpt_initial_page');
+    }
+
+    // 7. Check login state
+    const checkLoginState = async () => {
+      const state = await getState(tabId, USER_ID);
+      return state.looksLoggedIn;
+    };
+
+    let isLoggedIn = await checkLoginState();
+
+    if (!isLoggedIn) {
+      console.log(`[2FA Regen] 👤 Chưa đăng nhập hoặc cookie hết hạn! Tiến hành đăng nhập...`);
+
+      const maxLoginAttempts = 15;
+      let emailFilled = false;
+      let emailWaitCount = 0;
+      let passwordFilled = false;
+      let passwordWaitCount = 0;
+      let mfaFilled = false;
+
+      for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
+        console.log(`[2FA Regen] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
+
+        if (WARMUP_SCREENSHOTS && stepRecorder) {
+          await stepRecorder.checkpoint(1, 10 + attempt, `login_loop_step_${attempt}`);
+        }
+
+        const state = await getState(tabId, USER_ID);
+
+        if (state.looksLoggedIn) {
+          console.log(`[2FA Regen] 👤 Đăng nhập thành công!`);
+          isLoggedIn = true;
+          break;
+        }
+
+        if (state.hasDeactivated) {
+          throw new Error('ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa');
+        }
+
+        if (state.hasError && !state.isOnboardingScreen) {
+          console.log(`[2FA Regen] ⚠️ Phát hiện lỗi trên trang OpenAI/ChatGPT!`);
+          const errorHealed = await evalJson(tabId, USER_ID, `(() => {
+            const btn = Array.from(document.querySelectorAll('button, a, [role=\"button\"]'))
+              .find(el => {
+                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                return t.includes('go back') || t.includes('try again') || t.includes('thử lại') || t.includes('quay lại');
+              });
+            if (btn) {
+              btn.click();
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return true;
+            }
+            return false;
+          })()`).catch(() => false);
+
+          if (errorHealed) {
+            console.log(`[2FA Regen] 🔄 Đã bấm nút "Go back / Try again"...`);
+            await delay(5000);
+            continue;
+          } else {
+            throw new Error(`OPENAI_ERROR_PAGE: Phát hiện màn hình báo lỗi (${state.href})`);
+          }
+        }
+
+        // Welcome back dialog
+        const chooseResult = await evalJson(tabId, USER_ID, `(() => {
+          const body = (document.body?.innerText || '').toLowerCase();
+          const hasWelcomeBack = body.includes('welcome back') || body.includes('chào mừng quay trở lại') || body.includes('choose an account') || body.includes('chọn một tài khoản');
+          if (!hasWelcomeBack) return null;
+
+          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a');
+          for (const el of clickables) {
+            if (el.offsetParent === null) continue;
+            const text = (el.textContent || '').trim().toLowerCase();
+            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
+            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
+              el.click();
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return 'clicked_btn: ' + text.slice(0, 60);
+            }
+          }
+          return null;
+        })()`);
+        if (chooseResult) {
+          console.log(`[2FA Regen] 👤 Đã chọn tài khoản Welcome Back: ${chooseResult}`);
+          await delay(4000);
+          continue;
+        }
+
+        // Cookie banner
+        if (state.hasCookieBanner) {
+          console.log(`[2FA Regen] 🍪 Cookie banner -> Chấp nhận cookies...`);
+          await tryAcceptCookies(tabId, USER_ID);
+          await delay(2000);
+          continue;
+        }
+
+        // Onboarding screen: "How old are you?"
+        if (state.isOnboardingScreen) {
+          console.log(`[2FA Regen] 🎂 Phát hiện màn hình Onboarding ("How old are you?") -> Tiến hành điền thông tin...`);
+          
+          // Generate a name from the email, completely stripping numbers to avoid validation error
+          const namePart = account.email.split('@')[0].replace(/[0-9]/g, '').trim();
+          let fullName = namePart.split(/[^a-zA-Z]/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          if (!fullName) {
+            fullName = 'Albert Knutson';
+          } else if (!fullName.includes(' ')) {
+            // Append a realistic last name to satisfy "First and Last Name" validation
+            fullName = fullName + ' Smith';
+          }
+          const age = String(Math.floor(Math.random() * 11) + 25); // Random age between 25 and 35
+          
+          console.log(`[2FA Regen] ✍️ Điền Full Name: "${fullName}" | Age: ${age}`);
+          
+          const onboardResult = await evalJson(tabId, USER_ID, `(() => {
+            const nameInput = Array.from(document.querySelectorAll('input')).find(el => {
+              const placeholder = (el.placeholder || '').toLowerCase();
+              const id = (el.id || '').toLowerCase();
+              const name = (el.name || '').toLowerCase();
+              return placeholder.includes('name') || id.includes('name') || name.includes('name') || el.type === 'text';
+            });
+
+            const ageInput = Array.from(document.querySelectorAll('input')).find(el => {
+              const placeholder = (el.placeholder || '').toLowerCase();
+              const id = (el.id || '').toLowerCase();
+              const name = (el.name || '').toLowerCase();
+              return placeholder.includes('age') || id.includes('age') || name.includes('age') || el.type === 'number' || el.inputMode === 'numeric';
+            });
+
+            if (!nameInput || !ageInput) {
+              return { ok: false, reason: 'missing-inputs', hasInputs: !!nameInput + '/' + !!ageInput };
+            }
+
+            const setValue = (el, val) => {
+              el.focus();
+              const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+              if (nativeInput) nativeInput.set.call(el, val);
+              else el.value = val;
+              
+              // Dispatch multiple keyboard and React state sync events to satisfy state validation
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+              el.blur();
+            };
+
+            setValue(nameInput, ${JSON.stringify(fullName)});
+            setValue(ageInput, ${JSON.stringify(age)});
+
+            const btn = Array.from(document.querySelectorAll('button')).find(el => {
+              const text = (el.innerText || el.textContent || '').toLowerCase();
+              return text.includes('finish') || text.includes('create') || text.includes('hoàn tất') || text.includes('finish creating');
+            });
+
+            if (btn) {
+              btn.click();
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return { ok: true, clicked: true };
+            }
+
+            return { ok: true, clicked: false, reason: 'button-not-found' };
+          })()`);
+          
+          console.log(`[2FA Regen] 🎂 Kết quả onboarding:`, onboardResult);
+          await delay(6000);
+          continue;
+        }
+
+        // Workspace selection
+        if (state.isWorkspaceScreen) {
+          console.log(`[2FA Regen] 🗂️ Màn hình Workspace -> Chọn Personal account...`);
+          const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
+          if (wsResult?.ok) {
+            console.log(`[2FA Regen] ✅ Đã chọn Personal workspace: ${wsResult.text || ''}`);
+            await delay(4000);
+          }
+          continue;
+        }
+
+        // Password input
+        if (state.hasPasswordInput) {
+          if (passwordFilled) {
+            passwordWaitCount++;
+            if (passwordWaitCount < 3) {
+              console.log(`[2FA Regen] 🔑 Password đã được điền, đang chờ (lần ${passwordWaitCount})...`);
+              await evalJson(tabId, USER_ID, `(() => {
+                const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                  .find(el => {
+                    const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+                  });
+                if (btn) btn.click();
+              })()`).catch(() => {});
+              await delay(3000);
+              continue;
+            } else {
+              passwordFilled = false;
+              passwordWaitCount = 0;
+            }
+          }
+          if (!passwordFilled) {
+            console.log(`[2FA Regen] 🔑 Điền password...`);
+            await fillPassword(tabId, USER_ID, account.password);
+            passwordFilled = true;
+            passwordWaitCount = 0;
+            await delay(6000);
+            continue;
+          }
+        }
+
+        // Email input
+        if (state.hasEmailInput) {
+          if (emailFilled) {
+            emailWaitCount++;
+            if (emailWaitCount < 3) {
+              console.log(`[2FA Regen] 📧 Email đã được điền, đang chờ (lần ${emailWaitCount})...`);
+              await evalJson(tabId, USER_ID, `(() => {
+                const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                  .find(el => {
+                    const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                  });
+                if (btn) btn.click();
+              })()`).catch(() => {});
+              await delay(3000);
+              continue;
+            } else {
+              emailFilled = false;
+              emailWaitCount = 0;
+            }
+          }
+          if (!emailFilled) {
+            console.log(`[2FA Regen] 📧 Điền email: ${account.email}`);
+            await fillEmail(tabId, USER_ID, account.email);
+            emailFilled = true;
+            emailWaitCount = 0;
+            await delay(5000);
+            continue;
+          }
+        }
+
+        // Authenticator App MFA challenge (already active)
+        if (state.hasMfaInput) {
+          console.log(`[2FA Regen] 🛡️ Phát hiện màn hình 2FA challenge!`);
+          const totpSecret = account.two_fa_secret || account.twoFaSecret;
+          if (!totpSecret) {
+            // Check if we can do email-based OTP instead
+            const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
+              const b = (document.body?.innerText || '').toLowerCase();
+              return b.includes('email') || b.includes('verification code') || b.includes('mã xác minh');
+            })()`);
+
+            if (isEmailOtpScreen && emailCreds?.refresh_token && emailCreds?.client_id) {
+              console.log(`[2FA Regen] 📧 Không có 2FA secret nhưng có email OTP challenge. Đang lấy mã OTP từ Email...`);
+              const otpCode = await waitForOTPCode({
+                email: account.email,
+                refreshToken: emailCreds.refresh_token,
+                clientId: emailCreds.client_id,
+                senderDomain: 'openai.com',
+                maxWaitSecs: 120
+              });
+              if (otpCode) {
+                console.log(`[2FA Regen] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+                await fillMfa(tabId, USER_ID, otpCode);
+                await delay(6000);
+                continue;
+              }
+            }
+            throw new Error('Tài khoản yêu cầu 2FA Authenticator nhưng không có Secret Key và không thể lấy OTP email!');
+          }
+          const { otp } = await getFreshTOTP(totpSecret);
+          console.log(`[2FA Regen] 🔢 Điền mã OTP sinh từ secret hiện tại: ${otp}`);
+          await fillMfa(tabId, USER_ID, otp);
+          mfaFilled = true;
+          await delay(6000);
+          continue;
+        }
+
+        // Stuck on chatgpt homepage but not logged in
+        if (!state.onAuthDomain) {
+          console.log(`[2FA Regen] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
+          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+          await delay(4000);
+          continue;
+        }
+
+        await delay(3000);
+      }
+
+      if (!isLoggedIn) {
+        throw new Error('Đăng nhập thất bại hoặc hết thời gian chờ!');
+      }
+
+      // Clear any onboarding modals ("Okay, let's go", etc.) that overlay the screen
+      for (let i = 0; i < 3; i++) {
+        const dismissed = await dismissOnboardingModals(tabId, USER_ID);
+        if (dismissed) {
+          console.log(`[2FA Regen] 🛡️ Phát hiện và đóng hộp thoại giới thiệu / Onboarding Modal (Lượt ${i + 1})...`);
+          await delay(2000);
+        } else {
+          break;
+        }
+      }
+    } else {
+      console.log(`[2FA Regen] ✅ Session hợp lệ!`);
+    }
+
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(2, 1, 'chatgpt_logged_in_dashboard');
+    }
+
+    // ── 8. Navigation to Security Settings & 2FA Setup using setupMFA ──
+    console.log(`[2FA Regen] 🛡️ Tiến hành thiết lập/bật 2FA mới sử dụng thư viện mfa-setup...`);
+    const apiHelper = async (path, body) => {
+      return await camofoxPost(path, body);
+    };
+
+    const mfaResult = await setupMFA(tabId, USER_ID, apiHelper, {
+      email: account.email,
+      emailCreds: emailCreds
+    });
+
+    if (!mfaResult.success) {
+      throw new Error(`Cài đặt 2FA bằng thư viện mfa-setup thất bại: ${mfaResult.error || 'Unknown error'}`);
+    }
+
+    const newSecret = mfaResult.secret;
+    console.log(`[2FA Regen] 🎉 Kích hoạt 2FA thành công! Secret Key: ${newSecret}`);
+
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(3, 5, 'enable_mfa_finished_success');
+    }
+
+    // Capture new cookies
+    const newCookiesRes = await camofoxGet(`/tabs/${tabId}/cookies?userId=${USER_ID}`).catch(() => null);
+    const newCookies = Array.isArray(newCookiesRes?.cookies) ? newCookiesRes.cookies : (Array.isArray(newCookiesRes) ? newCookiesRes : null);
+
+    // Post success back to API
+    console.log(`[2FA Regen] 💾 Đang gửi kết quả về local API...`);
+    const saveRes = await fetch(`${TOOLS_API_URL}/api/vault/accounts/${accountId}/regenerate-2fa-result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'success',
+        secret: newSecret,
+        cookies: newCookies || undefined
+      })
+    });
+
+    if (!saveRes.ok) {
+      throw new Error(`Lưu kết quả thất bại: ${await saveRes.text()}`);
+    }
+
+    console.log(`[2FA Regen] ✅ HOÀN TẤT TÁI TẠO 2FA THÀNH CÔNG!`);
+
+  } catch (err) {
+    console.error(`\n❌ [2FA Regen] Lỗi trong quá trình chạy: ${err.message}`);
+
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.error(99, 1, '2fa_regen_error').catch(() => {});
+    }
+
+    // Post failure back to API
+    try {
+      await fetch(`${TOOLS_API_URL}/api/vault/accounts/${accountId}/regenerate-2fa-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'failed',
+          error: err.message
+        })
+      });
+      console.log(`[2FA Regen] 🛑 Đã cập nhật trạng thái lỗi về local API.`);
+    } catch (saveErr) {
+      console.error(`[2FA Regen] Lỗi khi lưu trạng thái thất bại: ${saveErr.message}`);
+    }
+
+  } finally {
+    // Clean up Tab to prevent resource leak
+    if (tabId) {
+      console.log(`[2FA Regen] 🧹 Đóng tab Camofox...`);
+      await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`);
+    }
+    console.log(`🛡️ [2FA Regen] KẾT THÚC CHƯƠNG TRÌNH TÁI TẠO 2FA.\n`);
+  }
+}
+
+run2faRegen();

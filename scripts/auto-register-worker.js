@@ -1492,6 +1492,8 @@ export async function runAutoRegister(taskInput) {
     // 5. Cấp User Info (tên, ngày sinh) — chạy nếu là account mới hoặc nếu page có yêu cầu
     const hasAboutInputs = await evalJson(tabId, USER_ID, `
       (() => {
+        const url = location.href.toLowerCase();
+        if (url.includes('about-you') || url.includes('onboarding') || url.includes('aboutyou')) return true;
         const input = document.querySelector('input[name="name"], input[placeholder*="name" i], input[name="birthday"], input[name="dob"], input[name="age"], input[placeholder*="age" i]');
         return !!input;
       })()

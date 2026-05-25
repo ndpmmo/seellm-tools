@@ -59,6 +59,8 @@ export interface AppConfig {
   warmupScreenshots?: boolean;
   /** Bật/tắt lưu giữ profile trình duyệt để tái sử dụng */
   usePersistentProfiles?: boolean;
+  /** Bật/tắt tự động xóa email tương ứng trong Email Pool khi xóa tài khoản Vault */
+  deleteLinkedEmail?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

@@ -50,6 +50,7 @@ export function SettingsView() {
     workerMode: 'auto',
     protocolFirst: true,
     usePersistentProfiles: true,
+    deleteLinkedEmail: false,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -387,6 +388,26 @@ export function SettingsView() {
                 <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.usePersistentProfiles !== false ? 'translate-x-4' : ''}`} />
               </span>
               {f.usePersistentProfiles !== false ? 'BẬT — Lưu trữ Persistent Profiles' : 'TẮT — Dùng trình duyệt tạm thời'}
+            </button>
+          </Field>
+          <Field
+            label="Tự động xóa Email tương ứng khi xóa Account Vault"
+            hint="Khi BẬT: Khi bạn xóa một tài khoản khỏi Vault, email liên kết của nó trong Workshop (Email Pool) cũng sẽ bị xóa vĩnh viễn. Khi TẮT: Chỉ đặt lại trạng thái chatgpt_status của email về 'not_created' và giữ email lại trong pool."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('deleteLinkedEmail', f.deleteLinkedEmail === true ? false : true)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.deleteLinkedEmail === true
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.deleteLinkedEmail === true ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.deleteLinkedEmail === true ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.deleteLinkedEmail === true ? 'BẬT — Tự động xóa Email liên kết' : 'TẮT — Giữ lại Email trong Pool'}
             </button>
           </Field>
         </Section>

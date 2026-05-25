@@ -1285,6 +1285,12 @@ export function VaultWorkshopView() {
                                                         <div className="flex flex-col gap-0.5">
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-[13px] font-medium text-slate-200">{it.email}</span>
+                                                                {it.has_deleted_account === 1 && (
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 uppercase tracking-widest" title="Tài khoản Vault liên kết với email này đã bị xóa">
+                                                                        <XCircle size={9} className="shrink-0" />
+                                                                        Acc đã xóa
+                                                                    </span>
+                                                                )}
                                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <button
                                                                         onClick={() => onCopy(it.email)}

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import crypto from 'crypto';
 import { SyncManager } from '../services/syncManager.js';
+import { loadConfig } from './config.js';
 
 /* ─── Setup ─────────────────────────────────────────────────────────────── */
 
@@ -238,19 +239,33 @@ export const vault = {
         rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
       } else throw e;
     }
+
+    let emailStatusMap = new Map();
+    try {
+      const emails = db.prepare('SELECT email, mail_status FROM vault_email_pool').all();
+      emails.forEach(e => {
+        if (e.email) emailStatusMap.set(e.email.trim().toLowerCase(), e.mail_status || 'unknown');
+      });
+    } catch {}
+
     const list = rawList.filter(a => a.email && a.email.trim() !== '');
-    return list.map(a => ({
-      ...a,
-      // Show plaintext - this is a personal tool
-      password: a.password || '',
-      two_fa_secret: a.two_fa_secret || '',
-      access_token: '********',
-      refresh_token: '********',
-      tags: safeParseJson(a.tags, []),
-      cookies: safeParseJson(a.cookies, []),
-      provider_specific_data: safeParseJsonObject(a.provider_specific_data),
-      gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
-    }));
+    return list.map(a => {
+      const emailKey = (a.email || '').trim().toLowerCase();
+      const mailStatus = emailStatusMap.has(emailKey) ? emailStatusMap.get(emailKey) : 'not_found';
+      return {
+        ...a,
+        // Show plaintext - this is a personal tool
+        password: a.password || '',
+        two_fa_secret: a.two_fa_secret || '',
+        access_token: '********',
+        refresh_token: '********',
+        tags: safeParseJson(a.tags, []),
+        cookies: safeParseJson(a.cookies, []),
+        provider_specific_data: safeParseJsonObject(a.provider_specific_data),
+        gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
+        mail_status: mailStatus,
+      };
+    });
   },
 
   getAccount: (id) => {
@@ -279,14 +294,28 @@ export const vault = {
         rawList = db.prepare('SELECT * FROM vault_accounts ORDER BY updated_at DESC').all();
       } else throw e;
     }
+
+    let emailStatusMap = new Map();
+    try {
+      const emails = db.prepare('SELECT email, mail_status FROM vault_email_pool').all();
+      emails.forEach(e => {
+        if (e.email) emailStatusMap.set(e.email.trim().toLowerCase(), e.mail_status || 'unknown');
+      });
+    } catch {}
+
     const list = rawList.filter(a => a.email && a.email.trim() !== '');
-    return list.map(a => ({
-      ...a,
-      tags: safeParseJson(a.tags, []),
-      cookies: safeParseJson(a.cookies, []),
-      provider_specific_data: safeParseJsonObject(a.provider_specific_data),
-      gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
-    }));
+    return list.map(a => {
+      const emailKey = (a.email || '').trim().toLowerCase();
+      const mailStatus = emailStatusMap.has(emailKey) ? emailStatusMap.get(emailKey) : 'not_found';
+      return {
+        ...a,
+        tags: safeParseJson(a.tags, []),
+        cookies: safeParseJson(a.cookies, []),
+        provider_specific_data: safeParseJsonObject(a.provider_specific_data),
+        gateway_status: a.gateway_status ?? null, // Ensure gateway_status is included
+        mail_status: mailStatus,
+      };
+    });
   },
 
   getAccountFull: (id) => vault.getAccount(id),
@@ -593,26 +622,32 @@ export const vault = {
     
     if (record && record.email) {
       try {
-        db.prepare(`
-          UPDATE vault_email_pool 
-          SET chatgpt_status = 'not_created',
-              linked_chatgpt_id = NULL,
-              services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'not_created')
-          WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
-        `).run(record.email.trim());
-
-        // --- CLOUD SYNC FOR EMAIL POOL ---
-        if (!skipSync) {
-          const updatedEmailPool = db.prepare(`
-            SELECT * FROM vault_email_pool 
+        const config = loadConfig();
+        if (config.deleteLinkedEmail) {
+          // Auto purge/delete associated email from Email Pool
+          vault.deleteEmailPool(record.email.trim(), skipSync);
+        } else {
+          db.prepare(`
+            UPDATE vault_email_pool 
+            SET chatgpt_status = 'not_created',
+                linked_chatgpt_id = NULL,
+                services_json = json_set(COALESCE(services_json, '{}'), '$.chatgpt', 'not_created')
             WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
-          `).get(record.email.trim());
-          if (updatedEmailPool) {
-            SyncManager.pushVault('email_pool', updatedEmailPool).catch(() => {});
+          `).run(record.email.trim());
+
+          // --- CLOUD SYNC FOR EMAIL POOL ---
+          if (!skipSync) {
+            const updatedEmailPool = db.prepare(`
+              SELECT * FROM vault_email_pool 
+              WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+            `).get(record.email.trim());
+            if (updatedEmailPool) {
+              SyncManager.pushVault('email_pool', updatedEmailPool).catch(() => {});
+            }
           }
         }
       } catch (e) {
-        console.warn(`[Vault] Failed to reset email pool status for deleted account ${record.email}:`, e.message);
+        console.warn(`[Vault] Failed to reset or delete email pool status for deleted account ${record.email}:`, e.message);
       }
     }
 
@@ -627,10 +662,13 @@ export const vault = {
     const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
     const activeAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NULL AND email IS NOT NULL AND email != ''").all();
     const activeEmailMap = new Map(activeAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
+    const deletedAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NOT NULL AND email IS NOT NULL AND email != ''").all();
+    const deletedEmailMap = new Map(deletedAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
     
     return list.map(e => {
       const emailKey = e.email.trim().toLowerCase();
       const hasAccount = activeEmailMap.has(emailKey);
+      const hasDeletedAccount = !hasAccount && deletedEmailMap.has(emailKey);
       const chatgpt_status = hasAccount ? 'done' : e.chatgpt_status;
       const linked_chatgpt_id = hasAccount ? activeEmailMap.get(emailKey) : e.linked_chatgpt_id;
       const services = safeParseJson(e.services_json, {});
@@ -640,6 +678,7 @@ export const vault = {
         ...e,
         chatgpt_status,
         linked_chatgpt_id,
+        has_deleted_account: hasDeletedAccount ? 1 : 0,
         password: '********',
         services,
       };
@@ -650,10 +689,13 @@ export const vault = {
     const list = db.prepare('SELECT * FROM vault_email_pool ORDER BY created_at DESC').all();
     const activeAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NULL AND email IS NOT NULL AND email != ''").all();
     const activeEmailMap = new Map(activeAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
+    const deletedAccounts = db.prepare("SELECT id, email FROM vault_accounts WHERE deleted_at IS NOT NULL AND email IS NOT NULL AND email != ''").all();
+    const deletedEmailMap = new Map(deletedAccounts.map(a => [a.email.trim().toLowerCase(), a.id]));
     
     return list.map(e => {
       const emailKey = e.email.trim().toLowerCase();
       const hasAccount = activeEmailMap.has(emailKey);
+      const hasDeletedAccount = !hasAccount && deletedEmailMap.has(emailKey);
       const chatgpt_status = hasAccount ? 'done' : e.chatgpt_status;
       const linked_chatgpt_id = hasAccount ? activeEmailMap.get(emailKey) : e.linked_chatgpt_id;
       const services = safeParseJson(e.services_json, {});
@@ -663,6 +705,7 @@ export const vault = {
         ...e,
         chatgpt_status,
         linked_chatgpt_id,
+        has_deleted_account: hasDeletedAccount ? 1 : 0,
         services,
       };
     });

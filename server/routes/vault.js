@@ -1214,6 +1214,10 @@ router.post('/accounts/result', async (req, res) => {
           severity: 'success',
           source: 'worker',
         });
+
+        if (emitSSE) {
+          emitSSE('vault:update', { reason: 'result-success', id: targetId, email: targetEmail });
+        }
       } catch (exchangeErr) {
         console.error(`[Result] ❌ Exchange failed: ${exchangeErr.message}`);
         try {
@@ -1235,6 +1239,10 @@ router.post('/accounts/result', async (req, res) => {
           severity: 'error',
           source: 'worker',
         });
+
+        if (emitSSE) {
+          emitSSE('vault:update', { reason: 'result-error', id, error: exchangeErr.message });
+        }
       }
 
     } else if (status === 'success') {
@@ -1305,6 +1313,10 @@ router.post('/accounts/result', async (req, res) => {
         }
       }
 
+      if (emitSSE) {
+        emitSSE('vault:update', { reason: 'result-success-direct', id, email: fullRecord?.email });
+      }
+
     } else {
       // ─── Path 3: Error / other status ────────────────────────────────────
       const errorMsg = message || `Worker reported status: ${status}`;
@@ -1327,6 +1339,10 @@ router.post('/accounts/result', async (req, res) => {
       const fullRecord = vault.getAccountFull(id);
       if (fullRecord) {
         SyncManager.pushVault('account', fullRecord).catch(() => {});
+      }
+
+      if (emitSSE) {
+        emitSSE('vault:update', { reason: 'result-error-direct', id, error: errorMsg });
       }
       // Reset về pending sau một khoảng thời gian nếu là lỗi tạm thời
     }
@@ -1694,6 +1710,10 @@ router.post('/accounts/connect-result', async (req, res) => {
             });
           }
         } catch (_) {}
+      }
+
+      if (emitSSE) {
+        emitSSE('vault:update', { reason: 'connect-result-error', id, status: targetStatus });
       }
 
       logAudit({
@@ -3012,6 +3032,121 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     if (fullRecord && fullRecord.email) {
       console.log(`[Server] Syncing warmed account ${fullRecord.email} to D1`);
       await SyncManager.pushVault('account', fullRecord).catch(() => {});
+
+      if (emitSSE) {
+        emitSSE('vault:update', { reason: 'warmup-result', id, email: fullRecord.email });
+      }
+    }
+    
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/:id/regenerate-2fa
+router.post('/accounts/:id/regenerate-2fa', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const account = vault.getAccount(id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    
+    // Set the 2fa regeneration status to pending in provider_specific_data
+    const existingProviderData = typeof account.provider_specific_data === 'string'
+      ? JSON.parse(account.provider_specific_data)
+      : (account.provider_specific_data || {});
+      
+    existingProviderData.twoFaRegenStatus = 'pending';
+    existingProviderData.twoFaRegenError = null;
+    
+    vault.upsertAccount({
+      id,
+      provider_specific_data: existingProviderData
+    });
+    
+    // Spawn scripts/regenerate-2fa.js as a detached background child process
+    const { fileURLToPath } = await import('node:url');
+    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/regenerate-2fa.js');
+    
+    if (processManager.spawnProcess) {
+      const procId = `2fa_regen_${id}_${Date.now()}`;
+      console.log(`[Server] Spawning 2FA regeneration process ${procId} via processManager`);
+      processManager.spawnProcess(
+        procId, 
+        `🛡️ 2FA Regen ${account.email}`, 
+        'node', 
+        [scriptPath, '--accountId', id], 
+        process.cwd(), 
+        { env: { ...process.env } }
+      );
+    } else {
+      const { spawn } = await import('node:child_process');
+      console.log(`[Server] Spawning 2FA regeneration worker for ${account.email} (${id})`);
+      const child = spawn('node', [scriptPath, '--accountId', id], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    }
+    
+    res.json({ ok: true, message: '2FA regeneration task triggered successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/vault/accounts/:id/regenerate-2fa-result
+router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      status, 
+      error = null, 
+      secret = null,
+      cookies = null
+    } = req.body;
+    
+    const account = vault.getAccount(id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    
+    const existingProviderData = typeof account.provider_specific_data === 'string'
+      ? JSON.parse(account.provider_specific_data)
+      : (account.provider_specific_data || {});
+      
+    existingProviderData.twoFaRegenStatus = status;
+    existingProviderData.twoFaRegenError = error;
+    existingProviderData.lastTwoFaRegenAt = new Date().toISOString();
+    
+    const updateData = {
+      id,
+      provider_specific_data: existingProviderData
+    };
+    
+    if (status === 'success' && secret) {
+      updateData.two_fa_secret = secret;
+      updateData.status = 'ready';
+      updateData.notes = '2FA regenerated successfully';
+    } else if (status === 'failed') {
+      updateData.notes = `2FA regeneration failed: ${error}`;
+    }
+    
+    if (cookies && Array.isArray(cookies) && cookies.length > 0) {
+      updateData.cookies = cookies;
+    }
+    
+    vault.upsertAccount(updateData);
+    
+    // Push sync to cloud D1
+    const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
+    if (fullRecord && fullRecord.email) {
+      console.log(`[Server] Syncing regenerated 2FA account ${fullRecord.email} to D1`);
+      await SyncManager.pushVault('account', fullRecord).catch(() => {});
+      
+      // Emit vault:update event to refresh UI
+      if (emitSSE) {
+        emitSSE('vault:update', { reason: 'regenerate-2fa-result', id, email: fullRecord.email });
+      }
     }
     
     res.json({ ok: true });

@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag, Filter,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, HelpCircle, Mail, XCircle, Briefcase, Flame
+  Bot, PhoneOff, Skull, Lock, Unlock, HelpCircle, Mail, XCircle, Briefcase, Flame, AlertTriangle
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
@@ -113,7 +113,20 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
 };
 
-function TagIcons({ tags, twoFa }: { tags: string[]; twoFa?: string }) {
+function TagIcons({ 
+  tags, 
+  twoFa, 
+  provider,
+  twoFaRegenStatus,
+  twoFaRegenError
+}: { 
+  tags: string[]; 
+  twoFa?: string; 
+  provider?: string;
+  twoFaRegenStatus?: string;
+  twoFaRegenError?: string;
+}) {
+  const isOAI = !provider || provider === 'openai' || provider === 'codex';
   return (
     <span className="inline-flex items-center gap-1">
       {tags.map(t => {
@@ -127,11 +140,34 @@ function TagIcons({ tags, twoFa }: { tags: string[]; twoFa?: string }) {
           </span>
         );
       })}
-      {twoFa && (
-        <span title="Có 2FA — xác thực hai yếu tố đã bật" className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help">
-          <Lock size={12} />
-        </span>
-      )}
+      {isOAI && (() => {
+        if (twoFaRegenStatus === 'pending') {
+          return (
+            <span title="Đang tái tạo 2FA/MFA..." className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-teal-500/10 text-teal-400 border border-teal-500/20 cursor-help">
+              <RefreshCw size={11} className="animate-spin" />
+            </span>
+          );
+        }
+        if (twoFaRegenStatus === 'failed') {
+          return (
+            <span title={`Tái tạo 2FA thất bại: ${twoFaRegenError || 'Lỗi không xác định'}`} className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 cursor-help">
+              <Lock size={12} />
+            </span>
+          );
+        }
+        if (twoFa) {
+          return (
+            <span title="Có 2FA — xác thực hai yếu tố đã bật" className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help">
+              <Lock size={12} />
+            </span>
+          );
+        }
+        return (
+          <span title="Chưa có 2FA — cần chạy Regenerate 2FA để tự động kích hoạt bảo mật" className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-amber-500/10 text-amber-500/80 border border-amber-500/20 cursor-help">
+            <Unlock size={12} />
+          </span>
+        );
+      })()}
     </span>
   );
 }
@@ -299,6 +335,29 @@ export function VaultAccountsView() {
     window.addEventListener('seellm:vault-update', handleVaultUpdate);
     return () => window.removeEventListener('seellm:vault-update', handleVaultUpdate);
   }, [loadAccounts]);
+
+  // Poll fallback to handle SSE latency / network drop when any task is pending
+  useEffect(() => {
+    let timer: any = null;
+    
+    const hasPending = items.some(it => {
+      const ps = it.provider_specific_data || {};
+      const statusPending = it.status === 'pending' || it.status === 'processing';
+      const warmupPending = isOpenAI(it.provider) && ps.warmupStatus === 'pending';
+      const twoFaPending = isOpenAI(it.provider) && ps.twoFaRegenStatus === 'pending';
+      return statusPending || warmupPending || twoFaPending;
+    });
+
+    if (hasPending && !loading) {
+      timer = setInterval(() => {
+        void loadAccounts();
+      }, 4000);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [items, loading, loadAccounts]);
 
   const patchAccountLocal = useCallback((id: string, patchData: Record<string, any>) => {
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
@@ -582,6 +641,82 @@ export function VaultAccountsView() {
     
     if (success > 0) {
       addToast(`🔥 Đã kích hoạt Warmup cho ${success} tài khoản`, 'success');
+    }
+    setSelectedIds(new Set());
+  };
+
+  const regenerate2FA = async (id: string, email: string, account?: any) => {
+    try {
+      const r = await fetch(`/api/vault/accounts/${id}/regenerate-2fa`, {
+        method: 'POST'
+      });
+      const text = await r.text();
+      let d;
+      try {
+        d = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`⚠️ Backend Server.js cần được khởi động lại để nhận diện API Route mới. Vui lòng tắt server (Ctrl+C) và chạy lại 'pnpm dev' (hoặc 'npm run dev').`);
+      }
+      if (d.error) throw new Error(d.error);
+      addToast(`🛡️ Đã kích hoạt tái tạo 2FA cho ${email}`, 'success');
+      
+      const psData = account?.provider_specific_data || {};
+      patchAccountLocal(id, {
+        provider_specific_data: {
+          ...psData,
+          twoFaRegenStatus: 'pending',
+          twoFaRegenError: null
+        }
+      });
+    } catch (e: any) { addToast(e.message, 'error'); }
+  };
+
+  const bulkRegenerate2FASelected = async () => {
+    const readySelected = Array.from(selectedIds).filter(id => {
+      const acc = items.find(it => it.id === id);
+      return acc && acc.status === 'ready';
+    });
+    
+    if (readySelected.length === 0) {
+      addToast('⚠️ Chỉ có thể tái tạo 2FA cho tài khoản ở trạng thái Ready', 'warning');
+      return;
+    }
+    
+    if (!await askConfirm('Tái tạo 2FA Hàng Loạt', `Kích hoạt Tái tạo 2FA cho ${readySelected.length} tài khoản Ready đã chọn? Quy trình này sẽ tự động thay đổi Secret Key của tài khoản.`, { variant: 'warning', confirmLabel: 'Bắt đầu' })) return;
+    
+    let success = 0;
+    for (const id of readySelected) {
+      try {
+        const acc = items.find(it => it.id === id);
+        const r = await fetch(`/api/vault/accounts/${id}/regenerate-2fa`, {
+          method: 'POST'
+        });
+        const text = await r.text();
+        let d;
+        try {
+          d = JSON.parse(text);
+        } catch (err) {
+          throw new Error(`⚠️ Backend Server.js cần được khởi động lại để nhận diện API Route mới. Vui lòng tắt server (Ctrl+C) và chạy lại 'pnpm dev' (hoặc 'npm run dev').`);
+        }
+        if (!d.error) {
+          success++;
+          const psData = acc?.provider_specific_data || {};
+          patchAccountLocal(id, {
+            provider_specific_data: {
+              ...psData,
+              twoFaRegenStatus: 'pending',
+              twoFaRegenError: null
+            }
+          });
+        }
+      } catch (e: any) {
+        addToast(e.message, 'error');
+        break; // Stop bulk loop if server is not updated
+      }
+    }
+    
+    if (success > 0) {
+      addToast(`🛡️ Đã kích hoạt Tái tạo 2FA cho ${success} tài khoản`, 'success');
     }
     setSelectedIds(new Set());
   };
@@ -1466,24 +1601,43 @@ export function VaultAccountsView() {
                             <Copy size={13} />
                           </button>
                           <PlanBadge plan={it.plan} />
+                          {it.mail_status === 'dead' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 uppercase tracking-wider animate-pulse" title="Email liên kết trong Workshop đã bị DEAD/Vô hiệu hóa">
+                              <AlertTriangle size={9} /> Mail Dead
+                            </span>
+                          )}
+                          {it.mail_status === 'not_found' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 uppercase tracking-wider" title="Email không tồn tại trong Workshop Email Pool">
+                              <AlertTriangle size={9} /> Thiếu Email Pool
+                            </span>
+                          )}
                           {it.label && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 border border-white/5 truncate max-w-[80px]">{it.label}</span>}
                           {isOpenAI(it.provider) && (() => {
                             const ps = it.provider_specific_data || {};
+                            const badges = [];
+                            
                             if (ps.warmupStatus === 'pending') {
-                              return <span className="inline-flex items-center text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20"><RefreshCw size={9} className="animate-spin mr-0.5" /> Warming</span>;
+                              badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20"><RefreshCw size={9} className="animate-spin mr-0.5" /> Warming</span>);
+                            } else if (ps.warmupStatus === 'success') {
+                              badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-orange-400 font-semibold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20"><Flame size={9} className="mr-0.5 animate-pulse" /> Warmed</span>);
+                            } else if (ps.warmupStatus === 'failed') {
+                              badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-rose-400 font-medium bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">⚠️ Failed</span>);
                             }
-                            if (ps.warmupStatus === 'success') {
-                              return <span className="inline-flex items-center text-[10px] text-orange-400 font-semibold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20"><Flame size={9} className="mr-0.5 animate-pulse" /> Warmed</span>;
-                            }
-                            if (ps.warmupStatus === 'failed') {
-                              return <span className="inline-flex items-center text-[10px] text-rose-400 font-medium bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">⚠️ Failed</span>;
-                            }
-                            return null;
+                            
+                            return badges.length > 0 ? <div className="flex flex-col gap-1 mt-1">{badges}</div> : null;
                           })()}
                         </div>
                       </td>
                       <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} tags={tags} /></td>
-                      <td className="px-4 py-2.5"><TagIcons tags={tags} twoFa={it.two_fa_secret} /></td>
+                      <td className="px-4 py-2.5">
+                        <TagIcons 
+                          tags={tags} 
+                          twoFa={it.two_fa_secret} 
+                          provider={it.provider} 
+                          twoFaRegenStatus={it.provider_specific_data?.twoFaRegenStatus}
+                          twoFaRegenError={it.provider_specific_data?.twoFaRegenError}
+                        />
+                      </td>
                       <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                           {it.status === 'ready' && isOpenAI(it.provider) && (
@@ -1494,6 +1648,16 @@ export function VaultAccountsView() {
                               className="!text-orange-400 border-orange-500/20 hover:bg-orange-500/10"
                             >
                               <Flame size={13} />
+                            </Button>
+                          )}
+                          {it.status === 'ready' && isOpenAI(it.provider) && (
+                            <Button 
+                              size="icon-sm" 
+                              title="🛡️ Tái tạo 2FA/MFA" 
+                              onClick={() => regenerate2FA(it.id, it.email, it)} 
+                              className="!text-teal-400 border-teal-500/20 hover:bg-teal-500/10"
+                            >
+                              <Lock size={13} />
                             </Button>
                           )}
                           {isOpenAI(it.provider) && it.cookies && (
@@ -1778,6 +1942,9 @@ export function VaultAccountsView() {
             </Button>
             <Button size="sm" variant="secondary" onClick={bulkWarmupSelected} className="border-orange-500/30 text-orange-400 hover:bg-orange-500/10 h-8 text-[11px] font-semibold">
               <Flame size={11} className="mr-1 animate-pulse" /> Warmup
+            </Button>
+            <Button size="sm" variant="secondary" onClick={bulkRegenerate2FASelected} className="border-teal-500/30 text-teal-400 hover:bg-teal-500/10 h-8 text-[11px] font-semibold" title="Tái tạo 2FA hàng loạt">
+              <Lock size={11} className="mr-1 animate-pulse" /> Regenerate 2FA
             </Button>
             <Button size="sm" variant="secondary" onClick={bulkCheckSessionSelected} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 h-8 text-[11px] font-semibold" title="Kiểm tra Session mà không cần login">
               <Shield size={11} className="mr-1" /> Check Session

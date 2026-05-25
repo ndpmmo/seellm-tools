@@ -22,6 +22,7 @@ export function loadConfig() {
     protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
     warmupScreenshots: true,
     usePersistentProfiles: true,
+    deleteLinkedEmail: false,
   };
   try {
     if (existsSync(CONFIG_PATH)) {

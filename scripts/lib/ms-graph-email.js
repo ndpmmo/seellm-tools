@@ -158,7 +158,7 @@ export async function getAccessToken(refreshToken, clientId, withScope = true, e
  * - string (legacy): dùng Graph API, không biết account type
  * - { token, useOutlookApi } (mới): routing đúng API
  */
-export async function fetchMails(tokenArg, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null, email = null } = {}) {
+export async function fetchMails(tokenArg, { top = 10, filterUnread = false, receivedAfter = null, senderContains = null, email = null, folder = null } = {}) {
     // Support both legacy string token and new object format
     let accessToken, useOutlookApi;
     if (typeof tokenArg === 'string') {
@@ -186,7 +186,14 @@ export async function fetchMails(tokenArg, { top = 10, filterUnread = false, rec
         : 'id,subject,bodyPreview,body,from,toRecipients,receivedDateTime,isRead';
 
     const orderBy = isPersonal ? 'ReceivedDateTime desc' : 'receivedDateTime desc';
-    let url = `${apiBase}/messages?$top=${top}&$orderby=${orderBy}&$select=${selectFields}`;
+    
+    // Định tuyến thư mục (Inbox hoặc Junk)
+    let folderSegment = 'messages';
+    if (folder === 'junk') {
+        folderSegment = isPersonal ? 'MailFolders/JunkEmail/messages' : 'mailFolders/junkemail/messages';
+    }
+    
+    let url = `${apiBase}/${folderSegment}?$top=${top}&$orderby=${orderBy}&$select=${selectFields}`;
     if (filters.length > 0) url += `&$filter=${filters.join(' and ')}`;
 
     const res = await fetch(url, {
@@ -295,14 +302,26 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
     while (Date.now() - startTime < maxWaitSecs * 1000) {
         pollCount++;
         try {
-            // Fetch email từ server với filter: nhận sau filterAfter + từ sender openai
-            const mails = await fetchMails(tokenEntry, {
+            // Fetch email từ Inbox
+            let mails = await fetchMails(tokenEntry, {
                 top: 5,
                 filterUnread: true,
                 receivedAfter: filterAfter,
                 senderContains: senderDomain,
                 email,
             });
+
+            // Nếu không tìm thấy trong Inbox, quét tiếp Junk Email folder!
+            if (mails.length === 0) {
+                mails = await fetchMails(tokenEntry, {
+                    top: 5,
+                    filterUnread: true,
+                    receivedAfter: filterAfter,
+                    senderContains: senderDomain,
+                    email,
+                    folder: 'junk',
+                });
+            }
 
             if (pollCount <= 3 || pollCount % 5 === 0) {
                 console.log(`[OTP] Poll #${pollCount}: ${mails.length} email từ *${senderDomain} (sau ${filterAfter})`);
@@ -332,15 +351,27 @@ export async function waitForOTPCode({ email, refreshToken, clientId, senderDoma
                 }
             }
 
-            // Nếu không tìm thấy mail chưa đọc, thử tìm cả mail đã đọc (phòng hờ auto-read)
+            // Nếu không tìm thấy mail chưa đọc, thử tìm cả mail đã đọc (phòng hờ auto-read) ở cả hai folder
             if (mails.length === 0 && pollCount % 3 === 0) {
-                const allMails = await fetchMails(tokenEntry, {
+                let allMails = await fetchMails(tokenEntry, {
                     top: 3,
                     filterUnread: false,
                     receivedAfter: filterAfter,
                     senderContains: senderDomain,
                     email,
                 });
+                
+                if (allMails.length === 0) {
+                    allMails = await fetchMails(tokenEntry, {
+                        top: 3,
+                        filterUnread: false,
+                        receivedAfter: filterAfter,
+                        senderContains: senderDomain,
+                        email,
+                        folder: 'junk',
+                    });
+                }
+
                 for (const m of allMails) {
                     const recipients = (m.toRecipients || []).map(r => (r.emailAddress?.address || '').toLowerCase());
                     if (recipients.length > 0 && !recipients.includes(email.toLowerCase())) continue;

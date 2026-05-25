@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.64] - 2026-05-25 16:05:00
+
+### 🛡️ Tối Ưu Hóa & Đồng Bộ Hóa Real-Time 2FA Regeneration & Thu Gọn Nhãn Giao Diện
+
+**Bối cảnh:** Luồng tái tạo 2FA/MFA và cập nhật giao diện trước đây đôi khi gặp hiện tượng bất đồng bộ hoặc hiển thị trùng lặp: (1) Khi Worker hoàn thành / thất bại nhiệm vụ, giao diện người dùng không được cập nhật trạng thái ngay lập tức mà phải đợi reload thủ công; (2) Có sự trùng lặp nhãn 2FA giữa cột Email (với badge `2FA OK`/`2FA Fail`) và cột Nhãn (với icon Lock/Unlock); (3) Cơ chế debounce của SyncManager trì hoãn việc đồng bộ các trường dữ liệu quan trọng như 2FA Secrets lên Cloudflare D1.
+
+**Thay đổi:**
+- **Kích Hoạt SSE Trực Tiếp (Real-time SSE triggers)**:
+  - Tích hợp sự kiện SSE `vault:update` trực tiếp vào tất cả các endpoint nhận kết quả từ Worker của route `server/routes/vault.js` (gồm `/connect-result`, `/result`, và `/warmup-result`). Đảm bảo khi tác vụ nền kết thúc (thành công hoặc lỗi), UI nhận được tín hiệu và tải lại dữ liệu tức thời.
+- **Thiết Lập Polling Fallback Chủ Động (Proactive Polling)**:
+  - Bổ sung cơ chế tự động thăm dò (polling loop) định kỳ mỗi 4-5 giây trong cả `VaultAccountsView.tsx` và `ServicesView.tsx` khi phát hiện có tiến trình đang chạy (`pending` hoặc `processing`), đảm bảo dữ liệu luôn đồng bộ kể cả khi mất kết nối SSE tạm thời.
+- **Thu Gọn Nhãn Giao Diện Thông Minh (UI Badge Consolidation)**:
+  - Loại bỏ hoàn toàn các badge `2FA OK`, `2FA Fail`, `2FA Regen` rườm rà kế bên Email ở cột **TÀI KHOẢN** để làm thoáng giao diện.
+  - Tích hợp toàn bộ trạng thái vòng đời 2FA vào cột **NHÃN** qua `TagIcons`:
+    - 🟢 **Ổ khóa màu xanh lá (Lock):** Khi tài khoản đã có 2FA (`two_fa_secret` hợp lệ).
+    - 🟡 **Khóa mở màu hổ phách (Unlock):** Khi tài khoản chưa bật 2FA (cần tái tạo).
+    - 🔵 **Vòng xoay màu xanh teal (Spinning RefreshCw):** Khi đang chạy tái tạo 2FA (`twoFaRegenStatus === 'pending'`).
+    - 🔴 **Ổ khóa màu đỏ (Rose Lock):** Khi tái tạo 2FA thất bại (`twoFaRegenStatus === 'failed'`), hiển thị thông tin lỗi chi tiết trong tooltip.
+- **Đồng Bộ Tức Thời Không Debounce (Immediate Sync Bypass)**:
+  - Refactor `SyncManager` trong `server/services/syncManager.js` để các cập nhật 2FA secret quan trọng bỏ qua hàng đợi debounce 45 giây, đẩy trực tiếp lên Cloudflare D1 ngay lập tức.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.64`.
+
+---
+
 ## [0.3.63] - 2026-05-25 01:45:00
 
 ### 🛡️ Tối Ưu Hóa & Tăng Cường Độ Ổn Định Quy Trình Đăng Ký Tự Động & Bật MFA (Camoufox)

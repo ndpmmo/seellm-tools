@@ -240,6 +240,9 @@ export async function getState(tabId, userId) {
 
       const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
 
+      // ── Onboarding screen ──
+      const isOnboarding = lowerUrl.includes('/onboarding') || body.includes('how old are you') || body.includes('finish creating account') || body.includes('finish creating');
+
       // Inline consent screen logic (was referencing Node function)
       // Do NOT set isConsentScreen=true on error pages (they may contain "continue")
       const isConsentScr = !hasError && (
@@ -255,6 +258,7 @@ export async function getState(tabId, userId) {
         isConsentScreen: isConsentScr,
         isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || (lowerUrl.includes('sign-in-with-chatgpt') && !lowerUrl.includes('consent')) || WORKSPACE_KW.some(k => body.includes(k))),
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
+        isOnboardingScreen: isOnboarding,
       };
     })()
   `, 5000);
@@ -610,9 +614,9 @@ export async function waitForState(tabId, userId, expectedFlags, { timeoutMs = 3
     const state = await getState(tabId, userId);
     const allMatch = Object.entries(expectedFlags).every(([key, expected]) => state[key] === expected);
     if (allMatch) return state;
-    // Handle intermediate states: if MFA, phone, workspace, or deactivated screen appears, return state early
+    // Handle intermediate states: if MFA, phone, workspace, onboarding or deactivated screen appears, return state early
     // This prevents timeout when page redirects to MFA/phone/workspace after password fill
-    if (state?.hasMfaInput || state?.hasPhoneScreen || state?.isWorkspaceScreen || state?.hasDeactivated) return state;
+    if (state?.hasMfaInput || state?.hasPhoneScreen || state?.isWorkspaceScreen || state?.isOnboardingScreen || state?.hasDeactivated) return state;
     await new Promise(r => setTimeout(r, intervalMs));
   }
   return null;
