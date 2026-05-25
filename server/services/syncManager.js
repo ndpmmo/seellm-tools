@@ -669,16 +669,29 @@ export const SyncManager = {
         if (existing) {
           existing.access_token = conn.access_token || existing.access_token;
           existing.refresh_token = conn.refresh_token || existing.refresh_token;
+          
+          if (conn.last_error !== undefined && conn.last_error !== null && conn.last_error !== '') {
+            existing.notes = conn.last_error;
+          }
+          
+          const connectionHealthData = {
+            testStatus: conn.test_status || null,
+            errorCode: conn.error_code || null,
+            lastErrorType: conn.last_error_type || null,
+            rateLimitedUntil: conn.rate_limited_until || null,
+            lastHealthCheckAt: conn.last_health_check_at || null,
+          };
+          
           const remoteProviderData = normalizeProviderSpecificData(conn.provider_specific_data);
+          const localProviderData = normalizeProviderSpecificData(existing.provider_specific_data) || {};
+          existing.provider_specific_data = {
+            ...localProviderData,
+            ...connectionHealthData,
+            ...(remoteProviderData || {}),
+          };
+          
           if (conn.workspace_id || remoteProviderData?.workspaceId) {
             existing.workspace_id = conn.workspace_id || remoteProviderData?.workspaceId || existing.workspace_id || null;
-          }
-          if (remoteProviderData) {
-            const localProviderData = normalizeProviderSpecificData(existing.provider_specific_data);
-            existing.provider_specific_data = {
-              ...(localProviderData || {}),
-              ...remoteProviderData,
-            };
           }
           if (existing.provider_specific_data?.deviceId && !existing.device_id) {
             existing.device_id = existing.provider_specific_data.deviceId;

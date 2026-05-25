@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
-import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '../../ui';
+import { Button, Card, CardHeader, CardTitle, CardContent, Input, GatewayBadge } from '../../ui';
 
 /* ── Helpers ── */
 function StatusBadge({ status, notes, tags = [] }: { status: string; notes?: string; tags?: string[] }) {
@@ -1628,7 +1628,17 @@ export function VaultAccountsView() {
                           })()}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5"><StatusBadge status={it.status} notes={it.notes} tags={tags} /></td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-col gap-1 items-start">
+                          <StatusBadge status={it.status} notes={it.notes} tags={tags} />
+                          <GatewayBadge gatewayStatus={it.gateway_status || null} />
+                          {it.provider_specific_data?.testStatus && it.provider_specific_data.testStatus !== 'active' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-rose-400 font-medium bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20" title={it.provider_specific_data.lastError || it.notes || 'Authentication Failed'}>
+                              <AlertTriangle size={10} /> Auth Failed
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-2.5">
                         <TagIcons 
                           tags={tags} 

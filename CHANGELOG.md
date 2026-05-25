@@ -2,6 +2,54 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.67] - 2026-05-25 18:40:00
+
+### 🔄 Khắc Phục Triệt Để Bất Đồng Bộ Trạng Thái Connection & Hiển Thị Lỗi Gateway Đồng Bộ
+- **Đồng Bộ Parity Hoạt Động (D1 Parity Propagation)**:
+  - Tích hợp đẩy trực tiếp các cập nhật trạng thái kết nối (`updateProviderConnection`) của provider `codex` lên bảng `codex_connections` trên remote Cloudflare D1 ngay khi backend local seellm-gateway ghi nhận sự thay đổi, đảm bảo dữ liệu thời gian thực cho tools.
+- **Hợp Nhất Thông Tin Sức Khỏe Kết Nối (Health Parity Merge)**:
+  - Cập nhật `SyncManager.pullVault` trong `seellm-tools` để chủ động hợp nhất các thông tin sức khỏe kết nối (`test_status`, `error_code`, `last_error`, `rate_limited_until`, `last_health_check_at`) từ D1 vào `provider_specific_data` và cập nhật trực tiếp `notes` bằng lỗi `last_error` của connection.
+- **Hiển Thị Cảnh Báo Trực Quan Lỗi Gateway (Visual Auth Failure Tooltips)**:
+  - Nâng cấp `VaultAccountsView.tsx` để hiển thị `GatewayBadge` đồng bộ với `AccountsView.tsx`.
+  - Tích hợp thêm nhãn cảnh báo động màu đỏ `⚠️ Auth Failed` kèm tooltip hiển thị lỗi chi tiết từ Gateway khi phát hiện `testStatus` của kết nối không ở trạng thái hoạt động (`active`), giúp người dùng nhận diện ngay lập tức tài khoản nào đang gặp lỗi kết nối ở seellm-gateway.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.67`.
+
+## [0.3.66] - 2026-05-25 18:30:00
+
+### 🔄 Khắc Phục Lỗi Lệch Múi Giờ (Clock Skew) & Đồng Bộ Hóa Tức Thời Thông Minh 3 Bên
+
+**Bối cảnh:** Phát hiện một lỗi cực kỳ tinh vi gây bất đồng bộ/ghi đè ngược trạng thái: Khi sử dụng hàm SQLite `datetime('now')` để cập nhật cột `updated_at`, database lưu trữ chuỗi không kèm múi giờ (e.g. `"2026-05-25 10:53:20"`). Khi JavaScript (cả ở Tools và Gateway) phân tích cú pháp chuỗi này thông qua `new Date(updated_at)`, nó được coi là giờ địa phương (local time), trong khi D1 và Gateway dùng chuẩn ISO UTC (`"2026-05-25T10:53:20.123Z"`). Sự chênh lệch này khiến database cục bộ luôn bị coi là "cũ hơn" 7 tiếng so với thực tế, dẫn đến việc syncManager ghi đè ngược các thay đổi mới của người dùng bằng trạng thái cũ trên Gateway. Đồng thời, việc trigger Gateway pull dữ liệu từ D1 ngay lập tức sau PATCH mà không có độ trễ ngắn có thể gặp hiện tượng D1 eventual consistency chưa kịp nhân bản dữ liệu.
+
+**Thay đổi:**
+- **Giải Quyết Triệt Để Lệch Múi Giờ (No Clock Skew)**:
+  - Thay thế toàn bộ các câu lệnh SQL sử dụng SQLite `datetime('now')` bằng tham số truyền từ JavaScript sử dụng `new Date().toISOString()`.
+  - Đảm bảo tất cả các timestamp `updated_at` trong SQLite cục bộ luôn đồng bộ tuyệt đối về định dạng chuẩn ISO 8601 UTC với D1 và Gateway, loại bỏ hoàn toàn các lỗi so sánh timestamp sai lệch múi giờ.
+- **Tối Ưu Hóa Trì Hoãn Kích Hoạt Gateway (Smart Propagation Delay)**:
+  - Bổ sung độ trễ `setTimeout` 500ms trước khi gọi `/api/sync/trigger` trong route PATCH toggle active để đảm bảo Cloudflare D1 hoàn thành việc nhân bản dữ liệu (eventual consistency propagation) trước khi Gateway kéo snapshot.
+- **package.json**:
+  - Nâng cấp version lên `0.3.66`.
+
+## [0.3.65] - 2026-05-25 18:00:00
+
+### 🛡️ Tối Ưu Hóa & Gia Cố Quy Trình Đồng Bộ Hóa Vault-Gateway Trực Tiếp & SSE Broadcast
+
+**Bối cảnh:** Trước đây luồng bật/tắt hoạt động của tài khoản (`is_active`) thông qua route `PATCH /api/automation/accounts/:provider/:id` đôi khi gặp hiện tượng bất đồng bộ hoặc độ trễ hiển thị: (1) Cập nhật local SQLite chỉ thay đổi trường `is_active` mà bỏ sót việc cập nhật ngay lập tức trường `gateway_status` dẫn đến việc giao diện hiển thị không đồng nhất cho tới khi pull/self-healing chạy; (2) Thiếu việc phát sự kiện SSE `vault:update` ngay sau khi cập nhật làm các tab giao diện và view khác không phản ứng tức thời; (3) Cần đảm bảo cập nhật đồng bộ ba bên diễn ra liền mạch giữa Tools cục bộ, Cloudflare D1 và Gateway API.
+
+**Thay đổi:**
+- **Cập Nhật Trạng Thái Trực Tiếp & Chuẩn Xác (Reinforced PATCH Interceptor)**:
+  - Tích hợp tính năng tự động tính toán và cập nhật trường `gateway_status` trực tiếp vào SQLite cục bộ ngay trong route handler `PATCH` khi người dùng bấm kích hoạt hoặc dừng tài khoản.
+  - Phản ánh tức thì trạng thái `active` hoặc `revoked` dựa trên logic trạng thái và tags của tài khoản, loại bỏ hoàn toàn độ trễ hiển thị.
+- **Phát Sự Kiện SSE Tức Thời (Instant SSE Broadcast)**:
+  - Bổ sung phát sự kiện SSE `vault:update` ngay sau khi ghi thành công vào database SQLite cục bộ. Đảm bảo toàn bộ màn hình, view và các tab mở khác trong trình duyệt cập nhật giao diện người dùng tức thời, không cần tải lại trang.
+- **Tối Ưu Đồng Bộ & Kích Hoạt Gateway (Reliable D1 Sync & Gateway Pull Triggers)**:
+  - Đảm bảo thực thi chuẩn xác việc đẩy cập nhật trực tiếp lên D1 Worker PATCH endpoint.
+  - Tự động gọi endpoint `/api/sync/trigger` để ra lệnh cho Gateway kéo (pull) snapshot cập nhật mới nhất từ D1 ngay lập tức, đảm bảo tính nhất quán dữ liệu ba bên.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.65`.
+
+---
+
 ## [0.3.64] - 2026-05-25 16:05:00
 
 ### 🛡️ Tối Ưu Hóa & Đồng Bộ Hóa Real-Time 2FA Regeneration & Thu Gọn Nhãn Giao Diện

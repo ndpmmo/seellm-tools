@@ -1294,12 +1294,12 @@ app.prepare().then(async () => {
 
       if (existing) {
         console.log(`[D1 Proxy] 🛑 Ngăn chặn Duplicate Account từ UI. Đã có ID: ${existing.id}`);
-        // Reset trạng thái thủ công bằng db.prepare để ép bỏ qua protective logic của upsertAccount
+        const nowIso = new Date().toISOString();
         vault.db.prepare(`
           UPDATE vault_accounts 
-          SET deleted_at = NULL, status = 'pending', notes = '', password = ?, two_fa_secret = ?, proxy_url = ?, updated_at = datetime('now')
+          SET deleted_at = NULL, status = 'pending', notes = '', password = ?, two_fa_secret = ?, proxy_url = ?, updated_at = ?
           WHERE id = ?
-        `).run(body.password || '', body.twoFaSecret || '', body.proxyUrl || null, existing.id);
+        `).run(body.password || '', body.twoFaSecret || '', body.proxyUrl || null, nowIso, existing.id);
 
         // Gọi upsertAccount lần nữa để sinh PKCE và đồng bộ D1 (skipSync=false)
         vault.upsertAccount({
@@ -1900,11 +1900,36 @@ app.prepare().then(async () => {
       }
 
       const newIsActive = isActive ? 1 : 0;
-      vault.db.prepare(
-        `UPDATE vault_accounts SET is_active = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(newIsActive, id);
 
-      console.log(`[D1 Proxy] ✅ Local vault updated: ${existing.email} is_active=${newIsActive}`);
+      // Determine expected gateway_status to avoid mismatch before pull/self-healing runs
+      let newGatewayStatus = 'revoked';
+      if (newIsActive === 1 && !existing.deleted_at && existing.status !== 'idle') {
+        if (existing.status === 'ready') {
+          newGatewayStatus = 'active';
+        } else if (['error', 'need_phone', 'relogin', 'dead'].includes(existing.status)) {
+          const tags = [];
+          try {
+            if (existing.tags) {
+              const parsed = JSON.parse(existing.tags);
+              if (Array.isArray(parsed)) tags.push(...parsed);
+            }
+          } catch (_) {}
+          const isDeactivated = tags.includes('account_deactivated') || existing.status === 'dead';
+          if (existing.ever_ready === 1 && !isDeactivated) {
+            newGatewayStatus = 'active';
+          }
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      vault.db.prepare(
+        `UPDATE vault_accounts SET is_active = ?, gateway_status = ?, updated_at = ? WHERE id = ?`
+      ).run(newIsActive, newGatewayStatus, nowIso, id);
+
+      console.log(`[D1 Proxy] ✅ Local vault updated: ${existing.email} is_active=${newIsActive}, gateway_status=${newGatewayStatus}`);
+
+      // Emit SSE update immediately so other listeners/UI views refresh their states instantly
+      emitSSE('vault:update', { reason: 'toggle-active', id, isActive: newIsActive === 1 });
 
       // 2. Đẩy trực tiếp lên D1 qua endpoint PATCH của Worker (KHÔNG có version check)
       const cfg = loadConfig();
@@ -1923,17 +1948,20 @@ app.prepare().then(async () => {
           if (r.ok) {
             console.log(`[D1 Proxy] ☁️ Direct PATCH OK: is_active=${newIsActive} for ${existing.email}`);
 
-            // 3. (Smart Sync) Gõ cửa Gateway để bảo Gateway kéo dữ liệu ngay lập tức
+            // 3. (Smart Sync) Gõ cửa Gateway để bảo Gateway kéo dữ liệu ngay lập tức (delay 500ms chờ D1 truyền tải)
             if (cfg.gatewayUrl && cfg.d1SyncSecret) {
-              fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
-                method: 'POST',
-                headers: {
-                  'x-sync-secret': cfg.d1SyncSecret,
-                },
-                signal: AbortSignal.timeout(3000),
-              }).then(gr => {
-                if (gr.ok) console.log(`[Smart Sync] 🚀 Đã gửi trigger tới Gateway để pull data`);
-              }).catch(err => console.error(`[Smart Sync] ⚠️ Gửi trigger tới Gateway lỗi:`, err.message));
+              setTimeout(() => {
+                fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
+                  method: 'POST',
+                  headers: {
+                    'x-sync-secret': cfg.d1SyncSecret,
+                  },
+                  signal: AbortSignal.timeout(5000),
+                }).then(gr => {
+                  if (gr.ok) console.log(`[Smart Sync] 🚀 Đã gửi trigger tới Gateway để pull data`);
+                  else console.warn(`[Smart Sync] ⚠️ Gateway trigger responded with status ${gr.status}`);
+                }).catch(err => console.error(`[Smart Sync] ⚠️ Gửi trigger tới Gateway lỗi:`, err.message));
+              }, 500);
             } else if (cfg.gatewayUrl && !cfg.d1SyncSecret) {
               console.warn(`[Smart Sync] ⚠️ Thiếu d1SyncSecret — bỏ qua trigger tới Gateway`);
             }

@@ -1000,9 +1000,10 @@ router.get('/accounts/task', async (req, res) => {
     }
 
     // Lock task
+    const nowIso = new Date().toISOString();
     vault.db.prepare(
-      `UPDATE vault_accounts SET status='processing', updated_at=datetime('now') WHERE id=?`
-    ).run(task.id);
+      `UPDATE vault_accounts SET status='processing', updated_at=? WHERE id=?`
+    ).run(nowIso, task.id);
 
     // Đồng bộ ngay lập tức trạng thái processing lên cloud để tránh bị pull đè ngược lại
     const lockedTask = vault.db.prepare('SELECT * FROM vault_accounts WHERE id=?').get(task.id);
@@ -1513,9 +1514,10 @@ router.get('/accounts/connect-task', (req, res) => {
     );
     if (stuckAccounts.length > 0) {
       for (const stuck of stuckAccounts) {
+        const nowIso = new Date().toISOString();
         vault.db.prepare(
-          `UPDATE vault_accounts SET connect_pending=1, updated_at=datetime('now') WHERE id=?`
-        ).run(stuck.id);
+          `UPDATE vault_accounts SET connect_pending=1, updated_at=? WHERE id=?`
+        ).run(nowIso, stuck.id);
         console.log(`[connect-task] ♻️ Auto-recovery: reset cp=2→1 for ${stuck.email?.slice(0, 30)} (stuck since ${stuck.updated_at})`);
       }
       // Reload sau khi reset để task mới được pick up ngay
@@ -1546,9 +1548,10 @@ router.get('/accounts/connect-task', (req, res) => {
     }
 
     // Lock: đánh dấu đang xử lý
+    const nowIso = new Date().toISOString();
     vault.db.prepare(
-      `UPDATE vault_accounts SET connect_pending=2, updated_at=datetime('now') WHERE id=?`
-    ).run(task.id);
+      `UPDATE vault_accounts SET connect_pending=2, updated_at=? WHERE id=?`
+    ).run(nowIso, task.id);
 
     return res.json({
       ok: true, task: {
@@ -1688,9 +1691,10 @@ router.post('/accounts/connect-result', async (req, res) => {
       // Deactivated: set dead
       // Other errors: set error + push D1
       const targetStatus = isNeedPhone ? 'idle' : (isDeactivated ? 'dead' : 'error');
+      const nowIso = new Date().toISOString();
       vault.db.prepare(
-        `UPDATE vault_accounts SET status=?, notes=?, connect_pending=0, updated_at=datetime('now') WHERE id=?`
-      ).run(targetStatus, errorMsg, id);
+        `UPDATE vault_accounts SET status=?, notes=?, connect_pending=0, updated_at=? WHERE id=?`
+      ).run(targetStatus, errorMsg, nowIso, id);
 
       // Chỉ push lên D1 nếu KHÔNG phải NEED_PHONE — tránh làm rối Services
       // Account cần phone chỉ hiển thị ở Vault local với nhãn NEED_PHONE
@@ -1747,9 +1751,10 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
       vault.db.prepare(`ALTER TABLE vault_accounts ADD COLUMN connect_pending INTEGER DEFAULT 0`).run();
     } catch (_) { /* column đã tồn tại */ }
 
+    const nowIso = new Date().toISOString();
     vault.db.prepare(
-      `UPDATE vault_accounts SET connect_pending=1, status='pending', is_active=1, notes='', updated_at=datetime('now') WHERE id=?`
-    ).run(req.params.id);
+      `UPDATE vault_accounts SET connect_pending=1, status='pending', is_active=1, notes='', updated_at=? WHERE id=?`
+    ).run(nowIso, req.params.id);
 
     console.log(`[Deploy v2] 🔌 Đánh dấu connect_pending cho: ${account.email}`);
     res.json({ ok: true });
