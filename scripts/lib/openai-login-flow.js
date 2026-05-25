@@ -206,9 +206,11 @@ export async function getState(tabId, userId) {
       // ── MFA: URL chứa /mfa hoặc có input one-time-code ──
       const isAddPhonePage = href.includes('/add-phone');
       const hasMfaInput = !isAddPhonePage && !!(
-        href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') ||
+        href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') || href.includes('email-verification') ||
         body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
-        Array.from(document.querySelectorAll('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]')).some(isVisible)
+        body.includes('mã xác minh') || body.includes('mã xác thực') || body.includes('mã otp') || body.includes('verification code') ||
+        body.includes('sent a code') || body.includes('temporary verification code') || body.includes('check your inbox') ||
+        Array.from(document.querySelectorAll('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"], input[placeholder*="code"], input[placeholder*="Code"], input[placeholder*="mã"], input[id*="code"], input[id*="otp"], input[class*="code"]')).some(isVisible)
       );
 
       const COOKIE_KW = ${JSON.stringify(MULTILANG.acceptCookie)};
@@ -402,6 +404,33 @@ export async function fillMfa(tabId, userId, otp) {
         el.dispatchEvent(new Event('input',  { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
+
+      // Check if there are multiple inputs for single-digit code entry (e.g. 6 separate boxes)
+      const inputs = Array.from(document.querySelectorAll('input')).filter(isVisible);
+      const isSixDigitBoxes = inputs.length >= 6 && inputs.slice(0, 6).every(el => 
+        el.maxLength === 1 || el.size === 1 || (el.className || '').includes('code') || (el.className || '').includes('otp')
+      );
+
+      if (isSixDigitBoxes) {
+        for (let i = 0; i < 6; i++) {
+          const char = val[i] || '';
+          if (char) {
+            setValue(inputs[i], char);
+            inputs[i].dispatchEvent(new KeyboardEvent('keydown', { key: char, code: 'Digit' + char, bubbles: true }));
+            inputs[i].dispatchEvent(new KeyboardEvent('keypress', { key: char, code: 'Digit' + char, bubbles: true }));
+            inputs[i].dispatchEvent(new KeyboardEvent('keyup', { key: char, code: 'Digit' + char, bubbles: true }));
+          }
+        }
+        const btn = Array.from(document.querySelectorAll('button, [role="button"]'))
+          .filter(isVisible)
+          .find(el => {
+            const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+            return t.includes('continue') || t.includes('verify') || t.includes('confirm') || t.includes('xác nhận');
+          });
+        if (btn) btn.click();
+        return { ok: true, isSixDigitBoxes: true, clicked: !!btn };
+      }
+
       const input = Array.from(document.querySelectorAll('input')).find(el =>
         isVisible(el) && (
           el.autocomplete === 'one-time-code' ||

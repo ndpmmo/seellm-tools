@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.77] - 2026-05-26 02:15:00
+
+### 🛡️ Nâng Cấp Hệ Thống Xác Thực Đa Bước (MFA/2FA Sequential Loop) Cực Kỳ Mạnh Mẽ
+- **Tự động hóa chuỗi xác thực liên tục (Sequential MFA Loop)**:
+  - Nâng cấp logic xử lý trong tiến trình `connect()` của `scripts/auto-worker.js` thành một vòng lặp xác thực MFA liên tiếp (tối đa 5 lần thử). 
+  - Điều này giải quyết triệt để trường hợp OpenAI áp dụng luồng xác minh kép/đa bước liên tiếp: **`nhập Email` -> `nhập Pass` -> `nhận mã OTP Email` -> `nhập OTP Email` -> `yêu cầu Authenticator 2FA` -> `nhập mã 2FA`**. Vòng lặp sẽ kiểm tra động trạng thái DOM tại mỗi thời điểm để thực hiện từng thử thách một cách tuần tự cho đến khi đăng nhập hoàn tất.
+- **Tương thích toàn diện OTP Email trong OAuth Capture**:
+  - Tích hợp phát hiện và lấy mã OTP Email tự động từ email pool (`waitForOTPCode` thông qua refresh_token/client_id) vào ngay trong vòng lặp bắt code OAuth (`scripts/auto-worker.js`). Đảm bảo hệ thống bắt code OAuth tự động (Codex OAuth Flow) vượt qua mọi thử thách OTP Email bất ngờ một cách mượt mà nhất.
+- **Tối ưu hóa khả năng nhận diện MFA và loại Form OTP**:
+  - Mở rộng hàm phát hiện `hasMfaInput` trong `scripts/lib/openai-login-flow.js` để tìm kiếm thông minh tất cả các từ khóa tiếng Anh/tiếng Việt (`verification code`, `temporary verification code`, `mã xác minh`, `mã xác thực`, `mã otp`, v.v.) kết hợp với các selectors CSS cho input có chứa thuộc tính placeholder hoặc ID dạng `code`, `otp` hoặc `mã`.
+  - Nâng cấp hàm điền mã `fillMfa` nhằm hỗ trợ tự động điền đối với loại form có 6 ô input đơn lẻ (character-by-character inputs) cực kỳ ổn định bằng cách tự động điền từng ký tự và giả lập đầy đủ các sự kiện bàn phím/React state sync cho từng ô.
+
 ## [0.3.76] - 2026-05-26 01:45:00
 
 ### 🌐 Tích Hợp Lựa Chọn Tự Động Gán Proxy Theo Pool Của Tài Khoản (Pool Proxy Auto-Assignment)

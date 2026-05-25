@@ -821,8 +821,13 @@ async function runConnectFlow(task) {
       await recorder.checkpoint(3, 2, 'after_password_wait');
     }
 
-    // MFA / Email OTP challenge
-    if (state?.hasMfaInput) {
+    // MFA / Email OTP Loop (Handles sequential challenges like Email OTP -> Authenticator TOTP)
+    let mfaAttempt = 0;
+    const maxMfaAttempts = 5;
+    while (state?.hasMfaInput && mfaAttempt < maxMfaAttempts) {
+      mfaAttempt++;
+      console.log(`[Connect] [4] MFA / Email OTP challenge (Attempt ${mfaAttempt}/${maxMfaAttempts})...`);
+
       // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
       const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
         const b = (document.body?.innerText || '').toLowerCase();
@@ -855,7 +860,7 @@ async function runConnectFlow(task) {
         const clientId = emailCreds?.clientId || emailCreds?.client_id;
         if (refreshToken && clientId) {
           console.log(`[Connect] 🔄 Đang tự động lấy mã OTP từ Email...`);
-          await recorder.before(4, 1, 'before_email_otp');
+          await recorder.before(4, mfaAttempt, `before_email_otp_${mfaAttempt}`);
           const otpCode = await waitForOTPCode({
             email: task.email,
             refreshToken: refreshToken,
@@ -866,8 +871,8 @@ async function runConnectFlow(task) {
           if (otpCode) {
             console.log(`[Connect] 🔢 Nhập mã OTP từ email: ${otpCode}`);
             await fillMfa(tabId, USER_ID, otpCode);
-            await new Promise(r2 => setTimeout(r2, 4000));
-            await recorder.after(4, 1, 'email_otp_filled');
+            await new Promise(r2 => setTimeout(r2, 6000));
+            await recorder.after(4, mfaAttempt, `email_otp_filled_${mfaAttempt}`);
             state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
           } else {
             return sendResult(task, 'error', 'Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
@@ -879,20 +884,12 @@ async function runConnectFlow(task) {
         // Authenticator TOTP
         if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
         console.log(`[Connect] [4] MFA → sinh TOTP...`);
-        await recorder.before(4, 1, 'before_mfa');
+        await recorder.before(4, mfaAttempt, `before_mfa_${mfaAttempt}`);
         const { otp } = await getFreshTOTP(totpSecret, 8);
         await fillMfa(tabId, USER_ID, otp);
-        await new Promise(r2 => setTimeout(r2, 4000));
-        await recorder.after(4, 1, 'mfa_filled');
+        await new Promise(r2 => setTimeout(r2, 6000));
+        await recorder.after(4, mfaAttempt, `mfa_filled_${mfaAttempt}`);
         state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-        if (state?.hasMfaInput) {
-          console.log(`[Connect] [4] MFA vẫn còn, thử lần 2...`);
-          const { otp: otp2 } = await getFreshTOTP(totpSecret, 3);
-          await fillMfa(tabId, USER_ID, otp2);
-          await new Promise(r2 => setTimeout(r2, 4000));
-          await recorder.after(4, 2, 'mfa_retry');
-          state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-        }
       }
     }
 
@@ -1173,7 +1170,22 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     const isLogin = url.includes('/log-in') && !url.includes('password');
     const isPassword = url.includes('log-in/password') || url.includes('create-account/password');
     const isOtp = url.includes('email-verification') || url.includes('email-otp');
-    const isMfa = _isMfaUrl(url);
+    const hasMfaDomInput = await evalJson(tabId, userId, `(() => {
+      const inputs = Array.from(document.querySelectorAll('input')).filter(el => {
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      });
+      return inputs.some(el => 
+        el.autocomplete === 'one-time-code' || 
+        el.getAttribute('autocomplete') === 'one-time-code' ||
+        (el.name || '').toLowerCase().includes('code') ||
+        (el.name || '').toLowerCase().includes('otp') ||
+        (el.placeholder || '').toLowerCase().includes('code')
+      );
+    })()`).catch(() => false);
+
+    const isMfa = _isMfaUrl(url) || isOtp || hasMfaDomInput;
     const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
     const isWorkspace = url.includes('workspace') && url.includes('select');
     const isChooseAccount = url.includes('/choose-an-account');
@@ -1925,8 +1937,63 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       await recorder.after(1, 9, 'oauth_fill_password');
       continue;
     }
-    if (oauthState?.hasMfaInput && totpSecret) {
+    if (oauthState?.hasMfaInput) {
       mfaAttempts++;
+      // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
+      const isEmailOtpScreen = await evalJson(tabId, userId, `(() => {
+        const b = (document.body?.innerText || '').toLowerCase();
+        const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
+                              b.includes('sent a code') || b.includes('temporary verification code') || 
+                              b.includes('vérification') || b.includes('código de verificación') ||
+                              b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
+        const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
+        if (hasAuthWords) {
+          if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
+            return true;
+          }
+          return false;
+        }
+        return hasEmailWords;
+      })()`).catch(() => false);
+
+      if (isEmailOtpScreen) {
+        console.log(`[Capture] 📧 Phát hiện thử thách OTP gửi qua Email!`);
+        let emailCreds = null;
+        try {
+          const res = await fetch(`${TOOLS_API}/api/vault/email-pool/${encodeURIComponent(email)}`);
+          if (res.ok) {
+            const data = await res.json();
+            emailCreds = data.item;
+          }
+        } catch (_) {}
+
+        const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+        const clientId = emailCreds?.clientId || emailCreds?.client_id;
+        if (refreshToken && clientId) {
+          console.log(`[Capture] 🔄 Đang tự động lấy mã OTP từ Email...`);
+          await recorder.before(1, 10, 'oauth_fill_email_otp');
+          const otpCode = await waitForOTPCode({
+            email: email,
+            refreshToken: refreshToken,
+            clientId: clientId,
+            senderDomain: 'openai.com',
+            maxWaitSecs: 120
+          });
+          if (otpCode) {
+            console.log(`[Capture] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+            await fillMfa(tabId, userId, otpCode);
+            await new Promise(r => setTimeout(r, 6000));
+            await recorder.after(1, 10, 'oauth_fill_email_otp');
+            continue;
+          }
+        }
+      }
+
+      // Default: Authenticator App TOTP
+      if (!totpSecret) {
+        return sendResult(task, 'error', 'NEED_MFA: Tài khoản yêu cầu mã 2FA nhưng task chưa có twoFaSecret');
+      }
+
       if (mfaAttempts > MAX_MFA_ATTEMPTS) {
         console.log(`[Capture] 🛡️ MFA failed after ${MAX_MFA_ATTEMPTS} attempts — TOTP repeatedly rejected`);
         await recorder.error(1, 10, 'mfa_max_retries');
@@ -1971,7 +2038,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       const { otp, remaining } = await getFreshTOTP(totpSecret, 8);
       console.log(`[Capture] 🛡️ TOTP code=${otp} remaining=${remaining}s`);
       await fillMfa(tabId, userId, otp);
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 6000));
       await recorder.after(1, 10, 'oauth_fill_mfa');
       continue;
     }
