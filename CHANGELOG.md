@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.75] - 2026-05-26 01:10:00
+
+### 🛡️ Khắc Phục Lỗi Bỏ Qua Onboarding Modal và Xác Thực 2FA Nghiêm Ngặt
+- **Đóng Onboarding Overlay "You're all set" Tiếng Anh**:
+  - Cập nhật hàm `dismissOnboardingModals` trong `scripts/regenerate-2fa.js` và bổ sung bước dọn dẹp tương tự vào ngay đầu tiến trình `setupMFA` trong `scripts/lib/mfa-setup.js`.
+  - Hỗ trợ phát hiện và tự động click nút **`Continue`** (và các biến thể tương ứng) của màn hình onboarding Tiếng Anh từ OpenAI xuất hiện ngay sau khi đăng nhập thành công. Điều này giải quyết triệt để tình trạng giao diện cài đặt Settings bị che khuất bởi overlay toàn màn hình, giúp Camofox thực hiện các thao tác Click/Type native thành công mà không phải fallback sang JS injection bị React từ chối.
+- **Siết Chặt Xác Thực Kích Hoạt 2FA Thành Công**:
+  - Tinh chỉnh logic kiểm tra kết quả kích hoạt ở cuối hàm `setupMFA` (`scripts/lib/mfa-setup.js`).
+  - Loại bỏ các từ khóa quá chung chung như `"enabled"` hay `"đã bật"` (vốn luôn xuất hiện trong các đoạn text mô tả tĩnh của cài đặt) trong kiểm tra nội dung trang. Thay vào đó, hệ thống chỉ chấp nhận thành công khi switch **`Authenticator app`** ở trạng thái **`aria-checked="true"`** (hoặc check thực tế) hoặc các cụm từ xác thực thành công cực kỳ cụ thể (`authenticator app enabled`, `xác thực hai yếu tố đã được bật`).
+  - Ngăn chặn hoàn toàn tình trạng "báo thành công giả" (lấy nhầm mã Secret key cũ hoặc lưu Secret key mới nhưng thực tế chưa lưu được trên OpenAI).
+
 ## [0.3.74] - 2026-05-26 00:45:00
 
 ### 🛡️ Duy Trì Trạng Thái Idle Cho Tài Khoản Sau Khi Tái Tạo 2FA Thành Công

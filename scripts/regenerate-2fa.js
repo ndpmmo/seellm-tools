@@ -90,6 +90,8 @@ async function dismissOnboardingModals(tabId, userId) {
         text === "next" ||
         text === "tiếp tục" ||
         text === "bắt đầu" ||
+        text === "continue" ||
+        text.includes("continue") ||
         text.includes("let's get started") ||
         text.includes("okay, let’s get started")
       ) {

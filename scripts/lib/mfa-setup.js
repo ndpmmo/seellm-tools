@@ -332,6 +332,41 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     };
 
     try {
+        // ── 0. Đóng mọi onboarding modals/overlays nếu có ──────────────────
+        log('Đóng các hộp thoại giới thiệu / onboarding modals nếu có...');
+        await run(`
+            (() => {
+                let clickedAny = false;
+                const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, [class*="button"], [class*="btn"]'));
+                for (const btn of buttons) {
+                    if (btn.offsetParent === null) continue;
+                    const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                    if (
+                        text.includes("let's go") ||
+                        text.includes("let’s go") ||
+                        text === "okay, let's go" ||
+                        text === "okay, let’s go" ||
+                        text === "okay" ||
+                        text === "ok" ||
+                        text === "got it" ||
+                        text === "done" ||
+                        text === "next" ||
+                        text === "tiếp tục" ||
+                        text === "bắt đầu" ||
+                        text === "continue" ||
+                        text.includes("continue") ||
+                        text.includes("let's get started") ||
+                        text.includes("okay, let’s get started")
+                    ) {
+                        btn.click();
+                        clickedAny = true;
+                    }
+                }
+                return clickedAny;
+            })()
+        `);
+        await wait(2000);
+
         // ── 1. Điều hướng đến Security settings và đảm bảo settings modal được mở ──────────────────
         log('Điều hướng đến Security settings...');
         
@@ -837,13 +872,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     }
                 }
                 
-                // 2. Kiểm tra các text thành công phổ biến khác
+                // 2. Chỉ kiểm tra các chuỗi xác nhận thành công cực kỳ cụ thể, tránh từ generic như "enabled" hay "đã bật"
                 const bodyText = document.body.innerText.toLowerCase();
                 return bodyText.includes('authenticator app enabled') || 
                        bodyText.includes('authenticator app is enabled') ||
-                       bodyText.includes('xác thực hai yếu tố đã được bật') ||
-                       bodyText.includes('enabled') ||
-                       bodyText.includes('đã bật');
+                       bodyText.includes('xác thực hai yếu tố đã được bật');
             })()
         `);
 
@@ -852,12 +885,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             return { success: true, secret, totp };
         }
 
-        // Kiểm tra thêm qua screenshot nội dung trang
-        const fullBodyText = await run(`document.body.innerText`);
-        const likelySuccess = fullBodyText?.includes('Authenticator app') && !fullBodyText?.includes('Enter your 6-digit');
-        log(likelySuccess ? '✅ Có vẻ thành công (dựa trên nội dung trang)' : '⚠️ Chưa xác nhận được kết quả');
-
-        return { success: likelySuccess, secret, totp };
+        log('⚠️ Chưa xác nhận được kết quả thông qua switch hoặc text thành công cụ thể.');
+        return { success: false, secret: null, totp: null, error: 'MFA switch was not turned on and success message was not found.' };
 
     } catch (err) {
         return { success: false, secret: null, totp: null, error: err.message };
