@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.80] - 2026-05-26 04:10:00
+
+### 💾 Bền Vững Hóa Hàng Đợi Xóa D1 Qua Restart (Persistent Delete Queue)
+- **Lưu trữ hàng đợi `pendingD1Deletes` xuống đĩa cứng (Persistent State Queue)**:
+  - Khắc phục điểm yếu duy nhất còn lại của hàng đợi xóa: Chuyển đổi hàng đợi `pendingD1Deletes` từ lưu trữ tạm thời trong RAM sang lưu trữ bền vững tại file `data/pending_d1_deletes.json`.
+  - Tự động khôi phục hàng đợi khi server khởi động lại (`loadPendingD1Deletes`), bảo toàn tuyệt đối danh sách tài khoản cần xóa trên D1 Cloud bất kể sự cố mất điện hay khởi động lại tiến trình Tools.
+  - Tự động ghi đồng bộ xuống đĩa mỗi khi có phần tử mới được thêm (`add()`) hoặc xóa bỏ thành công (`delete()`).
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.80`.
+
 ## [0.3.79] - 2026-05-26 03:50:00
 
 ### 🔄 Thiết Lập Hệ Thống Đồng Bộ Cực Kỳ Đồng Nhất Giữa Tools Và D1 Cloud (Vault-Gateway Parity)

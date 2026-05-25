@@ -942,7 +942,37 @@ app.prepare().then(async () => {
   startupSync();
 
   // ── Failed D1 Deletes Retry Queue ──
-  const pendingD1Deletes = new Set();
+  const PENDING_DELETES_FILE = path.join(DATA_DIR, 'pending_d1_deletes.json');
+
+  function loadPendingD1Deletes() {
+    try {
+      if (existsSync(PENDING_DELETES_FILE)) {
+        const content = readFileSync(PENDING_DELETES_FILE, 'utf8');
+        const list = JSON.parse(content);
+        if (Array.isArray(list)) {
+          return new Set(list);
+        }
+      }
+    } catch (err) {
+      console.error('[Sync] Lỗi khi đọc file pending_d1_deletes.json:', err.message);
+    }
+    return new Set();
+  }
+
+  function savePendingD1Deletes(set) {
+    try {
+      const list = Array.from(set);
+      writeFileSync(PENDING_DELETES_FILE, JSON.stringify(list, null, 2), 'utf8');
+    } catch (err) {
+      console.error('[Sync] Lỗi khi ghi file pending_d1_deletes.json:', err.message);
+    }
+  }
+
+  const pendingD1Deletes = loadPendingD1Deletes();
+  if (pendingD1Deletes.size > 0) {
+    console.log(`[Sync] 🩺 Đã khôi phục ${pendingD1Deletes.size} yêu cầu xóa D1 chưa hoàn tất từ đĩa.`);
+  }
+
   setInterval(async () => {
     if (pendingD1Deletes.size === 0) return;
     const cfg = loadConfig();
@@ -955,6 +985,7 @@ app.prepare().then(async () => {
         if (delRes.ok) {
           console.log(`[Sync] ✅ Retry thành công: Đã xóa ${accountId} khỏi D1`);
           pendingD1Deletes.delete(accountId);
+          savePendingD1Deletes(pendingD1Deletes);
         }
       } catch (err) {
         console.warn(`[Sync] Retry xóa ${accountId} thất bại:`, err.message);
@@ -1030,13 +1061,16 @@ app.prepare().then(async () => {
                 if (delRes.ok) {
                   console.log(`[EventBus] ✅ Đã xóa account ${accountId} khỏi D1 Cloud accounts table`);
                   pendingD1Deletes.delete(accountId);
+                  savePendingD1Deletes(pendingD1Deletes);
                 } else {
                   console.warn(`[EventBus] ⚠️ Không thể xóa account ${accountId} khỏi D1 (HTTP ${delRes.status}): ${delRes.text?.slice(0, 100)}`);
                   pendingD1Deletes.add(accountId);
+                  savePendingD1Deletes(pendingD1Deletes);
                 }
               } catch (delErr) {
                 console.warn(`[EventBus] ⚠️ Lỗi khi xóa account ${accountId} khỏi D1:`, delErr.message);
                 pendingD1Deletes.add(accountId);
+                savePendingD1Deletes(pendingD1Deletes);
               }
             }
           } catch (err) {
