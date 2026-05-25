@@ -1451,7 +1451,7 @@ router.post('/accounts/:id/sync', async (req, res) => {
     const account = vault.getAccountFull(req.params.id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     console.log(`[Manual Sync] Pushing ${account.email} to D1...`);
-    const result = await SyncManager.pushVault('account', account);
+    const result = await SyncManager.pushVault('account', account, true);
     
     // Get updated gateway_status after sync
     const updatedAccount = vault.getAccountFull(req.params.id);
