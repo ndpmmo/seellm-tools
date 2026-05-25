@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.68] - 2026-05-25 18:55:00
+
+### 🛠️ Tích Hợp Bộ Công Cụ Cứu Hộ & Đồng Bộ Cưỡng Bức Codex Remote Sync (D1) Lên Giao Diện Cài Đặt
+- **Bộ Công Cụ Đồng Bộ Trực Quan (Remote Sync Troubleshooting UI)**:
+  - Bổ sung section chuyên dụng "Đồng bộ hóa & Khắc phục sự cố Codex Remote Sync (D1)" trực quan, thiết kế sang trọng với micro-animations ngay trong view Settings.
+  - Hỗ trợ 3 tính năng tương tác trực tiếp qua nút bấm kèm thông báo Toast thời gian thực:
+    - **Force Push (Ép Đẩy Dữ liệu)**: Đẩy cưỡng bức 100% dữ liệu local (Accounts, Proxies, Pools, API Keys) lên Cloud D1, bỏ qua cache vân tay so sánh để ghi đè mọi sai lệch.
+    - **Force Pull (Ép Tải Dữ liệu)**: Khởi tạo lại cursor cục bộ, kéo toàn bộ dữ liệu lịch sử D1 từ đầu thời gian về Tools cục bộ.
+    - **Dọn dẹp mồ côi D1 (Stale Connection Purge)**: Tự động quét và soft-delete (tombstone) các active connection cũ hoặc mồ côi trên Cloudflare D1 không khớp với tài khoản hoạt động nào trong Vault.
+- **Nâng Cấp API Router Phục Vụ Đồng Bộ Cưỡng Bức (`server/routes/vault.js`)**:
+  - Viết mới các API endpoints phục vụ cho 3 chức năng cứu hộ đồng bộ: `/sync/force-pull`, `/sync/cleanup-stale` và tối ưu hóa `/sync/all` chấp nhận tham số `force=true`.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.68`.
+
 ## [0.3.67] - 2026-05-25 18:40:00
 
 ### 🔄 Khắc Phục Triệt Để Bất Đồng Bộ Trạng Thái Connection & Hiển Thị Lỗi Gateway Đồng Bộ
