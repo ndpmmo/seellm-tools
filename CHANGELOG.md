@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.72] - 2026-05-25 23:10:00
+
+### 🛡️ Tự Động Vượt Thử Thách Xác Minh Danh Tính (Pre-Auth / Re-Auth) & Tái Tạo 2FA An Toàn
+- **Hỗ trợ vượt thử thách Xác minh Danh tính bằng Authenticator App (`mfa-setup.js`)**:
+  - Phát triển module `handleAuthenticatorMFAVerification` để tự động phát hiện màn hình yêu cầu nhập mã 2FA hiện tại ("Verify your identity" / "Xác minh danh tính") xuất hiện khi kích hoạt hoặc vô hiệu hóa cấu hình bảo mật.
+  - Tự động tạo mã TOTP động từ khóa bí mật hiện tại (`currentSecret`) và tự động nhập để hoàn thành thử thách re-auth mà không cần sự can thiệp thủ công.
+- **Hỗ trợ Tự Động Vô Hiệu Hóa 2FA Cũ trước khi tạo 2FA mới**:
+  - Thêm logic tự động kiểm tra xem tài khoản đã được kích hoạt 2FA từ trước hay chưa. Nếu đã kích hoạt, hệ thống sẽ thực hiện tắt 2FA cũ trước, xác nhận vô hiệu hóa qua hộp thoại xác nhận ("Disable"/"Vô hiệu hóa"), rồi mới tiến hành khởi chạy quy trình thiết lập 2FA mới để lấy mã Secret Key và bộ TOTP mới.
+- **Tối ưu quy trình `scripts/regenerate-2fa.js`**:
+  - Truyền khóa bí mật hiện tại (`currentSecret`) vào thư viện `setupMFA` để xử lý mượt mà luồng vô hiệu hóa 2FA cũ.
+
 ## [0.3.71] - 2026-05-25 22:50:00
 
 ### 🌐 Tùy Chọn Ưu Tiên Proxy Đã Gán Cho Tài Khoản (Smart Proxy Retention & Auto Fallback)

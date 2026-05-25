@@ -185,6 +185,97 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
     }
 }
 
+// ── Identity Verification (Authenticator App) Bypass ──────────────────────────
+async function handleAuthenticatorMFAVerification(tabId, userId, apiHelper, currentSecret, log, wait, run) {
+    const isVerifyMFA = await run(`(() => {
+        const isAuthPage = window.location.hostname.includes('auth.openai.com') || window.location.pathname.includes('/auth/');
+        const container = isAuthPage ? document.body : (() => {
+            const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+            return dialogs[dialogs.length - 1] || null;
+        })();
+        if (!container) return false;
+        
+        const text = container.innerText.toLowerCase();
+        
+        // Tránh trùng khớp với hộp thoại thiết lập Authenticator app/MFA setup mới
+        const isMfaSetupDialog = text.includes('authenticator') && (
+            text.includes('trouble scanning') || 
+            text.includes('can\\'t scan') || 
+            text.includes('không thể quét') || 
+            text.includes('nhập khóa') ||
+            text.includes('qr code') ||
+            text.includes('mã qr')
+        );
+        if (isMfaSetupDialog) return false;
+        
+        const hasVerifyTitle = text.includes('verify your identity') || text.includes('xác minh danh tính');
+        const hasAppPrompt = text.includes('authenticator app') || text.includes('one-time password application') || text.includes('ứng dụng xác thực');
+        const hasOtpInput = !!container.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]');
+        
+        return hasVerifyTitle && hasAppPrompt && hasOtpInput;
+    })()`);
+
+    if (isVerifyMFA) {
+        log('📬 Phát hiện yêu cầu xác minh danh tính qua Authenticator App (TOTP)!');
+        if (!currentSecret) {
+            throw new Error(`Cần xác minh danh tính qua Authenticator App nhưng không có currentSecret!`);
+        }
+        
+        // Generate TOTP from current secret
+        const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        let bits = '';
+        for (const c of currentSecret.toUpperCase().replace(/=+$/, '')) {
+            const v = alphabet.indexOf(c);
+            if (v < 0) continue;
+            bits += v.toString(2).padStart(5, '0');
+        }
+        const bytes = [];
+        for (let i = 0; i + 8 <= bits.length; i += 8)
+            bytes.push(parseInt(bits.slice(i, i + 8), 2));
+
+        const counter = Math.floor(Date.now() / 1000 / 30);
+        const cb = Buffer.alloc(8);
+        cb.writeBigInt64BE(BigInt(counter));
+        const { createHmac } = await import('node:crypto');
+        const hmac = createHmac('sha1', Buffer.from(bytes)).update(cb).digest();
+        const off = hmac[hmac.length - 1] & 0xf;
+        const codeNum = ((hmac[off] & 0x7f) << 24 | hmac[off+1] << 16 | hmac[off+2] << 8 | hmac[off+3]) % 1_000_000;
+        const currentTotp = codeNum.toString().padStart(6, '0');
+
+        log(`🔢 Mã TOTP sinh từ secret hiện tại: ${currentTotp}. Tiến hành điền và xác minh...`);
+        
+        const fillSuccess = await run(`((code) => {
+            const input = document.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]');
+            if (input) {
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(input, code);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+            return false;
+        })("${currentTotp}")`);
+
+        if (fillSuccess) {
+            await wait(2000);
+            // Click Continue button
+            await run(`(() => {
+                const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                    const t = b.textContent.toLowerCase().trim();
+                    return t.includes('continue') || t.includes('submit') || t.includes('tiếp tục');
+                });
+                if (btn) btn.click();
+            })()`);
+            log('Đợi xác minh hoàn tất...');
+            await wait(6000);
+            return true;
+        } else {
+            throw new Error(`Không tìm thấy input để điền mã TOTP xác minh!`);
+        }
+    }
+    return false;
+}
+
 // ── TOTP Generator (RFC 6238) ─────────────────────────────────────────────────
 function generateTOTP(secret) {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -315,6 +406,91 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             await wait(2000);
         }
         await wait(1500);
+
+        // ── 1.5. Xử lý kịch bản 2FA ĐANG BẬT (Cần Tắt Trước Khi Tái Tạo) ──────────
+        const isAlreadyEnabled = await run(`
+            (() => {
+                const elements = Array.from(document.querySelectorAll('*'));
+                const authTextEl = elements.find(el => {
+                    const text = el.textContent || '';
+                    if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
+                    return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                });
+                if (authTextEl) {
+                    let par = authTextEl;
+                    for (let d = 0; d < 8; d++) {
+                        if (!par) break;
+                        const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
+                        if (sw) {
+                            return sw.getAttribute('aria-checked') === 'true' || sw.checked === true;
+                        }
+                        par = par.parentElement;
+                    }
+                }
+                return false;
+            })()
+        `);
+
+        if (isAlreadyEnabled) {
+            log('🛡️ Phát hiện 2FA hiện tại đang ở trạng thái BẬT. Tiến hành tắt trước khi thiết lập lại...');
+            
+            // Click toggle switch để tắt
+            const toggledOff = await run(`
+                (() => {
+                    const elements = Array.from(document.querySelectorAll('*'));
+                    const authTextEl = elements.find(el => {
+                        const text = el.textContent || '';
+                        if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
+                        return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                    });
+
+                    if (authTextEl) {
+                        let par = authTextEl;
+                        for (let d = 0; d < 8; d++) {
+                            if (!par) break;
+                            const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
+                            if (sw) { 
+                                sw.click(); 
+                                return 'toggled_off_switch'; 
+                            }
+                            par = par.parentElement;
+                        }
+                    }
+                    return 'not_found';
+                })()
+            `);
+            log(`  Tắt toggle: ${toggledOff}`);
+            await wait(4000);
+
+            // Bổ sung xử lý thử thách xác minh khi tắt 2FA
+            if (options.currentSecret) {
+                await handleAuthenticatorMFAVerification(tabId, userId, apiHelper, options.currentSecret, log, wait, run);
+            } else if (options.email && options.emailCreds) {
+                await handleEmailOTPVerification(tabId, userId, apiHelper, options.email, options.emailCreds, log, wait, run);
+            }
+
+            // Click nút xác nhận Disable/Turn off nếu có hộp thoại hiện lên
+            const clickedDisable = await run(`(() => {
+                const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+                const disableBtn = buttons.find(b => {
+                    const t = b.textContent.toLowerCase().trim();
+                    return t === 'disable' || t.includes('turn off') || t === 'remove' || t.includes('tắt') || t.includes('vô hiệu hóa');
+                });
+                if (disableBtn) {
+                    disableBtn.removeAttribute('disabled');
+                    disableBtn.click();
+                    return true;
+                }
+                return false;
+            })()`);
+            if (clickedDisable) {
+                log('  Đã xác nhận click vô hiệu hóa 2FA trên hộp thoại.');
+                await wait(4000);
+            }
+
+            log('Đợi 5 giây để tiến trình tắt 2FA hoàn tất và trang cập nhật...');
+            await wait(5000);
+        }
 
         if (options.email && options.emailCreds) {
             await handleEmailOTPVerification(tabId, userId, apiHelper, options.email, options.emailCreds, log, wait, run);

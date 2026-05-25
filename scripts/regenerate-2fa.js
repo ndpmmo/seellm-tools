@@ -546,7 +546,8 @@ async function run2faRegen() {
 
     const mfaResult = await setupMFA(tabId, USER_ID, apiHelper, {
       email: account.email,
-      emailCreds: emailCreds
+      emailCreds: emailCreds,
+      currentSecret: account.two_fa_secret || account.twoFaSecret
     });
 
     if (!mfaResult.success) {
