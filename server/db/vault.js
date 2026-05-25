@@ -615,7 +615,7 @@ export const vault = {
     return record;
   },
 
-  deleteAccount: (id, skipSync = false) => {
+  deleteAccount: (id, skipSync = false, deleteLinkedEmailOverride = null) => {
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_accounts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
     const record = db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
@@ -623,7 +623,8 @@ export const vault = {
     if (record && record.email) {
       try {
         const config = loadConfig();
-        if (config.deleteLinkedEmail) {
+        const shouldDeleteEmail = deleteLinkedEmailOverride !== null ? deleteLinkedEmailOverride : config.deleteLinkedEmail;
+        if (shouldDeleteEmail) {
           // Auto purge/delete associated email from Email Pool
           vault.deleteEmailPool(record.email.trim(), skipSync);
         } else {
@@ -654,6 +655,7 @@ export const vault = {
     if (!skipSync && record) {
       SyncManager.pushVault('account', record).catch(() => { });
     }
+
     return record;
   },
 

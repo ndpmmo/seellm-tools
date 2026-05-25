@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.73] - 2026-05-26 00:30:00
+
+### 🗑️ Tùy Chọn Xóa Tài Khoản Kèm Quản Lý Liên Kết Email Workshop Pool Thông Minh
+- **Bổ sung Modal Lựa Chọn Xóa Tùy Chọn (Two-Option Custom Delete Modal)**:
+  - Khi xóa tài khoản đơn lẻ hoặc xóa hàng loạt trong giao diện Quản lý Tài khoản Vault (`VaultAccountsView.tsx`), hệ thống sẽ không còn dùng popup xác nhận mặc định nữa. Thay vào đó, một modal glassmorphism thiết kế cao cấp, trực quan bằng tiếng Việt sẽ hiển thị để người dùng chọn 1 trong 2 phương thức xóa:
+    1. **Chỉ xóa tài khoản ở Vault Accounts**: Giữ nguyên email trong Email Pool của Workshop. Email này sẽ được tự động gỡ liên kết với tài khoản đã xóa và hiển thị nhãn đỏ **`Acc đã xóa`** nổi bật ở giao diện Workshop (`VaultWorkshopView.tsx`), giúp người dùng nhận biết ngay lập tức để có thể dập lại tài khoản mới nếu cần.
+    2. **Xóa cả tài khoản ở Vault lẫn Email ở Workshop**: Xóa sạch tài khoản khỏi Vault, đồng thời gỡ bỏ vĩnh viễn địa chỉ email liên kết này khỏi hệ thống Email Pool của Workshop.
+- **Truyền Tùy Chọn Qua Query Parameter / DELETE Route**:
+  - Hỗ trợ tham số `deleteLinkedEmail` (boolean) truyền từ UI qua đường dẫn `/api/vault/accounts/:id?deleteLinkedEmail=true/false` lên backend route (`server/routes/vault.js`).
+- **Nâng Cấp Hàm Database `deleteAccount` (`server/db/vault.js`)**:
+  - Chấp nhận tham số ghi đè `deleteLinkedEmailOverride` để quyết định xóa hẳn email khỏi pool hay chỉ reset linkage trạng thái về `not_created`, cập nhật `linked_chatgpt_id` thành `NULL`, đồng thời đẩy thay đổi đồng bộ Cloud D1 đầy đủ.
+
 ## [0.3.72] - 2026-05-25 23:10:00
 
 ### 🛡️ Tự Động Vượt Thử Thách Xác Minh Danh Tính (Pre-Auth / Re-Auth) & Tái Tạo 2FA An Toàn

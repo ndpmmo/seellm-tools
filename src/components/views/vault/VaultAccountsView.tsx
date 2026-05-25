@@ -265,6 +265,13 @@ export function VaultAccountsView() {
   const [legendOpen, setLegendOpen] = useState(false);
   const [inboxModal, setInboxModal] = useState<{ open: boolean; email: string; messages: any[]; loading: boolean }>({ open: false, email: '', messages: [], loading: false });
 
+  // Delete account confirmation options modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetEmail, setDeleteTargetEmail] = useState<string | null>(null);
+  const [deleteTargetIsBulk, setDeleteTargetIsBulk] = useState(false);
+  const [deleteLinkedEmailChoice, setDeleteLinkedEmailChoice] = useState(false); // default: keep email (false)
+
   const [isBulkDeployFormOpen, setIsBulkDeployFormOpen] = useState(false);
   const [bulkDeployCount, setBulkDeployCount] = useState<number | ''>('');
   const [bulkDeployOrder, setBulkDeployOrder] = useState<'sequential' | 'random'>('sequential');
@@ -429,11 +436,13 @@ export function VaultAccountsView() {
     } catch (e: any) { addToast(e.message, 'error'); }
   };
 
-  const del = async (id: string) => {
-    if (!await askConfirm('Xóa Tài Khoản', 'Bạn có chắc muốn xóa tài khoản này khỏi Vault?')) return;
-    await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
-    setItems(prev => prev.filter(it => it.id !== id));
-    addToast('Đã xoá', 'info');
+  const del = (id: string) => {
+    const item = items.find(it => it.id === id);
+    setDeleteTargetId(id);
+    setDeleteTargetEmail(item?.email || null);
+    setDeleteTargetIsBulk(false);
+    setDeleteLinkedEmailChoice(false); // default: keep email
+    setDeleteModalOpen(true);
   };
 
   const deploy = async (id: string, email: string) => {
@@ -825,18 +834,48 @@ export function VaultAccountsView() {
     }
   };
 
-  const bulkDeleteSelected = async () => {
-    if (!await askConfirm('Xóa Hàng Loạt', `Xác nhận XÓA ${selectedIds.size} tài khoản đã chọn khỏi Vault? Thao tác này không thể hoàn tác.`)) return;
-    let success = 0;
-    for (const id of Array.from(selectedIds)) {
-      try {
-        const r = await fetch(`/api/vault/accounts/${id}`, { method: 'DELETE' });
-        if (r.ok) success++;
-      } catch {}
+  const bulkDeleteSelected = () => {
+    setDeleteTargetId(null);
+    setDeleteTargetEmail(null);
+    setDeleteTargetIsBulk(true);
+    setDeleteLinkedEmailChoice(false); // default: keep email
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    setLoading(true);
+    setDeleteModalOpen(false);
+    
+    const queryParam = `?deleteLinkedEmail=${deleteLinkedEmailChoice}`;
+    
+    try {
+      if (deleteTargetIsBulk) {
+        let success = 0;
+        for (const id of Array.from(selectedIds)) {
+          try {
+            const r = await fetch(`/api/vault/accounts/${id}${queryParam}`, { method: 'DELETE' });
+            if (r.ok) success++;
+          } catch {}
+        }
+        setSelectedIds(new Set());
+        loadAccounts();
+        addToast(`🗑️ Đã xóa ${success} tài khoản khỏi Vault`, 'info');
+      } else if (deleteTargetId) {
+        const r = await fetch(`/api/vault/accounts/${deleteTargetId}${queryParam}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.error) throw new Error(d.error);
+        
+        setItems(prev => prev.filter(it => it.id !== deleteTargetId));
+        addToast('Đã xoá tài khoản khỏi Vault', 'success');
+      }
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally {
+      setLoading(false);
+      setDeleteTargetId(null);
+      setDeleteTargetEmail(null);
+      setDeleteTargetIsBulk(false);
     }
-    addToast(`🗑️ Đã xóa ${success} tài khoản khỏi Vault`, 'info');
-    setSelectedIds(new Set());
-    loadAccounts();
   };
 
   const syncDeadTags = async () => {
@@ -1095,6 +1134,94 @@ export function VaultAccountsView() {
   return (
     <div className="absolute inset-0 overflow-y-auto px-6 pb-10 pt-2 flex flex-col gap-5 custom-scrollbar">
       {confirmModal}
+
+      {/* ═══ CUSTOM DELETE MODAL WITH OPTIONS ═══ */}
+      {deleteModalOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+          <div className="bg-[#0f1322]/95 border border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-6 py-4 bg-white/[0.02] border-b border-white/5">
+              <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+                <Trash2 size={16} />
+              </div>
+              <div>
+                <h3 className="text-[14px] font-bold text-slate-100 uppercase tracking-wider">Xác nhận Xóa Tài Khoản</h3>
+                <p className="text-[11px] text-slate-400">Thiết lập tùy chọn xóa liên kết</p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <p className="text-[13px] text-slate-300 leading-relaxed">
+                Bạn có chắc chắn muốn xóa{' '}
+                <span className="font-semibold text-rose-400">
+                  {deleteTargetIsBulk ? `${selectedIds.size} tài khoản đã chọn` : deleteTargetEmail || 'tài khoản này'}
+                </span>{' '}
+                khỏi Vault? Hành động này không thể hoàn tác.
+              </p>
+
+              <div className="space-y-3 pt-2">
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] cursor-pointer transition-all">
+                  <input
+                    type="radio"
+                    name="deleteLinkedEmailChoice"
+                    checked={!deleteLinkedEmailChoice}
+                    onChange={() => setDeleteLinkedEmailChoice(false)}
+                    className="mt-0.5 accent-indigo-500"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[12px] font-bold text-slate-200">Chỉ xóa tài khoản ở Vault Accounts</span>
+                    <span className="text-[11px] text-slate-500 leading-relaxed">
+                      Giữ nguyên email ở Workshop Pool. Email sẽ được gán nhãn <span className="text-rose-400 font-semibold bg-rose-500/5 px-1 rounded">Acc đã xóa</span> để bạn dễ dàng nhận biết và tái tạo tài khoản mới.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] cursor-pointer transition-all">
+                  <input
+                    type="radio"
+                    name="deleteLinkedEmailChoice"
+                    checked={deleteLinkedEmailChoice}
+                    onChange={() => setDeleteLinkedEmailChoice(true)}
+                    className="mt-0.5 accent-rose-500"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[12px] font-bold text-rose-400">Xóa cả ở Vault lẫn Workshop (Email Pool)</span>
+                    <span className="text-[11px] text-slate-500 leading-relaxed">
+                      Xóa hoàn toàn tài khoản khỏi Vault, đồng thời gỡ bỏ vĩnh viễn email liên kết khỏi hệ thống Email Pool của Workshop.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/5 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDeleteModalOpen(false);
+                  setDeleteTargetId(null);
+                  setDeleteTargetEmail(null);
+                  setDeleteTargetIsBulk(false);
+                }}
+              >
+                Hủy bỏ
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={executeDelete}
+                className="bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/15"
+              >
+                Xác nhận Xóa
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══ ACTIONS ═══ */}
       <div className="flex gap-3 mb-4 mt-2 relative z-10">
         <div className="flex-1 relative flex items-center">

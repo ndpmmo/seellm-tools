@@ -357,7 +357,8 @@ router.get('/accounts/:idOrEmail', (req, res, next) => {
 router.delete('/accounts/:id', async (req, res) => {
   try {
     const account = vault.getAccount(req.params.id);
-    vault.deleteAccount(req.params.id); // triggers SyncManager internally
+    const deleteLinkedEmail = req.query.deleteLinkedEmail === 'true';
+    vault.deleteAccount(req.params.id, false, deleteLinkedEmail); // triggers SyncManager internally
     res.json({ ok: true });
 
     // Audit log
@@ -366,7 +367,7 @@ router.delete('/accounts/:id', async (req, res) => {
       entity: 'account',
       entityId: req.params.id,
       entityLabel: account?.email || account?.label || req.params.id,
-      details: { provider: account?.provider, hadProxy: !!account?.proxy_url },
+      details: { provider: account?.provider, hadProxy: !!account?.proxy_url, deleteLinkedEmail },
       severity: 'warning',
       source: 'ui',
     });
