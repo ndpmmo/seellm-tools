@@ -3252,8 +3252,10 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
     
     if (status === 'success' && secret) {
       updateData.two_fa_secret = secret;
-      updateData.status = 'ready';
-      updateData.notes = '2FA regenerated successfully';
+      // Trạng thái: nếu trước đó là 'idle' thì giữ nguyên 'idle' để tránh tự động đẩy active lên gateway.
+      // Các trạng thái khác (ready, error, relogin, need_phone) được chuyển thành 'ready' vì đã login thành công.
+      updateData.status = account.status === 'idle' ? 'idle' : 'ready';
+      updateData.notes = account.status === 'idle' ? '2FA regenerated successfully (idle)' : '2FA regenerated successfully';
     } else if (status === 'failed') {
       updateData.notes = `2FA regeneration failed: ${error}`;
     }

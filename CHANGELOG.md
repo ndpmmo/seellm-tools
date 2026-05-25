@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.74] - 2026-05-26 00:45:00
+
+### 🛡️ Duy Trì Trạng Thái Idle Cho Tài Khoản Sau Khi Tái Tạo 2FA Thành Công
+- **Tránh tự động Deploy/Push Active đối với các tài khoản Idle**:
+  - Khi thực hiện **Tái tạo 2FA (Regenerate 2FA)** cho một tài khoản đang ở trạng thái **`idle`** (chưa deploy/đang thu hồi), sau khi chạy thành công, hệ thống sẽ duy trì trạng thái **`idle`** của tài khoản đó thay vì tự động kích hoạt lên trạng thái **`ready`**.
+  - Việc này giúp cập nhật khóa 2FA mới và cookies hợp lệ vào database thành công mà không vô tình kích hoạt/đẩy tài khoản này hoạt động trên gateway proxy (D1) khi người dùng chưa có nhu cầu deploy.
+  - Đối với các tài khoản đang hoạt động hoặc đang gặp lỗi (như `ready`, `error`, `relogin`, `need_phone`), sau khi chạy thành công sẽ tiếp tục được tự động nâng cấp/khôi phục lên trạng thái **`ready`** và hoạt động bình thường trên Gateway.
+- **Backend POST /api/vault/accounts/:id/regenerate-2fa-result (`server/routes/vault.js`)**:
+  - Tích hợp kiểm tra trạng thái trước khi lưu (`account.status === 'idle'`) để đưa ra quyết định chuyển đổi trạng thái một cách thông minh.
+
 ## [0.3.73] - 2026-05-26 00:30:00
 
 ### 🗑️ Tùy Chọn Xóa Tài Khoản Kèm Quản Lý Liên Kết Email Workshop Pool Thông Minh
