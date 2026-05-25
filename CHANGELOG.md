@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.79] - 2026-05-26 03:50:00
+
+### 🔄 Thiết Lập Hệ Thống Đồng Bộ Cực Kỳ Đồng Nhất Giữa Tools Và D1 Cloud (Vault-Gateway Parity)
+- **Tombstone Tức Thời & Chống Tài Khoản "Bóng Ma" (Immediate D1 Deletion & Queue-based Resilience)**:
+  - Tích hợp gọi trực tiếp API xóa trên D1 Cloud Worker ngay khi sự kiện `ACCOUNT_DELETED` được phát sóng trong hệ thống event bus cục bộ (`server.js`). Điều này giúp đồng bộ tức thời trạng thái xóa mà không phải đợi chu kỳ đồng bộ tiếp theo.
+  - Xây dựng hàng đợi `pendingD1Deletes` lưu trong bộ nhớ để bảo vệ trước các sự cố ngắt kết nối mạng. Nếu yêu cầu xóa D1 thất bại tạm thời, tài khoản sẽ được đưa vào hàng đợi tự động thử lại định kỳ mỗi 45 giây cho đến khi xóa thành công, triệt tiêu hoàn toàn lỗi "zombie accounts" (tài khoản đã xóa ở local nhưng vẫn tồn tại trên remote).
+- **Tối Ưu Hóa & Khôi Phục Cơ Chế Dọn Rác Mồ Côi D1 (Orphan Cleanup Reconstruction)**:
+  - Viết lại toàn bộ thuật toán dọn dẹp mồ côi `/api/d1/accounts/cleanup-orphans` trong `server.js`. Thay vì so sánh với connections Gateway (dễ gây lỗi nhận diện nhầm các tài khoản `idle` đang cất kho là mồ côi), hệ thống giờ đây đối chiếu nghiêm ngặt danh sách D1 Cloud với các tài khoản hoạt động trong bảng `vault_accounts` cục bộ SQLite.
+  - Định nghĩa "mồ côi" chuẩn xác: Chỉ những bản ghi tồn tại trên Cloud D1 nhưng không tìm thấy hoặc đã bị đánh dấu xóa trong local SQLite của Tools mới bị dọn dẹp.
+- **Tích Hợp Giao Diện Nút Dọn Thừa Manual (`ServicesView.tsx`)**:
+  - Bổ sung hành động **"🧹 Dọn thừa" (Clean Orphans)** trên giao diện Quản lý Dịch vụ với hiệu ứng glassmorphism và thông báo Toast chi tiết phản hồi kết quả thực tế, giúp quản trị viên chủ động dọn dẹp tài khoản mồ côi trên Cloud D1 chỉ bằng một click.
+- **Cơ Chế Bảo Vệ Token & Tránh Ghi Đè Ngược (Token Refresh Awareness & Bidirectional Safety)**:
+  - **Phân Tích & Xác Minh Luồng Kéo/Đẩy**: 
+    1. Khi Gateway tự động Refresh Token thành công, nó cập nhật cục bộ và lập tức đẩy (`pushCodexConnectionToRemote`) lên bảng `connections` của D1.
+    2. Phía Tools chạy `SyncManager.pullVault()` để kéo thông tin connection mới từ D1 về và tự động cập nhật `access_token` và `refresh_token` mới nhất vào bảng `vault_accounts` cục bộ.
+    3. **Rào Cản Kiến Trúc (Architectural Isolation)**: Do Tools không bao giờ ghi đè ngược trường `connections` lên D1 mà chỉ quản lý `vault_accounts`, và Gateway chỉ lấy `connections` từ D1 làm nguồn cấu hình, nên hai hệ thống hoạt động hoàn toàn độc lập mà không bao giờ ghi đè chéo hoặc làm mất credentials của nhau.
+    4. **Timestamp Sync Guard & Pre-emptive Pull**: Cơ chế so sánh timestamp cập nhật và bộ lọc bảo vệ token trống ngăn chặn triệt để việc ghi đè dữ liệu cũ. Đồng thời, Tools tự động thực hiện Pull dữ liệu D1 ngay trước khi chạy Check Session hoặc thao tác tương tác để luôn có token mới nhất.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.79`.
+
 ## [0.3.78] - 2026-05-26 02:40:00
 
 ### 🛡️ Tối Ưu Hóa Khả Năng Tự Phục Hồi Khi Chạy Song Song Tải Nặng (Parallel Run Resilience)

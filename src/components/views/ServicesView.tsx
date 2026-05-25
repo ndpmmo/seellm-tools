@@ -262,6 +262,7 @@ export function ServicesView() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkProxyId, setBulkProxyId] = useState('pool_proxy');
   const [bulkProxyRunning, setBulkProxyRunning] = useState(false);
+  const [cleaningOrphans, setCleaningOrphans] = useState(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
@@ -624,6 +625,22 @@ export function ServicesView() {
     });
   };
 
+  const cleanupOrphans = async () => {
+    setCleaningOrphans(true);
+    try {
+      const r = await fetch('/api/d1/accounts/cleanup-orphans', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      if (d.removed > 0) {
+        addToast(`🧹 Đã dọn ${d.removed} accounts thừa khỏi D1 (${d.message})`, 'success');
+        load();
+      } else {
+        addToast(`✅ Không có accounts thừa (${d.message || 'D1 đã đồng bộ'})`, 'info');
+      }
+    } catch (e: any) { addToast(e.message, 'error'); }
+    finally { setCleaningOrphans(false); }
+  };
+
   const autoAssign = async () => {
     setAutoAssigning(true);
     try {
@@ -774,6 +791,9 @@ export function ServicesView() {
             </Button>
             <Button size="sm" variant="danger" onClick={bulkDeleteAction} disabled={bulkProxyRunning || selectedIds.size === 0} className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10">
               Xóa đã chọn
+            </Button>
+            <Button size="sm" variant="secondary" onClick={cleanupOrphans} disabled={cleaningOrphans} title="Dọn accounts thừa trong D1 (đã xóa trong Gateway nhưng vẫn hiện trong danh sách)" className="border-orange-500/30 text-orange-400 hover:bg-orange-500/10">
+              {cleaningOrphans ? <span className="w-3 h-3 border-2 border-orange-500/20 border-t-orange-400 rounded-full animate-spin" /> : '🧹'} Dọn thừa
             </Button>
             <Button size="icon-sm" variant="ghost" onClick={() => load()} disabled={loading} className="border border-white/5 bg-white/5 hover:bg-white/10">
               <RefreshCw size={13} className={`${loading ? 'animate-spin' : ''} text-slate-300`} />

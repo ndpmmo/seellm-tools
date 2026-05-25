@@ -788,6 +788,74 @@ app.prepare().then(async () => {
     } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
+  // ▶ Cleanup: Xóa các D1 accounts không còn trong Gateway (orphans sau khi gateway xóa)
+  ex.post('/api/d1/accounts/cleanup-orphans', async (req, res) => {
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
+      return res.status(400).json({ error: 'Missing D1 config' });
+    }
+
+    try {
+      // 1. Lấy danh sách accounts từ D1 Cloud
+      const d1AccRes = await d1Request(cfg, 'inspect/accounts?limit=1000');
+      const d1Accounts = Array.isArray(d1AccRes.data?.items) ? d1AccRes.data.items : [];
+
+      if (!d1Accounts.length) {
+        return res.json({ ok: true, removed: 0, message: 'Không có accounts nào trong D1' });
+      }
+
+      // 2. Lấy danh sách local active accounts từ SQLite
+      const localActiveIds = new Set(
+        vault.db.prepare("SELECT id FROM vault_accounts WHERE deleted_at IS NULL").all().map(r => String(r.id))
+      );
+
+      // 3. Xác định và xóa orphan accounts (có trong D1 nhưng không có/bị xóa trong local Vault)
+      let removed = 0;
+      let failed = 0;
+      const removedAccounts = [];
+
+      for (const acc of d1Accounts) {
+        const idStr = String(acc.id);
+        const email = String(acc.email || '').toLowerCase().trim();
+        if (!email || !email.includes('@')) continue;
+
+        // Định nghĩa orphan: không có trong local SQLite hoạt động
+        const isOrphan = !localActiveIds.has(idStr);
+
+        if (isOrphan) {
+          try {
+            const delRes = await d1Request(cfg, `accounts/${acc.id}`, { method: 'DELETE', timeoutMs: 10000 });
+            if (delRes.ok) {
+              removed++;
+              removedAccounts.push({ id: acc.id, email: acc.email });
+              console.log(`[Cleanup] ✅ Đã xóa D1 orphan account: ${acc.email} (${acc.id})`);
+            } else {
+              failed++;
+              console.warn(`[Cleanup] ⚠️ Không thể xóa D1 orphan ${acc.email}: HTTP ${delRes.status}`);
+            }
+          } catch (e) {
+            failed++;
+            console.warn(`[Cleanup] ⚠️ Lỗi xóa D1 orphan ${acc.email}:`, e.message);
+          }
+        }
+      }
+
+      if (removed > 0) {
+        emitSSE('vault:update', { reason: 'cleanup-orphans' });
+      }
+
+      return res.json({
+        ok: true,
+        removed,
+        failed,
+        items: removedAccounts
+      });
+    } catch (e) {
+      console.error('[Cleanup] Lỗi tiến trình dọn dẹp:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   ex.get('/api/changelog', async (_, res) => {
     try {
       if (existsSync(path.join(__dirname, 'CHANGELOG.md'))) {
@@ -867,11 +935,32 @@ app.prepare().then(async () => {
     if (rounds > 1) console.log(`[Sync] Startup caught up after ${rounds} pulls.`);
   }
 
-  const D1_PULL_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.SEELLM_TOOLS_D1_PULL_INTERVAL_MS || 15 * 60 * 1000));
-  const D1_EVENT_POLL_MS = Math.max(30 * 1000, Number(process.env.SEELLM_TOOLS_D1_EVENT_POLL_MS || 60 * 1000));
-  const D1_SELF_HEAL_MS = Math.max(60 * 60 * 1000, Number(process.env.SEELLM_TOOLS_D1_SELF_HEAL_MS || 12 * 60 * 60 * 1000));
+  const D1_PULL_INTERVAL_MS = Math.max(15 * 1000, Number(process.env.SEELLM_TOOLS_D1_PULL_INTERVAL_MS || 3 * 60 * 1000));
+  const D1_EVENT_POLL_MS = Math.max(5 * 1000, Number(process.env.SEELLM_TOOLS_D1_EVENT_POLL_MS || 15 * 1000));
+  const D1_SELF_HEAL_MS = Math.max(10 * 60 * 1000, Number(process.env.SEELLM_TOOLS_D1_SELF_HEAL_MS || 3 * 60 * 60 * 1000));
 
   startupSync();
+
+  // ── Failed D1 Deletes Retry Queue ──
+  const pendingD1Deletes = new Set();
+  setInterval(async () => {
+    if (pendingD1Deletes.size === 0) return;
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return;
+
+    console.log(`[Sync] Retrying ${pendingD1Deletes.size} failed D1 deletion(s)...`);
+    for (const accountId of [...pendingD1Deletes]) {
+      try {
+        const delRes = await d1Request(cfg, `accounts/${accountId}`, { method: 'DELETE', timeoutMs: 8000 });
+        if (delRes.ok) {
+          console.log(`[Sync] ✅ Retry thành công: Đã xóa ${accountId} khỏi D1`);
+          pendingD1Deletes.delete(accountId);
+        }
+      } catch (err) {
+        console.warn(`[Sync] Retry xóa ${accountId} thất bại:`, err.message);
+      }
+    }
+  }, 45000);
 
   // ── Startup Repair: force re-push accounts local=ready nhưng có thể bị stuck trên D1 ──
   // Xảy ra khi task endpoint race với connect-result → D1 nhận push processing SAU push ready
@@ -931,6 +1020,23 @@ app.prepare().then(async () => {
               if (local) {
                 vault.updateGatewayStatus(accountId, 'revoked');
                 hasChanges = true;
+              }
+
+              // [FIX v6] Khi Gateway xóa account, cũng xóa khỏi D1 Cloud accounts table
+              // để ServicesView (?view=services) hiển thị đúng số lượng.
+              // Gateway chỉ push tombstone vào managed_accounts/connections, KHÔNG xóa accounts table.
+              try {
+                const delRes = await d1Request(cfg, `accounts/${accountId}`, { method: 'DELETE', timeoutMs: 10000 });
+                if (delRes.ok) {
+                  console.log(`[EventBus] ✅ Đã xóa account ${accountId} khỏi D1 Cloud accounts table`);
+                  pendingD1Deletes.delete(accountId);
+                } else {
+                  console.warn(`[EventBus] ⚠️ Không thể xóa account ${accountId} khỏi D1 (HTTP ${delRes.status}): ${delRes.text?.slice(0, 100)}`);
+                  pendingD1Deletes.add(accountId);
+                }
+              } catch (delErr) {
+                console.warn(`[EventBus] ⚠️ Lỗi khi xóa account ${accountId} khỏi D1:`, delErr.message);
+                pendingD1Deletes.add(accountId);
               }
             }
           } catch (err) {
