@@ -1379,22 +1379,40 @@ app.prepare().then(async () => {
     return match?.id || null;
   }
 
-  function buildProxyBindings(accounts = [], proxies = [], proxySlots = []) {
+  function buildProxyBindings(accounts = [], proxies = [], proxySlots = [], connections = []) {
     const byId = new Map((proxies || []).map((p) => [String(p.id), p]));
     const byUrl = new Map((proxies || []).map((p) => [normalizeProxyUrl(p.url), p]));
-    const slotByAccount = new Map(
-      (proxySlots || [])
-        .filter((s) => s && !s.deleted_at && s.connection_id)
-        .map((s) => [String(s.connection_id), s])
-    );
+
+    // Map connection ID to its lowercase email for fallback mapping
+    const connectionEmailMap = new Map();
+    for (const c of connections || []) {
+      if (c && c.id && c.email) {
+        connectionEmailMap.set(String(c.id), String(c.email).toLowerCase());
+      }
+    }
+
+    const slotByAccount = new Map();
+    const slotByEmail = new Map();
+    for (const s of proxySlots || []) {
+      if (!s || s.deleted_at || !s.connection_id) continue;
+      const connId = String(s.connection_id);
+      slotByAccount.set(connId, s);
+      const email = connectionEmailMap.get(connId);
+      if (email) {
+        slotByEmail.set(email, s);
+      }
+    }
 
     const bindings = [];
     for (const a of accounts || []) {
       const accountId = String(a?.id || '');
       if (!accountId) continue;
+      const emailNorm = String(a?.email || '').toLowerCase();
       const proxyUrl = normalizeProxyUrl(a?.proxy_url);
       const proxyId = a?.proxy_id || null;
-      const slot = slotByAccount.get(accountId) || null;
+
+      // Match slot by account ID first, fallback to matching by email if ID lookup fails
+      const slot = slotByAccount.get(accountId) || (emailNorm ? slotByEmail.get(emailNorm) : null) || null;
       const matchedProxy =
         (proxyId ? byId.get(String(proxyId)) : null) ||
         (proxyUrl ? byUrl.get(proxyUrl) : null) ||
@@ -1685,15 +1703,17 @@ app.prepare().then(async () => {
     }
 
     try {
-      const [accountsR, proxiesR] = await Promise.all([
+      const [accountsR, proxiesR, connectionsR] = await Promise.all([
         d1Request(cfg, 'inspect/accounts?limit=1000'),
         d1Request(cfg, 'inspect/proxies'),
+        d1Request(cfg, 'inspect/connections?limit=1000').catch(() => ({ data: { items: [] } })),
       ]);
       const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
+      const connections = Array.isArray(connectionsR.data?.items) ? connectionsR.data.items : [];
       const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
-      const bindings = buildProxyBindings(accounts, proxies, proxySlots);
+      const bindings = buildProxyBindings(accounts, proxies, proxySlots, connections);
 
       const proxyStats = proxies.map((p) => {
         const totalSlots = proxySlots.filter((s) => s && !s.deleted_at && s.proxy_id === p.id).length

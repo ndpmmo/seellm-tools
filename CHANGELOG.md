@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.87] - 2026-05-26 23:07:00
+
+### 🔄 Cải Tiến Cơ Chế Khớp Proxy Slot & Fallback Theo Email (Proxy Slot Mapping & Email Fallback)
+- **Tăng Cường Tính Nhất Quán Cho Proxy Bindings**:
+  - Cập nhật hàm `buildProxyBindings` trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js) để nhận thêm danh sách `connections` từ D1.
+  - Hỗ trợ khớp proxy slot theo địa chỉ Email làm cơ chế dự phòng (fallback) nếu ID của tài khoản cục bộ (`accountId`) và ID kết nối OAuth trên Gateway lệch nhau. Điều này giúp hiển thị thông tin email tài khoản và liên kết proxy chính xác trên giao diện quản lý.
+- **Tối Ưu Endpoint Lấy Trạng Thái Proxy**:
+  - Cập nhật route `/api/proxy/state` trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js) để truy vấn thêm `/inspect/connections` từ Cloud D1 và truyền vào hàm dựng bindings.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.87`.
+
 ## [0.3.84] - 2026-05-26 23:15:00
 
 ### 🧹 Đồng Bộ Hóa Bộ Lọc Connections Trong Các Scripts Dọn Dẹp (Maintenance Scripts & Routes Alignment)
