@@ -13,7 +13,7 @@ export function ConnectionsView() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/api/d1/inspect/connections?active=1');
+      const r = await fetch('/api/d1/inspect/connections');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (data.error) throw new Error(data.error);
@@ -32,7 +32,7 @@ export function ConnectionsView() {
         <CardHeader className="bg-black/10 border-b border-white/5 py-4 px-5">
           <CardTitle>
             <Link2 size={16} className="text-indigo-400" />
-            Active Connections
+            Gateway Connections
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-400 font-bold">{items.length}</span>
             <span
               className="ml-2 text-[10px] text-slate-500 font-normal cursor-help"

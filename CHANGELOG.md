@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.81] - 2026-05-26 22:30:00
+
+### 🔄 Đồng Bộ Hóa Trạng Thái Connection Không Hoạt Động (Inactive/Disabled Connections Parity)
+- **Hiển Thị Tài Khoản Tắt Cục Bộ/Trên Gateway (Inactive Connection Support)**:
+  - Loại bỏ tham số filter `?active=1` khi Tools truy vấn danh sách kết nối từ D1 Cloud tại `ConnectionsView.tsx`, `AccountsView.tsx`, và `ServicesView.tsx`.
+  - Khắc phục sự cố lệch dữ liệu: hiển thị đầy đủ các tài khoản đã được liên kết nhưng bị tắt (`is_active = 0` hoặc trạng thái `disabled` từ Gateway), thay vì lọc bỏ chúng dẫn đến hiển thị thiếu số lượng tài khoản so với Gateway (hiển thị 3 connection thay vì chỉ hiển thị 2 active connection).
+  - Cập nhật tiêu đề hiển thị từ `Active Connections` thành `Gateway Connections` tại giao diện Connections để biểu thị chính xác nguồn dữ liệu và trạng thái tổng quan từ Gateway.
+- **Dọn Dẹp Tài Khoản Thừa Thủ Công**:
+  - Thực thi cập nhật trực tiếp SQLite local đặt các tài khoản thừa không còn tồn tại trên Gateway (`morgankovacs`, `gibsongrace`) từ trạng thái `ready` thành `idle`, và đồng bộ hóa (push tombstone) lập tức lên D1 Cloud giúp làm sạch giao diện và đồng bộ số lượng chính xác 3 tài khoản.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.81`.
+
 ## [0.3.80] - 2026-05-26 04:10:00
 
 ### 💾 Bền Vững Hóa Hàng Đợi Xóa D1 Qua Restart (Persistent Delete Queue)
