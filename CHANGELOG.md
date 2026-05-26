@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.96] - 2026-05-27 03:42:00
+
+### 🔄 Đồng Bộ Hóa Hoàn Hảo Proxy Slots (Proxy Slots Parity & Preservation Align)
+- **Tương thích bảo toàn slot của Gateway**:
+  - Hợp tác chặt chẽ với logic bảo toàn slot mới trên `seellm-gateway` (v0.0.242) nhằm duy trì trạng thái gán slots đồng đều giữa Tools và Gateway.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.96`.
+
 ## [0.3.95] - 2026-05-27 03:12:00
 
 ### 🛡️ Giải Pháp Đột Phá: Bộ Chọn Workspace Hai Cấp Kết Hợp Click DOM Dự Phòng Siêu Đáng Tin Cậy (Two-Level Sub-Menu Expansion & DOM Click Fallback for Workspace Lock)
