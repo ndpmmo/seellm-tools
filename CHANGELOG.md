@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.93] - 2026-05-27 01:08:00
+
+### 🐛 Sửa Lỗi Click Nhầm Workspace Org Thay Vì Personal (Wrong Workspace Row Selection Fix)
+- **Nguyên nhân**: Strategy A (v0.3.92) walk UP DOM từ nút "Open" và kiểm tra nếu container có chứa "personal workspace" → nhưng do đi quá cao lên container cha chứa CẢ HAI workspace rows, điều kiện khớp ngay từ nút "Open" **đầu tiên** (SeeLLM Workspace) → click nhầm workspace tổ chức không có plan, khiến ChatGPT không tìm thấy `#prompt-textarea`.
+- **Giải pháp**: Áp dụng nguyên tắc **"smallest matching ancestor"**: khi walk UP DOM, không dừng ngay khi tìm thấy container có "personal workspace" mà phải kiểm tra thêm **parent của container đó có chứa "personal workspace" không** — nếu có thì container hiện tại vẫn còn quá rộng (bao gồm nhiều row), tiếp tục đi lên. Chỉ dừng khi tìm được container nhỏ nhất mà parent của nó không còn chứa "personal workspace" nữa = đây chính là hàng (row) cá nhân thực sự.
+- **Cả Strategy A và B** đều được áp dụng logic này để đảm bảo luôn click đúng nút "Open" của đúng hàng Personal workspace.
+- **package.json**: Nâng phiên bản lên `0.3.93`.
+
 ## [0.3.92] - 2026-05-27 00:51:00
 
 ### 🔧 Viết Lại Cơ Chế Phát Hiện & Click Nút Open Personal Workspace (Workspace Selection Complete Rewrite)

@@ -755,41 +755,51 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
         };
 
         // ── Strategy A: Scan all visible "Open"-type buttons.
-        // For each one, walk UP the DOM to find its containing row.
-        // Then check if that row contains a "Personal workspace" / "personal" label.
-        // This is the most reliable approach for the "Launch a workspace" row-based layout.
+        // Walk UP the DOM from each "Open" button looking for the SMALLEST container
+        // that contains "personal workspace" text. We stop at the first ancestor where
+        // the PARENT no longer has "personal workspace" (meaning we found the actual row).
         const openKeywords = ['open', 'mở', 'select', 'chọn', 'launch', 'enter', 'go'];
         const allBtns = Array.from(document.querySelectorAll('button, [role="button"], a')).filter(isVisible);
 
-        // First, find ALL buttons that look like an "Open" action button
         const openBtns = allBtns.filter(btn => {
           const t = (btn.textContent || btn.innerText || btn.value || '').toLowerCase().trim();
           return openKeywords.some(k => t === k || t === k + ' ');
         });
 
         for (const btn of openBtns) {
-          // Walk up the DOM tree from this Open button to find the row container
           let container = btn.parentElement;
-          for (let depth = 0; depth < 6 && container; depth++) {
-            const containerText = (container.textContent || '').toLowerCase();
-            if (personalKeywords.some(k => containerText.includes(k))) {
-              // This Open button is inside a Personal workspace row — click it!
-              btn.focus();
-              btn.click();
-              btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return { ok: true, clicked: true, strategy: 'open_btn_in_personal_row', text: (container.textContent || '').trim().slice(0, 80) };
+          let bestMatch = null;
+          for (let depth = 0; depth < 8 && container; depth++) {
+            const cText = (container.textContent || '').toLowerCase();
+            const hasPersonal = personalKeywords.some(k => cText.includes(k));
+            if (hasPersonal) {
+              // Check if parent ALSO has "personal" text — if so, we haven't found the row yet
+              const parentText = (container.parentElement?.textContent || '').toLowerCase();
+              const parentHasPersonal = personalKeywords.some(k => parentText.includes(k));
+              if (!parentHasPersonal) {
+                // This is the SMALLEST container with "personal" — the actual row
+                bestMatch = { btn, container };
+                break;
+              }
+              // Parent also has personal, but keep going up to find the row boundary
             }
             container = container.parentElement;
           }
+          if (bestMatch) {
+            bestMatch.btn.focus();
+            bestMatch.btn.click();
+            bestMatch.btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            bestMatch.btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            bestMatch.btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return { ok: true, clicked: true, strategy: 'open_btn_in_personal_row', text: (bestMatch.container.textContent || '').trim().slice(0, 80) };
+          }
         }
 
-        // ── Strategy B: Find any visible element (div/span/p) containing ONLY
-        // "personal workspace" text (exact subtitle label), then find the nearest Open button
+        // ── Strategy B: Find the element whose OWN text (text nodes only) contains
+        // "personal workspace", then walk UP to find the row and click its Open button.
+        // We stop walking up as soon as we find an Open button — that's the row's button.
         const allEls = Array.from(document.querySelectorAll('*')).filter(el => {
           if (!isVisible(el)) return false;
-          // Look for elements that are leaf-like text nodes
           const ownText = Array.from(el.childNodes)
             .filter(n => n.nodeType === Node.TEXT_NODE)
             .map(n => n.textContent.toLowerCase().trim())
@@ -798,18 +808,26 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
         });
 
         for (const labelEl of allEls) {
-          // Walk up to find the row container, then find the first visible button in it
+          // Walk up to find the row container — stop as soon as we find an Open button
           let container = labelEl.parentElement;
-          for (let depth = 0; depth < 6 && container; depth++) {
-            const btn = Array.from(container.querySelectorAll('button, [role="button"], a'))
+          for (let depth = 0; depth < 8 && container; depth++) {
+            // Only search for Open buttons WITHIN this container (not all descendants of a huge parent)
+            const cText = (container.textContent || '').toLowerCase();
+            // Make sure we haven't gone too far (parent also has other workspace names)
+            const openBtn = Array.from(container.querySelectorAll('button, [role="button"], a'))
               .find(b => isVisible(b) && openKeywords.some(k => (b.textContent || b.innerText || '').toLowerCase().trim() === k));
-            if (btn) {
-              btn.focus();
-              btn.click();
-              btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return { ok: true, clicked: true, strategy: 'label_then_open_btn', text: (container.textContent || '').trim().slice(0, 80) };
+            if (openBtn) {
+              // Verify this container is small enough (not the entire list)
+              const parentText = (container.parentElement?.textContent || '').toLowerCase();
+              const parentHasPersonal = personalKeywords.some(k => parentText.includes(k));
+              if (!parentHasPersonal) {
+                openBtn.focus();
+                openBtn.click();
+                openBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                openBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                openBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return { ok: true, clicked: true, strategy: 'label_then_open_btn', text: cText.trim().slice(0, 80) };
+              }
             }
             container = container.parentElement;
           }
