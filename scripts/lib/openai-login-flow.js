@@ -237,6 +237,7 @@ export async function getState(tabId, userId) {
       const rawHasError = ERROR_KW.some(k => body.includes(k));
       const hasProfileBtn = !!(
         document.querySelector('[data-testid="profile-button"]') ||
+        document.querySelector('[data-testid="accounts-profile-button"]') ||
         document.querySelector('[data-testid="user-menu-button"]') ||
         document.querySelector('[aria-label="Open user menu"]') ||
         document.querySelector('[aria-label="User menu"]')
@@ -744,8 +745,45 @@ export function isAuthLoginLikeScreen(url = '', snapshot = '') {
  */
 export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs = 15000, waitRedirect = true } = {}) {
   try {
+    // Dismiss any blocking restricted popup/overlay on this page first
+    await evalJson(tabId, userId, `(() => {
+      const hasModal = !!document.querySelector('#modal-request-workspace-access, [data-testid="modal-request-workspace-access"]');
+      const body = (document.body?.innerText || '').toLowerCase();
+      const isRestricted = hasModal || 
+                           body.includes("don't have chatgpt") || 
+                           body.includes("don’t have chatgpt") || 
+                           body.includes("codex access") ||
+                           body.includes("back to codex");
+      if (isRestricted) {
+        // Try elegant dismiss first
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const closeBtn = buttons.find(el => {
+          const label = (el.getAttribute('aria-label') || '').toLowerCase();
+          const text = (el.textContent || '').trim().toLowerCase();
+          return label.includes('close') || label.includes('đóng') || text === '✕' || text === '×';
+        });
+        if (closeBtn) {
+          closeBtn.click();
+          closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        
+        // Force-remove modal dialog and backdrop elements from DOM to unlock pointer-events!
+        const targets = document.querySelectorAll('[role="dialog"], #modal-request-workspace-access, [data-testid="modal-request-workspace-access"], [class*="backdrop"], [class*="overlay"]');
+        targets.forEach(t => t.remove());
+        
+        // Unlock pointer events
+        document.body.style.pointerEvents = 'auto';
+        document.body.style.overflow = 'auto';
+        document.body.removeAttribute('data-scroll-locked');
+        document.documentElement.style.pointerEvents = 'auto';
+        document.documentElement.style.overflow = 'auto';
+      }
+    })()`, 5000);
+    await new Promise(r => setTimeout(r, 2000));
+
     const result = await evalJson(tabId, userId, `
-      (() => {
+      (async () => {
         const personalKeywords = ${JSON.stringify(MULTILANG.personal)};
         const isVisible = el => {
           if (!el) return false;
@@ -753,6 +791,69 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
           const s = window.getComputedStyle(el);
           return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
         };
+
+        // ── Strategy Pre: Profile Dropdown Switch (if dashboard sidebar is visible) ──
+        const profileBtn = document.querySelector('[data-testid="accounts-profile-button"]');
+        if (profileBtn && isVisible(profileBtn)) {
+          // 1. Click Profile Button to open main profile menu
+          profileBtn.focus();
+          profileBtn.click();
+          profileBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          profileBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          profileBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // 2. Click active workspace switcher item to open sub-menu
+          const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button, div, a')).filter(isVisible);
+          const switcherItem = menuItems.find(el => {
+            const text = (el.textContent || '').toLowerCase().trim();
+            return (text.includes('seellm') || text.includes('business') || text.includes('workspace')) && 
+                   !text.includes('settings') && !text.includes('invite');
+          });
+          
+          if (switcherItem) {
+            switcherItem.focus();
+            switcherItem.click();
+            switcherItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            switcherItem.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            switcherItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            
+            await new Promise(r => setTimeout(r, 2000));
+            
+            // 3. Find and click "Gabriel Webb" or "Personal" item in the expanded sub-menu
+            const subItems = Array.from(document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"], button, div, a')).filter(isVisible);
+            const personalItem = subItems.find(el => {
+              const text = (el.textContent || '').toLowerCase().trim();
+              return personalKeywords.some(k => text.includes(k)) && 
+                     (el.getAttribute('role') === 'menuitemradio' || el.getAttribute('role') === 'menuitem');
+            });
+            
+            if (personalItem) {
+              personalItem.focus();
+              personalItem.click();
+              personalItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              personalItem.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              personalItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { ok: true, clicked: true, strategy: 'profile_dropdown_submenu_switch', text: (personalItem.textContent || '').trim().slice(0, 60) };
+            }
+          }
+          
+          // Fallback Strategy A2: Directly search menu for personalItem if submenu trigger was not needed
+          const personalItemDirect = menuItems.find(el => {
+            const text = (el.textContent || '').toLowerCase().trim();
+            return personalKeywords.some(k => text.includes(k)) && el !== profileBtn && !el.contains(profileBtn);
+          });
+          if (personalItemDirect) {
+            personalItemDirect.focus();
+            personalItemDirect.click();
+            personalItemDirect.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            personalItemDirect.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            personalItemDirect.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return { ok: true, clicked: true, strategy: 'profile_dropdown_direct', text: (personalItemDirect.textContent || '').trim().slice(0, 60) };
+          }
+        }
+
 
         // ── Strategy A: Direct listitem query with data-testid="existing-workspace-row"
         const rows = Array.from(document.querySelectorAll('[data-testid="existing-workspace-row"]')).filter(isVisible);

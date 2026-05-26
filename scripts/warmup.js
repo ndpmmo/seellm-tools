@@ -501,6 +501,120 @@ async function runWarmup() {
     } else {
       console.log(`[Warmup] ✅ Session hợp lệ!`);
     }
+
+    // 6b. Self-healing wrong/restricted workspace (e.g. Codex/SeeLLM plan instead of Personal account)
+    if (isLoggedIn) {
+      const isRestricted = await evalJson(tabId, USER_ID, `(() => {
+        const body = (document.body?.innerText || '').toLowerCase();
+        return body.includes("you don't have chatgpt access on this plan") || 
+               body.includes("assigned codex access only") ||
+               body.includes("back to codex");
+      })()`);
+
+      if (isRestricted) {
+        console.log(`[Warmup] ⚠️ Phát hiện tài khoản đang ở Workspace bị giới hạn! Đang tự động chuyển sang Personal Workspace...`);
+        
+        if (WARMUP_SCREENSHOTS && stepRecorder) {
+          await stepRecorder.checkpoint(2, 2, 'wrong_workspace_detected');
+        }
+
+        // STEP 1: Dismiss the blocking restricted modal dialog and its backdrop first!
+        await evalJson(tabId, USER_ID, `(() => {
+          // Press Escape key
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+          
+          // Click close "X" button if found
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const closeBtn = buttons.find(el => {
+            const label = (el.getAttribute('aria-label') || '').toLowerCase();
+            const text = (el.textContent || '').trim().toLowerCase();
+            return label.includes('close') || label.includes('đóng') || text === '✕' || text === '×';
+          });
+          if (closeBtn) {
+            closeBtn.click();
+            closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          }
+        })()`);
+        console.log(`[Warmup] 🛡️ Đã bấm đóng/Escape để tắt hộp thoại chặn và giải phóng backdrop...`);
+        await delay(2000);
+
+        // STEP 2: Click profile button at the bottom of the sidebar, open dropdown menu, and select Personal account
+        const switchResult = await evalJson(tabId, USER_ID, `(async () => {
+          const isVisible = el => {
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+          };
+
+          const profileBtn = document.querySelector('[data-testid="accounts-profile-button"]');
+          if (!profileBtn || !isVisible(profileBtn)) return 'profile_button_not_visible';
+          
+          profileBtn.focus();
+          profileBtn.click();
+          profileBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          profileBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          profileBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          
+          // Wait 2 seconds for dropdown menu to appear in DOM
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // Search for "Personal account" or personal keywords inside open Radix menu
+          const personalKeywords = ['personal account', 'personal workspace', 'cá nhân', 'gabriel webb', 'personal'];
+          const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button, div, a')).filter(isVisible);
+          
+          const personalItem = menuItems.find(el => {
+            const text = (el.textContent || '').toLowerCase().trim();
+            if (!personalKeywords.some(k => text.includes(k))) return false;
+            if (text.length > 120) return false;
+            if (el === profileBtn || el.contains(profileBtn)) return false;
+            
+            // Ensure this is a leaf-like match (no child element also matches the personal keywords)
+            const hasMatchingChild = Array.from(el.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, div, a')).some(child => {
+              if (child === el) return false;
+              const childText = (child.textContent || '').toLowerCase().trim();
+              return personalKeywords.some(k => childText.includes(k)) && isVisible(child);
+            });
+            if (hasMatchingChild) return false;
+            
+            return true;
+          });
+          
+          if (personalItem) {
+            personalItem.focus();
+            personalItem.click();
+            personalItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            personalItem.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            personalItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return 'clicked_personal_item_in_menu: ' + (personalItem.textContent || '').trim().slice(0, 60);
+          }
+          
+          return 'personal_item_not_found_in_menu_items_count_' + menuItems.length;
+        })()`);
+
+        console.log(`[Warmup] 🗂️ Kết quả chuyển Workspace: ${switchResult}`);
+        await delay(5000);
+
+        // Fallback Strategy B: If profile dropdown failed, navigate to /workspace directly and use the standard selection helper!
+        if (!switchResult.startsWith('clicked_personal_item')) {
+          console.log(`[Warmup] ⚠️ Chuyển bằng Dropdown thất bại. Sử dụng Fallback: Điều hướng trực tiếp sang /workspace...`);
+          await navigate(tabId, USER_ID, 'https://chatgpt.com/workspace');
+          await delay(6000);
+          
+          if (WARMUP_SCREENSHOTS && stepRecorder) {
+            await stepRecorder.checkpoint(2, 3, 'forced_workspace_navigation');
+          }
+
+          const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 20000 });
+          console.log(`[Warmup] ✅ Kết quả chọn Workspace tại trang /workspace: ${JSON.stringify(wsResult)}`);
+          await delay(5000);
+        }
+
+        if (WARMUP_SCREENSHOTS && stepRecorder) {
+          await stepRecorder.checkpoint(2, 4, 'after_workspace_healed');
+        }
+      }
+    }
     
     if (WARMUP_SCREENSHOTS && stepRecorder) {
       await stepRecorder.checkpoint(2, 1, 'chatgpt_logged_in_dashboard');
