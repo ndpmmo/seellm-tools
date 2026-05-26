@@ -754,8 +754,25 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
           return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
         };
 
-        // ── Strategy A: Scan all visible "Open"-type buttons.
-        // Walk UP the DOM from each "Open" button looking for the SMALLEST container
+        // ── Strategy A: Direct listitem query with data-testid="existing-workspace-row"
+        const rows = Array.from(document.querySelectorAll('[data-testid="existing-workspace-row"]')).filter(isVisible);
+        for (const row of rows) {
+          const rowText = (row.textContent || '').toLowerCase();
+          const hasPersonal = personalKeywords.some(k => rowText.includes(k));
+          if (hasPersonal) {
+            const openBtn = row.querySelector('button');
+            if (openBtn && isVisible(openBtn)) {
+              openBtn.focus();
+              openBtn.click();
+              openBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              openBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              openBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { ok: true, clicked: true, strategy: 'testid_row_personal_btn', text: rowText.trim().slice(0, 80) };
+            }
+          }
+        }
+
+        // ── Strategy B: Walk UP the DOM from each "Open" button looking for the SMALLEST container
         // that contains "personal workspace" text. We stop at the first ancestor where
         // the PARENT no longer has "personal workspace" (meaning we found the actual row).
         const openKeywords = ['open', 'mở', 'select', 'chọn', 'launch', 'enter', 'go'];
@@ -781,7 +798,6 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
                 bestMatch = { btn, container };
                 break;
               }
-              // Parent also has personal, but keep going up to find the row boundary
             }
             container = container.parentElement;
           }
@@ -795,9 +811,8 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
           }
         }
 
-        // ── Strategy B: Find the element whose OWN text (text nodes only) contains
+        // ── Strategy C: Find the element whose OWN text (text nodes only) contains
         // "personal workspace", then walk UP to find the row and click its Open button.
-        // We stop walking up as soon as we find an Open button — that's the row's button.
         const allEls = Array.from(document.querySelectorAll('*')).filter(el => {
           if (!isVisible(el)) return false;
           const ownText = Array.from(el.childNodes)
@@ -808,16 +823,12 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
         });
 
         for (const labelEl of allEls) {
-          // Walk up to find the row container — stop as soon as we find an Open button
           let container = labelEl.parentElement;
           for (let depth = 0; depth < 8 && container; depth++) {
-            // Only search for Open buttons WITHIN this container (not all descendants of a huge parent)
             const cText = (container.textContent || '').toLowerCase();
-            // Make sure we haven't gone too far (parent also has other workspace names)
             const openBtn = Array.from(container.querySelectorAll('button, [role="button"], a'))
               .find(b => isVisible(b) && openKeywords.some(k => (b.textContent || b.innerText || '').toLowerCase().trim() === k));
             if (openBtn) {
-              // Verify this container is small enough (not the entire list)
               const parentText = (container.parentElement?.textContent || '').toLowerCase();
               const parentHasPersonal = personalKeywords.some(k => parentText.includes(k));
               if (!parentHasPersonal) {
@@ -833,7 +844,7 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
           }
         }
 
-        // ── Strategy C: Find button containing "personal" keywords in its own text (old approach)
+        // ── Strategy D: Find button containing "personal" keywords in its own text
         const personalBtn = allBtns.find(el => {
           const text = (el.textContent || '').toLowerCase();
           return personalKeywords.some(k => text.includes(k));

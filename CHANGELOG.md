@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.94] - 2026-05-27 01:40:00
+
+### 🛡️ Nâng Cấp Bộ Chọn Workspace Cá Nhân Độ Tin Cậy Cao (Data-TestID Workspace Row Selector Upgrade)
+- **Giải Pháp Triệt Để**:
+  - Dựa trên DOM thật của trang chọn Workspace ChatGPT thu được từ tài khoản `rafaelfreemaniorz@hotmail.com` (chứa list các `[data-testid="existing-workspace-row"]`), đã triển khai bộ chọn **Strategy A** vô cùng tin cậy trực tiếp truy vấn theo thuộc tính này.
+  - Quét qua toàn bộ các hàng có `data-testid="existing-workspace-row"`, tìm hàng chứa text "Personal workspace" (từ khóa đa ngôn ngữ) và click trực tiếp vào thẻ `<button>` ("Open") thuộc hàng đó.
+  - Khắc phục triệt để tình trạng walk UP DOM bị nhầm hàng SeeLLM Workspace do phạm vi container cha bị rộng quá.
+- **package.json**: Nâng phiên bản lên `0.3.94`.
+
 ## [0.3.93] - 2026-05-27 01:08:00
 
 ### 🐛 Sửa Lỗi Click Nhầm Workspace Org Thay Vì Personal (Wrong Workspace Row Selection Fix)
