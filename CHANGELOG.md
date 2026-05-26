@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.91] - 2026-05-27 00:45:00
+
+### 🐛 Khắc Phục Lỗi Trùng Khai Báo Biến Trong Eval DOM (Eval Redeclaration Syntax Error Fix)
+- **Loại Bỏ Khai Báo Hằng Số Trùng Lặp**:
+  - Dọn dẹp triệt để và xóa bỏ các khai báo hằng số logged-in trùng lặp (`const hasProfileBtn`, `const hasSignUpInPage`, v.v.) nằm ở đầu hàm IIFE eval của `getState` trong [scripts/lib/openai-login-flow.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/lib/openai-login-flow.js).
+  - Khắc phục hoàn toàn lỗi cú pháp trình duyệt `SyntaxError: redeclaration of const hasProfileBtn` làm sập tiến trình eval và gây lỗi runtime `Cannot read properties of null (reading 'looksLoggedIn')`.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.91`.
+
 ## [0.3.90] - 2026-05-27 00:36:00
 
 ### 🛡️ Ngăn Chặn Nhận Diện Nhầm Trạng Thái Đăng Nhập Trên Màn Hình Chọn Workspace (Login Detection Accuracy Upgrade)

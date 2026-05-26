@@ -160,25 +160,6 @@ export async function getState(tabId, userId) {
       const body  = (document.body?.innerText || '').toLowerCase();
       const lowerUrl = href.toLowerCase();
 
-      // ── Logged-in indicators (phải đủ chặt) ──
-      const hasProfileBtn = !!(
-        document.querySelector('[data-testid="profile-button"]') ||
-        document.querySelector('[data-testid="user-menu-button"]') ||
-        document.querySelector('[aria-label="Open user menu"]') ||
-        document.querySelector('[aria-label="User menu"]')
-      );
-      const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
-      const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
-
-      // Dấu hiệu dự phòng: có "new chat" hoặc "search chats" mà KHÔNG CÓ "log in" hay "sign up"
-      // (ChatGPT đôi khi không expose profile-button selector ngay sau khi login)
-      const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
-
-      const isConversation  = href.includes('/c/') || href.includes('/g/');
-      // Trên chatgpt.com root mà không có auth/signup → coi như logged in (cookie còn hạn)
-      const isChatgptHome   = (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
-      const looksLoggedIn   = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
-
       const isVisible = el => {
         if (!el) return false;
         const s = window.getComputedStyle(el);
