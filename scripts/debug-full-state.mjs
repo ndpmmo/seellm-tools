@@ -17,7 +17,7 @@ console.log(`Visible: ${(fetch1.items || []).length}`);
 });
 
 console.log('\n=== D1 ACTIVE CONNECTIONS ===');
-const fetch2 = await fetch('http://localhost:4000/api/d1/inspect/connections?active=1').then(r => r.json());
+const fetch2 = await fetch('http://localhost:4000/api/d1/inspect/connections').then(r => r.json());
 console.log(`Active: ${(fetch2.items || []).length}`);
 (fetch2.items || []).forEach(c => {
   let wsid = null;

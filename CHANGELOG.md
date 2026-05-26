@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.84] - 2026-05-26 23:15:00
+
+### 🧹 Đồng Bộ Hóa Bộ Lọc Connections Trong Các Scripts Dọn Dẹp (Maintenance Scripts & Routes Alignment)
+- **Chuẩn Hóa API Endpoint Trong Các Scripts**:
+  - Loại bỏ bộ lọc `?active=1` ra khỏi các endpoint truy cập danh sách kết nối trong các scripts bảo trì và debug:
+    - [cleanup-d1-stale-connections-v2.mjs](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/cleanup-d1-stale-connections-v2.mjs)
+    - [cleanup-d1-stale-connections.mjs](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/cleanup-d1-stale-connections.mjs)
+    - [debug-full-state.mjs](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/debug-full-state.mjs)
+  - Điều này đảm bảo các scripts quét dọn và gỡ lỗi nhận diện chính xác toàn bộ connections từ Gateway (bao gồm cả connections inactive), tránh việc vô ý bỏ sót hoặc dọn dẹp nhầm các connection đang tạm tắt.
+- **Chuẩn Hóa API Route Dọn Dẹp Remote**:
+  - Cập nhật route `/api/vault/sync/cleanup-stale` trong [server/routes/vault.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server/routes/vault.js) để không sử dụng `?active=1` khi lấy danh sách connections, đảm bảo tính nhất quán tuyệt đối của tiến trình dọn dẹp rác mồ côi từ UI của Tools.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.84`.
+
 ## [0.3.83] - 2026-05-26 23:00:00
 
 ### 🩺 Hoàn Thiện Tự Phục Hồi & Tích Hợp Đồng Bộ Tức Thời Qua Event Bus (Self-Healing & Event Bus Revocation Sync)

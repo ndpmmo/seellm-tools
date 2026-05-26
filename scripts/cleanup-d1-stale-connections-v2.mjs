@@ -16,7 +16,7 @@ const baseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
 const headers = { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' };
 
 // 1. Get all active connections
-const connRes = await fetch(`${baseUrl}/inspect/connections?active=1`, { headers });
+const connRes = await fetch(`${baseUrl}/inspect/connections`, { headers });
 const connData = await connRes.json();
 const connections = connData.items || [];
 console.log(`Active connections on D1: ${connections.length}`);
@@ -66,6 +66,6 @@ const pushData = await pushRes.json();
 console.log(`\nPush result:`, JSON.stringify(pushData, null, 2));
 
 // 5. Verify
-const verifyRes = await fetch(`${baseUrl}/inspect/connections?active=1`, { headers });
+const verifyRes = await fetch(`${baseUrl}/inspect/connections`, { headers });
 const verifyData = await verifyRes.json();
 console.log(`\nActive connections after cleanup: ${(verifyData.items || []).length}`);

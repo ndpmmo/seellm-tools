@@ -45,7 +45,7 @@ async function d1Req(endpoint, opts = {}) {
 
 async function main() {
   console.log("Fetching active connections from D1...");
-  const connRes = await d1Req("inspect/connections?active=1&limit=500");
+  const connRes = await d1Req("inspect/connections?limit=500");
   const connections = connRes.items || [];
   console.log(`  → ${connections.length} active connections`);
 

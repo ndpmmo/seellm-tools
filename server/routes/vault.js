@@ -1864,7 +1864,7 @@ router.post('/sync/cleanup-stale', async (req, res) => {
     const headers = { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' };
 
     // 1. Lấy tất cả active connections trên D1
-    const connRes = await fetch(`${baseUrl}/inspect/connections?active=1`, { headers });
+    const connRes = await fetch(`${baseUrl}/inspect/connections`, { headers });
     const connData = await connRes.json();
     const connections = connData.items || [];
 
