@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.83] - 2026-05-26 23:00:00
+
+### 🩺 Hoàn Thiện Tự Phục Hồi & Tích Hợp Đồng Bộ Tức Thời Qua Event Bus (Self-Healing & Event Bus Revocation Sync)
+- **Tích Hợp Event Bus Thu Hồi Tức Thời (Real-time Event Bus Revocation)**:
+  - Cập nhật bộ lắng nghe sự kiện `ACCOUNT_DELETED` trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js) từ Event Bus của Gateway.
+  - Khi nhận được sự kiện xóa tài khoản, hệ thống sẽ ngay lập tức cập nhật trạng thái local thành `idle` (nếu không phải do người dùng đang cố ý deploy thủ công) tương tự như luồng `pullVault`, giúp đồng bộ trạng thái tức thời chỉ trong vòng vài giây mà không cần đợi chu kỳ quét kéo tiếp theo.
+- **Tối Ưu Hóa Tự Phục Hồi Tránh Xung Đột (Self-Healing Conflict Resolution)**:
+  - Tinh chỉnh tiến trình Self-Healing quét định kỳ 3 giờ trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js).
+  - Khắc phục lỗi tự động đẩy ngược các tài khoản đã bị Gateway thu hồi (revoked): Thay vì re-push khi phát hiện trạng thái lệch (`status = 'ready' AND gateway_status = 'revoked'`), Self-Healing giờ đây sẽ tự động chuyển trạng thái local thành `idle` để đồng bộ hoàn chỉnh với Gateway.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.83`.
+
 ## [0.3.82] - 2026-05-26 22:45:00
 
 ### 🛡️ Cải Tiến Cấu Trúc & Ngăn Ngừa Vòng Lặp Đồng Bộ (Structural Improvement & Sync Loop Guard)

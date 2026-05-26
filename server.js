@@ -1047,9 +1047,20 @@ app.prepare().then(async () => {
             // [FIX v5] Vault là kho ĐỘC LẬP — chỉ update gateway_status, KHÔNG set local status.
             // User muốn thay đổi local status → bấm Stop trong Vault UI.
             if (accountId) {
-              const local = vault.db.prepare('SELECT id FROM vault_accounts WHERE id = ?').get(accountId);
+              const local = vault.db.prepare('SELECT status, updated_at, connect_pending, email FROM vault_accounts WHERE id = ?').get(accountId);
               if (local) {
                 vault.updateGatewayStatus(accountId, 'revoked');
+                
+                if (local.status !== 'idle') {
+                  const isUserPending = local.status === 'pending' ||
+                    local.status === 'processing' ||
+                    Number(local.connect_pending) > 0;
+                  
+                  if (!isUserPending) {
+                    console.log(`[EventBus] 🔄 Auto-reverting local account status to 'idle' due to Gateway deletion event: ${local.email || accountId}`);
+                    vault.updateAccountStatus(accountId, 'idle');
+                  }
+                }
                 hasChanges = true;
               }
 
@@ -1113,16 +1124,23 @@ app.prepare().then(async () => {
         });
         console.log(`[Sync] 🩺 Self-Healing hoàn tất. Sửa lỗi: ${accountsRepaired} account, ${proxiesRepaired} proxy.`);
 
-        // Self-heal gateway_status mismatch: ready nhưng gw≠active, hoặc idle nhưng gw=active
+        // Self-heal gateway_status mismatch: ready nhưng gw≠active, hoặc idle nhưng gw=active, hoặc ready nhưng gw=revoked
         let gwRepaired = 0;
         const mismatch = vault.db.prepare(`
           SELECT id, email, status, ever_ready, gateway_status FROM vault_accounts
           WHERE deleted_at IS NULL AND (
-            (status = 'ready' AND ever_ready = 1 AND (gateway_status IS NULL OR gateway_status != 'active'))
+            (status = 'ready' AND ever_ready = 1 AND (gateway_status IS NULL OR (gateway_status != 'active' AND gateway_status != 'revoked')))
             OR (status = 'idle' AND gateway_status = 'active')
+            OR (status = 'ready' AND gateway_status = 'revoked')
           )
         `).all();
         for (const m of mismatch) {
+          if (m.status === 'ready' && m.gateway_status === 'revoked') {
+            console.log(`[Sync] 🩺 Auto-healing local status to 'idle' (Gateway revoked): ${m.email}`);
+            vault.updateAccountStatus(m.id, 'idle');
+            gwRepaired++;
+            continue;
+          }
           const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(m.id);
           if (fullRecord) {
             console.log(`[Sync] 🩺 gateway_status mismatch: ${m.email} status=${m.status} gw=${m.gateway_status} → re-push`);
