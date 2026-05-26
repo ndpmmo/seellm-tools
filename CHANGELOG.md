@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.90] - 2026-05-27 00:36:00
+
+### 🛡️ Ngăn Chặn Nhận Diện Nhầm Trạng Thái Đăng Nhập Trên Màn Hình Chọn Workspace (Login Detection Accuracy Upgrade)
+- **Tách Biệt Trạng Thái Logged-in Hoàn Toàn**:
+  - Tinh chỉnh hàm `getState` trong [scripts/lib/openai-login-flow.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/lib/openai-login-flow.js) để loại trừ toàn bộ các màn hình trung gian đăng nhập và bảo mật khỏi cờ `looksLoggedIn`.
+  - Giờ đây, `looksLoggedIn` sẽ luôn là `false` khi trang web đang ở màn hình chọn Workspace (`isWorkspaceScreen = true`), màn hình điền email, mật khẩu, MFA, onboarding hoặc trang lỗi. Điều này giúp ngăn chặn tuyệt đối tình trạng script warm-up tưởng lầm là đã đăng nhập và bỏ qua login flow.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.90`.
+
 ## [0.3.89] - 2026-05-27 00:30:00
 
 ### 🔄 Tối Ưu Hóa Tự Động Chọn Personal Workspace Khi Warmup (Onboarding & Workspace Selection Recovery)

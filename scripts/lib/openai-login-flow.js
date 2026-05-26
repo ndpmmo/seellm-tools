@@ -233,23 +233,56 @@ export async function getState(tabId, userId) {
       // ── Phone verify ──
       const hasPhoneScreen = isAddPhonePage || PHONE_KW.some(k => body.includes(k));
 
-      // ── Error screen ──
-      // Only flag as error when on auth domain or NOT logged in.
-      // chatgpt.com homepage may contain "try again" or other keywords.
-      // We check for specific ERROR_KW to avoid false positives.
-      const rawHasError = ERROR_KW.some(k => body.includes(k));
-      const hasError = rawHasError && (onAuthDomain || !looksLoggedIn);
-
-      const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
-
       // ── Onboarding screen ──
       const isOnboarding = lowerUrl.includes('/onboarding') || body.includes('how old are you') || body.includes('finish creating account') || body.includes('finish creating');
 
-      // Inline consent screen logic (was referencing Node function)
-      // Do NOT set isConsentScreen=true on error pages (they may contain "continue")
-      const isConsentScr = !hasError && (
+      // ── Workspace Screen ──
+      const isWorkspaceScr = (
+        lowerUrl.includes('/workspace') ||
+        (lowerUrl.includes('sign-in-with-chatgpt') && !lowerUrl.includes('consent')) ||
+        WORKSPACE_KW.some(k => body.includes(k)) ||
+        body.includes('launch a workspace') ||
+        body.includes('choose a workspace') ||
+        body.includes('has access to')
+      );
+
+      // Inline consent screen logic
+      const isConsentScr = (
         (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
         (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'))
+      );
+
+      // ── Error screen ──
+      const rawHasError = ERROR_KW.some(k => body.includes(k));
+      const hasProfileBtn = !!(
+        document.querySelector('[data-testid="profile-button"]') ||
+        document.querySelector('[data-testid="user-menu-button"]') ||
+        document.querySelector('[aria-label="Open user menu"]') ||
+        document.querySelector('[aria-label="User menu"]')
+      );
+      const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
+      const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
+      const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
+      const isConversation  = href.includes('/c/') || href.includes('/g/');
+      const isChatgptHome   = (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
+
+      const tempLooksLoggedIn = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
+      const hasError = rawHasError && (onAuthDomain || !tempLooksLoggedIn);
+
+      const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
+
+      // ── Logged-in indicators (loại trừ chặt chẽ toàn bộ các màn hình trung gian để tránh nhận diện nhầm) ──
+      const looksLoggedIn = (
+        !hasEmailInput &&
+        !hasPasswordInput &&
+        !hasMfaInput &&
+        !hasPhoneScreen &&
+        !hasError &&
+        !hasDeactivated &&
+        !isOnboarding &&
+        !isWorkspaceScr &&
+        !isConsentScr &&
+        (((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn))
       );
 
       return {
@@ -258,7 +291,7 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         isConsentScreen: isConsentScr,
-        isWorkspaceScreen: !hasError && (lowerUrl.includes('/workspace') || (lowerUrl.includes('sign-in-with-chatgpt') && !lowerUrl.includes('consent')) || WORKSPACE_KW.some(k => body.includes(k))),
+        isWorkspaceScreen: !hasError && isWorkspaceScr,
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
         isOnboardingScreen: isOnboarding,
       };
