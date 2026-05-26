@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.82] - 2026-05-26 22:45:00
+
+### 🛡️ Cải Tiến Cấu Trúc & Ngăn Ngừa Vòng Lặp Đồng Bộ (Structural Improvement & Sync Loop Guard)
+- **Tự động Thu Hồi Trạng Thái Local (Auto Revert Local Status to Idle)**:
+  - Tích hợp cơ chế tự động chuyển đổi trạng thái tài khoản local sang `idle` trong hàm `pullVault()` của [syncManager.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server/services/syncManager.js) khi phát hiện sự kiện thu hồi (revocation) từ Gateway thông qua tombstone trên D1 Cloud.
+  - Sử dụng timestamp check để so sánh `updated_at` từ D1 và local SQLite, đồng thời bảo vệ trạng thái chuyển tiếp do người dùng khởi tạo (đang trong các tiến trình `pending`, `processing` hoặc `connect_pending > 0`) để loại bỏ hoàn toàn nguy cơ race condition.
+- **Rào Cản Ngăn Ghi Đè Ngược (Push Skip Protection)**:
+  - Bổ sung kiểm tra an toàn trong `pushVault` (`_executePush`): Nếu tài khoản có `gateway_status === 'revoked'`, hệ thống sẽ từ chối push tài khoản đó lên D1 như một active account (ready) để tránh làm bẩn D1 Cloud.
+- **Tối Ưu Hóa Bộ Lọc Dọn Dẹp Mồ Côi D1 (Cleanup-Orphans Filter Enhancement)**:
+  - Tinh chỉnh logic `/api/d1/accounts/cleanup-orphans` trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js) để loại bỏ các tài khoản local ở trạng thái `idle` khỏi danh sách `localActiveIds`. Việc này cho phép tiến trình dọn dẹp có thể nhận diện và dọn sạch các bản ghi rác/cũ trên D1 Cloud nếu chúng không còn được triển khai thực tế.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.82`.
+
 ## [0.3.81] - 2026-05-26 22:30:00
 
 ### 🔄 Đồng Bộ Hóa Trạng Thái Connection Không Hoạt Động (Inactive/Disabled Connections Parity)

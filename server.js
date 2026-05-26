@@ -806,7 +806,7 @@ app.prepare().then(async () => {
 
       // 2. Lấy danh sách local active accounts từ SQLite
       const localActiveIds = new Set(
-        vault.db.prepare("SELECT id FROM vault_accounts WHERE deleted_at IS NULL").all().map(r => String(r.id))
+        vault.db.prepare("SELECT id FROM vault_accounts WHERE deleted_at IS NULL AND status IN ('ready', 'pending', 'processing')").all().map(r => String(r.id))
       );
 
       // 3. Xác định và xóa orphan accounts (có trong D1 nhưng không có/bị xóa trong local Vault)

@@ -245,6 +245,10 @@ export const SyncManager = {
       }
       // ✅ Rule 4: Account ready → push đầy đủ cả managedAccounts + connections, đánh dấu ever_ready
       else if (data.status === 'ready') {
+        if (data.gateway_status === 'revoked') {
+          console.log(`[SyncManager] 🛑 Skip push for ${data.email || data.id}: Gateway status is revoked.`);
+          return;
+        }
         const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
         const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
         const mergedProviderData = {
@@ -730,6 +734,25 @@ export const SyncManager = {
             
             if (newGatewayStatus !== existing.gateway_status) {
               localVault.updateGatewayStatus(existing.id, newGatewayStatus);
+              
+              if (newGatewayStatus === 'revoked' && existing.status !== 'idle') {
+                const localRecord = localVault.db.prepare('SELECT status, updated_at, connect_pending FROM vault_accounts WHERE id = ?').get(existing.id);
+                const localTime = localRecord?.updated_at ? new Date(localRecord.updated_at).getTime() : 0;
+                const remoteTime = ga.updated_at ? new Date(ga.updated_at).getTime() : 0;
+                
+                const isUserPending = localRecord && (
+                  localRecord.status === 'pending' ||
+                  localRecord.status === 'processing' ||
+                  Number(localRecord.connect_pending) > 0
+                );
+                
+                if (!isUserPending && remoteTime > localTime + 1000) {
+                  console.log(`[pullVault] 🔄 Auto-reverting local account status to 'idle' due to Gateway revocation: ${existing.email}`);
+                  localVault.updateAccountStatus(existing.id, 'idle');
+                  existing.status = 'idle';
+                }
+              }
+
               existing.gateway_status = newGatewayStatus;
               changedIds.push(existing.id);
             }
