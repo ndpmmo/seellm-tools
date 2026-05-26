@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.88] - 2026-05-26 23:18:00
+
+### 🛡️ Ngăn Chặn Gán Proxy Vượt Giới Hạn Slot (Proxy Slot Limit & Allocation Safety Enforcement)
+- **Kiểm Soát Dung Lượng Proxy Trong Bulk Assign**:
+  - Cập nhật hàm xử lý API `/api/proxy-assign/bulk` trong [server.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server.js) để kiểm tra dung lượng slot khả dụng (`freeByProxy`) khi chọn phương án gán proxy có sẵn trên account (`account_proxy`).
+  - Hệ thống sẽ ném lỗi trực quan nếu proxy đã hết slot trống, chặn tuyệt đối việc gán tràn dung lượng (gán vô tội vạ) và trả về lỗi chi tiết theo từng account.
+- **Sửa Lỗi Khai Báo Biến Trong Auto Assign**:
+  - Khắc phục lỗi Syntax/Runtime trong route `/api/proxy-assign/auto` khi trả về `pending.length` (biến không tồn tại) bằng cách tham chiếu chính xác đến `localAccounts.length`.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.88`.
+
 ## [0.3.87] - 2026-05-26 23:07:00
 
 ### 🔄 Cải Tiến Cơ Chế Khớp Proxy Slot & Fallback Theo Email (Proxy Slot Mapping & Email Fallback)
