@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.95] - 2026-05-27 03:12:00
+
+### 🛡️ Giải Pháp Đột Phá: Bộ Chọn Workspace Hai Cấp Kết Hợp Click DOM Dự Phòng Siêu Đáng Tin Cậy (Two-Level Sub-Menu Expansion & DOM Click Fallback for Workspace Lock)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Khi thực hiện luồng Warmup hoặc khôi phục phiên cookie đăng nhập tự động, tài khoản bị kẹt ở màn hình đen hiển thị banner/modal thông báo Codex: *"You don't have ChatGPT access on this plan. You are assigned Codex access only"*.
+  - Màn hình này khóa cứng mọi hoạt động tương tác hội thoại. Mặc dù hệ thống đã cố gắng tắt popup bằng phím `Escape`, tài khoản vẫn bị kẹt ở Workspace doanh nghiệp mặc định (`SeeLLM Workspace Business`) mà không thể chuyển đổi về Workspace cá nhân (`Personal`) để khôi phục quyền truy cập ChatGPT thông thường.
+- **Nguyên Nhân Cốt Lõi (Root Causes)**:
+  1. *Lỗi nhận diện từ khóa sai lệch (False Positive Substring Match)*: Bộ lọc cũ so khớp từ khóa `"personal"` để chuyển Workspace. Tuy nhiên, ở menu Profile cấp 1 lại tồn tại mục cài đặt `"Personalization"` (Cá nhân hóa). Từ khóa `"personal"` bị trùng khớp một phần, làm hệ thống click nhầm vào cài đặt và chuyển hướng trang sai mục đích.
+  2. *Workspace ẩn sâu trong menu cấp 2 (Hidden Workspace Submenu)*: Trên các tài khoản có nhiều Workspace doanh nghiệp đang kích hoạt, Workspace cá nhân không hiển thị trực tiếp ở menu chính Profile cấp 1. Người dùng bắt buộc phải click vào nút của Workspace hiện tại (ở đây là `"SeeLLM Workspace Business"`) để mở rộng một menu phụ cấp 2 (danh sách các Workspace con).
+  3. *Camofox Snapshot bị khuyết mã Ref (Missing Accessibility Refs)*: Khi menu phụ cấp 2 mở ra chứa danh sách Workspace con, các thẻ chọn dạng `role="menuitemradio"` (như `GW Gabriel Webb` hoặc `SeeLLM Workspace`) hoàn toàn không được Camofox gán bất cứ mã định danh Ref nào dạng `[e...]` trong Accessibility Tree snapshot, khiến lệnh click theo Ref thông thường không hoạt động.
+- **Từng Bước Giải Quyết Chi Tiết (Step-by-Step Fixes)**:
+  1. *Sửa so khớp từ khóa*: Cập nhật lại biểu thức kiểm tra `hasPersonalKw` trong cả [scripts/lib/openai-login-flow.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/lib/openai-login-flow.js) và [scripts/warmup.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/warmup.js). Khi kiểm duyệt các từ khóa `"personal"` hoặc `"personnel"`, hệ thống loại trừ tuyệt đối các mục cài đặt con như `"personalization"`, `"personalize"`, `"personnalisation"`, `"personnaliser"`.
+  2. *Click mở rộng menu cấp 2*: Triển khai thuật toán điều hướng hai cấp. Đầu tiên, click nút Profile (`e7`). Sau khi menu chính mở ra, tìm kiếm dòng active workspace (thẻ `menuitem` chứa các chữ `"seellm"`, `"business"`, hoặc `"workspace"` nhưng không chứa chữ `"settings"`) và click vào đó để mở rộng menu phụ cấp 2.
+  3. *DOM Click Fallback bằng Javascript (`evalJson`)*: Bổ sung bước xử lý dự phòng nếu menu phụ mở ra nhưng không có mã Ref. Hệ thống sẽ thực thi một đoạn mã Javascript trực tiếp trong trình duyệt thông qua cơ chế `evalJson`. Đoạn mã này sẽ quét toàn bộ các thẻ có thuộc tính `role="menuitemradio"`, lọc ra thẻ **chưa được tích chọn** (`aria-checked="false"`) và **không chứa các từ khóa doanh nghiệp** (`"seellm"`, `"business"`, `"workspace"`), sau đó trực tiếp thực hiện hàm `.click()` nội bộ của trình duyệt để chuyển đổi Workspace (ở tài khoản này là click vào mục cá nhân `"GW Gabriel Webb"`).
+  4. *Xác minh thực tế hoàn hảo*: Chạy thử nghiệm thực tế kịch bản khôi phục cookie, hệ thống đã tự động click mở rộng menu 2 cấp, phát hiện không có Ref, kích hoạt click DOM dự phòng, chuyển đổi thành công Workspace sang cá nhân (biểu tượng avatar góc trái dưới đổi thành `"GW"`), loại bỏ hoàn toàn Codex banner và hiển thị bảng chat ChatGPT cá nhân chuẩn xác.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.95`.
+
 ## [0.3.94] - 2026-05-27 01:40:00
 
 ### 🛡️ Nâng Cấp Bộ Chọn Workspace Cá Nhân Độ Tin Cậy Cao (Data-TestID Workspace Row Selector Upgrade)

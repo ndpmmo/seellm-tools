@@ -4,7 +4,7 @@
  */
 
 import { CAMOUFOX_API, TOOLS_API_URL, WARMUP_SCREENSHOTS } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson, getSnapshot, clickRef } from './lib/camofox.js';
 import { normalizeProxyUrl, assertProxyApplied, probeProxyExitIp, getLocalPublicIp, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { getFreshTOTP } from './lib/totp.js';
 import { generateWarmupPrompts } from './lib/warmup-prompts.js';
@@ -538,59 +538,186 @@ async function runWarmup() {
         console.log(`[Warmup] 🛡️ Đã bấm đóng/Escape để tắt hộp thoại chặn và giải phóng backdrop...`);
         await delay(2000);
 
-        // STEP 2: Click profile button at the bottom of the sidebar, open dropdown menu, and select Personal account
-        const switchResult = await evalJson(tabId, USER_ID, `(async () => {
-          const isVisible = el => {
-            if (!el) return false;
-            const r = el.getBoundingClientRect();
-            const s = window.getComputedStyle(el);
-            return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
-          };
-
-          const profileBtn = document.querySelector('[data-testid="accounts-profile-button"]');
-          if (!profileBtn || !isVisible(profileBtn)) return 'profile_button_not_visible';
+        // STEP 2: Click profile button using Camofox browser-level click API (not JS dispatchEvent)
+        // Radix UI menus don't respond to synthetic JS events; Camofox click simulates real user clicks.
+        // There are 2 elements with data-testid="accounts-profile-button" (collapsed + expanded sidebar),
+        // so we use snapshot to find the correct ref and click it to avoid strict mode violations.
+        let switchResult = 'not_attempted';
+        try {
+          // Take snapshot to find profile button ref
+          console.log(`[Warmup] 🖱️ Finding profile button via Camofox snapshot...`);
+          const preSnapshot = await getSnapshot(tabId, USER_ID, { timeoutMs: 5000 });
+          let profileClicked = false;
           
-          profileBtn.focus();
-          profileBtn.click();
-          profileBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          profileBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          profileBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          
-          // Wait 2 seconds for dropdown menu to appear in DOM
-          await new Promise(r => setTimeout(r, 2000));
-          
-          // Search for "Personal account" or personal keywords inside open Radix menu
-          const personalKeywords = ['personal account', 'personal workspace', 'cá nhân', 'gabriel webb', 'personal'];
-          const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button, div, a')).filter(isVisible);
-          
-          const personalItem = menuItems.find(el => {
-            const text = (el.textContent || '').toLowerCase().trim();
-            if (!personalKeywords.some(k => text.includes(k))) return false;
-            if (text.length > 120) return false;
-            if (el === profileBtn || el.contains(profileBtn)) return false;
-            
-            // Ensure this is a leaf-like match (no child element also matches the personal keywords)
-            const hasMatchingChild = Array.from(el.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, div, a')).some(child => {
-              if (child === el) return false;
-              const childText = (child.textContent || '').toLowerCase().trim();
-              return personalKeywords.some(k => childText.includes(k)) && isVisible(child);
-            });
-            if (hasMatchingChild) return false;
-            
-            return true;
-          });
-          
-          if (personalItem) {
-            personalItem.focus();
-            personalItem.click();
-            personalItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            personalItem.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-            personalItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            return 'clicked_personal_item_in_menu: ' + (personalItem.textContent || '').trim().slice(0, 60);
+          if (preSnapshot?.snapshot) {
+            const preLines = preSnapshot.snapshot.split('\n');
+            for (const line of preLines) {
+              const lower = line.toLowerCase();
+              if (lower.includes('open profile menu') || lower.includes('profile menu')) {
+                const refMatch = line.match(/\b(e\d+)\b/);
+                if (refMatch) {
+                  await clickRef(tabId, USER_ID, refMatch[1], { timeoutMs: 5000 });
+                  console.log(`[Warmup] 🖱️ Clicked profile button ref=${refMatch[1]}`);
+                  profileClicked = true;
+                  break;
+                }
+              }
+            }
           }
           
-          return 'personal_item_not_found_in_menu_items_count_' + menuItems.length;
-        })()`);
+          if (!profileClicked) {
+            // Fallback: try with specific aria-label selector 
+            await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: '[data-testid="accounts-profile-button"][aria-label*="open profile menu" i]' }, { timeoutMs: 5000 });
+            console.log(`[Warmup] 🖱️ Clicked profile button via fallback selector`);
+          }
+          await delay(2500);
+          
+          // Take accessibility snapshot to find Personal workspace menu item
+          const snapshot = await getSnapshot(tabId, USER_ID, { timeoutMs: 5000 });
+          if (snapshot?.snapshot) {
+            const snapshotText = snapshot.snapshot;
+            const lines = snapshotText.split('\n');
+            const personalKeywords = ['personal account', 'personal workspace', 'cá nhân', 'gabriel webb', 'personal'];
+            
+            // Step 2a: Look for personal workspace directly in first dropdown
+            let personalRef = null;
+            for (const line of lines) {
+              const lower = line.toLowerCase();
+              const refMatch = line.match(/\b(e\d+)\b/);
+              if (!refMatch) continue;
+              
+              const hasPersonalKw = personalKeywords.some(k => {
+                if (k === 'personal') {
+                  return lower.includes('personal') && !lower.includes('personalization') && !lower.includes('personalize');
+                }
+                return lower.includes(k);
+              });
+              if (hasPersonalKw) {
+                const isProfileBtn = lower.includes('open profile menu') || lower.includes('accounts-profile');
+                if (!isProfileBtn) {
+                  personalRef = refMatch[1];
+                  console.log(`[Warmup] 🎯 Found personal workspace item ref=${personalRef} directly in first dropdown: ${line.trim().slice(0, 80)}`);
+                  break;
+                }
+              }
+            }
+
+            // Step 2b: Expand active workspace submenu if not found in first level
+            if (!personalRef) {
+              console.log('[Warmup] 🖱️ "Personal" not directly in dropdown. Searching for active workspace submenu trigger...');
+              let workspaceSwitcherRef = null;
+              for (const line of lines) {
+                const lower = line.toLowerCase();
+                if (lower.includes('menuitem') && 
+                    (lower.includes('seellm') || lower.includes('business') || (lower.includes('workspace') && !lower.includes('settings')))) {
+                  const refMatch = line.match(/\b(e\d+)\b/);
+                  if (refMatch) {
+                    workspaceSwitcherRef = refMatch[1];
+                    console.log(`[Warmup] 🖱️ Found active workspace trigger ref=${workspaceSwitcherRef} in line: ${line.trim().slice(0, 80)}`);
+                    break;
+                  }
+                }
+              }
+
+              if (workspaceSwitcherRef) {
+                try {
+                  console.log(`[Warmup] 🖱️ Expanding workspace submenu by clicking ref=${workspaceSwitcherRef}...`);
+                  await clickRef(tabId, USER_ID, workspaceSwitcherRef, { timeoutMs: 5000 });
+                  await delay(2000);
+
+                  // Take a new snapshot of the sub-menu
+                  const subSnapshot = await getSnapshot(tabId, USER_ID, { timeoutMs: 5000 });
+                  if (subSnapshot?.snapshot) {
+                    const subLines = subSnapshot.snapshot.split('\n');
+                    
+                    // Pass 1: Match explicit personal keywords in the sub-menu
+                    for (const line of subLines) {
+                      const lower = line.toLowerCase();
+                      if (lower.includes('menuitemradio')) {
+                        const hasPersonalKw = personalKeywords.some(k => {
+                          if (k === 'personal') {
+                            return lower.includes('personal') && !lower.includes('personalization') && !lower.includes('personalize');
+                          }
+                          return lower.includes(k);
+                        });
+                        if (hasPersonalKw) {
+                          const refMatch = line.match(/\b(e\d+)\b/);
+                          if (refMatch) {
+                            personalRef = refMatch[1];
+                            console.log(`[Warmup] 🎯 Found personal workspace item ref=${personalRef} in submenu by keyword: ${line.trim().slice(0, 80)}`);
+                            break;
+                          }
+                        }
+                      }
+                    }
+
+                    // Pass 2: Fallback to the other non-checked, non-business workspace item
+                    if (!personalRef) {
+                      for (const line of subLines) {
+                        const lower = line.toLowerCase();
+                        if (lower.includes('menuitemradio') && !lower.includes('[checked]') && !lower.includes('seellm') && !lower.includes('business')) {
+                          const refMatch = line.match(/\b(e\d+)\b/);
+                          if (refMatch) {
+                            personalRef = refMatch[1];
+                            console.log(`[Warmup] 🎯 Found personal workspace item ref=${personalRef} in submenu by non-checked fallback: ${line.trim().slice(0, 80)}`);
+                            break;
+                          }
+                        }
+                      }
+                    }
+
+                    // Pass 3: DOM evaluation fallback click (since menuitemradio options lack refs in snapshot)
+                    if (!personalRef) {
+                      console.log('[Warmup] 🖱️ Submenu refs not found in snapshot. Attempting DOM evaluation click...');
+                      const domClickResult = await evalJson(tabId, USER_ID, `(() => {
+                        const radios = Array.from(document.querySelectorAll('[role="menuitemradio"]'));
+                        const target = radios.find(el => {
+                          const checked = el.getAttribute('aria-checked') === 'true';
+                          const txt = (el.textContent || '').toLowerCase();
+                          return !checked && !txt.includes('seellm') && !txt.includes('business') && !txt.includes('workspace');
+                        });
+                        if (target) {
+                          target.click();
+                          return { ok: true, text: target.textContent };
+                        }
+                        return { ok: false };
+                      })()`, 3000);
+
+                      if (domClickResult?.ok) {
+                        console.log(`[Warmup] 🎯 Clicked personal workspace in DOM: ${domClickResult.text}`);
+                        personalRef = 'dom_evaluated_click';
+                      } else {
+                        console.warn('[Warmup] ⚠️ DOM evaluation click did not find target.');
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn('[Warmup] ⚠️ Submenu traversal failed:', e.message);
+                }
+              }
+            }
+            
+            if (personalRef) {
+              if (personalRef !== 'dom_evaluated_click') {
+                await clickRef(tabId, USER_ID, personalRef, { timeoutMs: 5000 });
+                console.log(`[Warmup] ✅ Clicked personal workspace via Camofox ref=${personalRef}`);
+              } else {
+                console.log('[Warmup] ✅ Workspace already clicked via DOM evaluation.');
+              }
+              switchResult = `clicked_personal_item_ref_${personalRef}`;
+            } else {
+              switchResult = 'personal_item_not_found_in_snapshot';
+              // Close dropdown before fallback
+              try {
+                await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'body' }, { timeoutMs: 3000 });
+              } catch (_) {}
+            }
+          } else {
+            switchResult = 'snapshot_empty';
+          }
+        } catch (e) {
+          switchResult = `camofox_click_error: ${e.message}`;
+        }
 
         console.log(`[Warmup] 🗂️ Kết quả chuyển Workspace: ${switchResult}`);
         await delay(5000);
