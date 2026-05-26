@@ -112,6 +112,10 @@ export function SettingsView() {
     setLoadingSyncStatus(true);
     try {
       const res = await fetch('/api/vault/sync/status');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response. Please restart the SeeLLM Tools server.');
+      }
       const data = await res.json();
       if (data.ok) {
         setSyncStatus(data);
