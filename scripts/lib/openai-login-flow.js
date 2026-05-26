@@ -742,121 +742,140 @@ export function isAuthLoginLikeScreen(url = '', snapshot = '') {
  * @param {object} options - { timeoutMs = 10000, waitRedirect = true }
  * @returns {Promise<object>} - { ok, clicked, reason, redirectUrl }
  */
-export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs = 10000, waitRedirect = true } = {}) {
+export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs = 15000, waitRedirect = true } = {}) {
   try {
     const result = await evalJson(tabId, userId, `
       (() => {
-        const buttons = document.querySelectorAll('button, [role="button"], a');
-        let personalBtn = null;
         const personalKeywords = ${JSON.stringify(MULTILANG.personal)};
+        const isVisible = el => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          const s = window.getComputedStyle(el);
+          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+        };
 
-        // Strategy 1: Find button containing "personal account" or "personal workspace" text
-        for (const el of buttons) {
-          if (el.offsetParent === null) continue;
+        // ── Strategy A: Scan all visible "Open"-type buttons.
+        // For each one, walk UP the DOM to find its containing row.
+        // Then check if that row contains a "Personal workspace" / "personal" label.
+        // This is the most reliable approach for the "Launch a workspace" row-based layout.
+        const openKeywords = ['open', 'mở', 'select', 'chọn', 'launch', 'enter', 'go'];
+        const allBtns = Array.from(document.querySelectorAll('button, [role="button"], a')).filter(isVisible);
+
+        // First, find ALL buttons that look like an "Open" action button
+        const openBtns = allBtns.filter(btn => {
+          const t = (btn.textContent || btn.innerText || btn.value || '').toLowerCase().trim();
+          return openKeywords.some(k => t === k || t === k + ' ');
+        });
+
+        for (const btn of openBtns) {
+          // Walk up the DOM tree from this Open button to find the row container
+          let container = btn.parentElement;
+          for (let depth = 0; depth < 6 && container; depth++) {
+            const containerText = (container.textContent || '').toLowerCase();
+            if (personalKeywords.some(k => containerText.includes(k))) {
+              // This Open button is inside a Personal workspace row — click it!
+              btn.focus();
+              btn.click();
+              btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { ok: true, clicked: true, strategy: 'open_btn_in_personal_row', text: (container.textContent || '').trim().slice(0, 80) };
+            }
+            container = container.parentElement;
+          }
+        }
+
+        // ── Strategy B: Find any visible element (div/span/p) containing ONLY
+        // "personal workspace" text (exact subtitle label), then find the nearest Open button
+        const allEls = Array.from(document.querySelectorAll('*')).filter(el => {
+          if (!isVisible(el)) return false;
+          // Look for elements that are leaf-like text nodes
+          const ownText = Array.from(el.childNodes)
+            .filter(n => n.nodeType === Node.TEXT_NODE)
+            .map(n => n.textContent.toLowerCase().trim())
+            .join(' ');
+          return personalKeywords.some(k => ownText.includes(k));
+        });
+
+        for (const labelEl of allEls) {
+          // Walk up to find the row container, then find the first visible button in it
+          let container = labelEl.parentElement;
+          for (let depth = 0; depth < 6 && container; depth++) {
+            const btn = Array.from(container.querySelectorAll('button, [role="button"], a'))
+              .find(b => isVisible(b) && openKeywords.some(k => (b.textContent || b.innerText || '').toLowerCase().trim() === k));
+            if (btn) {
+              btn.focus();
+              btn.click();
+              btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { ok: true, clicked: true, strategy: 'label_then_open_btn', text: (container.textContent || '').trim().slice(0, 80) };
+            }
+            container = container.parentElement;
+          }
+        }
+
+        // ── Strategy C: Find button containing "personal" keywords in its own text (old approach)
+        const personalBtn = allBtns.find(el => {
           const text = (el.textContent || '').toLowerCase();
-          if (personalKeywords.some(k => text.includes(k))) {
-            personalBtn = el;
-            break;
-          }
-        }
-
-        // Strategy 1.5: Handle modern "Launch a workspace" design with distinct rows
-        // HTML row structure:
-        // [Avatar/Initials] [Name] Personal workspace -> [Open] button
-        if (!personalBtn) {
-          // Look for any div or element containing "personal workspace" or "tài khoản cá nhân"
-          const allEls = document.querySelectorAll('div, button, [role="button"], a');
-          for (const el of allEls) {
-            if (el.offsetParent === null) continue;
-            // Ensure we are selecting a row element that has an "Open" button inside or nearby
-            const text = (el.textContent || '').toLowerCase();
-            if (personalKeywords.some(k => text.includes(k))) {
-              // Find the closest list item, container div, or the element itself
-              const container = el.closest('div[class*="row"], div[class*="item"], li, [role="button"]') || el;
-              // Look for an "Open" / "Mở" button within this container
-              const openBtn = container.querySelector('button, [role="button"], a');
-              if (openBtn && openBtn.offsetParent !== null) {
-                personalBtn = openBtn;
-                break;
-              }
-              // If container is clickable itself
-              if (container.tagName === 'BUTTON' || container.getAttribute('role') === 'button' || container.tagName === 'A') {
-                personalBtn = container;
-                break;
-              }
-            }
-          }
-        }
-
-        // Strategy 2: Find button that is NOT the organization/team one
-        // On the workspace page, buttons are: [org name] and [Initials] Personal account [Name]
-        if (!personalBtn) {
-          const allBtns = Array.from(buttons).filter(el => el.offsetParent !== null);
-          // The personal account button typically has the longest text or contains a name
-          for (const el of allBtns) {
-            const text = (el.textContent || '').toLowerCase();
-            // Skip organization buttons (they usually have "workspace" in text)
-            if (text.includes('workspace') && !personalKeywords.some(k => text.includes(k))) continue;
-            // Look for buttons with avatar-like initials + personal indicators
-            const spans = el.querySelectorAll('span');
-            for (const span of spans) {
-              const spanText = (span.textContent || '').toLowerCase();
-              if (personalKeywords.some(k => spanText.includes(k))) {
-                personalBtn = el;
-                break;
-              }
-            }
-            if (personalBtn) break;
-          }
-        }
-
-        // Strategy 3: Click the LAST button (personal is usually after org)
-        if (!personalBtn) {
-          const visibleBtns = Array.from(buttons).filter(el =>
-            el.offsetParent !== null &&
-            el.closest('form[action*="workspace"]')
-          );
-          if (visibleBtns.length >= 2) {
-            personalBtn = visibleBtns[visibleBtns.length - 1];
-          }
-        }
-
-        if (!personalBtn) {
-          // Dump debug info
-          const btnTexts = Array.from(buttons).filter(el => el.offsetParent !== null).map(el => (el.textContent || '').trim().slice(0, 60));
-          return { ok: false, clicked: false, reason: 'no_personal_button', btnTexts: btnTexts.slice(0, 10) };
-        }
-
-        personalBtn.click();
-        try {
+          return personalKeywords.some(k => text.includes(k));
+        });
+        if (personalBtn) {
+          personalBtn.focus();
+          personalBtn.click();
           personalBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
           personalBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
           personalBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        } catch (_) {}
-        return { ok: true, clicked: true, text: (personalBtn.textContent || '').trim().slice(0, 60) };
+          return { ok: true, clicked: true, strategy: 'text_match', text: (personalBtn.textContent || '').trim().slice(0, 60) };
+        }
+
+        // ── Strategy D: Fallback — click the LAST visible button on workspace forms
+        const formBtns = allBtns.filter(el => el.closest('form'));
+        if (formBtns.length >= 2) {
+          const lastBtn = formBtns[formBtns.length - 1];
+          lastBtn.click();
+          return { ok: true, clicked: true, strategy: 'last_form_btn', text: (lastBtn.textContent || '').trim().slice(0, 60) };
+        }
+
+        // No button found — dump debug
+        const btnTexts = allBtns.map(el => (el.textContent || '').trim().slice(0, 60));
+        return { ok: false, clicked: false, reason: 'no_personal_button', btnTexts: btnTexts.slice(0, 15) };
       })()
-    `, 5000);
+    `, 6000);
 
     if (!result?.clicked) {
+      console.warn('[selectPersonalWorkspace] No button found. Debug:', JSON.stringify(result?.btnTexts || []));
       return { ok: false, clicked: false, reason: result?.reason || 'unknown', btnTexts: result?.btnTexts || [] };
     }
 
-    // Wait for redirect to chatgpt.com
+    console.log('[selectPersonalWorkspace] Clicked via strategy:', result.strategy, '| text:', result.text);
+
+    // Wait for the workspace selection page to go away
     if (waitRedirect) {
       const deadline = Date.now() + timeoutMs;
+      const workspaceIndicators = ['launch a workspace', 'choose a workspace', '/workspace', 'has access to'];
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 1500));
-        const url = await evalJson(tabId, userId, 'location.href', 3000) || '';
-        if (url.includes('chatgpt.com') && !url.includes('/auth/')) {
-          return { ok: true, clicked: true, reason: 'redirected', redirectUrl: url };
+        const check = await evalJson(tabId, userId, `(() => ({
+          url: location.href,
+          body: (document.body?.innerText || '').toLowerCase().slice(0, 300)
+        }))()`, 3000) || {};
+        const url = check.url || '';
+        const body = check.body || '';
+        // Successfully left workspace page: either on chatgpt.com chat/home, consent, or NOT workspace screen
+        const stillOnWorkspace = workspaceIndicators.some(k => url.toLowerCase().includes(k) || body.includes(k));
+        if (!stillOnWorkspace) {
+          return { ok: true, clicked: true, reason: 'left_workspace_screen', redirectUrl: url };
         }
-        // Also check if we got to a consent page (which is fine — means workspace was selected)
         if (url.includes('consent') || url.includes('sign-in-with-chatgpt')) {
           return { ok: true, clicked: true, reason: 'consent_page', redirectUrl: url };
         }
+        if (url.includes('chatgpt.com') && !url.includes('/auth/')) {
+          return { ok: true, clicked: true, reason: 'chatgpt_home', redirectUrl: url };
+        }
       }
-      // Timeout but click was made — still return ok
       const finalUrl = await evalJson(tabId, userId, 'location.href', 3000) || '';
+      console.warn('[selectPersonalWorkspace] Timeout waiting for redirect. finalUrl:', finalUrl);
       return { ok: true, clicked: true, reason: 'click_done_no_redirect', redirectUrl: finalUrl };
     }
 

@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.92] - 2026-05-27 00:51:00
+
+### 🔧 Viết Lại Cơ Chế Phát Hiện & Click Nút Open Personal Workspace (Workspace Selection Complete Rewrite)
+- **Nguyên nhân lỗi lặp vô hạn**: Script cũ tìm `button` có text chứa "personal" nhưng nút **Open** không có chứa text này, khiến click nhầm hoặc không click được đúng target. Sau khi click không thành công, hàm `waitRedirect` check `url.includes('chatgpt.com') && !url.includes('/auth/')` nhưng URL workspace vẫn là `/auth/workspace` nên điều kiện luôn `false`, timeout rồi trả về `ok: true` giả. Vòng lặp login phát hiện màn hình workspace lại tiếp tục, dẫn đến lặp 15 lần liên tiếp.
+- **Strategy A (Ưu tiên cao nhất)**: Tìm tất cả nút **"Open"** visible trên trang, sau đó walk UP DOM tree từ mỗi nút đó để tìm container row chứa text "Personal workspace". Click đúng nút "Open" của đúng hàng Personal.
+- **Strategy B**: Tìm các element text-node chứa từ khóa "personal workspace", walk up container, tìm nút "Open" trong cùng container đó.
+- **Strategy C & D**: Fallback text-match và last-button trên form.
+- **Sửa waitRedirect**: Thay vì check URL cũ, giờ đây check xem body trang còn chứa các từ khóa Workspace screen (`launch a workspace`, `has access to`, v.v.) hay không. Ngay khi trang chuyển đi, hàm trả về thành công ngay lập tức.
+- **package.json**: Nâng phiên bản lên `0.3.92`.
+
 ## [0.3.91] - 2026-05-27 00:45:00
 
 ### 🐛 Khắc Phục Lỗi Trùng Khai Báo Biến Trong Eval DOM (Eval Redeclaration Syntax Error Fix)
