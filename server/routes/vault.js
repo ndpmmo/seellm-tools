@@ -1852,6 +1852,115 @@ router.post('/sync/force-pull', async (req, res) => {
   }
 });
 
+// Lấy trạng thái đồng bộ và chẩn đoán lỗi Codex Remote Sync
+router.get('/sync/status', async (req, res) => {
+  try {
+    const cfg = loadConfig();
+    const cursorFile = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+    const pendingDeletesFile = path.join(process.cwd(), 'data/pending_d1_deletes.json');
+
+    let localCursor = '1970-01-01T00:00:00.000Z';
+    let lastSavedAt = null;
+    try {
+      if (fs.existsSync(cursorFile)) {
+        const parsed = JSON.parse(fs.readFileSync(cursorFile, 'utf-8'));
+        if (parsed.cursor) localCursor = parsed.cursor;
+        if (parsed.savedAt) lastSavedAt = parsed.savedAt;
+      }
+    } catch (_) {}
+
+    let pendingDeletesCount = 0;
+    try {
+      if (fs.existsSync(pendingDeletesFile)) {
+        const list = JSON.parse(fs.readFileSync(pendingDeletesFile, 'utf-8'));
+        if (Array.isArray(list)) {
+          pendingDeletesCount = list.length;
+        }
+      }
+    } catch (_) {}
+
+    // Get DB accounts counts
+    let totalAccounts = 0;
+    let readyAccounts = 0;
+    let idleAccounts = 0;
+    let errorAccounts = 0;
+    let revokedAccounts = 0;
+    try {
+      const stats = vault.db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          COALESCE(SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END), 0) as ready,
+          COALESCE(SUM(CASE WHEN status = 'idle' THEN 1 ELSE 0 END), 0) as idle,
+          COALESCE(SUM(CASE WHEN status IN ('error', 'need_phone', 'relogin', 'dead') THEN 1 ELSE 0 END), 0) as error,
+          COALESCE(SUM(CASE WHEN gateway_status = 'revoked' THEN 1 ELSE 0 END), 0) as revoked
+        FROM vault_accounts
+        WHERE deleted_at IS NULL
+      `).get();
+      if (stats) {
+        totalAccounts = stats.total || 0;
+        readyAccounts = stats.ready || 0;
+        idleAccounts = stats.idle || 0;
+        errorAccounts = stats.error || 0;
+        revokedAccounts = stats.revoked || 0;
+      }
+    } catch (_) {}
+
+    // D1 Connection and cursor info
+    let d1Connected = false;
+    let d1Cursor = null;
+    let d1PingMs = 0;
+    let d1Error = null;
+
+    if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
+      const start = Date.now();
+      try {
+        const baseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
+        const response = await fetch(`${baseUrl}/sync/cursor`, {
+          method: 'GET',
+          headers: { 'x-sync-secret': cfg.d1SyncSecret },
+          signal: AbortSignal.timeout(5000),
+        });
+        d1PingMs = Date.now() - start;
+        if (response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          d1Connected = true;
+          d1Cursor = payload.cursor || null;
+        } else {
+          d1Error = `HTTP ${response.status}: ${await response.text().catch(() => '')}`;
+        }
+      } catch (err) {
+        d1Error = err.message;
+      }
+    } else {
+      d1Error = 'D1 Remote Sync is not configured.';
+    }
+
+    res.json({
+      ok: true,
+      configured: !!(cfg.d1WorkerUrl && cfg.d1SyncSecret),
+      d1WorkerUrl: cfg.d1WorkerUrl || null,
+      localCursor,
+      lastSavedAt,
+      pendingDeletesCount,
+      dbStats: {
+        total: totalAccounts,
+        ready: readyAccounts,
+        idle: idleAccounts,
+        error: errorAccounts,
+        revoked: revokedAccounts,
+      },
+      d1Health: {
+        connected: d1Connected,
+        cursor: d1Cursor,
+        pingMs: d1PingMs,
+        error: d1Error,
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Dọn dẹp các connections & accounts rác / mồ côi trên D1
 router.post('/sync/cleanup-stale', async (req, res) => {
   try {

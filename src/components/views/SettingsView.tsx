@@ -6,7 +6,8 @@ import {
   Settings, Globe, Cpu, FolderOpen, Save, RotateCcw, Eye, EyeOff, 
   HardDrive, Trash2, RefreshCw, Filter, Search, ChevronDown, ChevronUp, 
   SlidersHorizontal, AlertTriangle, Trash, CheckSquare, Square,
-  Cloud, Wrench
+  Cloud, Wrench, CheckCircle, XCircle, Clock, Database, AlertCircle,
+  Wifi, WifiOff, Activity
 } from 'lucide-react';
 
 const DATA_DIRS = [
@@ -83,6 +84,9 @@ export function SettingsView() {
   const [forcePulling, setForcePulling] = useState(false);
   const [cleaningStale, setCleaningStale] = useState(false);
 
+  const [syncStatus, setSyncStatus] = useState<any>(null);
+  const [loadingSyncStatus, setLoadingSyncStatus] = useState(false);
+
   useEffect(() => { if (config) setF(config); }, [config]);
 
   const fetchStorageInfo = async () => {
@@ -104,8 +108,24 @@ export function SettingsView() {
     }
   };
 
+  const fetchSyncStatus = async () => {
+    setLoadingSyncStatus(true);
+    try {
+      const res = await fetch('/api/vault/sync/status');
+      const data = await res.json();
+      if (data.ok) {
+        setSyncStatus(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch sync status', e);
+    } finally {
+      setLoadingSyncStatus(false);
+    }
+  };
+
   useEffect(() => {
     fetchStorageInfo();
+    fetchSyncStatus();
   }, []);
 
   const runCleanup = async () => {
@@ -268,6 +288,7 @@ export function SettingsView() {
       const data = await res.json();
       if (data.ok) {
         addToast(`✅ Ép đồng bộ D1 thành công! Đã đẩy: Accounts=${data.results.accounts}, Pool=${data.results.emailPool}, Proxies=${data.results.proxies}, Keys=${data.results.keys}`, 'success');
+        fetchSyncStatus();
       } else {
         addToast(`Lỗi đồng bộ: ${data.error || 'D1 push failed'}`, 'error');
       }
@@ -288,6 +309,7 @@ export function SettingsView() {
       const data = await res.json();
       if (data.ok) {
         addToast('✅ Ép tải dữ liệu D1 về local thành công!', 'success');
+        fetchSyncStatus();
       } else {
         addToast(`Lỗi: ${data.error || 'D1 pull failed'}`, 'error');
       }
@@ -309,6 +331,7 @@ export function SettingsView() {
         } else {
           addToast('✨ Không phát hiện connection mồ côi nào trên D1!', 'info');
         }
+        fetchSyncStatus();
       } else {
         addToast(`Lỗi: ${data.error}`, 'error');
       }
@@ -507,6 +530,122 @@ export function SettingsView() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4 flex flex-col gap-4">
+            {/* 🩺 Diagnostics & Health Dashboard */}
+            <div className="p-4 rounded-xl bg-white/[0.01] border border-white/5 flex flex-col gap-4 relative overflow-hidden backdrop-blur-sm">
+              <div className="absolute top-0 right-0 p-3 flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={fetchSyncStatus}
+                  disabled={loadingSyncStatus}
+                  className="flex items-center gap-1.5 text-[10.5px] px-2.5 py-1 text-slate-300 border-white/10 bg-white/5 hover:bg-white/10 transition-all hover:scale-[1.02] active:scale-[0.98] h-auto"
+                >
+                  <RefreshCw size={11} className={loadingSyncStatus ? 'animate-spin' : ''} />
+                  Kiểm tra lại
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-x-6 gap-y-4 items-center pt-2 md:pt-0">
+                {/* 1. D1 Worker Status */}
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                    !syncStatus ? 'bg-white/5 text-slate-500' :
+                    syncStatus.d1Health?.connected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                  }`}>
+                    {!syncStatus ? <Activity size={18} /> :
+                     syncStatus.d1Health?.connected ? <Wifi size={18} /> : <WifiOff size={18} />}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Trạng thái Cloud D1</span>
+                    <span className="text-xs font-bold text-slate-200">
+                      {!syncStatus ? 'Đang kiểm tra...' :
+                       syncStatus.d1Health?.connected ? `Kết nối ổn định (${syncStatus.d1Health.pingMs}ms)` : 'Mất kết nối'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Sync Delay / Offset */}
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                    !syncStatus ? 'bg-white/5 text-slate-500' :
+                    syncStatus.d1Health?.connected && syncStatus.localCursor === syncStatus.d1Health.cursor ? 'bg-cyan-500/10 text-cyan-400' : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    <Clock size={18} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Độ trễ đồng bộ</span>
+                    <span className="text-xs font-bold text-slate-200">
+                      {!syncStatus ? 'Đang tính...' :
+                       !syncStatus.d1Health?.connected ? 'Không thể đối chiếu' :
+                       syncStatus.localCursor === syncStatus.d1Health.cursor ? 'Đã đồng bộ hoàn toàn' : 'Có bản cập nhật mới (D1)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Pending Deletes Queue */}
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                    !syncStatus ? 'bg-white/5 text-slate-500' :
+                    syncStatus.pendingDeletesCount > 0 ? 'bg-rose-500/10 text-rose-400 animate-pulse' : 'bg-indigo-500/10 text-indigo-400'
+                  }`}>
+                    <Trash2 size={18} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Hàng chờ xóa D1</span>
+                    <span className="text-xs font-bold text-slate-200">
+                      {!syncStatus ? '...' : `${syncStatus.pendingDeletesCount} yêu cầu đang chờ`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Local DB Sync Status count */}
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                    <Database size={18} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Cục bộ (Vault)</span>
+                    <span className="text-xs font-bold text-slate-200">
+                      {!syncStatus ? '...' : 
+                       `Tổng: ${syncStatus.dbStats.total} (Mở: ${syncStatus.dbStats.ready}, Chờ: ${syncStatus.dbStats.revoked})`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error warning banner if connection failed */}
+              {syncStatus && syncStatus.d1Health?.error && (
+                <div className="mt-2 p-3 rounded-lg bg-rose-500/5 border border-rose-500/10 flex items-start gap-2.5">
+                  <AlertCircle size={15} className="text-rose-400 shrink-0 mt-0.5" />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-bold text-rose-300">Chi tiết lỗi kết nối Cloud D1</span>
+                    <span className="text-[10.5px] text-slate-400 font-mono leading-relaxed break-all font-semibold">
+                      {syncStatus.d1Health.error}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Cursor timestamps info */}
+              {syncStatus && (
+                <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-[10.5px] text-slate-500 border-t border-white/5 pt-2">
+                  <div>
+                    <span>Local Cursor: </span>
+                    <code className="text-slate-400 font-mono">{syncStatus.localCursor}</code>
+                    {syncStatus.lastSavedAt && (
+                      <span className="text-slate-600"> (Cập nhật: {new Date(syncStatus.lastSavedAt).toLocaleTimeString()})</span>
+                    )}
+                  </div>
+                  {syncStatus.d1Health?.cursor && (
+                    <div>
+                      <span>Cloud Cursor: </span>
+                      <code className="text-slate-400 font-mono">{syncStatus.d1Health.cursor}</code>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col gap-3 hover:bg-white/[0.03] transition-all">
                 <div className="flex items-center gap-2">
