@@ -736,13 +736,41 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
         let personalBtn = null;
         const personalKeywords = ${JSON.stringify(MULTILANG.personal)};
 
-        // Strategy 1: Find button containing "personal account" text
+        // Strategy 1: Find button containing "personal account" or "personal workspace" text
         for (const el of buttons) {
           if (el.offsetParent === null) continue;
           const text = (el.textContent || '').toLowerCase();
           if (personalKeywords.some(k => text.includes(k))) {
             personalBtn = el;
             break;
+          }
+        }
+
+        // Strategy 1.5: Handle modern "Launch a workspace" design with distinct rows
+        // HTML row structure:
+        // [Avatar/Initials] [Name] Personal workspace -> [Open] button
+        if (!personalBtn) {
+          // Look for any div or element containing "personal workspace" or "tài khoản cá nhân"
+          const allEls = document.querySelectorAll('div, button, [role="button"], a');
+          for (const el of allEls) {
+            if (el.offsetParent === null) continue;
+            // Ensure we are selecting a row element that has an "Open" button inside or nearby
+            const text = (el.textContent || '').toLowerCase();
+            if (personalKeywords.some(k => text.includes(k))) {
+              // Find the closest list item, container div, or the element itself
+              const container = el.closest('div[class*="row"], div[class*="item"], li, [role="button"]') || el;
+              // Look for an "Open" / "Mở" button within this container
+              const openBtn = container.querySelector('button, [role="button"], a');
+              if (openBtn && openBtn.offsetParent !== null) {
+                personalBtn = openBtn;
+                break;
+              }
+              // If container is clickable itself
+              if (container.tagName === 'BUTTON' || container.getAttribute('role') === 'button' || container.tagName === 'A') {
+                personalBtn = container;
+                break;
+              }
+            }
           }
         }
 
@@ -754,7 +782,7 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
           for (const el of allBtns) {
             const text = (el.textContent || '').toLowerCase();
             // Skip organization buttons (they usually have "workspace" in text)
-            if (text.includes('workspace')) continue;
+            if (text.includes('workspace') && !personalKeywords.some(k => text.includes(k))) continue;
             // Look for buttons with avatar-like initials + personal indicators
             const spans = el.querySelectorAll('span');
             for (const span of spans) {

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.89] - 2026-05-27 00:30:00
+
+### 🔄 Tối Ưu Hóa Tự Động Chọn Personal Workspace Khi Warmup (Onboarding & Workspace Selection Recovery)
+- **Tương Thích Thiết Kế Mới "Launch a Workspace"**:
+  - Nâng cấp hàm `selectPersonalWorkspaceOnWorkspacePage` trong [scripts/lib/openai-login-flow.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/lib/openai-login-flow.js) để tương thích với bố cục giao diện chọn không gian làm việc dạng danh sách/dòng (row-based list).
+  - Tự động quét và nhận diện từ khóa `personal workspace` hoặc `tài khoản cá nhân`, từ đó tìm vùng chứa row tương ứng để click nút **"Open"** tương ứng hoặc click trực tiếp row để tiếp tục tiến trình đăng nhập tự động.
+- **package.json**:
+  - Nâng phiên bản của Tools lên `0.3.89`.
+
 ## [0.3.88] - 2026-05-26 23:18:00
 
 ### 🛡️ Ngăn Chặn Gán Proxy Vượt Giới Hạn Slot (Proxy Slot Limit & Allocation Safety Enforcement)
