@@ -1827,6 +1827,9 @@ app.prepare().then(async () => {
             if (existingProxyUrl) {
               const matched = proxies.find((p) => p.id === existingProxyId || normalizeProxyUrl(p.url) === existingProxyUrl);
               if (matched) {
+                if ((freeByProxy.get(matched.id) || 0) <= 0) {
+                  throw new Error(`Proxy ${matched.label || matched.url} has no free slots available`);
+                }
                 chosen = matched;
               } else {
                 const patchBody = { proxyUrl: existingProxyUrl, proxyId: existingProxyId || null };
@@ -1928,7 +1931,7 @@ app.prepare().then(async () => {
         assigned++;
       }
 
-      return res.json({ ok: true, assigned, total: pending.length });
+      return res.json({ ok: true, assigned, total: localAccounts.length });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
