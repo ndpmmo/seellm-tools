@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.104] - 2026-05-28 00:49:00
+
+### 📊 Nâng Cấp Bộ Lọc Nhanh & Thuật Toán Sắp Xếp Phân Bổ Thông Minh cho Account Vault
+- **Thanh Chọn Bộ Lọc Nhanh (Quick Preset Chips)**: Thêm hàng chip cuộn ngang cho phép lọc nhanh 1-click các trạng thái: Mới tạo hôm nay, Mới tạo tuần này, Chưa gán Proxy, Đã gán Proxy, Lỗi & Cần SĐT, Chưa có 2FA, Premium.
+- **Bộ Lọc Thời Gian Nâng Cao**: Bổ sung bộ chọn Creation Time hỗ trợ lọc tài khoản mới tạo theo các mốc thời gian động (Hôm nay, 3 ngày qua, 7 ngày qua, 30 ngày qua).
+- **Thuật Toán Sắp Xếp Phân Bổ Thông Minh (Smart Sorting & Priority Distribution)**:
+  * Tự động ghim các tài khoản đang có tác vụ chạy ngầm hoạt động (pending, processing, warmup pending, 2fa pending) lên trên cùng để tiện theo dõi logs thời gian thực.
+  * Sắp xếp toàn bộ tài khoản còn lại theo thời gian tương tác mới nhất (`Math.max(updated_at, created_at)`) giảm dần để đưa các thay đổi mới lên đầu.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.104`.
+
 ## [0.3.103] - 2026-05-28 00:35:00
 
 ### 🔄 Dọn Dẹp Sạch Sẽ Trạng Thái Kết Nối & Đồng Bộ Tombstone Trực Tiếp Khi Chuyển Sang Idle
