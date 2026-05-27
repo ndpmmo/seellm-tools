@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.100] - 2026-05-27 22:56:00
+
+### 🤖 Hỗ Trợ Xác Minh Email OpenAI ("Check your inbox") trong Deploy Worker (Email Verification Bypass in Connect & Login Flows)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Khi Deploy hoặc Connect tài khoản OpenAI trong chế độ tự động, sau khi điền email, OpenAI có thể chuyển hướng đến màn hình xác minh qua Email (`https://auth.openai.com/email-verification`) thay vì vào trực tiếp Password/2FA.
+  - Deploy worker trong `auto-worker.js` chưa có logic phát hiện và xử lý nút "Continue with password" trên màn hình này, dẫn đến việc bị Timeout sau 60 giây và lỗi không kết nối được tài khoản.
+- **Giải Pháp Thực Hiện (The Solution)**:
+  - Nhập khẩu (import) hàm `clickContinueWithPassword` từ `./lib/openai-login-flow.js` vào `scripts/auto-worker.js`.
+  - Tích hợp logic xử lý màn hình "Check your inbox" vào cả ba luồng chính trong `auto-worker.js`:
+    1. **`runConnectFlow`**: Khi phát hiện `state?.hasEmailInboxScreen` là `true` ngay sau bước Email, tiến trình sẽ click nút "Continue with password" để đi thẳng vào màn hình điền mật khẩu.
+    2. **`runLoginFlow`**: Tương tự như trên, tự động vượt qua màn hình xác minh email trước khi tiến hành điền mật khẩu.
+    3. **`_completeBrowserOAuth`** (Luồng Codex OAuth): Khi phát hiện `isOtp` có nút "Continue with password", ưu tiên click nút này thay vì chạy luồng đọc OTP từ hòm thư, đảm bảo tương thích hoàn toàn.
+- **Kết Quả Mong Đợi (Expected Behavior)**:
+  - Các tài khoản khi deploy/connect hoặc login thông qua browser-based OAuth nếu gặp màn hình "Check your inbox" sẽ tự động chuyển sang trang mật khẩu một cách mượt mà và hoàn tất quá trình đăng nhập/kết nối không còn bị timeout.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.100`.
+
 ## [0.3.99] - 2026-05-27 22:26:00
 
 ### 🔒 Sửa Lỗi Warmup Tự Động Ghi Trạng Thái Ready và Deploy Lên Gateway Cho Tài Khoản Idle (Warmup Auto-Ready Promotion Fix)

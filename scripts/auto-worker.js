@@ -22,7 +22,7 @@ import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
-import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, selectPersonalWorkspaceOnWorkspacePage, MULTILANG } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, selectPersonalWorkspaceOnWorkspacePage, clickContinueWithPassword, MULTILANG } from './lib/openai-login-flow.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { acquireCodexCallbackViaProtocol, acquireCodexCallbackViaSessionSeeding } from './lib/openai-protocol-register.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
@@ -797,6 +797,21 @@ async function runConnectFlow(task) {
       return sendResult(task, 'error', `Không tìm thấy email input. URL: ${state?.href}`);
     }
 
+    // Email verification screen bypass ("Check your inbox" -> "Continue with password")
+    if (state?.hasEmailInboxScreen) {
+      console.log(`[Connect] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
+      await recorder.before(2, 2, 'before_click_continue_with_password');
+      const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
+      if (cwpResult?.ok) {
+        console.log(`[Connect] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
+        await new Promise(r => setTimeout(r, 5000));
+        await recorder.after(2, 2, 'clicked_continue_with_password');
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+      } else {
+        console.warn(`[Connect] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
+      }
+    }
+
     // Password
     let passDone = false;
     for (let attempt = 0; attempt < 5 && !passDone; attempt++) {
@@ -1189,6 +1204,18 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
     const isConsent = url.includes('consent') || url.includes('sign-in-with-chatgpt');
     const isWorkspace = url.includes('workspace') && url.includes('select');
     const isChooseAccount = url.includes('/choose-an-account');
+
+    if (isOtp) {
+      log(`📬 Detected Email Verification screen ("Check your inbox"). Checking for Continue with password button...`);
+      const cwpResult = await clickContinueWithPassword(tabId, userId);
+      if (cwpResult?.ok) {
+        log(`✅ Clicked "Continue with password" (method: ${cwpResult.method}). Waiting for password page...`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      } else {
+        log(`ℹ️ No "Continue with password" button found, treating as a standard Email OTP input screen...`);
+      }
+    }
 
     if (isChooseAccount) {
       log(`Choose-an-account page detected, clicking account option...`);
@@ -2419,6 +2446,21 @@ async function runLoginFlow(task) {
     try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
     await new Promise(r => setTimeout(r, 1000));
     await recorder.after(1, 2, 'email_filled');
+
+    // Check if we got redirected to the "Check your inbox" email verification screen
+    const state = await getState(tabId, USER_ID);
+    if (state?.hasEmailInboxScreen) {
+      console.log(`[Login] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
+      await recorder.before(1, 2, 'before_click_continue_with_password');
+      const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
+      if (cwpResult?.ok) {
+        console.log(`[Login] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
+        await new Promise(r => setTimeout(r, 5000));
+        await recorder.after(1, 2, 'clicked_continue_with_password');
+      } else {
+        console.warn(`[Login] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
+      }
+    }
 
     // Password
     console.log(`[Login] [4] Điền password...`);
