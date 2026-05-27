@@ -63,5 +63,33 @@ for (const account of overwritten) {
   }
 }
 
+// Also fix deactivated/dead accounts that are active on Gateway (e.g. email_dead / need_phone / relogin)
+const deactivatedActive = db.prepare(`
+  SELECT * FROM vault_accounts 
+  WHERE deleted_at IS NULL 
+    AND gateway_status = 'active'
+    AND (
+      tags LIKE '%email_dead%' 
+      OR tags LIKE '%account_deactivated%' 
+      OR status = 'dead' 
+      OR status = 'relogin' 
+      OR status = 'need_phone'
+    )
+`).all();
+
+console.log(`\n\nFound ${deactivatedActive.length} deactivated/dead accounts that are still 'active' on Gateway`);
+
+for (const account of deactivatedActive) {
+  console.log(`\n🔧 Revoking deactivated account from Gateway: ${account.email}`);
+  console.log(`   status=${account.status}, gateway_status=${account.gateway_status}`);
+  
+  try {
+    await SyncManager.pushVault('account', account, true);
+    console.log(`   ✅ Successfully pushed tombstone/revoke to D1 for ${account.email}`);
+  } catch (e) {
+    console.log(`   ❌ Push failed: ${e.message}`);
+  }
+}
+
 db.close();
 console.log('\n✅ Repair complete');
