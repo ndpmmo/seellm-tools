@@ -16,7 +16,8 @@ import {
   fillMfa,
   tryAcceptCookies,
   dismissGooglePopupAndClickLogin,
-  selectPersonalWorkspaceOnWorkspacePage
+  selectPersonalWorkspaceOnWorkspacePage,
+  clickContinueWithPassword,
 } from './lib/openai-login-flow.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -402,6 +403,24 @@ async function runWarmup() {
           continue;
         }
         
+        // 4.5. Handle Email Inbox verification screen ("Check your inbox")
+        // Xảy ra khi OpenAI yêu cầu xác minh email trước khi vào màn hình mật khẩu.
+        // Phân biệt với TOTP: trang này có nút "Continue with password" → click để đi thẳng vào password screen.
+        if (state.hasEmailInboxScreen) {
+          console.log(`[Warmup] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Chuyển sang nhập mật khẩu...`);
+          const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
+          if (cwpResult?.ok) {
+            console.log(`[Warmup] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
+            passwordFilled = false;
+            passwordWaitCount = 0;
+            await delay(4000);
+          } else {
+            console.warn(`[Warmup] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email. Thử lại...`);
+            await delay(3000);
+          }
+          continue;
+        }
+
         // 5. Handle Password Input
         if (state.hasPasswordInput) {
           if (passwordFilled) {

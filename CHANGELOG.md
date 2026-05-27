@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.98] - 2026-05-27 22:05:00
+
+### 🔒 Phân Biệt Email Inbox Screen với TOTP Screen - Sửa Lỗi Vòng Lặp Điền SAI Mã OTP (Email Inbox vs TOTP Detection Fix)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - OpenAI đôi khi yêu cầu xác minh email ngay sau khi submit email, hiển thị màn hình *"Check your inbox - Enter the verification code we just sent to ..."*.
+  - Màn hình này có 2 lựa chọn: điền mã OTP từ email (khó tự động), hoặc click nút **"Continue with password"** (đi thẳng vào màn hình mật khẩu bình thường).
+  - Hệ thống Warmup phát hiện sai đây là màn hình TOTP 2FA (`hasMfaInput = true`) rồi liên tục điền TOTP code vào trường email OTP → lỗi `Incorrect code` → sau nhiều lần sai bị khóa với `error_code: max_check_attempts`.
+- **Nguyên Nhân Cốt Lõi (Root Causes)**:
+  - Hàm `getState()` trong [scripts/lib/openai-login-flow.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/lib/openai-login-flow.js) không phân biệt 2 dạng màn hình OTP này:
+    - **Email Inbox Screen**: URL chứa `/email-verification`, body có *"check your inbox"*, có nút *"Continue with password"* và link *"Resend email"*.
+    - **TOTP/MFA Screen**: URL chứa `/mfa` hoặc `/totp`, body có *"authenticator app"*, *"6-digit code"*.
+  - Các keyword `href.includes('email-verification')` và `body.includes('check your inbox')` đang nằm sai trong điều kiện `hasMfaInput`, khiến Email Inbox Screen bị xử lý như TOTP screen.
+- **Các Thay Đổi Cụ Thể (Applied Fixes)**:
+  - **scripts/lib/openai-login-flow.js**:
+    - Thêm trạng thái mới `hasEmailInboxScreen` vào hàm `getState()`: phát hiện chính xác khi URL chứa `/email-verification` hoặc body có *"check your inbox"* và nút *"Continue with password"* visible.
+    - Sửa `hasMfaInput`: thêm `!hasEmailInboxScreen` làm guard, xóa bỏ `href.includes('email-verification')` và `body.includes('check your inbox')` khỏi điều kiện (chuyển sang `hasEmailInboxScreen`).
+    - Expose `hasEmailInboxScreen` trong object trả về của `getState()`.
+    - Thêm exported function `clickContinueWithPassword(tabId, userId)` với 3 strategies: text-match trên button, href-match trên link, và click button đầu tiên sau divủer "OR".
+  - **scripts/warmup.js**:
+    - Import `clickContinueWithPassword` từ `openai-login-flow.js`.
+    - Thêm handler mới **Step 4.5** trong login loop (giữa Workspace và Password handlers): khi phát hiện `hasEmailInboxScreen`, tự động click *"Continue with password"*, reset `passwordFilled = false` và chờ 4 giây cho màn hình mật khẩu hiển thị.
+- **Luồng Đăng Nhập Mới (New Login Flow)**:
+  - `Email submit` → `Check your inbox screen` → **Click "Continue with password"** → `Password screen` → `TOTP screen` → Đăng nhập thành công ✅
+- **package.json**: Nâng phiên bản của Tools lên `0.3.98`.
+
 ## [0.3.97] - 2026-05-27 21:54:00
 
 ### 🛡️ Khắc Phục Lỗi Kẹt Hộp Thoại Giới Thiệu Nhiều Bước Ở ChatGPT (ChatGPT Multi-Step Onboarding Modals Clear Fix)

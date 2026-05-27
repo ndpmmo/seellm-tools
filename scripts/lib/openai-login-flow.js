@@ -186,11 +186,27 @@ export async function getState(tabId, userId) {
 
       // ── MFA: URL chứa /mfa hoặc có input one-time-code ──
       const isAddPhonePage = href.includes('/add-phone');
-      const hasMfaInput = !isAddPhonePage && !!(
-        href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') || href.includes('email-verification') ||
+
+      // ── Email Inbox Screen (OpenAI sends code to email; user can bypass via "Continue with password") ──
+      // Phân biệt rõ ràng với TOTP/Authenticator screen:
+      // - Email inbox: URL /email-verification, body "check your inbox" + nút "Continue with password" visible
+      // - TOTP screen: URL /mfa /totp, body "authenticator app" "6-digit"
+      const hasEmailInboxScreen = (
+        href.includes('email-verification') ||
+        (
+          (body.includes('check your inbox') || body.includes('resend email')) &&
+          !!Array.from(document.querySelectorAll('button, [role="button"]')).find(el =>
+            isVisible(el) && (el.innerText || el.textContent || '').trim().toLowerCase() === 'continue with password'
+          )
+        )
+      );
+
+      // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen) ──
+      const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !!(
+        href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') ||
         body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
         body.includes('mã xác minh') || body.includes('mã xác thực') || body.includes('mã otp') || body.includes('verification code') ||
-        body.includes('sent a code') || body.includes('temporary verification code') || body.includes('check your inbox') ||
+        body.includes('sent a code') || body.includes('temporary verification code') ||
         Array.from(document.querySelectorAll('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"], input[placeholder*="code"], input[placeholder*="Code"], input[placeholder*="mã"], input[id*="code"], input[id*="otp"], input[class*="code"]')).some(isVisible)
       );
 
@@ -272,6 +288,7 @@ export async function getState(tabId, userId) {
         looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
+        hasEmailInboxScreen,
         isConsentScreen: isConsentScr,
         isWorkspaceScreen: !hasError && isWorkspaceScr,
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
@@ -513,6 +530,71 @@ export async function tryAcceptCookies(tabId, userId) {
       return !!btn;
     })()
   `, 3000);
+}
+
+/**
+ * Click "Continue with password" on the Email Inbox verification screen.
+ * Appears after email submit when OpenAI requires email verification.
+ * Clicking this button bypasses email OTP and routes to the password screen.
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} { ok, method, text }
+ */
+export async function clickContinueWithPassword(tabId, userId) {
+  return evalJson(tabId, userId, `
+    (() => {
+      const isVisible = el => {
+        if (!el) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      };
+
+      // Strategy 1: Exact text match on button/[role="button"]
+      const kwds = ['continue with password', 'enter your password', 'use password', 'use your password', 'with password'];
+      let btn = Array.from(document.querySelectorAll('button, [role="button"]'))
+        .filter(isVisible)
+        .find(el => {
+          const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+          return kwds.some(k => t === k || t.includes(k));
+        });
+      if (btn) {
+        btn.click();
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return { ok: true, method: 'button-text', text: (btn.innerText || btn.textContent || '').trim() };
+      }
+
+      // Strategy 2: <a> tag with href containing "password" (not "forgot")
+      const link = Array.from(document.querySelectorAll('a')).filter(isVisible).find(a => {
+        const href = (a.getAttribute('href') || '').toLowerCase();
+        return href.includes('password') && !href.includes('forgot');
+      });
+      if (link) {
+        link.click();
+        return { ok: true, method: 'link-href', href: link.getAttribute('href') };
+      }
+
+      // Strategy 3: Outline/ghost button appearing after an "OR" divider
+      const allBtns = Array.from(document.querySelectorAll('button')).filter(isVisible);
+      const orDivider = Array.from(document.querySelectorAll('*')).find(el =>
+        isVisible(el) && (el.innerText || el.textContent || '').trim().toUpperCase() === 'OR'
+      );
+      if (orDivider) {
+        const afterOr = allBtns.find(b => {
+          try {
+            return orDivider.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+          } catch (_) { return false; }
+        });
+        if (afterOr) {
+          afterOr.click();
+          afterOr.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          return { ok: true, method: 'after-or-divider', text: (afterOr.innerText || afterOr.textContent || '').trim() };
+        }
+      }
+
+      return { ok: false };
+    })()
+  `, 5000);
 }
 
 /**
