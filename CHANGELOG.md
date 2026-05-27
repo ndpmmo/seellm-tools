@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.97] - 2026-05-27 21:54:00
+
+### 🛡️ Khắc Phục Lỗi Kẹt Hộp Thoại Giới Thiệu Nhiều Bước Ở ChatGPT (ChatGPT Multi-Step Onboarding Modals Clear Fix)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Khi luồng Warmup hoạt động với tài khoản mới hoặc tài khoản có phiên cookie vừa làm mới, ChatGPT hiển thị hộp thoại giới thiệu dạng nhiều bước (Multi-step onboarding).
+  - Bước 1 hiển thị bảng câu hỏi *"What brings you to ChatGPT?"* chứa nút **Next** và **Skip**.
+  - Bước 2 hiển thị bảng xác nhận *"You're all set"* chứa nút **Continue**.
+  - Hệ thống Warmup bị sập với lỗi `Không tìm thấy hộp thoại chat của ChatGPT!` do không thể vượt qua bước 2.
+- **Nguyên Nhân Cốt Lõi (Root Causes)**:
+  - Hàm quét và click tự động `dismissOnboardingModals` trong [scripts/warmup.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/scripts/warmup.js) chỉ kiểm tra các từ khóa như `next`, `done`, `tiếp tục` mà hoàn toàn thiếu đi các từ khóa then chốt khác như **`continue`**, **`skip`** và **`get started`**.
+  - Kết quả là lượt chạy thứ nhất click "Next" thành công (bước 1), nhưng lượt thứ hai thấy nút "Continue" thì không nhận diện được nên trả về `false`, thoát vòng lặp đóng modal dở dang khi màn hình chat vẫn bị che khuất.
+- **Các Thay Đổi Cụ Thể (Applied Fixes)**:
+  - **scripts/warmup.js**:
+    - Cập nhật hàm `dismissOnboardingModals` bổ sung các từ khóa so khớp thiết yếu: `"skip"`, `"continue"`, `"get started"`, `"đóng"`, `"you're all set"`.
+    - Tăng giới hạn số lượt quét giải phóng modal từ `3` lên tối đa `5` lượt liên tiếp (phòng ngừa ChatGPT tăng số bước onboarding trong tương lai).
+    - Tăng thời gian nghỉ giữa mỗi lượt click từ `2000ms` lên `3000ms` để bảo đảm trình duyệt kịp render trọn vẹn màn hình modal tiếp theo.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.97`.
+
 ## [0.3.96] - 2026-05-27 03:42:00
 
 ### 🔄 Đồng Bộ Hóa Hoàn Hảo Proxy Slots (Proxy Slots Parity & Preservation Align)

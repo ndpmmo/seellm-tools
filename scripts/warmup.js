@@ -110,7 +110,8 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
 }
 
 /**
- * Automatically detects and clicks "Okay, let's go", "Next", "Done", etc. onboarding buttons.
+ * Automatically detects and clicks "Okay, let's go", "Next", "Skip", "Continue", "Done", etc.
+ * onboarding buttons to clear ChatGPT's multi-step onboarding modals.
  */
 async function dismissOnboardingModals(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
@@ -129,10 +130,15 @@ async function dismissOnboardingModals(tabId, userId) {
         text === "got it" ||
         text === "done" ||
         text === "next" ||
+        text === "skip" ||
+        text === "continue" ||
+        text === "get started" ||
         text === "tiếp tục" ||
         text === "bắt đầu" ||
+        text === "đóng" ||
         text.includes("let's get started") ||
-        text.includes("okay, let’s get started")
+        text.includes("okay, let's get started") ||
+        text.includes("you're all set")
       ) {
         btn.click();
         btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -757,12 +763,14 @@ async function runWarmup() {
       const promptText = selectedPrompts[idx];
       console.log(`\n[Warmup] ❓ Câu hỏi ${idx + 1}/${selectedPrompts.length}: "${promptText}"`);
       
-      // Clear onboarding modals (up to 3 screens) if any overlays exist
-      for (let i = 0; i < 3; i++) {
+      // Clear onboarding modals (up to 5 screens) if any overlays exist.
+      // ChatGPT shows multi-step onboarding: "What brings you to ChatGPT?" → "You're all set" → etc.
+      // Each step needs a delay after clicking for the next screen to render.
+      for (let i = 0; i < 5; i++) {
         const dismissed = await dismissOnboardingModals(tabId, USER_ID);
         if (dismissed) {
           console.log(`[Warmup] 🛡️ Phát hiện và đóng hộp thoại giới thiệu / Onboarding Modal (Lượt ${i + 1})...`);
-          await delay(2000);
+          await delay(3000); // increased: next modal needs time to render
         } else {
           break;
         }
