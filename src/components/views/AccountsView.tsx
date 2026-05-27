@@ -283,6 +283,7 @@ export function AccountsView() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [pullingAll, setPullingAll] = useState(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
@@ -546,6 +547,28 @@ export function AccountsView() {
     });
   };
 
+  const forcePull = async () => {
+    setConfirmModal({
+      title: 'Đồng bộ từ D1 Cloud',
+      message: `Bạn có chắc muốn ép tải đồng bộ toàn bộ dữ liệu từ D1 Cloud về local SQLite? Thao tác này sẽ cập nhật lại toàn bộ tài khoản và con trỏ.`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setPullingAll(true);
+        try {
+          const r = await fetch('/api/vault/sync/force-pull', { method: 'POST' });
+          const d = await r.json();
+          if (d.error) throw new Error(d.error);
+          addToast('✅ Đồng bộ toàn phần từ Cloud thành công!', 'success');
+          load();
+        } catch (e: any) {
+          addToast(e.message || 'Đồng bộ thất bại', 'error');
+        } finally {
+          setPullingAll(false);
+        }
+      }
+    });
+  };
+
   const bulkImport = async () => { if (!bulkRows.length) return; setBulkBusy(true); let ok = 0; for (const r of bulkRows) { try { const d = await post('/api/d1/accounts/add', r); if (d.ok) ok++; } catch { } } setBulkBusy(false); setBulkText(''); setBulkRows([]); setBulkOpen(false); addToast(`✅ Imported ${ok}/${bulkRows.length}`, 'success'); load(); };
 
   return (
@@ -656,6 +679,16 @@ export function AccountsView() {
             >
               {syncingAll ? <span className="w-3 h-3 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mr-1.5" /> : <Database size={12} />}
               Sync All to D1
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={forcePull}
+              disabled={pullingAll}
+              className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+            >
+              {pullingAll ? <span className="w-3.5 h-3.5 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin mr-1.5" /> : <RefreshCw size={12} className="mr-1.5" />}
+              Force Pull from D1
             </Button>
             <div className="relative flex items-center">
               <Search size={13} className="absolute left-2.5 text-slate-500 pointer-events-none" />

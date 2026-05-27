@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.103] - 2026-05-28 00:35:00
+
+### 🔄 Dọn Dẹp Sạch Sẽ Trạng Thái Kết Nối & Đồng Bộ Tombstone Trực Tiếp Khi Chuyển Sang Idle
+- **Dọn dẹp sạch sẽ trạng thái kết nối**: Thêm cơ chế đồng bộ dọn dẹp sạch sẽ trạng thái kết nối khi chuyển tài khoản sang 'idle' (revoked) hoặc khi có yêu cầu đưa tài khoản về idle.
+- **Đồng bộ tombstone đầy đủ**: Đồng bộ tombstone đầy đủ lên D1 Cloud Worker để thông báo gỡ bỏ kết nối trên Gateway ngay lập tức.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.103`.
+
 ## [0.3.102] - 2026-05-28 00:15:00
 
 ### 🛡️ Đồng Bộ Nhận Diện Tài Khoản Deactivated & Dead Tránh Giữ Trạng Thái Active Trên Gateway khi Connect Thất Bại (Sync isDeactivated across syncManager and PATCH handler)

@@ -518,29 +518,43 @@ export const SyncManager = {
   },
 
   async pullVault(since = '1970-01-01T00:00:00.000Z') {
-  const cfg = loadConfig();
-  if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return null;
+    const cfg = loadConfig();
+    if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return null;
 
-  try {
-    const sinceStr = String(since ?? '');
-    // Phase 2 optimization: cheap cursor preflight to avoid heavy /sync/pull scans.
-    if (sinceStr && sinceStr !== '0') {
-      const cursorRes = await fetch(`${cfg.d1WorkerUrl}/sync/cursor`, {
-        headers: { 'x-sync-secret': cfg.d1SyncSecret }
-      }).catch(() => null);
-      if (cursorRes?.ok) {
-        const cursorData = await cursorRes.json().catch(() => ({}));
-        if (cursorData?.ok && typeof cursorData?.cursor === 'string' && cursorData.cursor <= sinceStr) {
-          return null;
+    // Apply overlapping lookback window (120 seconds) to absorb D1 edge replication delay
+    let querySince = since;
+    if (since && since !== '1970-01-01T00:00:00.000Z' && since !== '0') {
+      try {
+        const parsed = Date.parse(since);
+        if (Number.isFinite(parsed)) {
+          querySince = new Date(parsed - 120000).toISOString();
         }
+      } catch (err) {
+        console.warn('[SyncManager] Failed to apply lookback window:', err.message);
       }
     }
 
-    console.log(`[SyncManager] Pulling vault changes since ${since}...`);
-    const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections,vaultEmailPool');
-    const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(since)}&tables=${tables}`, {
-      headers: { 'x-sync-secret': cfg.d1SyncSecret }
-    });
+    try {
+      const sinceStr = String(since ?? '');
+      // Phase 2 optimization: cheap cursor preflight to avoid heavy /sync/pull scans.
+      // Note: preflight check must compare against original cursor `since` (not querySince)
+      if (sinceStr && sinceStr !== '0' && sinceStr !== '1970-01-01T00:00:00.000Z') {
+        const cursorRes = await fetch(`${cfg.d1WorkerUrl}/sync/cursor`, {
+          headers: { 'x-sync-secret': cfg.d1SyncSecret }
+        }).catch(() => null);
+        if (cursorRes?.ok) {
+          const cursorData = await cursorRes.json().catch(() => ({}));
+          if (cursorData?.ok && typeof cursorData?.cursor === 'string' && cursorData.cursor <= sinceStr) {
+            return null;
+          }
+        }
+      }
+
+      console.log(`[SyncManager] Pulling vault changes since ${querySince} (original cursor: ${since})...`);
+      const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections,vaultEmailPool');
+      const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(querySince)}&tables=${tables}`, {
+        headers: { 'x-sync-secret': cfg.d1SyncSecret }
+      });
     
     let data;
     const contentType = res.headers.get('content-type') || '';
