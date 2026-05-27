@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.105] - 2026-05-28 00:55:00
+
+### 📵 Tối Ưu Hóa Tiến Trình Connect Gặp Thách Thức NEED_PHONE & Sửa Lỗi Gán Nhãn local
+- **Cơ chế thoát sớm (Early Exit) trên auto-worker**: Khi tài khoản chạy Connect flow gặp màn hình yêu cầu xác minh số điện thoại (`add-phone`) và bypass qua API workspace thất bại, tiến trình sẽ lập tức báo lỗi `NEED_PHONE` và thoát sớm (`return sendResult`). Tránh việc tiếp tục chạy thử các cơ chế dự phòng không thể thành công khác (session-seed, protocol login, browser OAuth choose-account loop) gây lãng phí tài nguyên và tạo vòng lặp vô hạn.
+- **Sửa lỗi gán nhãn `need_phone` trên Tools**: Sửa lỗi cú pháp trong hàm `maybeAddNeedPhoneTag` tại `server/routes/vault.js` do sử dụng trực tiếp chuỗi JSON của `account.tags` làm mảng. Bằng cách sử dụng `safeParseTags(account.tags)`, nhãn `need_phone` giờ đây được gán và lưu vào SQLite một cách chính xác khi Connect thất bại với lỗi `NEED_PHONE`.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.105`.
+
 ## [0.3.104] - 2026-05-28 00:49:00
 
 ### 📊 Nâng Cấp Bộ Lọc Nhanh & Thuật Toán Sắp Xếp Phân Bổ Thông Minh cho Account Vault

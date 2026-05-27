@@ -1798,6 +1798,12 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       if (codeResult?.code) { authCode = codeResult.code; console.log(`[Capture] ✅ Code via workspace API`); await recorder.after(1, 2, 'phone_bypass_success'); break; }
       await recorder.error(1, 2, 'phone_bypass_failed');
 
+      // Early exit: Nếu bypass workspace thất bại và chúng ta đang ở phone screen,
+      // điều này có nghĩa đây là tài khoản free/personal bắt buộc phải xác minh số điện thoại.
+      // Không cần thử các fallbacks tiếp theo vì tất cả đều sẽ dẫn tới màn hình /add-phone hoặc bị chặn.
+      console.log(`[Capture] 📵 Workspace bypass failed on phone screen — skipping remaining fallbacks and exiting early`);
+      return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+
       // Fallback 0: Navigate authUrl directly in browser tab (works for free accounts — no workspace needed)
       console.log(`[Capture] 📵 Workspace bypass failed, trying direct authUrl navigate (free account path)...`);
       await recorder.before(1, 3, 'direct_authurl_navigate');

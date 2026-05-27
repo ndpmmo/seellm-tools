@@ -94,7 +94,7 @@ function maybeAddNeedPhoneTag(id, message) {
   if (!message || !String(message).includes('NEED_PHONE')) return;
   const account = vault.getAccountFull(id);
   if (!account) return;
-  const tags = account.tags || [];
+  const tags = safeParseTags(account.tags);
   if (!tags.includes('need_phone')) {
     tags.push('need_phone');
     vault.upsertAccount({ id, tags });
