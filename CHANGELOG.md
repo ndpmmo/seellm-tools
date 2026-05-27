@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.106] - 2026-05-28 01:58:00
+
+### 🛡️ Nhận Diện 2FA Đang Hoạt Động Để Tránh Chạy Lại Gây Lỗi (2FA Already Enabled Detection & Graceful Exit)
+- **Tự động nhận diện 2FA đã kích hoạt**: Cập nhật thư viện `scripts/lib/mfa-setup.js` để tự động nhận dạng xem 2FA của tài khoản hiện tại đang ở trạng thái **BẬT** (`isAlreadyEnabled`).
+- **Thoát sớm thông minh (Graceful Exit)**: Nếu 2FA đã được kích hoạt trên OpenAI và cơ sở dữ liệu đã lưu sẵn khóa bí mật (`currentSecret`), hệ thống sẽ bỏ qua bước tắt và thiết lập lại 2FA dư thừa, trả về thành công ngay lập tức.
+- **Lợi ích**: Tránh việc vô tình chạy lại tiến trình làm hỏng/đổi Secret Key của tài khoản đang chạy tốt, đặc biệt ngăn ngừa việc OpenAI chặn do đăng nhập và đổi bảo mật quá nhiều lần liên tục dẫn đến lỗi giới hạn lượt thử (`Too many attempts` / `max_check_attempts`).
+- **package.json**: Nâng phiên bản của Tools lên `0.3.106`.
+
 ## [0.3.105] - 2026-05-28 00:55:00
 
 ### 📵 Tối Ưu Hóa Tiến Trình Connect Gặp Thách Thức NEED_PHONE & Sửa Lỗi Gán Nhãn local

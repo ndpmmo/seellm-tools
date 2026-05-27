@@ -467,7 +467,15 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         `);
 
         if (isAlreadyEnabled) {
-            log('🛡️ Phát hiện 2FA hiện tại đang ở trạng thái BẬT. Tiến hành tắt trước khi thiết lập lại...');
+            log('🛡️ Phát hiện 2FA hiện tại đang ở trạng thái BẬT (Đã kích hoạt 2FA).');
+            
+            // Nếu đã có currentSecret và không bắt buộc tạo lại, trả về thành công ngay lập tức
+            if (!options.forceRegen && options.currentSecret) {
+                log('✅ Tài khoản đã có sẵn 2FA đang hoạt động và có khóa bí mật lưu trữ. Bỏ qua việc cài đặt lại để tránh lỗi.');
+                return { success: true, secret: options.currentSecret, totp: null, alreadyEnabled: true };
+            }
+            
+            log('🛡️ Tiến hành tắt 2FA cũ trước khi thiết lập lại...');
             
             // Click toggle switch để tắt
             const toggledOff = await run(`
