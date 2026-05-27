@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag, Filter,
   Database, Shield, Globe, Key, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, Unlock, HelpCircle, Mail, XCircle, Briefcase, Flame, AlertTriangle
+  Bot, PhoneOff, Skull, Lock, Unlock, HelpCircle, Mail, XCircle, Briefcase, Flame, AlertTriangle, Clock
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
@@ -287,6 +287,8 @@ export function VaultAccountsView() {
   const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterTag, setFilterTag] = useState<string>('all');
+  const [filterTime, setFilterTime] = useState<'all' | 'today' | '3days' | '7days' | '30days'>('all');
+  const [activePreset, setActivePreset] = useState<string>('all');
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
 
   const [uiState, setUiState] = useState({
@@ -408,7 +410,49 @@ export function VaultAccountsView() {
       filterTag === 'no_2fa' ? !it.two_fa_secret :
       tags.includes(filterTag);
 
-    return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch;
+    const timeMatch = (() => {
+      if (filterTime === 'all') return true;
+      if (!it.created_at) return false;
+      const createdDate = new Date(it.created_at);
+      const diffMs = new Date().getTime() - createdDate.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (filterTime === 'today') {
+        return new Date().toDateString() === createdDate.toDateString();
+      }
+      if (filterTime === '3days') return diffDays <= 3;
+      if (filterTime === '7days') return diffDays <= 7;
+      if (filterTime === '30days') return diffDays <= 30;
+      return true;
+    })();
+
+    // Custom Preset logic matching
+    let presetMatch = true;
+    if (activePreset === 'created_today') {
+      if (!it.created_at) presetMatch = false;
+      else {
+        const createdDate = new Date(it.created_at);
+        presetMatch = new Date().toDateString() === createdDate.toDateString();
+      }
+    } else if (activePreset === 'created_week') {
+      if (!it.created_at) presetMatch = false;
+      else {
+        const createdDate = new Date(it.created_at);
+        const diffDays = (new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
+        presetMatch = diffDays <= 7;
+      }
+    } else if (activePreset === 'no_proxy') {
+      presetMatch = !it.proxy_url;
+    } else if (activePreset === 'has_proxy') {
+      presetMatch = !!it.proxy_url;
+    } else if (activePreset === 'action_required') {
+      presetMatch = ['error', 'relogin'].includes(it.status) || tags.includes('need_phone');
+    } else if (activePreset === 'no_2fa') {
+      presetMatch = !it.two_fa_secret;
+    } else if (activePreset === 'premium') {
+      presetMatch = !!planLower && !planLower.includes('free');
+    }
+
+    return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch && timeMatch && presetMatch;
   });
 
   /* ── CRUD ── */
@@ -1320,11 +1364,53 @@ export function VaultAccountsView() {
         </div>
       </div>
 
+      {/* ═══ QUICK PRESET CHIPS ═══ */}
+      <div className="flex gap-2 overflow-x-auto pb-1 relative z-10 scrollbar-none">
+        {[
+          { id: 'all', label: 'Tất cả', icon: Users, color: 'text-slate-400', activeClass: 'bg-white/10 text-white border-white/20' },
+          { id: 'created_today', label: '✨ Mới tạo hôm nay', icon: Clock, color: 'text-emerald-400', activeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
+          { id: 'created_week', label: '📅 Mới tạo tuần này', icon: Clock, color: 'text-teal-400', activeClass: 'bg-teal-500/10 text-teal-400 border-teal-500/30' },
+          { id: 'no_proxy', label: '🔌 Chưa gán Proxy', icon: Globe, color: 'text-rose-400', activeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/30' },
+          { id: 'has_proxy', label: '✅ Đã gán Proxy', icon: Globe, color: 'text-sky-400', activeClass: 'bg-sky-500/10 text-sky-400 border-sky-500/30' },
+          { id: 'action_required', label: '⚠️ Lỗi & Cần SĐT', icon: AlertTriangle, color: 'text-amber-400', activeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+          { id: 'no_2fa', label: '🔒 Chưa có 2FA', icon: Lock, color: 'text-purple-400', activeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
+          { id: 'premium', label: '💎 Premium', icon: Bot, color: 'text-indigo-400', activeClass: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' },
+        ].map(preset => {
+          const PresetIcon = preset.icon;
+          const isActive = activePreset === preset.id;
+          return (
+            <button
+              key={preset.id}
+              onClick={() => {
+                setActivePreset(preset.id);
+                if (preset.id === 'all') {
+                  setFilterWorkspace('all');
+                  setFilterPlan('all');
+                  setFilterStatus('all');
+                  setFilterTag('all');
+                  setFilterTime('all');
+                  setProviderFilter('all');
+                  setSearch('');
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all shrink-0 cursor-pointer ${
+                isActive 
+                  ? preset.activeClass
+                  : 'bg-white/5 text-slate-400 border-white/5 hover:border-white/10 hover:bg-white/10'
+              }`}
+            >
+              <PresetIcon size={12} className={isActive ? '' : preset.color} />
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* ═══ ADVANCED FILTER PANEL ═══ */}
       {isAdvancedFilterOpen && (
         <Card className="mb-2 border-indigo-500/20 bg-indigo-500/[0.01] animate-slideDown overflow-visible relative z-20">
           <CardContent className="py-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
               {/* Provider Selection */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Nhà cung cấp</label>
@@ -1404,6 +1490,22 @@ export function VaultAccountsView() {
                   <option value="no_2fa" className="bg-[#0f172a]">Không có 2FA</option>
                 </select>
               </div>
+
+              {/* Creation Time */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Thời gian tạo</label>
+                <select 
+                  className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50"
+                  value={filterTime}
+                  onChange={e => setFilterTime(e.target.value as any)}
+                >
+                  <option value="all" className="bg-[#0f172a]">Tất cả thời gian</option>
+                  <option value="today" className="bg-[#0f172a]">Hôm nay</option>
+                  <option value="3days" className="bg-[#0f172a]">3 ngày qua</option>
+                  <option value="7days" className="bg-[#0f172a]">7 ngày qua</option>
+                  <option value="30days" className="bg-[#0f172a]">30 ngày qua</option>
+                </select>
+              </div>
             </div>
 
             {/* Active Chips & Reset */}
@@ -1448,7 +1550,32 @@ export function VaultAccountsView() {
                     <button onClick={() => setFilterTag('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
                   </span>
                 )}
-                {providerFilter === 'all' && filterWorkspace === 'all' && filterPlan === 'all' && filterStatus === 'all' && filterTag === 'all' && (
+                {filterTime !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded">
+                    Thời gian: {
+                      filterTime === 'today' ? 'Hôm nay' :
+                      filterTime === '3days' ? '3 ngày qua' :
+                      filterTime === '7days' ? '7 ngày qua' :
+                      filterTime === '30days' ? '30 ngày qua' : filterTime
+                    }
+                    <button onClick={() => setFilterTime('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {activePreset !== 'all' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded">
+                    Preset: {
+                      activePreset === 'created_today' ? 'Mới tạo hôm nay' :
+                      activePreset === 'created_week' ? 'Mới tạo tuần này' :
+                      activePreset === 'no_proxy' ? 'Chưa gán Proxy' :
+                      activePreset === 'has_proxy' ? 'Đã gán Proxy' :
+                      activePreset === 'action_required' ? 'Lỗi & Cần SĐT' :
+                      activePreset === 'no_2fa' ? 'Chưa có 2FA' :
+                      activePreset === 'premium' ? 'Premium' : activePreset
+                    }
+                    <button onClick={() => setActivePreset('all')} className="hover:text-slate-200 ml-1"><X size={10} /></button>
+                  </span>
+                )}
+                {providerFilter === 'all' && filterWorkspace === 'all' && filterPlan === 'all' && filterStatus === 'all' && filterTag === 'all' && filterTime === 'all' && activePreset === 'all' && (
                   <span className="text-[11px] text-slate-500 italic">Chưa chọn bộ lọc nào</span>
                 )}
               </div>
@@ -1462,6 +1589,9 @@ export function VaultAccountsView() {
                   setFilterPlan('all');
                   setFilterStatus('all');
                   setFilterTag('all');
+                  setFilterTime('all');
+                  setActivePreset('all');
+                  setSearch('');
                 }} 
                 className="text-[11px] text-slate-500 hover:text-slate-300"
               >
