@@ -327,7 +327,11 @@ export const SyncManager = {
         }];
 
         const tags = safeParseTags(data.tags);
-        const isDeactivated = tags.includes('account_deactivated') || data.status === 'dead';
+        const isDeactivated = tags.includes('account_deactivated') || 
+                              tags.includes('email_dead') || 
+                              data.status === 'dead' || 
+                              data.status === 'relogin' || 
+                              data.status === 'need_phone';
         if (data.ever_ready && !isDeactivated) {
           const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
           const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
@@ -439,7 +443,11 @@ export const SyncManager = {
           } else if (['error', 'need_phone', 'relogin', 'dead'].includes(data.status)) {
             // Rule 5: Error status
             const tags = safeParseTags(data.tags);
-            const isDeactivated = tags.includes('account_deactivated') || data.status === 'dead';
+            const isDeactivated = tags.includes('account_deactivated') || 
+                                  tags.includes('email_dead') || 
+                                  data.status === 'dead' || 
+                                  data.status === 'relogin' || 
+                                  data.status === 'need_phone';
             if (data.ever_ready && !isDeactivated) {
               // Keep active if was ever ready
               newGatewayStatus = 'active';

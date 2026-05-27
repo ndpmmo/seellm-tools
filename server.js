@@ -2115,7 +2115,11 @@ app.prepare().then(async () => {
               if (Array.isArray(parsed)) tags.push(...parsed);
             }
           } catch (_) {}
-          const isDeactivated = tags.includes('account_deactivated') || existing.status === 'dead';
+          const isDeactivated = tags.includes('account_deactivated') || 
+                                tags.includes('email_dead') || 
+                                existing.status === 'dead' || 
+                                existing.status === 'relogin' || 
+                                existing.status === 'need_phone';
           if (existing.ever_ready === 1 && !isDeactivated) {
             newGatewayStatus = 'active';
           }

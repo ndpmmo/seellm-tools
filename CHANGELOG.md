@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.102] - 2026-05-28 00:15:00
+
+### 🛡️ Đồng Bộ Nhận Diện Tài Khoản Deactivated & Dead Tránh Giữ Trạng Thái Active Trên Gateway khi Connect Thất Bại (Sync isDeactivated across syncManager and PATCH handler)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Khi một tài khoản chạy Connect flow bị thất bại (ví dụ: Timeout 60s trên trang `https://chatgpt.com/auth/error?`), worker ghi nhận lỗi và gọi `/connect-result` với status `'error'`.
+  - Tuy nhiên, trong local database và trên Gateway, tài khoản này vẫn bị hiển thị là `"Trên Gateway"` (`gateway_status = 'active'`) mặc dù đã có nhãn lỗi hoặc nhãn `"email_dead"` / `"MAIL DEAD"`.
+- **Nguyên Nhân Cốt Lõi (Root Cause)**:
+  - Logic xác định xem có giữ connection trên Gateway (D1) hay không (`isDeactivated`) trước đây chưa đồng bộ.
+  - Khi một tài khoản bị lỗi nhưng đã từng thành công trước đó (`ever_ready = 1`), `SyncManager` cố gắng giữ connection (`is_active = 1`) để Gateway có thể hiển thị lỗi chi tiết cho user, trừ phi tài khoản đó bị coi là deactivated/dead.
+  - Định nghĩa cũ của `isDeactivated` chỉ kiểm tra nhãn `account_deactivated` hoặc status `dead`, bỏ qua nhãn `email_dead` hoặc các status lỗi vĩnh viễn khác (`relogin`, `need_phone`). Do đó, các tài khoản bị chết hòm thư hoặc lỗi nghiêm trọng vẫn được đẩy lên D1 như một connection hoạt động và hiển thị `"Trên Gateway"`.
+  - Bên cạnh đó, route PATCH `server.js` (`/api/automation/accounts/:provider/:id`) có định nghĩa `isDeactivated` cũ, dẫn đến không đồng bộ về `gateway_status` giữa Tools và Gateway.
+- **Giải Pháp Thực Hiện (The Solution)**:
+  - Cập nhật cả `server/services/syncManager.js` (hai vị trí kiểm tra) và `server.js` (trong PATCH handler) để đồng bộ định nghĩa `isDeactivated` đầy đủ nhất:
+    ```javascript
+    const isDeactivated = tags.includes('account_deactivated') || 
+                          tags.includes('email_dead') || 
+                          existing.status === 'dead' || 
+                          existing.status === 'relogin' || 
+                          existing.status === 'need_phone';
+    ```
+  - Khi tài khoản rơi vào bất kỳ trạng thái nào trên, nó sẽ được coi là deactivated/dead. Hệ thống sẽ phát lệnh DELETE/Tombstone hủy connection trên D1 (Gateway) và cập nhật local `gateway_status` thành `'revoked'` ("Đã thu hồi") ngay lập tức, dọn dẹp sạch danh sách Services.
+- **Kết Quả Mong Đợi (Expected Behavior)**:
+  - Các tài khoản bị chết hòm thư (`email_dead`), hoặc cần relogin, need_phone sẽ ngay lập tức được thu hồi trên Gateway, không còn hiện trạng thái "Trên Gateway" sai lệch khi connect thất bại.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.102`.
+
 ## [0.3.101] - 2026-05-27 23:06:00
 
 ### 🔒 Sửa Lỗi Nhận Diện Sai Giữa Màn Màn Hình Xác Minh Link Email & Màn Hình Nhập Mã OTP Email (Email Link Verification vs Email OTP Screen Fix)
