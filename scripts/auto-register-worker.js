@@ -1816,6 +1816,54 @@ export async function runAutoRegister(taskInput) {
       console.log(`[7.1] 🔴 Lỗi MFA: ${mfaResult.error || 'Unknown'}. Account vẫn hoạt động bình thường.`);
     }
 
+    // 7.2. Double-Check & Self-Healing 2FA (Kiểm tra chắc chắn 2FA đã được bật thực tế trên DOM)
+    console.log(`[7.2] 🔍 Đang tiến hành Double-Check trạng thái 2FA trên giao diện DOM...`);
+    try {
+      // Navigate về trang Security để check DOM ổn định
+      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/#settings/Security' });
+      await new Promise(r => setTimeout(r, 4000));
+
+      const is2FaEnabledActual = await evalJson(tabId, USER_ID, `
+        (() => {
+          const elements = Array.from(document.querySelectorAll('*'));
+          const authTextEl = elements.find(el => {
+            const text = el.textContent || '';
+            if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
+            return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+          });
+          if (authTextEl) {
+            let par = authTextEl;
+            for (let d = 0; d < 8; d++) {
+              if (!par) break;
+              const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
+              if (sw) {
+                return sw.getAttribute('aria-checked') === 'true' || sw.checked === true;
+              }
+              par = par.parentElement;
+            }
+          }
+          return false;
+        })()
+      `).catch(() => false);
+
+      if (is2FaEnabledActual) {
+        console.log(`[7.2] ✅ XÁC NHẬN CHẮC CHẮN: Kiểm tra DOM thực tế cho thấy 2FA đã kích hoạt hoạt động tốt!`);
+      } else {
+        console.log(`[7.2] ⚠️ CẢNH BÁO: Phát hiện 2FA thực tế CHƯA BẬT (hoặc bật bị hụt)! Bắt đầu Self-Healing kích hoạt lại...`);
+        // Tiến hành chạy setupMFA một lần nữa để khắc phục
+        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+        if (healResult.success) {
+          twoFaSecret = healResult.secret;
+          mfaResult = healResult;
+          console.log(`[7.2] 🟢 Self-Healing thành công! 2FA đã được kích hoạt lại. Secret: ${twoFaSecret}`);
+        } else {
+          console.log(`[7.2] 🔴 Self-Healing kích hoạt lại thất bại: ${healResult.error || 'Unknown'}`);
+        }
+      }
+    } catch (checkErr) {
+      console.warn(`[7.2] ⚠️ Gặp lỗi khi chạy Double-Check 2FA: ${checkErr.message}`);
+    }
+
     // 7.5. Codex OAuth flow (if enabled)
     let codexRefreshToken = null;
     if (enableOAuth) {

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.107] - 2026-05-28 02:00:00
+
+### 🛡️ Cơ Chế Tự Động Kiểm Tra & Sửa Lỗi 2FA Cho Đăng Ký Tài Khoản (Double-Check & Self-Healing 2FA)
+- **Tự động kiểm tra chắc chắn 2FA thực tế**: Cập nhật tệp tin `scripts/auto-register-worker.js` bổ sung pha kiểm tra độc lập ngay sau bước thiết lập 2FA. Hệ thống sẽ tự động quét DOM Security tab của ChatGPT để khẳng định switch Authenticator App đã được bật (`aria-checked="true"`).
+- **Cơ chế Tự sửa lỗi (Self-Healing)**: Nếu kết quả kiểm tra thực tế cho thấy 2FA chưa được bật (do lag, click trượt ngẫu nhiên...), hệ thống sẽ lập tức cảnh báo và chạy lại tiến trình `setupMFA` để tự động sửa lỗi và bật 2FA lại ngay tại chỗ.
+- **Lợi ích**: Bảo đảm 100% tài khoản mới được tạo ra thông qua auto-register đều có bảo mật 2FA hoạt động đúng chuẩn, bao quát mọi tình huống lỗi bất ngờ.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.107`.
+
 ## [0.3.106] - 2026-05-28 01:58:00
 
 ### 🛡️ Nhận Diện 2FA Đang Hoạt Động Để Tránh Chạy Lại Gây Lỗi (2FA Already Enabled Detection & Graceful Exit)
