@@ -192,11 +192,14 @@ export async function getState(tabId, userId) {
       // - Email inbox: URL /email-verification, body "check your inbox" + nút "Continue with password" visible
       // - TOTP screen: URL /mfa /totp, body "authenticator app" "6-digit"
       const hasEmailInboxScreen = (
-        href.includes('email-verification') ||
-        (
-          (body.includes('check your inbox') || body.includes('resend email')) &&
-          !!Array.from(document.querySelectorAll('button, [role="button"]')).find(el =>
-            isVisible(el) && (el.innerText || el.textContent || '').trim().toLowerCase() === 'continue with password'
+        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email')) &&
+        !Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.type === 'text' || el.type === 'number' || el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code'))) &&
+        !!Array.from(document.querySelectorAll('button, [role="button"], a')).find(el =>
+          isVisible(el) && (
+            (el.innerText || el.textContent || '').trim().toLowerCase().includes('continue with password') ||
+            (el.innerText || el.textContent || '').trim().toLowerCase().includes('enter your password') ||
+            (el.innerText || el.textContent || '').trim().toLowerCase().includes('use password') ||
+            ((el.getAttribute('href') || '').toLowerCase().includes('password') && !(el.getAttribute('href') || '').toLowerCase().includes('forgot'))
           )
         )
       );

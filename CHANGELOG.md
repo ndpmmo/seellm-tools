@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.101] - 2026-05-27 23:06:00
+
+### 🔒 Sửa Lỗi Nhận Diện Sai Giữa Màn Màn Hình Xác Minh Link Email & Màn Hình Nhập Mã OTP Email (Email Link Verification vs Email OTP Screen Fix)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Khi OpenAI đưa ra thử thách xác minh email, URL của cả hai màn hình "Check your inbox (click link)" và "Enter the six-digit code we just sent to..." đều chứa `email-verification`.
+  - Do đó, logic nhận diện `hasEmailInboxScreen` trong `openai-login-flow.js` bị kích hoạt sai trên cả màn hình nhập mã OTP 6 số. Gây ra việc Deploy worker cố gắng click nút "Continue with password" vốn không tồn tại trên màn hình mã OTP, bỏ qua vòng lặp điền mật khẩu và cuối cùng bị timeout.
+- **Giải Pháp Thực Hiện (The Solution)**:
+  - Cập nhật logic `hasEmailInboxScreen` trong `scripts/lib/openai-login-flow.js`:
+    - Đảm bảo màn hình này **KHÔNG** chứa bất kỳ ô input nhập mã nào (type text/number hoặc autocomplete one-time-code).
+    - Đảm bảo **PHẢI** chứa nút hoặc link tiếp tục bằng mật khẩu thực sự (như "Continue with password", "Enter your password", v.v.).
+    - Nhờ vậy, màn hình nhập mã OTP sẽ được nhận diện đúng là `hasMfaInput` chứ không bị nhận diện nhầm là màn hình click link.
+  - Cập nhật `runLoginFlow` và `runConnectFlow` trong `scripts/auto-worker.js`:
+    - Chỉ điền mật khẩu nếu trang web thực sự có ô nhập mật khẩu (`state?.hasPasswordInput === true`).
+    - Nếu trang web trực tiếp hiển thị ô OTP mà không có ô mật khẩu (hoặc sau khi bỏ qua xác minh email), tiến trình sẽ tự động bỏ qua bước mật khẩu và chuyển tiếp sang bước MFA/OTP để lấy và nhập mã 6 số một cách chính xác.
+- **Kết Quả Mong Đợi (Expected Behavior)**:
+  - Mọi thử thách xác minh email (dạng click link bypass hay nhập mã OTP 6 số tự động) đều được phân loại chính xác, vượt qua mượt mà và không còn bị kẹt timeout.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.101`.
+
 ## [0.3.100] - 2026-05-27 22:56:00
 
 ### 🤖 Hỗ Trợ Xác Minh Email OpenAI ("Check your inbox") trong Deploy Worker (Email Verification Bypass in Connect & Login Flows)

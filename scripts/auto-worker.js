@@ -2448,7 +2448,7 @@ async function runLoginFlow(task) {
     await recorder.after(1, 2, 'email_filled');
 
     // Check if we got redirected to the "Check your inbox" email verification screen
-    const state = await getState(tabId, USER_ID);
+    let state = await getState(tabId, USER_ID);
     if (state?.hasEmailInboxScreen) {
       console.log(`[Login] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
       await recorder.before(1, 2, 'before_click_continue_with_password');
@@ -2457,19 +2457,24 @@ async function runLoginFlow(task) {
         console.log(`[Login] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
         await new Promise(r => setTimeout(r, 5000));
         await recorder.after(1, 2, 'clicked_continue_with_password');
+        state = await getState(tabId, USER_ID);
       } else {
         console.warn(`[Login] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
       }
     }
 
     // Password
-    console.log(`[Login] [4] Điền password...`);
-    await recorder.before(1, 3, 'before_password');
-    await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: 'input[type="password"], input[name="password"], #password', text: account.password });
-    await pressKey(tabId, USER_ID, 'Enter');
-    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
-    await new Promise(r => setTimeout(r, 2000));
-    await recorder.after(1, 3, 'password_filled');
+    if (state?.hasPasswordInput) {
+      console.log(`[Login] [4] Điền password...`);
+      await recorder.before(1, 3, 'before_password');
+      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: 'input[type="password"], input[name="password"], #password', text: account.password });
+      await pressKey(tabId, USER_ID, 'Enter');
+      try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
+      await new Promise(r => setTimeout(r, 2000));
+      await recorder.after(1, 3, 'password_filled');
+    } else {
+      console.log(`[Login] [4] Bỏ qua điền mật khẩu (không tìm thấy ô nhập mật khẩu trên trang này).`);
+    }
 
 
     // 2FA / Phone detection
