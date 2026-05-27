@@ -455,6 +455,27 @@ export function VaultAccountsView() {
     return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch && timeMatch && presetMatch;
   });
 
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    // 1. Prioritize active pending/processing actions (running warmup, 2fa, check-session, deploy)
+    const aPending = a.status === 'pending' || a.status === 'processing' || a.provider_specific_data?.warmupStatus === 'pending' || a.provider_specific_data?.twoFaRegenStatus === 'pending';
+    const bPending = b.status === 'pending' || b.status === 'processing' || b.provider_specific_data?.warmupStatus === 'pending' || b.provider_specific_data?.twoFaRegenStatus === 'pending';
+    
+    if (aPending && !bPending) return -1;
+    if (!aPending && bPending) return 1;
+    
+    // 2. Sort by time from newest to oldest
+    const aTime = Math.max(
+      a.updated_at ? Date.parse(a.updated_at) : 0,
+      a.created_at ? Date.parse(a.created_at) : 0
+    );
+    const bTime = Math.max(
+      b.updated_at ? Date.parse(b.updated_at) : 0,
+      b.created_at ? Date.parse(b.created_at) : 0
+    );
+    
+    return bTime - aTime;
+  });
+
   /* ── CRUD ── */
   const save = async () => {
     try {
@@ -1848,13 +1869,13 @@ export function VaultAccountsView() {
                 <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
                   <button
                     onClick={() => {
-                      if (selectedIds.size === filtered.length && filtered.length > 0) setSelectedIds(new Set());
-                      else setSelectedIds(new Set(filtered.map(it => it.id)));
+                      if (selectedIds.size === sortedFiltered.length && sortedFiltered.length > 0) setSelectedIds(new Set());
+                      else setSelectedIds(new Set(sortedFiltered.map(it => it.id)));
                     }}
                     className="text-slate-400 hover:text-indigo-400"
                     title="Chọn tất cả"
                   >
-                    {selectedIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                    {selectedIds.size === sortedFiltered.length && sortedFiltered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
                   </button>
                 </th>
                 <th className="px-2 py-2.5 w-7" />
@@ -1865,7 +1886,7 @@ export function VaultAccountsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {filtered.map(it => {
+              {sortedFiltered.map(it => {
                 const tags = safeParseTags(it.tags);
                 const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped') && !tags.includes('account_deactivated');
                 const isExpanded = expandedId === it.id;
