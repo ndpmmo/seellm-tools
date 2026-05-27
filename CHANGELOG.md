@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.99] - 2026-05-27 22:26:00
+
+### 🔒 Sửa Lỗi Warmup Tự Động Ghi Trạng Thái Ready và Deploy Lên Gateway Cho Tài Khoản Idle (Warmup Auto-Ready Promotion Fix)
+- **Vấn Đề Gặp Phải (The Problem)**:
+  - Sau khi Warmup thành công và lấy được cookies, các tài khoản có trạng thái `idle` (chưa được deploy lên Gateway) tự động được nâng lên trạng thái `Ready + Trên Gateway`.
+  - Tài khoản xuất hiện trên SeeLLM Gateway trong trạng thái hoạt động mặc dù chưa được operator xác nhận deploy, gây rọi loạn luồng quản lý và các tài khoản mới warmup không sử dụng được trên Gateway.
+- **Nguyên Nhân Cốt Lõi (Root Cause)**:
+  - Endpoint `POST /api/vault/accounts/:id/warmup-result` trong [server/routes/vault.js](file:///Users/ndpmmo/Documents/Github/seellm-tools/server/routes/vault.js) có logic cứng: khi warmup trả về cookies, luôn set `updateData.status = 'ready'` bất kể trạng thái ban đầu của account là gì (`idle`, `ready`, `error`...).
+  - Endpoint `regenerate-2fa-result` kế tiếp trong cùng file đã thực hiện đúng pattern: `account.status === 'idle' ? 'idle' : 'ready'` nhưng pattern này chưa được áp dụng cho warmup-result.
+- **Thực Hiện Sửa (Applied Fix)**:
+  - **server/routes/vault.js** (endpoint `warmup-result`, dòng ~3248):
+    - Thay `updateData.status = 'ready'` thành `updateData.status = (account.status === 'idle') ? 'idle' : 'ready'`.
+    - Giữ nguyên trạng thái `idle` cho các tài khoản chưa deploy, chỉ nâng lên `ready` cho các tài khoản đang trong trạng thái khác (pending, error, relogin, v.v.).
+- **Kết Quả Mong Đợi (Expected Behavior)**:
+  - Tài khoản `idle` (chưa deploy): sau warmup vẫn giữ trạng thái `idle`, không xuất hiện trên Gateway.
+  - Tài khoản đã deploy (`ready`, `error`, `relogin`): sau warmup thành công vẫn được chuyển về `ready` bình thường.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.99`.
+
 ## [0.3.98] - 2026-05-27 22:05:00
 
 ### 🔒 Phân Biệt Email Inbox Screen với TOTP Screen - Sửa Lỗi Vòng Lặp Điền SAI Mã OTP (Email Inbox vs TOTP Detection Fix)

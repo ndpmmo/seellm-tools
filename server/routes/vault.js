@@ -3244,8 +3244,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     
     if (cookies && Array.isArray(cookies) && cookies.length > 0) {
       updateData.cookies = cookies;
-      // Trả lại trạng thái ready cho tài khoản nếu login thành công và lấy được cookies
-      updateData.status = 'ready';
+      // Giữ nguyên trạng thái 'idle' nếu account chưa được deploy lên Gateway,
+      // tránh tự động đưa account lên Ready khi chỉ chạy warmup.
+      // Các trạng thái khác (ready, pending, error, relogin) được đưa về 'ready' vì login thành công.
+      updateData.status = (account.status === 'idle') ? 'idle' : 'ready';
     }
     
     let targetStatus = accountStatus;
