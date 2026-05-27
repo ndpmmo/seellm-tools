@@ -208,10 +208,73 @@ function applyMigrations() {
   }
 }
 
+function cleanupStartupPendingStatuses() {
+  try {
+    // 1. Reset các tài khoản bị kẹt connect_pending > 0 về 0
+    const connectPendingRes = db.prepare(`
+      UPDATE vault_accounts 
+      SET connect_pending = 0, updated_at = ?
+      WHERE connect_pending > 0 AND deleted_at IS NULL
+    `).run(new Date().toISOString());
+    if (connectPendingRes.changes > 0) {
+      console.log(`[Vault Startup] 🧹 Đã giải phóng ${connectPendingRes.changes} tài khoản bị kẹt trạng thái pending Deploy.`);
+    }
+
+    // 2. Reset các tài khoản bị kẹt warmupStatus === 'pending' hoặc twoFaRegenStatus === 'pending'
+    const accounts = db.prepare(`
+      SELECT id, provider_specific_data, email 
+      FROM vault_accounts 
+      WHERE (provider_specific_data LIKE '%"warmupStatus":"pending"%' 
+         OR provider_specific_data LIKE '%"twoFaRegenStatus":"pending"%')
+         AND deleted_at IS NULL
+    `).all();
+
+    if (accounts.length > 0) {
+      console.log(`[Vault Startup] 🧹 Phát hiện ${accounts.length} tài khoản bị kẹt trạng thái warmupStatus/twoFaRegenStatus 'pending'. Tiến hành dọn dẹp...`);
+      const updateStmt = db.prepare(`
+        UPDATE vault_accounts 
+        SET provider_specific_data = ?, updated_at = ? 
+        WHERE id = ?
+      `);
+
+      const runTransaction = db.transaction(() => {
+        for (const acc of accounts) {
+          try {
+            const ps = JSON.parse(acc.provider_specific_data || '{}');
+            let changed = false;
+            
+            if (ps.warmupStatus === 'pending') {
+              ps.warmupStatus = 'failed';
+              ps.warmupError = 'Tiến trình bị gián đoạn do khởi động lại server hoặc kết thúc đột ngột.';
+              changed = true;
+            }
+            if (ps.twoFaRegenStatus === 'pending') {
+              ps.twoFaRegenStatus = 'failed';
+              ps.twoFaRegenError = 'Tiến trình bị gián đoạn do khởi động lại server hoặc kết thúc đột ngột.';
+              changed = true;
+            }
+
+            if (changed) {
+              updateStmt.run(JSON.stringify(ps), new Date().toISOString(), acc.id);
+              console.log(`[Vault Startup] ✅ Reset trạng thái kẹt cho tài khoản: ${acc.email}`);
+            }
+          } catch (e) {
+            console.error(`[Vault Startup] ❌ Lỗi dọn dẹp cho ${acc.email}:`, e.message);
+          }
+        }
+      });
+      runTransaction();
+    }
+  } catch (err) {
+    console.warn(`[Vault Startup] ⚠️ Lỗi trong quá trình dọn dẹp startup:`, err.message);
+  }
+}
+
 /* ─── Exported API ──────────────────────────────────────────────────────── */
 
 initSchema();
 applyMigrations();
+cleanupStartupPendingStatuses();
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 function safeParseJson(raw, fallback) {

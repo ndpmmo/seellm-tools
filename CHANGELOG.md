@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.108] - 2026-05-28 02:08:00
+
+### 🧹 Tự Động Giải Phóng Trạng Trạng Thái Warmup & Tái Tạo 2FA Bị Kẹt (Auto Startup Cleanup & Manual Revoke Self-Healing)
+- **Tự động dọn dẹp khi khởi động (Startup Self-Healing)**: Bổ sung cơ chế dọn dẹp tự trị `cleanupStartupPendingStatuses()` vào tệp tin `server/db/vault.js` được gọi tự động mỗi khi khởi động server. Cơ chế này sẽ tự động reset cờ `connect_pending = 0` và các cờ trạng thái `warmupStatus = 'pending'`, `twoFaRegenStatus = 'pending'` trong cơ sở dữ liệu về trạng thái `'failed'` nếu chúng bị kẹt (phòng hờ trường hợp server restart đột ngột hoặc bị crash).
+- **Dọn dẹp thủ công tức thì (Manual Revoke Cleanup)**: Cập nhật route POST `/api/vault/accounts/:id/stop` trong `server/routes/vault.js` để tự động reset các cờ kẹt trong `provider_specific_data` ngay khi người dùng nhấn nút **Dừng (Stop/Revoke)** tài khoản trên giao diện. Cho phép người vận hành giải phóng trạng thái kẹt tức khắc mà không cần restart server.
+- **Lợi ích**: Loại bỏ hoàn toàn tình trạng nhãn vàng `Warming...` với spinner xoay tròn vô hạn trên giao diện UI mặc dù tiến trình thực tế không còn chạy.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.108`.
+
 ## [0.3.107] - 2026-05-28 02:00:00
 
 ### 🛡️ Cơ Chế Tự Động Kiểm Tra & Sửa Lỗi 2FA Cho Đăng Ký Tài Khoản (Double-Check & Self-Healing 2FA)

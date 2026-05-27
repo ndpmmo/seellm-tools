@@ -1393,7 +1393,32 @@ router.post('/accounts/:id/stop', async (req, res) => {
     if (account.status === 'need_phone' || String(account.notes || '').includes('NEED_PHONE')) {
       maybeAddNeedPhoneTag(req.params.id, 'NEED_PHONE');
     }
+
+    // Dọn dẹp các cờ trạng thái kẹt trong provider_specific_data khi người dùng bấm dừng
+    const ps = typeof account.provider_specific_data === 'string'
+      ? JSON.parse(account.provider_specific_data)
+      : (account.provider_specific_data || {});
+    let psChanged = false;
+    if (ps.warmupStatus === 'pending') {
+      ps.warmupStatus = 'failed';
+      ps.warmupError = 'Tiến trình bị người dùng dừng lại thủ công.';
+      psChanged = true;
+    }
+    if (ps.twoFaRegenStatus === 'pending') {
+      ps.twoFaRegenStatus = 'failed';
+      ps.twoFaRegenError = 'Tiến trình bị người dùng dừng lại thủ công.';
+      psChanged = true;
+    }
+
     vault.updateAccountStatus(req.params.id, 'idle');
+
+    if (psChanged) {
+      vault.upsertAccount({
+        id: req.params.id,
+        provider_specific_data: ps
+      });
+    }
+
     const updated = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(req.params.id);
     if (updated) {
       await SyncManager.pushVault('account', updated);
