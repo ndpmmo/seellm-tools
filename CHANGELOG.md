@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.111] - 2026-05-30 20:00:00
+
+### 🔐 Sửa Lỗi 2FA Regen Bị Kẹt Tại Màn Hình "Check Your Inbox" Có Ô Nhập Code (Fix Email OTP Stuck on 2FA Regen)
+- **Nguyên nhân**: Khi đăng nhập tài khoản Outlook/Hotmail, OpenAI hiển thị màn hình `email-verification` có cả **ô nhập mã OTP** lẫn nút **"Continue with password"**. `hasEmailInboxScreen` chỉ nhận diện trường hợp **không có ô nhập code** (để bypass sang password). Nếu có ô input code, `hasMfaInput = false` (bị gated bởi `!hasContinueWithPassword`), khiến `regenerate-2fa.js` không có handler nào khớp → bị kẹt vô hạn.
+- **Thêm trạng thái `hasEmailOtpInput`** vào `getState()` trong `scripts/lib/openai-login-flow.js`: nhận diện chính xác màn hình có cả ô nhập code VÀ nút "Continue with password" (khác biệt hoàn toàn với `hasEmailInboxScreen` chỉ có nút bypass). Expose qua return object của `getState()`.
+- **Thêm handler `hasEmailOtpInput`** vào login loop của `scripts/regenerate-2fa.js`:
+  - Nếu tài khoản có `emailCreds` (refresh_token + client_id): tự động gọi `waitForOTPCode()` lấy mã từ Outlook rồi `fillMfa()` điền vào ô code.
+  - Nếu không có `emailCreds`: fallback click "Continue with password" để dùng mật khẩu.
+- **Thêm handler `hasEmailInboxScreen`** rõ ràng vào login loop của `scripts/regenerate-2fa.js`: màn hình hộp thư đến không có ô code → click "Continue with password".
+- **Không ảnh hưởng** `warmup.js` và `auto-worker.js`: cả hai vẫn dùng `hasContinueWithPassword` để click bypass sang password (hành vi đúng cho flow warmup/connect).
+- **package.json**: Nâng phiên bản lên `0.3.111`.
+
 ## [0.3.109] - 2026-05-30 18:55:00
 
 ### 🦊 Khắc Phục Lỗi Chuyển Hướng Đăng Nhập & Cải Thiện Chọn Workspace Cá Nhân Trên ChatGPT (Fix Workspace Selection & Login Redirect False Positives)

@@ -408,6 +408,66 @@ async function run2faRegen() {
           continue;
         }
 
+        // Email OTP Input Screen: "Check your inbox" + ô nhập code + nút "Continue with password"
+        // Màn hình này cần lấy OTP từ email và điền vào ô code, KHÔNG click "Continue with password"
+        if (state.hasEmailOtpInput) {
+          console.log(`[2FA Regen] 📧 Phát hiện màn hình "Check your inbox" có ô nhập code OTP!`);
+          const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+          const clientId = emailCreds?.clientId || emailCreds?.client_id;
+          if (refreshToken && clientId) {
+            console.log(`[2FA Regen] 🔄 Đang tự động lấy mã OTP từ Email (email-verification screen)...`);
+            const otpCode = await waitForOTPCode({
+              email: account.email,
+              refreshToken: refreshToken,
+              clientId: clientId,
+              senderDomain: 'openai.com',
+              maxWaitSecs: 120
+            });
+            if (otpCode) {
+              console.log(`[2FA Regen] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+              await fillMfa(tabId, USER_ID, otpCode);
+              await delay(6000);
+              continue;
+            } else {
+              throw new Error('Không lấy được mã OTP từ email hoặc hết thời gian chờ (email-verification screen)!');
+            }
+          } else {
+            // Không có email pool -> fallback: click "Continue with password" để dùng mật khẩu
+            console.log(`[2FA Regen] ⚠️ Không có email pool credentials -> Fallback: click "Continue with password"...`);
+            await evalJson(tabId, USER_ID, `(() => {
+              const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
+                .find(el => {
+                  if (el.offsetParent === null) return false;
+                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                  return t.includes('continue with password') || t.includes('enter your password') || t.includes('use password');
+                });
+              if (btn) { btn.click(); return true; }
+              return false;
+            })()`).catch(() => {});
+            passwordFilled = false;
+            await delay(4000);
+            continue;
+          }
+        }
+
+        // Email inbox screen (NO code input): bypass via "Continue with password"
+        if (state.hasEmailInboxScreen) {
+          console.log(`[2FA Regen] 📬 Màn hình hộp thư đến (không có ô code) -> Click "Continue with password"...`);
+          await evalJson(tabId, USER_ID, `(() => {
+            const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
+              .find(el => {
+                if (el.offsetParent === null) return false;
+                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                return t.includes('continue with password') || t.includes('enter your password') || t.includes('use password');
+              });
+            if (btn) { btn.click(); return true; }
+            return false;
+          })()`).catch(() => {});
+          passwordFilled = false;
+          await delay(4000);
+          continue;
+        }
+
         // Password input
         if (state.hasPasswordInput) {
           if (passwordFilled) {

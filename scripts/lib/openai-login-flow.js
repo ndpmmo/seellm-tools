@@ -206,6 +206,15 @@ export async function getState(tabId, userId) {
         hasContinueWithPassword
       );
 
+      // ── Email OTP Input Screen: "Check your inbox" + có ô nhập code + có nút "Continue with password" ──
+      // Khác với hasEmailInboxScreen (chỉ có nút bypass, không có ô code):
+      // Màn hình này có cả ô nhập mã code VÀ nút "Continue with password".
+      // Dùng để các flow cần lấy email OTP thực sự (2FA regen, register) không bị bypass nhầm.
+      const hasEmailOtpInput = hasContinueWithPassword && !!(
+        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email')) &&
+        Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code') || el.type === 'number'))
+      );
+
       // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen và KHÔNG có nút Continue với Password) ──
       const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !hasContinueWithPassword && !!(
         href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') ||
@@ -297,6 +306,7 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         hasEmailInboxScreen,
+        hasEmailOtpInput,
         hasContinueWithPassword,
         hasResetPasswordScreen,
         isConsentScreen: isConsentScr,
