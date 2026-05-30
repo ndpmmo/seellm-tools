@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.112] - 2026-05-30 22:15:00
+
+### 🔄 Sửa Lỗi Login Loop Bị Kẹt Do Không Reset Flags Sau Màn Hình Lỗi "Oops" (Fix Error Recovery Flag Reset)
+- **Nguyên nhân**: Sau khi chọn Workspace cá nhân ("Personal account") trên chatgpt.com, OpenAI đôi khi trả về trang lỗi **"Oops! We ran into an issue while signing you in"** với nút **"Go back"**. Script trước đây click "Go back" → về trang login, nhưng các flag `emailFilled`, `passwordFilled`, `mfaFilled` vẫn còn giá trị cũ → loop bị rối loạn và không thể hoàn thành đăng nhập trong số lượt còn lại (như trường hợp account `johnnyjane7@outlook.com` bị fail sau 15 lượt).
+- **Sửa `warmup.js`**: Khi gặp `state.hasError`, reset tất cả flags (`emailFilled`, `passwordFilled`, `mfaFilled` + các counter) rồi **navigate thẳng về `chatgpt.com`** thay vì click "Go back" (tránh vòng lặp redirect). Nếu navigate thất bại mới fallback sang click "Go back".
+- **Sửa `regenerate-2fa.js`**: Áp dụng cùng cơ chế reset flags + navigate về chatgpt.com khi gặp lỗi.
+- **package.json**: Nâng phiên bản lên `0.3.112`.
+
 ## [0.3.111] - 2026-05-30 20:00:00
 
 ### 🔐 Sửa Lỗi 2FA Regen Bị Kẹt Tại Màn Hình "Check Your Inbox" Có Ô Nhập Code (Fix Email OTP Stuck on 2FA Regen)

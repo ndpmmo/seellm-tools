@@ -265,28 +265,31 @@ async function run2faRegen() {
         }
 
         if (state.hasError && !state.isOnboardingScreen) {
-          console.log(`[2FA Regen] ⚠️ Phát hiện lỗi trên trang OpenAI/ChatGPT!`);
-          const errorHealed = await evalJson(tabId, USER_ID, `(() => {
-            const btn = Array.from(document.querySelectorAll('button, a, [role=\"button\"]'))
-              .find(el => {
-                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-                return t.includes('go back') || t.includes('try again') || t.includes('thử lại') || t.includes('quay lại');
-              });
-            if (btn) {
-              btn.click();
-              btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              return true;
-            }
-            return false;
-          })()`).catch(() => false);
+          console.log(`[2FA Regen] ⚠️ Phát hiện lỗi trên trang OpenAI/ChatGPT! URL: ${state.href}`);
+          // Reset tất cả flags để login loop bắt đầu lại sạch
+          emailFilled = false;
+          emailWaitCount = 0;
+          passwordFilled = false;
+          passwordWaitCount = 0;
+          mfaFilled = false;
 
-          if (errorHealed) {
-            console.log(`[2FA Regen] 🔄 Đã bấm nút "Go back / Try again"...`);
-            await delay(5000);
-            continue;
-          } else {
-            throw new Error(`OPENAI_ERROR_PAGE: Phát hiện màn hình báo lỗi (${state.href})`);
+          // Navigate thẳng về chatgpt.com thay vì click "Go back"
+          console.log(`[2FA Regen] 🔄 Điều hướng lại về chatgpt.com để khắc phục lỗi...`);
+          try {
+            await navigate(tabId, USER_ID, 'https://chatgpt.com/');
+          } catch (_) {
+            await evalJson(tabId, USER_ID, `(() => {
+              const btn = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+                .find(el => {
+                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                  return t.includes('go back') || t.includes('try again') || t.includes('thử lại') || t.includes('quay lại');
+                });
+              if (btn) { btn.click(); return true; }
+              return false;
+            })()`).catch(() => false);
           }
+          await delay(6000);
+          continue;
         }
 
         // Welcome back dialog
