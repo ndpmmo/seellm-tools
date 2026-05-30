@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.113] - 2026-05-30 22:30:00
+
+### 🔗 Sửa Lỗi Chọn Workspace Bị Lỗi "Oops" Do Click `<a>` Bằng JavaScript (Fix Workspace Picker via Camofox Ref Click)
+- **Nguyên nhân**: Màn hình **"Choose a workspace"** trên `chatgpt.com` (xuất hiện sau MFA) hiển thị các rows dạng `<a>` link với arrow `>`. Khi Strategy D dùng `element.click()` + `dispatchEvent` bằng JavaScript để click vào row này, trình duyệt **không navigate đúng cách** → OAuth flow bị gián đoạn → OpenAI trả về **"Oops! We ran into an issue while signing you in"** (xảy ra cả trong warmup và deploy/connect flow).
+- **Thêm Strategy Zero** vào đầu hàm `selectPersonalWorkspaceOnWorkspacePage()` trong `scripts/lib/openai-login-flow.js`:
+  1. Phát hiện chính xác trang "Choose a workspace" của chatgpt.com (khác với auth.openai.com profile dropdown).
+  2. Dùng **Camofox snapshot** để tìm ref của row "Personal account" (filter bỏ SeeLLM/business rows).
+  3. Click bằng **Camofox `clickRef()`** — simulates real browser click, follow href đúng cách.
+  4. Nếu snapshot không tìm được ref: fallback Camofox CSS selector click.
+  5. Nếu redirect sau click ra `auth/error`: tự navigate về `chatgpt.com` rồi fallthrough sang các strategy tiếp theo.
+- **Nếu Strategy Zero thành công**: return ngay, không chạy Strategy Pre/A/B/C/D.
+- **Không ảnh hưởng** Strategy Pre/A/B/C/D: vẫn giữ nguyên làm fallback cho auth.openai.com workspace và chatgpt.com profile dropdown.
+- **package.json**: Nâng phiên bản lên `0.3.113`.
+
 ## [0.3.112] - 2026-05-30 22:15:00
 
 ### 🔄 Sửa Lỗi Login Loop Bị Kẹt Do Không Reset Flags Sau Màn Hình Lỗi "Oops" (Fix Error Recovery Flag Reset)

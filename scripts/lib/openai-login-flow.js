@@ -893,6 +893,109 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
     }
     await new Promise(r => setTimeout(r, 1000));
 
+    // ── Strategy Zero: Camofox Snapshot click on chatgpt.com "Choose a workspace" page ──
+    // This page appears after MFA on chatgpt.com (NOT auth.openai.com) and shows rows:
+    //   [icon] SeeLLM  >
+    //   [icon] Personal account  >
+    // The rows are <a> links — JavaScript dispatchEvent doesn't navigate properly.
+    // We MUST use Camofox's real browser click (via snapshot ref) to follow the href.
+    try {
+      const isChooseWorkspacePage = await evalJson(tabId, userId, `(() => {
+        const body = (document.body?.innerText || '').toLowerCase();
+        const url = location.href.toLowerCase();
+        return (body.includes('choose a workspace') || url.includes('/workspaces') || url.includes('workspace/select')) && !document.querySelector('[data-testid="accounts-profile-button"]');
+      })()`, 3000).catch(() => false);
+
+      if (isChooseWorkspacePage) {
+        console.log('[selectPersonalWorkspace] Strategy Zero: chatgpt.com workspace picker detected, using Camofox snapshot click...');
+        const personalKw = MULTILANG.personal;
+        let strategyZeroClicked = false;
+
+        let snapshot;
+        try {
+          snapshot = await getSnapshot(tabId, userId, { timeoutMs: 5000 });
+        } catch (e) {
+          console.warn('[selectPersonalWorkspace] Strategy Zero: snapshot failed:', e.message);
+        }
+
+        if (snapshot?.snapshot) {
+          const lines = snapshot.snapshot.split('\n');
+          // Find line with "personal" keyword that has a ref (eN) — skip lines with "seellm"/"business"
+          let personalRef = null;
+          for (const line of lines) {
+            const lower = line.toLowerCase();
+            if (lower.includes('seellm') || lower.includes('business')) continue;
+            const hasPersonal = personalKw.some(k => {
+              if (k === 'personal') return lower.includes('personal') && !lower.includes('personalization') && !lower.includes('personalize');
+              return lower.includes(k);
+            });
+            if (hasPersonal) {
+              const refMatch = line.match(/\b(e\d+)\b/);
+              if (refMatch) {
+                personalRef = refMatch[1];
+                console.log(`[selectPersonalWorkspace] Strategy Zero: Found personal row ref=${personalRef}: ${line.trim().slice(0, 80)}`);
+                break;
+              }
+            }
+          }
+
+          if (personalRef) {
+            try {
+              await clickRef(tabId, userId, personalRef, { timeoutMs: 8000 });
+              console.log(`[selectPersonalWorkspace] Strategy Zero: Clicked ref=${personalRef} via Camofox`);
+              strategyZeroClicked = true;
+            } catch (e) {
+              console.warn('[selectPersonalWorkspace] Strategy Zero: clickRef failed:', e.message);
+            }
+          } else {
+            // Try Camofox selector click on last <a> in main content (Personal account is always last row)
+            console.log('[selectPersonalWorkspace] Strategy Zero: No personal ref found in snapshot. Trying Camofox selector...');
+            try {
+              await camofoxPost(`/tabs/${tabId}/click`, { userId, selector: 'main a:last-of-type, [class*="workspace"] a:last-child, li:last-child a' }, { timeoutMs: 5000 });
+              console.log('[selectPersonalWorkspace] Strategy Zero: Clicked via Camofox selector fallback');
+              strategyZeroClicked = true;
+            } catch (e) {
+              console.warn('[selectPersonalWorkspace] Strategy Zero: Camofox selector fallback failed:', e.message);
+            }
+          }
+        }
+
+        if (strategyZeroClicked) {
+          await new Promise(r => setTimeout(r, 3000));
+          const postUrl = await evalJson(tabId, userId, 'location.href', 3000).catch(() => '');
+          const postLower = postUrl.toLowerCase();
+          const leftWorkspace = !postLower.includes('/workspace') && !postLower.includes('choose') && !postLower.includes('auth/error');
+          if (leftWorkspace) {
+            console.log(`[selectPersonalWorkspace] Strategy Zero: Success! URL: ${postUrl}`);
+            // Successfully navigated — wait for final redirect and return
+            if (waitRedirect) {
+              const deadline = Date.now() + timeoutMs;
+              const wsIndicators = ['launch a workspace', 'choose a workspace', '/workspace', 'has access to'];
+              while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 1500));
+                const check = await evalJson(tabId, userId, `(() => ({ url: location.href, body: (document.body?.innerText || '').toLowerCase().slice(0, 300) }))()`, 3000).catch(() => ({}));
+                const url = check?.url || '';
+                const body = check?.body || '';
+                const stillOnWs = wsIndicators.some(k => url.toLowerCase().includes(k) || body.includes(k));
+                if (!stillOnWs) return { ok: true, clicked: true, strategy: 'camofox_snapshot_row', reason: 'left_workspace_screen', redirectUrl: url };
+                if (url.includes('consent') || url.includes('sign-in-with-chatgpt')) return { ok: true, clicked: true, strategy: 'camofox_snapshot_row', reason: 'consent_page', redirectUrl: url };
+                if (url.includes('chatgpt.com') && !url.includes('/auth/')) return { ok: true, clicked: true, strategy: 'camofox_snapshot_row', reason: 'chatgpt_home', redirectUrl: url };
+              }
+            }
+            return { ok: true, clicked: true, strategy: 'camofox_snapshot_row', reason: 'click_done', redirectUrl: postUrl };
+          } else if (postLower.includes('auth/error')) {
+            console.warn(`[selectPersonalWorkspace] Strategy Zero: auth/error after click — falling through to other strategies`);
+            // Navigate back to attempt recovery before other strategies run
+            try { await navigate(tabId, userId, 'https://chatgpt.com/'); await new Promise(r => setTimeout(r, 3000)); } catch (_) {}
+          } else {
+            console.warn(`[selectPersonalWorkspace] Strategy Zero: Still on workspace page after click (${postUrl}) — falling through`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[selectPersonalWorkspace] Strategy Zero exception:', e.message);
+    }
+
 
     // ── Strategy Pre: Profile Dropdown Switch via Camofox browser-level clicks ──
     // Radix UI menus don't respond to JavaScript dispatchEvent; we must use Camofox's
