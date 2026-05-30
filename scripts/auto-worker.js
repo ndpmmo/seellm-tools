@@ -551,6 +551,10 @@ async function checkStateAndReportDeactivated(tabId, userId, task) {
     await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
     throw new Error('ACCOUNT_DEACTIVATED');
   }
+  if (state?.hasResetPasswordScreen) {
+    await sendResult(task, 'error', 'PASSWORD_RESET_REQUIRED: Tài khoản yêu cầu đặt lại mật khẩu');
+    throw new Error('PASSWORD_RESET_REQUIRED');
+  }
   return state;
 }
 
@@ -561,6 +565,10 @@ async function checkDeactivatedInSnapshot(tabId, userId, task, snapData) {
   if (text.includes('account_deactivated') || text.includes('deactivated') || (text.includes('vô hiệu hóa') && text.includes('tài khoản'))) {
     await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
     throw new Error('ACCOUNT_DEACTIVATED');
+  }
+  if (text.includes('reset password') || text.includes('khôi phục mật khẩu') || text.includes('đặt lại mật khẩu') || url.includes('reset-password') || url.includes('reset_password')) {
+    await sendResult(task, 'error', 'PASSWORD_RESET_REQUIRED: Tài khoản yêu cầu đặt lại mật khẩu');
+    throw new Error('PASSWORD_RESET_REQUIRED');
   }
 }
 
@@ -797,8 +805,8 @@ async function runConnectFlow(task) {
       return sendResult(task, 'error', `Không tìm thấy email input. URL: ${state?.href}`);
     }
 
-    // Email verification screen bypass ("Check your inbox" -> "Continue with password")
-    if (state?.hasEmailInboxScreen) {
+     // Email verification screen bypass ("Check your inbox" -> "Continue with password")
+    if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
       console.log(`[Connect] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
       await recorder.before(2, 2, 'before_click_continue_with_password');
       const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
@@ -975,7 +983,7 @@ async function runConnectFlow(task) {
 
   } catch (err) {
     const rawMsg = err?.message || String(err);
-    if (rawMsg === 'ACCOUNT_DEACTIVATED') return;
+    if (rawMsg === 'ACCOUNT_DEACTIVATED' || rawMsg === 'PASSWORD_RESET_REQUIRED') return;
     console.error(`[Connect] ❌ Exception: ${err.message}`);
     await recorder.error(5, 4, 'exception');
     const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Exception: ${rawMsg}`;
@@ -2453,9 +2461,9 @@ async function runLoginFlow(task) {
     await new Promise(r => setTimeout(r, 1000));
     await recorder.after(1, 2, 'email_filled');
 
-    // Check if we got redirected to the "Check your inbox" email verification screen
+     // Check if we got redirected to the "Check your inbox" email verification screen
     let state = await getState(tabId, USER_ID);
-    if (state?.hasEmailInboxScreen) {
+    if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
       console.log(`[Login] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
       await recorder.before(1, 2, 'before_click_continue_with_password');
       const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
@@ -2609,14 +2617,14 @@ async function runLoginFlow(task) {
           await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return;
         }
       } catch (_) {
-        if (_?.message === 'ACCOUNT_DEACTIVATED') throw _;
+        if (_?.message === 'ACCOUNT_DEACTIVATED' || _?.message === 'PASSWORD_RESET_REQUIRED') throw _;
       }
       await recorder.error(1, 11, 'no_code_timeout');
       await sendResult(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', { finalUrl: redirectUrl || 'unknown' });
     }
   } catch (err) {
     const rawMsg = err?.message || String(err);
-    if (rawMsg === 'ACCOUNT_DEACTIVATED') return;
+    if (rawMsg === 'ACCOUNT_DEACTIVATED' || rawMsg === 'PASSWORD_RESET_REQUIRED') return;
     const reportMsg = rawMsg.startsWith('NEED_PHONE') ? rawMsg : `Lỗi Worker: ${rawMsg}`;
     if (recorder) await recorder.error(1, 12, 'exception');
     await sendResult(task, 'error', reportMsg, null);

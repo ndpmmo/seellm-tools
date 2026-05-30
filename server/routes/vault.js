@@ -107,6 +107,12 @@ function isDeactivatedMsg(message) {
   return msg.includes('account_deactivated') || msg.includes('deactivated') || msg.includes('vô hiệu hóa') || msg.includes('đã bị xóa');
 }
 
+function isReloginMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('relogin') || msg.includes('password_reset_required') || msg.includes('reset password') || msg.includes('đặt lại mật khẩu');
+}
+
 function maybeAddAccountDeactivatedTag(id, message) {
   if (isDeactivatedMsg(message)) {
     const account = vault.getAccountFull(id);
@@ -1325,7 +1331,7 @@ router.post('/accounts/result', async (req, res) => {
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
       maybeAddNeedPhoneTag(id, errorMsg);
       maybeAddAccountDeactivatedTag(id, errorMsg);
-      const finalStatus = isDeactivatedMsg(errorMsg) ? 'dead' : (status || 'error');
+      const finalStatus = isDeactivatedMsg(errorMsg) ? 'dead' : (isReloginMsg(errorMsg) ? 'relogin' : (status || 'error'));
       vault.upsertAccount({ id, status: finalStatus, notes: errorMsg });
 
       logAudit({
@@ -1715,8 +1721,9 @@ router.post('/accounts/connect-result', async (req, res) => {
 
       // NEED_PHONE: set idle + tag — account chỉ hiển thị ở Vault local, không push Services
       // Deactivated: set dead
+      // Relogin/Reset Password: set relogin
       // Other errors: set error + push D1
-      const targetStatus = isNeedPhone ? 'idle' : (isDeactivated ? 'dead' : 'error');
+      const targetStatus = isNeedPhone ? 'idle' : (isDeactivated ? 'dead' : (isReloginMsg(errorMsg) ? 'relogin' : 'error'));
       const nowIso = new Date().toISOString();
       vault.db.prepare(
         `UPDATE vault_accounts SET status=?, notes=?, connect_pending=0, updated_at=? WHERE id=?`

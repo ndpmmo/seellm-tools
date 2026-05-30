@@ -191,21 +191,23 @@ export async function getState(tabId, userId) {
       // Phân biệt rõ ràng với TOTP/Authenticator screen:
       // - Email inbox: URL /email-verification, body "check your inbox" + nút "Continue with password" visible
       // - TOTP screen: URL /mfa /totp, body "authenticator app" "6-digit"
-      const hasEmailInboxScreen = (
-        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email')) &&
-        !Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.type === 'text' || el.type === 'number' || el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code'))) &&
-        !!Array.from(document.querySelectorAll('button, [role="button"], a')).find(el =>
-          isVisible(el) && (
-            (el.innerText || el.textContent || '').trim().toLowerCase().includes('continue with password') ||
-            (el.innerText || el.textContent || '').trim().toLowerCase().includes('enter your password') ||
-            (el.innerText || el.textContent || '').trim().toLowerCase().includes('use password') ||
-            ((el.getAttribute('href') || '').toLowerCase().includes('password') && !(el.getAttribute('href') || '').toLowerCase().includes('forgot'))
-          )
+       const hasContinueWithPassword = !hasPasswordInput && !!Array.from(document.querySelectorAll('button, [role="button"], a')).find(el =>
+        isVisible(el) && (
+          (el.innerText || el.textContent || '').trim().toLowerCase().includes('continue with password') ||
+          (el.innerText || el.textContent || '').trim().toLowerCase().includes('enter your password') ||
+          (el.innerText || el.textContent || '').trim().toLowerCase().includes('use password') ||
+          ((el.getAttribute('href') || '').toLowerCase().includes('password') && !(el.getAttribute('href') || '').toLowerCase().includes('forgot') && !(el.getAttribute('href') || '').toLowerCase().includes('reset') && !(el.getAttribute('href') || '').toLowerCase().includes('change'))
         )
       );
 
-      // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen) ──
-      const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !!(
+      const hasEmailInboxScreen = (
+        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email')) &&
+        !Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.type === 'text' || el.type === 'number' || el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code'))) &&
+        hasContinueWithPassword
+      );
+
+      // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen và KHÔNG có nút Continue với Password) ──
+      const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !hasContinueWithPassword && !!(
         href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') ||
         body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
         body.includes('mã xác minh') || body.includes('mã xác thực') || body.includes('mã otp') || body.includes('verification code') ||
@@ -237,7 +239,7 @@ export async function getState(tabId, userId) {
       const isOnboarding = lowerUrl.includes('/onboarding') || body.includes('how old are you') || body.includes('finish creating account') || body.includes('finish creating');
 
       // ── Workspace Screen ──
-      const isWorkspaceScr = (
+      const isWorkspaceScr = !hasEmailInput && !hasPasswordInput && (
         lowerUrl.includes('/workspace') ||
         (lowerUrl.includes('sign-in-with-chatgpt') && !lowerUrl.includes('consent')) ||
         WORKSPACE_KW.some(k => body.includes(k)) ||
@@ -271,19 +273,22 @@ export async function getState(tabId, userId) {
       const hasError = rawHasError && (onAuthDomain || !tempLooksLoggedIn);
 
       const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
+      const hasResetPasswordScreen = onAuthDomain && (body.includes('reset password') || body.includes('khôi phục mật khẩu') || body.includes('đặt lại mật khẩu') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password'));
 
-      // ── Logged-in indicators (loại trừ chặt chẽ toàn bộ các màn hình trung gian để tránh nhận diện nhầm) ──
+       // ── Logged-in indicators ──
       const looksLoggedIn = (
         !hasEmailInput &&
         !hasPasswordInput &&
         !hasMfaInput &&
+        !hasContinueWithPassword &&
+        !hasResetPasswordScreen &&
         !hasPhoneScreen &&
         !hasError &&
         !hasDeactivated &&
         !isOnboarding &&
         !isWorkspaceScr &&
         !isConsentScr &&
-        (((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn))
+        tempLooksLoggedIn
       );
 
       return {
@@ -292,6 +297,8 @@ export async function getState(tabId, userId) {
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         hasEmailInboxScreen,
+        hasContinueWithPassword,
+        hasResetPasswordScreen,
         isConsentScreen: isConsentScr,
         isWorkspaceScreen: !hasError && isWorkspaceScr,
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
@@ -567,10 +574,10 @@ export async function clickContinueWithPassword(tabId, userId) {
         return { ok: true, method: 'button-text', text: (btn.innerText || btn.textContent || '').trim() };
       }
 
-      // Strategy 2: <a> tag with href containing "password" (not "forgot")
+      // Strategy 2: <a> tag with href containing "password" (not "forgot", "reset", "change")
       const link = Array.from(document.querySelectorAll('a')).filter(isVisible).find(a => {
         const href = (a.getAttribute('href') || '').toLowerCase();
-        return href.includes('password') && !href.includes('forgot');
+        return href.includes('password') && !href.includes('forgot') && !href.includes('reset') && !href.includes('change');
       });
       if (link) {
         link.click();
@@ -1170,14 +1177,9 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
             const cText = (container.textContent || '').toLowerCase();
             const hasPersonal = personalKeywords.some(k => cText.includes(k));
             if (hasPersonal) {
-              // Check if parent ALSO has "personal" text — if so, we haven't found the row yet
-              const parentText = (container.parentElement?.textContent || '').toLowerCase();
-              const parentHasPersonal = personalKeywords.some(k => parentText.includes(k));
-              if (!parentHasPersonal) {
-                // This is the SMALLEST container with "personal" — the actual row
-                bestMatch = { btn, container };
-                break;
-              }
+              // Stop at the first ancestor containing the keyword (which is the smallest matching row)
+              bestMatch = { btn, container };
+              break;
             }
             container = container.parentElement;
           }
@@ -1209,32 +1211,30 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
             const openBtn = Array.from(container.querySelectorAll('button, [role="button"], a'))
               .find(b => isVisible(b) && openKeywords.some(k => (b.textContent || b.innerText || '').toLowerCase().trim() === k));
             if (openBtn) {
-              const parentText = (container.parentElement?.textContent || '').toLowerCase();
-              const parentHasPersonal = personalKeywords.some(k => parentText.includes(k));
-              if (!parentHasPersonal) {
-                openBtn.focus();
-                openBtn.click();
-                openBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                openBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                openBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                return { ok: true, clicked: true, strategy: 'label_then_open_btn', text: cText.trim().slice(0, 80) };
-              }
+              openBtn.focus();
+              openBtn.click();
+              openBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              openBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              openBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { ok: true, clicked: true, strategy: 'label_then_open_btn', text: cText.trim().slice(0, 80) };
             }
             container = container.parentElement;
           }
         }
 
-        // ── Strategy D: Find button containing "personal" keywords in its own text
+        // ── Strategy D: Find button containing "personal" keywords in its own text (must not be a container wrapping other buttons)
         const personalBtn = allBtns.find(el => {
           const text = (el.textContent || '').toLowerCase();
-          return personalKeywords.some(k => text.includes(k));
+          const isContainer = el.querySelector('button, [role="button"], a');
+          return !isContainer && personalKeywords.some(k => text.includes(k)) && !text.includes('business') && !text.includes('seellm');
         });
         if (personalBtn) {
-          personalBtn.focus();
-          personalBtn.click();
-          personalBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          personalBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          personalBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          const targetClick = personalBtn.tagName === 'BUTTON' ? personalBtn : (personalBtn.querySelector('button') || personalBtn);
+          targetClick.focus();
+          targetClick.click();
+          targetClick.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          targetClick.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          targetClick.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
           return { ok: true, clicked: true, strategy: 'text_match', text: (personalBtn.textContent || '').trim().slice(0, 60) };
         }
 

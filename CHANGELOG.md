@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.109] - 2026-05-30 18:55:00
+
+### 🦊 Khắc Phục Lỗi Chuyển Hướng Đăng Nhập & Cải Thiện Chọn Workspace Cá Nhân Trên ChatGPT (Fix Workspace Selection & Login Redirect False Positives)
+- **Sửa lỗi nhận diện nhầm màn hình chọn Workspace**: Bổ sung kiểm tra ngoại lệ `!hasEmailInput && !hasPasswordInput` trong `isWorkspaceScr` của `scripts/lib/openai-login-flow.js`, ngăn chặn kịch bản nhận dạng sai màn hình đăng nhập (có tham số chuyển hướng URL dạng `?next=%2Fworkspace`) thành màn hình chọn Workspace thực tế.
+- **Sửa lỗi logic Chiến lược B & C**: Loại bỏ việc kiểm tra `!parentHasPersonal` khi duyệt cây DOM ngược từ nút bấm. Vì phần tử cha của nút luôn bao hàm nội dung văn bản của phần tử con (chứa từ khóa personal), điều kiện này trước đây luôn bị tính là `true`, khiến Chiến lược B và C không bao giờ khớp.
+- **Tối ưu Chiến lược D (Text Match)**: Điều hướng chính xác mục tiêu click đến phần tử `<button>` con (ví dụ nút "Open") thay vì click trực tiếp vào thẻ container `<div>` bao ngoài (vốn là nguyên nhân gây ra lỗi OAuth `unauthorized_client`).
+- **package.json**: Nâng phiên bản của Tools lên `0.3.109`.
+
 ## [0.3.108] - 2026-05-28 02:08:00
 
 ### 🧹 Tự Động Giải Phóng Trạng Trạng Thái Warmup & Tái Tạo 2FA Bị Kẹt (Auto Startup Cleanup & Manual Revoke Self-Healing)

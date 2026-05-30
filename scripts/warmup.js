@@ -306,6 +306,10 @@ async function runWarmup() {
         if (state.hasDeactivated) {
           throw new Error('ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa');
         }
+
+        if (state.hasResetPasswordScreen) {
+          throw new Error('PASSWORD_RESET_REQUIRED: Tài khoản yêu cầu đặt lại mật khẩu');
+        }
         
         // 1.5. Handle OpenAI/ChatGPT Error screen with self-healing click
         if (state.hasError) {
@@ -403,10 +407,10 @@ async function runWarmup() {
           continue;
         }
         
-        // 4.5. Handle Email Inbox verification screen ("Check your inbox")
+         // 4.5. Handle Email Inbox verification screen ("Check your inbox")
         // Xảy ra khi OpenAI yêu cầu xác minh email trước khi vào màn hình mật khẩu.
         // Phân biệt với TOTP: trang này có nút "Continue with password" → click để đi thẳng vào password screen.
-        if (state.hasEmailInboxScreen) {
+        if (state.hasEmailInboxScreen || state.hasContinueWithPassword) {
           console.log(`[Warmup] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Chuyển sang nhập mật khẩu...`);
           const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
           if (cwpResult?.ok) {
