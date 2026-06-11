@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.114] - 2026-06-11 20:45:00
+
+### 🛡️ Sửa Lỗi 2FA/MFA Setup Thành Công Ảo & Tích Hợp Xác Minh Hai Chiều (Fix MFA Setup False Positives & Multi-Directional Verification)
+- **Nguyên nhân**: Tiến trình kích hoạt 2FA cũ sử dụng JavaScript để điều hướng trang (`window.location.href = ...` trong eval), dẫn đến việc Node.js không đợi trình duyệt load xong và thực thi các bước click/toggle tiếp theo trên trang cũ hoặc trong bối cảnh context bị hủy. Thêm nữa, việc kiểm tra kết quả chỉ tìm kiếm chuỗi văn bản tĩnh `authenticator app enabled` ở body trang (vốn có thể xuất hiện ngẫu nhiên trong UI khảo sát của OpenAI), gây ra hiện tượng báo thành công ảo mặc dù switch 2FA thực tế chưa được bật.
+- **Khắc phục triệt để trong `scripts/lib/mfa-setup.js`**:
+  1. Thay thế toàn bộ JS-based navigation bằng Camofox native navigate (`apiHelper('/tabs/:id/navigate')`), đảm bảo trình duyệt tải xong trang trước khi chạy các lệnh tiếp theo.
+  2. Bổ sung các vòng lặp chờ tối đa 10s cho Settings dialog hiển thị, và 15s cho MFA Setup dialog (QR/Trouble scanning) xuất hiện thực tế để tránh click trượt/lag.
+  3. Validate định dạng Secret Key theo RFC 4648 Base32 (`/^[A-Z2-7]{16,72}$/i`) trước khi sinh TOTP để chặn khóa rác từ các popup/dialog khác.
+  4. Triển khai **Xác minh hai chiều (Smart Verification)**: Sau khi điền TOTP và click Verify, hệ thống đóng modal settings, tự động navigate away ra trang chủ ChatGPT, sau đó navigate back trở lại Security Settings để reload hoàn toàn DOM mới, rồi kiểm tra thực tế trạng thái switch `aria-checked === 'true'`. Chỉ báo thành công nếu 2FA thực sự bật trên phiên tải trang mới này.
+  5. Hỗ trợ **Dấu vết ảnh chụp (Step Screenshots)**: Định hình cờ `stepRecorder` trong options để tự động lưu ảnh chụp màn hình (`saveStep`) ở mỗi checkpoint then chốt (Start, Settings Loaded, Toggle Clicked, Secret Read, TOTP Entered, Verify Clicked, Navigated Away, Fresh Verification Check).
+- **Cập nhật `scripts/auto-register-worker.js` & `scripts/regenerate-2fa.js`**: Truyền đối tượng `recorder`/`stepRecorder` vào `setupMFA` để kích hoạt tính năng chụp ảnh từng bước tự động.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.114`.
+
 ## [0.3.113] - 2026-05-30 22:30:00
 
 ### 🔗 Sửa Lỗi Chọn Workspace Bị Lỗi "Oops" Do Click `<a>` Bằng JavaScript (Fix Workspace Picker via Camofox Ref Click)

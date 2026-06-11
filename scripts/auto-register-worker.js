@@ -1782,7 +1782,7 @@ export async function runAutoRegister(taskInput) {
     let mfaResult;
     try {
       await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
-      mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+      mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
 
       // Retry MFA setup if toggle not found (max CONFIG.mfaMaxRetries retries)
       if (!mfaResult.success && mfaResult.error?.includes('not found')) {
@@ -1792,7 +1792,7 @@ export async function runAutoRegister(taskInput) {
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/#settings/Security' });
           await new Promise(r => setTimeout(r, 3000));
           
-          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
           if (retryResult.success) {
             console.log(`[7] ✅ MFA retry ${retry} thành công!`);
             mfaResult = retryResult;
@@ -1851,7 +1851,7 @@ export async function runAutoRegister(taskInput) {
       } else {
         console.log(`[7.2] ⚠️ CẢNH BÁO: Phát hiện 2FA thực tế CHƯA BẬT (hoặc bật bị hụt)! Bắt đầu Self-Healing kích hoạt lại...`);
         // Tiến hành chạy setupMFA một lần nữa để khắc phục
-        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey);
+        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
         if (healResult.success) {
           twoFaSecret = healResult.secret;
           mfaResult = healResult;
