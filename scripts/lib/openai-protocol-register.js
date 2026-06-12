@@ -280,7 +280,7 @@ async function isCurlAvailable() {
 import { fileURLToPath as _fileURLToPath } from 'node:url';
 import { dirname as _dirname, join as _join } from 'node:path';
 const _scriptDir = _dirname(_fileURLToPath(import.meta.url));
-const CURL_CFFI_SCRIPT = _join(_scriptDir, 'curl_cffi_fetch.py');
+const CURL_CFFI_DAEMON_SCRIPT = _join(_scriptDir, 'curl_cffi_daemon.py');
 
 let curlCffiAvailable = null;
 async function isCurlCffiAvailable() {
@@ -298,59 +298,128 @@ async function isCurlCffiAvailable() {
   return curlCffiAvailable;
 }
 
-export function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000, impersonate = 'chrome131', stopAtLocalhost = false }) {
-  return new Promise((resolve, reject) => {
-    const reqPayload = JSON.stringify({
-      method,
-      url,
-      headers,
-      body: body || null,
-      proxy: proxyUrl || null,
-      timeout: Math.ceil(timeoutMs / 1000),
-      allow_redirects: !stopAtLocalhost,  // if stopAtLocalhost, we handle redirects manually
-      stop_at_localhost: stopAtLocalhost,
-      impersonate,
-    });
+let daemonProc = null;
+const daemonCallbacks = new Map();
+let daemonReadyPromise = null;
 
-    const proc = spawn('python3', [CURL_CFFI_SCRIPT], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    proc.stdin.write(reqPayload);
-    proc.stdin.end();
-    const stdoutChunks = [];
-    const stderrChunks = [];
+function getDaemonProcess() {
+  if (daemonProc && daemonProc.exitCode === null) {
+    return daemonReadyPromise;
+  }
 
-    proc.stdout.on('data', chunk => stdoutChunks.push(chunk));
-    proc.stderr.on('data', chunk => stderrChunks.push(chunk));
-    proc.on('close', code => {
-      const raw = Buffer.concat(stdoutChunks).toString('utf8').trim();
-      if (!raw) {
-        const err = Buffer.concat(stderrChunks).toString('utf8').slice(0, 300);
-        return reject(new Error(`curl_cffi empty output (exit ${code}): ${err}`));
-      }
+  daemonCallbacks.clear();
+  
+  daemonProc = spawn('python3', [CURL_CFFI_DAEMON_SCRIPT], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stdoutBuffer = '';
+  daemonProc.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString('utf8');
+    let idx;
+    while ((idx = stdoutBuffer.indexOf('\n')) !== -1) {
+      const line = stdoutBuffer.slice(0, idx).trim();
+      stdoutBuffer = stdoutBuffer.slice(idx + 1);
+      if (!line) continue;
       try {
-        const parsed = JSON.parse(raw);
-        if (parsed.error) return reject(new Error(`curl_cffi error: ${parsed.error}`));
-
-        // Convert cookies from curl_cffi response into Set-Cookie format for cookie jar
-        const setCookieArr = [];
-        for (const [name, value] of Object.entries(parsed.cookies || {})) {
-          setCookieArr.push(`${name}=${value}`);
+        const parsed = JSON.parse(line);
+        if (parsed.status === 'ready') {
+          daemonProc.emit('daemon_ready');
+          continue;
         }
-        const resHeaders = { ...parsed.headers };
-        if (setCookieArr.length) resHeaders['set-cookie'] = setCookieArr;
-
-        resolve({
-          status: parsed.status,
-          headers: resHeaders,
-          body: parsed.body || '',
-          redirect_chain: parsed.redirect_chain || [],
-        });
-      } catch (e) {
-        reject(new Error(`curl_cffi parse error: ${e.message} — raw: ${raw.slice(0, 200)}`));
+        
+        const reqId = parsed.req_id;
+        if (reqId && daemonCallbacks.has(reqId)) {
+          const { resolve, reject } = daemonCallbacks.get(reqId);
+          daemonCallbacks.delete(reqId);
+          resolve(parsed);
+        }
+      } catch (err) {
+        console.error(`[Daemon] Error parsing stdout line: ${err.message}`, line);
       }
-    });
-    proc.on('error', err => reject(new Error(`curl_cffi spawn error: ${err.message}`)));
+    }
+  });
+
+  let stderrBuffer = '';
+  daemonProc.stderr.on('data', (chunk) => {
+    stderrBuffer += chunk.toString('utf8');
+  });
+
+  daemonProc.on('close', (code) => {
+    for (const [reqId, { reject }] of daemonCallbacks.entries()) {
+      reject(new Error(`Daemon exited with code ${code}. Stderr: ${stderrBuffer.slice(0, 300)}`));
+    }
+    daemonCallbacks.clear();
+    daemonProc = null;
+  });
+
+  daemonProc.on('error', (err) => {
+    console.error(`[Daemon] Process error: ${err.message}`);
+  });
+
+  // Automatically shutdown daemon when main Node process exits
+  process.on('exit', () => {
+    if (daemonProc && daemonProc.exitCode === null) {
+      try {
+        daemonProc.stdin.write(JSON.stringify({ command: 'shutdown' }) + '\n');
+      } catch (_) {
+        daemonProc.kill();
+      }
+    }
+  });
+
+  daemonReadyPromise = new Promise((resolve) => {
+    daemonProc.once('daemon_ready', () => resolve(daemonProc));
+  });
+
+  return daemonReadyPromise;
+}
+
+export function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000, impersonate = 'chrome131', stopAtLocalhost = false }) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const proc = await getDaemonProcess();
+      const reqId = crypto.randomUUID();
+      
+      const reqPayload = JSON.stringify({
+        req_id: reqId,
+        method,
+        url,
+        headers,
+        body: body || null,
+        proxy: proxyUrl || null,
+        timeout: Math.ceil(timeoutMs / 1000),
+        allow_redirects: !stopAtLocalhost,
+        stop_at_localhost: stopAtLocalhost,
+        impersonate,
+      });
+
+      daemonCallbacks.set(reqId, {
+        resolve: (parsed) => {
+          if (parsed.error) return reject(new Error(`curl_cffi error: ${parsed.error}`));
+
+          const setCookieArr = [];
+          for (const [name, value] of Object.entries(parsed.cookies || {})) {
+            setCookieArr.push(`${name}=${value}`);
+          }
+          const resHeaders = { ...parsed.headers };
+          if (setCookieArr.length) resHeaders['set-cookie'] = setCookieArr;
+
+          resolve({
+            status: parsed.status,
+            headers: resHeaders,
+            body: parsed.body || '',
+            url: parsed.url,
+            redirect_chain: parsed.redirect_chain || [],
+          });
+        },
+        reject: (err) => reject(err),
+      });
+
+      proc.stdin.write(reqPayload + '\n');
+    } catch (err) {
+      reject(new Error(`Failed to communicate with curl_cffi daemon: ${err.message}`));
+    }
   });
 }
 
