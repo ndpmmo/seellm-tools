@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.115] - 2026-06-12 16:15:00
+
+### ⚙️ Tối Ưu Hóa Đa Luồng Song Song & Sửa Triệt Để Lỗi Bị Kẹt Welcome Modal Ở Tài Khoản Mới (Optimize Parallel Workers & Fix stuck Welcome Modal on New Accounts)
+- **Cải tiến dynamic `sessionKey` đa luồng cho `scripts/auto-register-worker.js`**:
+  - **Nguyên nhân**: Toàn bộ các tiến trình worker song song (hàng chục đến hàng trăm luồng) sử dụng chung một `sessionKey` tĩnh là `WORKER_AUTH_TOKEN`, gây ra việc Camofox nhóm tất cả tab của các luồng khác nhau vào cùng một tab group. Điều này có thể gây nhiễu và xung đột trong hệ thống quản lý tab của Camofox khi chạy đa luồng quy mô lớn.
+  - **Khắc phục**: Tạo `WORKER_SESSION_KEY` động riêng biệt theo địa chỉ email của từng tài khoản (`${WORKER_AUTH_TOKEN}_${email}`) cho mỗi tiến trình. Tất cả các request của worker và MFA setup sẽ sử dụng `sessionKey` riêng biệt này, đảm bảo cô lập 100% tài nguyên và tab group trên Camofox.
+- **Khắc phục lỗi kẹt Welcome Modal ("You're all set")**:
+  - **Nguyên nhân**: Màn hình chào mừng ("You're all set") chứa nút "Continue" mà hàm click OK trước đó không nhận diện được (chỉ tìm 'ok', 'tiến hành', 'let', 'xong', 'done'). Hơn thế nữa, modal này hiển thị không đồng bộ và có nhiều trang liên tiếp, trong khi kịch bản cũ chỉ click đóng một lần duy nhất lúc bắt đầu setup.
+  - **Khắc phục**:
+    1. Bổ sung từ khóa `'continue'` và `'tiếp tục'` vào danh sách tìm kiếm nút đóng Welcome Modal của worker, đồng thời kéo dài thời gian chờ click hoàn tất lên 4 giây trước khi vào setup MFA.
+    2. Tích hợp vòng lặp kiểm tra và tự động đóng onboarding modal liên tục bên trong vòng lặp chờ Settings modal mở của `mfa-setup.js`. Nếu phát hiện có welcome modal chắn dòng, hệ thống sẽ tự động nhấn nút đóng liên tiếp cho đến khi settings mở ra.
+- **Ngăn chặn xác minh thành công ảo (Double-Check Settings Dialog)**:
+  - Cập nhật hàm check trạng thái toggle MFA cuối cùng để đảm bảo Settings modal thực tế đang hiển thị trên DOM. Nếu không tìm thấy Settings dialog hoặc dialog không chứa text settings/security, kết quả sẽ bị từ chối thay vì báo thành công giả lập.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.115`.
+
 ## [0.3.114] - 2026-06-11 20:45:00
 
 ### 🛡️ Sửa Lỗi 2FA/MFA Setup Thành Công Ảo & Tích Hợp Xác Minh Hai Chiều (Fix MFA Setup False Positives & Multi-Directional Verification)

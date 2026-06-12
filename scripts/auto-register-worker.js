@@ -292,9 +292,11 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}) 
 // ============================================
 // HELPERS
 // ============================================
+let WORKER_SESSION_KEY = WORKER_AUTH_TOKEN;
+
 // Wrapper for camofoxPost that injects sessionKey (auto-register specific)
 async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 30000) {
-  const payload = { ...body, sessionKey: WORKER_AUTH_TOKEN };
+  const payload = { ...body, sessionKey: WORKER_SESSION_KEY };
   return camofoxPost(endpoint, payload, { timeoutMs });
 }
 
@@ -673,6 +675,7 @@ export async function runAutoRegister(taskInput) {
   console.log(`==========================================`);
 
   const USER_ID = `register_${email}`;
+  WORKER_SESSION_KEY = `${WORKER_AUTH_TOKEN}_${email}`;
   console.log(`SESSION_ID: ${USER_ID}`); // Quan trọng để frontend link ảnh chụp
   const runDir = path.join(IMAGES_DIR, USER_ID);
   await fs.mkdir(runDir, { recursive: true }).catch(() => { });
@@ -1755,7 +1758,7 @@ export async function runAutoRegister(taskInput) {
             const buttons = Array.from(document.querySelectorAll('button'));
             const okBtn = buttons.find(b => {
                 const t = b.textContent.toLowerCase();
-                return t.includes('ok') || t.includes('tiến hành') || t.includes('let') || t.includes('xong') || t.includes('done');
+                return t.includes('ok') || t.includes('tiến hành') || t.includes('let') || t.includes('xong') || t.includes('done') || t.includes('continue') || t.includes('tiếp tục');
             });
             if (okBtn) {
                 okBtn.click();
@@ -1770,6 +1773,7 @@ export async function runAutoRegister(taskInput) {
         return { attempts: retryCount, found: retryCount <= maxRetries };
       })()
     `);
+    await new Promise(r => setTimeout(r, 4000));
     // Phase 5, Step 1: Inside chat home (survey dismissed, welcome closed)
     await recorder.checkpoint(5, 1, 'home_reached');
 

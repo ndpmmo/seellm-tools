@@ -412,6 +412,39 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             `);
             if (isOpened) break;
             
+            // Tự động đóng onboarding/welcome modal nếu xuất hiện trong lúc chờ
+            await run(`
+                (() => {
+                    let clickedAny = false;
+                    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, [class*="button"], [class*="btn"]'));
+                    for (const btn of buttons) {
+                        if (btn.offsetParent === null) continue;
+                        const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                        if (
+                            text.includes("let's go") ||
+                            text.includes("let’s go") ||
+                            text === "okay, let's go" ||
+                            text === "okay, let’s go" ||
+                            text === "okay" ||
+                            text === "ok" ||
+                            text === "got it" ||
+                            text === "done" ||
+                            text === "next" ||
+                            text === "tiếp tục" ||
+                            text === "bắt đầu" ||
+                            text === "continue" ||
+                            text.includes("continue") ||
+                            text.includes("let's get started") ||
+                            text.includes("okay, let’s get started")
+                        ) {
+                            btn.click();
+                            clickedAny = true;
+                        }
+                    }
+                    return clickedAny;
+                })()
+            `).catch(() => {});
+
             // Thử click profile/user menu button và settings item
             if (i === 4) {
                 log('Settings modal chưa mở. Thử kích hoạt bằng click Profile/Settings menu...');
@@ -1026,7 +1059,14 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // Đọc actual toggle switch state
         const confirmed = await run(`
             (() => {
-                const elements = Array.from(document.querySelectorAll('*'));
+                // Đảm bảo Settings modal thực tế đang mở trên DOM
+                const dialog = document.querySelector('[role="dialog"]');
+                if (!dialog) return false;
+                const dialogText = (dialog.innerText || '').toLowerCase();
+                const isSettingsDialog = dialogText.includes('settings') || dialogText.includes('cài đặt') || dialogText.includes('security') || dialogText.includes('bảo mật');
+                if (!isSettingsDialog) return false;
+
+                const elements = Array.from(dialog.querySelectorAll('*'));
                 const authTextEl = elements.find(el => {
                     const text = el.textContent || '';
                     if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
