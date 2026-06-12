@@ -232,9 +232,21 @@ export async function fetchTextViaProxy(url, proxyUrl, timeoutMs = 10000) {
  */
 export async function checkIpLocation(proxyUrl = null) {
   try {
-    const traceText = proxyUrl
-      ? await fetchTextViaProxy('https://cloudflare.com/cdn-cgi/trace', proxyUrl, 10000)
-      : await fetchTextNoProxy('https://cloudflare.com/cdn-cgi/trace', 10000);
+    const { requestViaCurlCffi } = await import('./openai-protocol-register.js');
+    const res = await requestViaCurlCffi({
+      method: 'GET',
+      url: 'https://cloudflare.com/cdn-cgi/trace',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      proxyUrl,
+      timeoutMs: 10000,
+    });
+    
+    if (res.status !== 200) {
+      throw new Error(`Trace request failed: status ${res.status}`);
+    }
+    const traceText = res.body || '';
 
     const locMatch = traceText.match(/loc=([A-Z]+)/);
     const loc = locMatch ? locMatch[1] : null;

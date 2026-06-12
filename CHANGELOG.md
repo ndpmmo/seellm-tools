@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.121] - 2026-06-13 00:10:00
+
+### 🛡️ Nâng Cấp Bảo Mật TLS/Cloudflare Cho Toàn Bộ Node-side requests (Upgrade TLS/Cloudflare Security for Node-side requests)
+- **Tối ưu hóa `scripts/auto-register-worker.js`**:
+  - Di chuyển Node fallback session query từ `fetch()` trần sang `requestViaCurlCffi()` với giả lập Chrome 131.
+  - Fix này đảm bảo Cloudflare không chặn hoặc trả về 403 khi lấy thông tin session.
+- **Tối ưu hóa `scripts/lib/proxy-diag.js`**:
+  - Thay đổi hàm `checkIpLocation()` để gọi Cloudflare trace thông qua `requestViaCurlCffi()`. Điều này giải quyết rủi ro bot-detection của chính Cloudflare khi thực hiện check IP địa giới.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.121`.
+
 ## [0.3.120] - 2026-06-13 00:05:00
 
 ### 🔧 Đồng Bộ User-Agent Chrome 131 Trong HTTP Fallback Session (Sync User-Agent Chrome 131 in Node HTTP Fallback)

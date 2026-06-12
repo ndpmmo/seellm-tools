@@ -298,7 +298,7 @@ async function isCurlCffiAvailable() {
   return curlCffiAvailable;
 }
 
-function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000, impersonate = 'chrome131', stopAtLocalhost = false }) {
+export function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl = null, timeoutMs = 15000, impersonate = 'chrome131', stopAtLocalhost = false }) {
   return new Promise((resolve, reject) => {
     const reqPayload = JSON.stringify({
       method,

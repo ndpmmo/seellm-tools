@@ -24,7 +24,7 @@ import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { getState, fillEmail, fillPassword, fillMfa } from './lib/openai-login-flow.js';
 import { checkIpLocation } from './lib/proxy-diag.js';
-import { runProtocolRegistration } from './lib/openai-protocol-register.js';
+import { runProtocolRegistration, requestViaCurlCffi } from './lib/openai-protocol-register.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -2002,17 +2002,22 @@ export async function runAutoRegister(taskInput) {
       console.log(`[Capture] 🌐 Browser-side fetch failed/empty. Chạy Node-based HTTP fallback...`);
       try {
         const cookieString = tokens.map(c => `${c.name}=${c.value}`).join('; ');
-        const nodeRes = await fetch('https://chatgpt.com/api/auth/session', {
+        const nodeRes = await requestViaCurlCffi({
+          method: 'GET',
+          url: 'https://chatgpt.com/api/auth/session',
           headers: {
             'Cookie': cookieString,
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://chatgpt.com/',
-          }
+          },
+          proxyUrl: proxyUrl || null,
+          timeoutMs: 15000,
         });
-        if (nodeRes.ok) {
-          const nodeData = await nodeRes.json();
+
+        if (nodeRes.status === 200) {
+          const nodeData = JSON.parse(nodeRes.body);
           if (nodeData && typeof nodeData === 'object' && nodeData.user) {
             sessionData = nodeData;
             deviceId = tokens.find(c => c.name === 'oai-did')?.value || '';
