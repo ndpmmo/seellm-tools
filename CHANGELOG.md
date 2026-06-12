@@ -4,13 +4,11 @@
 
 ## [0.3.123] - 2026-06-13 00:25:00
 
-### ⚡ Di Trú Toàn Diện Sang Bun Runtime (Full Bun Runtime Migration)
-- **Cấu hình khởi chạy hệ thống**:
-  - Chuyển đổi toàn bộ các script định nghĩa trong `package.json` (`dev`, `start`, `housekeeping`) sang khởi chạy trực tiếp thông qua Bun.
-- **Tiến trình con song song**:
-  - Thay đổi toàn bộ các spawner khởi chạy tiến trình con (`auto-register-worker.js`, `check-session.js`, `regenerate-2fa.js`, v.v.) trong `server/routes/vault.js` sang thực thi trực tiếp bằng `bun` thay vì `node`.
-  - Giúp tối ưu hóa tốc độ startup, giảm tải bộ nhớ RAM chạy nền cho mỗi luồng và tăng tốc xử lý DB/mạng.
-- **package.json**: Nâng phiên bản của Tools lên `0.3.123`.
+### 🛡️ Đảm Bảo Tính Ổn Định: Rollback Môi Trường Thực Thi Sang Node.js (Rollback Runtime to Node.js for Stability)
+- **better-sqlite3 Compatibility**:
+  - Do lỗi link thư viện binary (`ERR_DLOPEN_FAILED`) của `better-sqlite3` trên Bun (v1.3.4 macOS arm64), toàn bộ hệ thống Express server và các spawner tiến trình con đã được **hoàn trả (rollback) về Node.js runtime** để bảo toàn tính toàn vẹn dữ liệu.
+  - Việc này đảm bảo hệ thống không gặp crash bất ngờ khi thao tác database mà vẫn duy trì toàn bộ tối ưu hóa hiệu năng cao khác (như persistent Python daemon giúp giảm trễ request từ 300ms xuống ~56ms).
+- **package.json**: Giữ phiên bản của Tools ở `0.3.123`.
 
 ## [0.3.122] - 2026-06-13 00:20:00
 

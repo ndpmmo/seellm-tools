@@ -5,15 +5,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun server.js",
+    "dev": "node server.js",
     "build": "next build",
-    "start": "NODE_ENV=production bun server.js",
+    "start": "NODE_ENV=production node server.js",
     "next:dev": "next dev",
     "lint": "eslint",
-    "housekeeping": "bun scripts/housekeeping.js"
+    "housekeeping": "node scripts/housekeeping.js"
   },
   "dependencies": {
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",
     "cryptlib": "^1.0.3",
     "dayjs": "^1.11.20",
