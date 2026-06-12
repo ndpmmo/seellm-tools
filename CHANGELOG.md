@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.120] - 2026-06-13 00:05:00
+
+### 🔧 Đồng Bộ User-Agent Chrome 131 Trong HTTP Fallback Session (Sync User-Agent Chrome 131 in Node HTTP Fallback)
+- **Tối ưu hóa `scripts/auto-register-worker.js`**:
+  - **Nguyên nhân**: Trong trường hợp browser-side fetch thất bại, worker dùng một Node.js `fetch()` trực tiếp với cookie để lấy session metadata từ `chatgpt.com/api/auth/session`. Header `User-Agent` trong fallback này đang khai báo Chrome 120 (cũ), không nhất quán với Chrome 131 được dùng ở các transport khác.
+  - **Khắc phục**: Đồng bộ hóa `User-Agent` trong Node-based HTTP fallback lên `Chrome/131.0.0.0` để đảm bảo tính nhất quán toàn bộ system khi OpenAI kiểm tra signature request.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.120`.
+
 ## [0.3.119] - 2026-06-12 23:58:00
 
 ### ⚙️ Đồng Bộ Hóa Vân Tay Giả Lập Trình Duyệt Trong Kịch Bản Kiểm Tra Session (Sync Chrome Impersonate Fingerprint in Session Check)
