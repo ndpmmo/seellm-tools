@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.123] - 2026-06-13 00:25:00
+
+### ⚡ Di Trú Toàn Diện Sang Bun Runtime (Full Bun Runtime Migration)
+- **Cấu hình khởi chạy hệ thống**:
+  - Chuyển đổi toàn bộ các script định nghĩa trong `package.json` (`dev`, `start`, `housekeeping`) sang khởi chạy trực tiếp thông qua Bun.
+- **Tiến trình con song song**:
+  - Thay đổi toàn bộ các spawner khởi chạy tiến trình con (`auto-register-worker.js`, `check-session.js`, `regenerate-2fa.js`, v.v.) trong `server/routes/vault.js` sang thực thi trực tiếp bằng `bun` thay vì `node`.
+  - Giúp tối ưu hóa tốc độ startup, giảm tải bộ nhớ RAM chạy nền cho mỗi luồng và tăng tốc xử lý DB/mạng.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.123`.
+
 ## [0.3.122] - 2026-06-13 00:20:00
 
 ### 🚀 Tối Ưu Hóa Tải Song Song Đột Phá & Giảm Thiểu Độ Trễ (Breakthrough High Concurrency & Latency Optimization)

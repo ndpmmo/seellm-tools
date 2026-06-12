@@ -2551,7 +2551,7 @@ class BulkRegisterRunner {
       this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'}`);
       
       const cfg = loadConfig();
-      const r = processManager.spawnProcess(procId, `📜 ${scriptName}`, 'node', [scriptPath, raw], process.cwd(), {
+      const r = processManager.spawnProcess(procId, `📜 ${scriptName}`, 'bun', [scriptPath, raw], process.cwd(), {
         WORKER_AUTH_TOKEN: cfg.workerAuthToken
       });
 
@@ -3132,7 +3132,7 @@ router.post('/accounts/:id/warmup', async (req, res) => {
       processManager.spawnProcess(
         procId, 
         `🔥 Warmup ${account.email}`, 
-        'node', 
+        'bun', 
         [scriptPath, '--accountId', id, '--questions', String(questionsCount)], 
         process.cwd(), 
         { env: { ...process.env } }
@@ -3140,7 +3140,7 @@ router.post('/accounts/:id/warmup', async (req, res) => {
     } else {
       const { spawn } = await import('node:child_process');
       console.log(`[Server] Spawning warmup worker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id, '--questions', String(questionsCount)], {
+      const child = spawn('bun', [scriptPath, '--accountId', id, '--questions', String(questionsCount)], {
         detached: true,
         stdio: 'ignore'
       });
@@ -3216,7 +3216,7 @@ router.post('/accounts/:id/check-session', async (req, res) => {
       processManager.spawnProcess(
         procId, 
         `🛡️ Check Session ${account.email}`, 
-        'node', 
+        'bun', 
         [scriptPath, '--accountId', id], 
         process.cwd(), 
         { env: { ...process.env } }
@@ -3224,7 +3224,7 @@ router.post('/accounts/:id/check-session', async (req, res) => {
     } else {
       const { spawn } = await import('node:child_process');
       console.log(`[Server] Spawning session checker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id], {
+      const child = spawn('bun', [scriptPath, '--accountId', id], {
         detached: true,
         stdio: 'ignore'
       });
@@ -3354,7 +3354,7 @@ router.post('/accounts/:id/regenerate-2fa', async (req, res) => {
       processManager.spawnProcess(
         procId, 
         `🛡️ 2FA Regen ${account.email}`, 
-        'node', 
+        'bun', 
         [scriptPath, '--accountId', id], 
         process.cwd(), 
         { env: { ...process.env } }
@@ -3362,7 +3362,7 @@ router.post('/accounts/:id/regenerate-2fa', async (req, res) => {
     } else {
       const { spawn } = await import('node:child_process');
       console.log(`[Server] Spawning 2FA regeneration worker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id], {
+      const child = spawn('bun', [scriptPath, '--accountId', id], {
         detached: true,
         stdio: 'ignore'
       });
