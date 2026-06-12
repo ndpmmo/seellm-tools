@@ -61,7 +61,7 @@ try:
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
     }
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    response = requests.get("https://chatgpt.com/backend-api/models", headers=headers, proxies=proxies, impersonate="chrome120", timeout=12)
+    response = requests.get("https://chatgpt.com/backend-api/models", headers=headers, proxies=proxies, impersonate="chrome131", timeout=12)
     if response.status_code == 200:
         print("SUCCESS")
         sys.exit(0)

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.119] - 2026-06-12 23:58:00
+
+### ⚙️ Đồng Bộ Hóa Vân Tay Giả Lập Trình Duyệt Trong Kịch Bản Kiểm Tra Session (Sync Chrome Impersonate Fingerprint in Session Check)
+- **Tối ưu hóa kiểm tra session trong `scripts/check-session.js`**:
+  - **Khắc phục**: Đồng bộ hóa cấu hình giả lập vân tay trình duyệt từ Chrome 120 cũ lên **Chrome 131** (`impersonate="chrome131"`) bên trong kịch bản kiểm tra nhanh session (`fastCheckAccessToken`). Điều này đảm bảo tính nhất quán của vân tay TLS/HTTP2 trên toàn bộ hệ thống (giống kịch bản đăng ký protocol), giúp giảm thiểu tối đa khả năng bị Cloudflare của OpenAI chặn do sử dụng các fingerprint trình duyệt lỗi thời.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.119`.
+
 ## [0.3.118] - 2026-06-12 23:55:00
 
 ### 🚀 Tối Ưu Hóa Giao Tiếp curl_cffi Qua Standard Input (stdin) & Imports Python
