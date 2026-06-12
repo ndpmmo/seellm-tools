@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.127] - 2026-06-13 01:38:00
+
+### 🐛 Fix: fillPassword — Đổi sang Keyboard-First Strategy (React Input Reset Bug)
+- **Root cause**: `fillPassword()` dùng JS DOM `setValue()` + `btn.click()` báo `ok:true` nhưng React âm thầm reset field sau khi `evaluate` trả về, dẫn đến server nhận password rỗng và reject toàn bộ 3 lần thử.
+- **Fix**: Đảo ngược thứ tự chiến lược — **Camoufox native keyboard type** (`actType mode:"keyboard"`) bây giờ là primary (gõ ký tự thực như người dùng, React nhận đúng synthetic events). DOM `setValue` + `btn.click()` giữ lại làm fallback cho non-React pages.
+- Giải quyết toàn bộ lỗi "All 3 password attempts rejected" trên trang OpenAI `create-account/password`.
+- **package.json**: Nâng phiên bản lên `0.3.127`.
+
 ## [0.3.126] - 2026-06-13 00:50:00
 
 ### 🛡️ Đồng bộ và sửa lỗi điền mật khẩu trong luồng Đăng ký (Sync and Fix Password Autofill in Signup Flow)

@@ -402,12 +402,40 @@ export async function fillEmail(tabId, userId, email) {
 
 /**
  * Fill password input and submit
+ *
+ * Strategy order:
+ * 1. PRIMARY — Camoufox native keyboard typing (actType mode:"keyboard").
+ *    This sends real hardware-level keystrokes that React's synthetic event
+ *    system recognises properly. DOM btn.click() bypasses React handlers on the
+ *    OpenAI "Create a password" page, causing the field to be silently reset.
+ * 2. FALLBACK — DOM setValue + btn.click() (kept for non-React pages).
+ *
  * @param {string} tabId - Tab ID
  * @param {string} userId - User ID
  * @param {string} password - Password
  * @returns {Promise<object>} Result object
  */
 export async function fillPassword(tabId, userId, password) {
+  // --- PRIMARY: Camoufox native keyboard type ---
+  console.log(`[fillPassword] Trying Camoufox keyboard type (primary)...`);
+  try {
+    const typeRes = await actType(tabId, userId, {
+      selector: 'input[autocomplete="new-password"], input[autocomplete="current-password"], input[type="password"], input[name="password"], input[id="password"]',
+      text: password,
+      mode: 'keyboard',
+      submit: true
+    }, { timeoutMs: 10000 });
+    if (typeRes && typeRes.ok) {
+      console.log(`[fillPassword] Keyboard type succeeded:`, JSON.stringify(typeRes));
+      return { ok: true, strategy: 'keyboard', value: '***' };
+    }
+    console.log(`[fillPassword] Keyboard type not-ok:`, JSON.stringify(typeRes));
+  } catch (typeErr) {
+    console.log(`[fillPassword] Keyboard type threw: ${typeErr.message}`);
+  }
+
+  // --- FALLBACK: DOM setValue + btn.click() ---
+  console.log(`[fillPassword] Falling back to DOM setValue...`);
   const escaped = JSON.stringify(password);
   let res = await evalJson(tabId, userId, `
     (() => {
@@ -455,27 +483,9 @@ export async function fillPassword(tabId, userId, password) {
       else {
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
       }
-      return { ok: true, clicked: !!btn, value: '***' };
+      return { ok: true, clicked: !!btn, strategy: 'dom', value: '***' };
     })()
   `, 6000);
-
-  // --- FALLBACK: Sử dụng API Camoufox Type nếu DOM JS thất bại ---
-  if (!res || !res.ok) {
-    console.log(`⚠️ [fillPassword] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
-    try {
-      const typeRes = await actType(tabId, userId, {
-        selector: 'input[autocomplete="new-password"], input[name="new-password"], input[type="password"], input[name="password"], input[id="password"]',
-        text: password,
-        mode: 'keyboard',
-        submit: true
-      }, { timeoutMs: 10000 });
-      if (typeRes && typeRes.ok) {
-        return { ok: true, fallback: 'camofox-type', value: '***' };
-      }
-    } catch (typeErr) {
-      console.log(`❌ [fillPassword] Fallback Camoufox Type thất bại: ${typeErr.message}`);
-    }
-  }
 
   return res;
 }
