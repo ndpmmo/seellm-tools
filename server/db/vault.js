@@ -13,7 +13,8 @@ const DATA_DIR = path.resolve('data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_PATH = path.join(DATA_DIR, 'vault.db');
-const db = new Database(DB_PATH);
+const db = new Database(DB_PATH, { timeout: 15000 });
+db.pragma('journal_mode = WAL');
 
 // No encryption - store all values as plain text per user preference
 const encrypt = (text) => text || null;

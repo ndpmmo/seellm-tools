@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.116] - 2026-06-12 23:30:00
+
+### ⚡ Tối Ưu Hóa Concurrency Cho Database SQLite (Enable SQLite WAL Mode & Busy Timeout)
+- **Cải tiến kết nối database trong `server/db/vault.js`**:
+  - **Nguyên nhân**: Khi chạy hàng chục đến hàng trăm tiến trình worker song song, các API callback sẽ ghi nhận và cập nhật trạng thái của email pool liên tục vào database SQLite (`vault.db`). SQLite ở chế độ mặc định không hỗ trợ ghi đồng thời tốt, dễ dẫn đến lỗi `SQLITE_BUSY: database is locked` nếu có nhiều thao tác ghi cùng một mili-giây.
+  - **Khắc phục**:
+    1. Kích hoạt chế độ **WAL (Write-Ahead Logging)** cho database SQLite của server, cho phép các tiến trình đọc và ghi chạy đồng thời mà không chặn lẫn nhau.
+    2. Thiết lập thời gian chờ bận (busy timeout) là **15,000ms** (15 giây) cho kết nối database để tự động xếp hàng và thử lại khi database bị khóa tạm thời bởi một transaction khác, loại bỏ hoàn toàn các lỗi khóa cơ sở dữ liệu khi chịu tải cao.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.116`.
+
 ## [0.3.115] - 2026-06-12 16:15:00
 
 ### ⚙️ Tối Ưu Hóa Đa Luồng Song Song & Sửa Triệt Để Lỗi Bị Kẹt Welcome Modal Ở Tài Khoản Mới (Optimize Parallel Workers & Fix stuck Welcome Modal on New Accounts)
