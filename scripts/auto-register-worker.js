@@ -1144,6 +1144,18 @@ export async function runAutoRegister(taskInput) {
     const hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
     if (hasPwdInput) {
       let pwdCandidates = [];
+
+      // Smart detection for incomplete accounts (email registered but password not set)
+      const currentUrl = await evalJson(tabId, USER_ID, `location.href`);
+      const isOnCreatePage = currentUrl?.includes('create-account/password');
+      const pageBodyText = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
+      const isCreatePasswordPage = isOnCreatePage || pageBodyText.includes('create a password') || pageBodyText.includes('you\'ll use this password to log in');
+
+      if (isExistingAccount && isCreatePasswordPage) {
+        console.log(`[3] Smart Detection: Incomplete Account detected (URL/body indicates password creation) — generating new password instead of using Vault password`);
+        isExistingAccount = false; // Switch to registration flow to generate new password and proceed with OTP/about forms
+      }
+
       if (isExistingAccount) {
         // Nếu là account đã tồn tại, dùng mật khẩu cũ đã được cấu hình trong Vault
         pwdCandidates = [chatGptPassword];

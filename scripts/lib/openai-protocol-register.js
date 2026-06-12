@@ -922,9 +922,11 @@ export async function runProtocolRegistration({ email, password, proxyUrl = null
   log('Signup page type:', signupResult.pageType);
 
   // 5. Existing account detection
+  // We do not early return here because pageType === 'email_otp_verification'
+  // can be returned for both new accounts (OTP first flow) and existing accounts.
+  // We let registerPassword check if the email actually exists in the next step.
   if (signupResult.isExisting) {
-    log('Email already registered — will switch to login flow');
-    return { success: false, isExistingAccount: true, email, session, deviceId, needsBrowserFallback: false };
+    log('Signup returned email_otp_verification — checking if account exists by attempting password registration...');
   }
 
   // 6. Register password (with retry)

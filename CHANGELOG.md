@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.117] - 2026-06-12 23:50:00
+
+### 🛡️ Thiết Lập Cơ Chế Tự Động Nhận Biết & Khôi Phục Tài Khoản Đăng Ký Dở Dang (Self-Healing & Auto-Recovery for Incomplete/Abandoned Accounts)
+- **Sửa lỗi phân loại sai trạng thái tài khoản trong `scripts/lib/openai-protocol-register.js`**:
+  - **Nguyên nhân**: Khi gửi yêu cầu đăng ký bằng email mới, OpenAI trả về màn hình xác thực mã PIN (`email_otp_verification`). Do kịch bản cũ mặc định coi bất kỳ trang `email_otp_verification` nào cũng là tài khoản đã tồn tại (`isExisting = true`), worker đã lập tức chuyển sang luồng đăng nhập mà bỏ qua bước thiết lập mật khẩu của tài khoản. Điều này dẫn đến lỗi khi chạy song song 3 luồng thì 1 luồng bị thất bại vì OpenAI bắt buộc tạo mật khẩu mới nhưng trình duyệt lại cố điền mật khẩu cũ từ Vault vốn không tồn tại.
+  - **Khắc phục**: Loại bỏ việc ngắt sớm (early-return) khi nhận diện trang `email_otp_verification` ở bước đăng ký giao thức. Thay vào đó, cho phép giao thức tiếp tục thử gọi API đăng ký mật khẩu (`registerPassword`). Nếu tài khoản thực sự đã tồn tại và hoàn tất, API này sẽ trả về lỗi `user_exists` và worker mới đánh dấu `isExistingAccount = true`.
+- **Cơ chế nhận biết thông minh và khôi phục tự động trong `scripts/auto-register-worker.js`**:
+  - **Khắc phục**: Tại bước điền password, worker sẽ chủ động kiểm tra URL hiện tại và nội dung trang web để nhận diện xem có đang ở trang tạo mật khẩu mới (`create-account/password`, "Create a password", hoặc "You'll use this password to log in") hay không.
+  - **Khôi phục**: Nếu phát hiện đang ở trang tạo mật khẩu trong khi cờ `isExistingAccount` đang là `true` (tài khoản đã đăng ký email dở dang từ trước nhưng chưa có mật khẩu), worker sẽ tự động chuyển cờ `isExistingAccount` về `false`, sinh mật khẩu mới ngẫu nhiên, hoàn tất thiết lập mật khẩu, và sau đó lưu mật khẩu mới này vào Vault để đảm bảo tài khoản hoạt động bình thường.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.117`.
+
 ## [0.3.116] - 2026-06-12 23:30:00
 
 ### ⚡ Tối Ưu Hóa Concurrency Cho Database SQLite (Enable SQLite WAL Mode & Busy Timeout)
