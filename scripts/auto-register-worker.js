@@ -975,67 +975,10 @@ export async function runAutoRegister(taskInput) {
     // Phase 2, Step 1: Before email submit
     await recorder.before(2, 1, 'email_submit');
     const urlBeforeEmail = await evalJson(tabId, USER_ID, `location.href`);
-    const emailClickInfo = await evalJson(tabId, USER_ID, `
-      (() => {
-        const typeReact = (input, text) => {
-          if (!input) return false;
-          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          nativeSetter.call(input, text);
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        };
-        const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-
-        const emailInput = document.querySelector(
-          'input[type="email"], input[name="email"], input[name="identifier"], input[autocomplete="email"]'
-        );
-        if (!emailInput) return { error: 'no-email-input' };
-        typeReact(emailInput, "${email}");
-
-        // Strategy 1: Submit button trong cùng form với email input (chính xác nhất)
-        const form = emailInput.closest('form');
-        let btn = null;
-        let strategy = '';
-        if (form) {
-          btn = form.querySelector('button[type="submit"]');
-          if (btn) strategy = 'form-submit';
-          if (!btn) {
-            // Submit button trong form mà KHÔNG chứa "with" (loại OAuth)
-            btn = Array.from(form.querySelectorAll('button')).find(b => {
-              const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-              return isVisible(b) && !t.includes('with') && (t === 'continue' || t === 'tiếp tục' || t.includes('continue') || t.includes('next'));
-            });
-            if (btn) strategy = 'form-text-no-with';
-          }
-        }
-        // Strategy 2: Toàn page — exact text match, exclude "with"
-        if (!btn) {
-          btn = Array.from(document.querySelectorAll('button')).find(b => {
-            const t = (b.innerText || b.textContent || '').trim();
-            const tl = t.toLowerCase();
-            return isVisible(b) && !tl.includes('with') && (t === 'Continue' || t === 'Tiếp tục' || tl === 'continue');
-          });
-          if (btn) strategy = 'global-exact-no-with';
-        }
-
-        if (!btn) {
-          // Liệt kê các nút có sẵn để debug
-          const all = Array.from(document.querySelectorAll('button')).filter(isVisible).map(b => (b.innerText || b.textContent || '').trim()).slice(0, 12);
-          return { error: 'no-continue-button', available: all };
-        }
-        // GUARD: tuyệt đối từ chối nếu nút chứa "with" (Continue with Google/Apple/MS)
-        const finalText = (btn.innerText || btn.textContent || '').trim();
-        if (finalText.toLowerCase().includes('with')) {
-          return { error: 'rejected-oauth-button', text: finalText };
-        }
-        btn.click();
-        return { ok: true, strategy, text: finalText };
-      })()
-    `);
+    const emailClickInfo = await fillEmail(tabId, USER_ID, email);
     console.log(`[Email-submit] →`, JSON.stringify(emailClickInfo || {}));
-    if (emailClickInfo?.error) {
-      throw new Error(`Email submit failed: ${emailClickInfo.error} (${JSON.stringify(emailClickInfo)})`);
+    if (!emailClickInfo || !emailClickInfo.ok) {
+      throw new Error(`Email submit failed: ${emailClickInfo?.reason || 'Unknown error'} (${JSON.stringify(emailClickInfo)})`);
     }
 
     // Đợi nhảy sang trang sau khi submit email — detect flow
@@ -1179,66 +1122,15 @@ export async function runAutoRegister(taskInput) {
         console.log(`[3] Điền Password [${attempt + 1}/${pwdCandidates.length}] -> ${tryPassword.slice(0, 3)}...`);
 
         const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
-        const pwdClickInfo = await evalJson(tabId, USER_ID, `
-            (() => {
-              const typeReact = (input, text) => {
-                if (!input) return false;
-                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                nativeSetter.call(input, text);
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                return true;
-              };
-              const isVisible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-
-              const pwdInput = document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]');
-              if (!pwdInput) return { error: 'no-password-input' };
-              typeReact(pwdInput, "${tryPassword}");
-
-              const form = pwdInput.closest('form');
-              let btn = null;
-              let strategy = '';
-              if (form) {
-                btn = form.querySelector('button[type="submit"]');
-                if (btn) strategy = 'form-submit';
-                if (!btn) {
-                  btn = Array.from(form.querySelectorAll('button')).find(b => {
-                    const t = (b.innerText || b.textContent || '').toLowerCase().trim();
-                    return isVisible(b) && !t.includes('with') &&
-                      (t.includes('continue') || t.includes('tiếp tục') || t.includes('create account') || t.includes('next'));
-                  });
-                  if (btn) strategy = 'form-text-no-with';
-                }
-              }
-              if (!btn) {
-                btn = Array.from(document.querySelectorAll('button')).find(b => {
-                  const t = (b.innerText || b.textContent || '').toLowerCase().trim();
-                  return isVisible(b) && !t.includes('with') &&
-                    (t === 'continue' || t === 'tiếp tục' || t === 'create account' || t === 'next');
-                });
-                if (btn) strategy = 'global-exact-no-with';
-              }
-
-              if (!btn) {
-                const all = Array.from(document.querySelectorAll('button')).filter(isVisible).map(b => (b.innerText || b.textContent || '').trim()).slice(0, 12);
-                return { error: 'no-continue-button', available: all };
-              }
-              const finalText = (btn.innerText || btn.textContent || '').trim();
-              if (finalText.toLowerCase().includes('with')) {
-                return { error: 'rejected-oauth-button', text: finalText };
-              }
-              btn.click();
-              return { ok: true, strategy, text: finalText };
-            })()
-          `);
+        const pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
         console.log(`[Password-submit] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
-        if (pwdClickInfo?.error) {
-          console.log(`[Password] Attempt ${attempt + 1} UI error: ${pwdClickInfo.error}`);
+        if (!pwdClickInfo || !pwdClickInfo.ok) {
+          console.log(`[Password] Attempt ${attempt + 1} UI error: ${pwdClickInfo?.reason || 'Unknown error'}`);
           if (attempt < pwdCandidates.length - 1) {
             await new Promise(r => setTimeout(r, 2000));
             continue;
           }
-          throw new Error(`Password submit failed: ${pwdClickInfo.error}`);
+          throw new Error(`Password submit failed: ${pwdClickInfo?.reason || 'Unknown error'}`);
         }
 
         await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
@@ -1246,7 +1138,7 @@ export async function runAutoRegister(taskInput) {
 
         // Kiểm tra xem password có được chấp nhận không (không còn ở password page)
         const stillOnPasswordPage = await evalJson(tabId, USER_ID, `
-          !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"]')
+          !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
         `);
 
         if (!stillOnPasswordPage) {

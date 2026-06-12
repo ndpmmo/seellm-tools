@@ -360,6 +360,10 @@ export async function fillEmail(tabId, userId, email) {
       input.focus();
       setValue(input, val);
 
+      if (input.value !== val) {
+        return { ok: false, reason: 'value-mismatch-after-set', currentVal: input.value };
+      }
+
       // Tìm nút Continue / Next
       const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .filter(isVisible)
@@ -380,7 +384,7 @@ export async function fillEmail(tabId, userId, email) {
     console.log(`⚠️ [fillEmail] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
     try {
       const typeRes = await actType(tabId, userId, {
-        selector: 'input[type="email"], input[name="username"], input[id="username"]',
+        selector: 'input[autocomplete="email"], input[name="email"], input[type="email"], input[name="username"], input[id="username"]',
         text: email,
         mode: 'keyboard',
         submit: true
@@ -437,6 +441,10 @@ export async function fillPassword(tabId, userId, password) {
       input.focus();
       setValue(input, val);
 
+      if (input.value !== val) {
+        return { ok: false, reason: 'value-mismatch-after-set', currentVal: input.value };
+      }
+
       const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .filter(isVisible)
         .find(el => {
@@ -456,7 +464,7 @@ export async function fillPassword(tabId, userId, password) {
     console.log(`⚠️ [fillPassword] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
     try {
       const typeRes = await actType(tabId, userId, {
-        selector: 'input[type="password"], input[name="password"], input[id="password"]',
+        selector: 'input[autocomplete="new-password"], input[name="new-password"], input[type="password"], input[name="password"], input[id="password"]',
         text: password,
         mode: 'keyboard',
         submit: true

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.126] - 2026-06-13 00:50:00
+
+### 🛡️ Đồng bộ và sửa lỗi điền mật khẩu trong luồng Đăng ký (Sync and Fix Password Autofill in Signup Flow)
+- **auto-register-worker.js**: Thay thế hoàn toàn logic điền Email và Password dạng inline bằng các helper dùng chung `fillEmail(tabId, USER_ID, email)` và `fillPassword(tabId, USER_ID, tryPassword)`.
+- Việc này giúp luồng đăng ký kế thừa toàn bộ các cơ chế tối ưu hóa của `fillEmail`/`fillPassword`, đặc biệt là cơ chế xác thực giá trị sau khi gán (`input.value !== val`) và tự động chuyển sang bàn phím ảo giả lập (`actType` keyboard mode) của Camoufox khi React/Next.js UI của OpenAI âm thầm reset DOM value.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.126`.
+
 ## [0.3.125] - 2026-06-13 00:40:00
 
 ### 🛡️ Tăng Cường Độ Tin Cậy Điền Biểu Mẫu Đăng Ký (Enhance Signup Form Autofill Reliability)
