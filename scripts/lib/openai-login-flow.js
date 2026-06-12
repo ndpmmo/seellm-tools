@@ -9,7 +9,7 @@
  * khiến UI render ngôn ngữ khác (ví dụ: Phần Lan → tiếng Đức).
  */
 
-import { evalJson, getSnapshot, clickRef, camofoxPost } from './camofox.js';
+import { evalJson, getSnapshot, clickRef, camofoxPost, actType } from './camofox.js';
 
 /**
  * Multi-language keyword sets used by login-flow detectors.
@@ -328,7 +328,7 @@ export async function getState(tabId, userId) {
  */
 export async function fillEmail(tabId, userId, email) {
   const escaped = JSON.stringify(email);
-  return evalJson(tabId, userId, `
+  let res = await evalJson(tabId, userId, `
     (() => {
       const val = ${escaped};
       const isVisible = el => {
@@ -374,6 +374,26 @@ export async function fillEmail(tabId, userId, email) {
       return { ok: true, clicked: !!btn, value: input.value };
     })()
   `, 6000);
+
+  // --- FALLBACK: Sử dụng API Camoufox Type nếu DOM JS thất bại ---
+  if (!res || !res.ok) {
+    console.log(`⚠️ [fillEmail] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
+    try {
+      const typeRes = await actType(tabId, userId, {
+        selector: 'input[type="email"], input[name="username"], input[id="username"]',
+        text: email,
+        mode: 'keyboard',
+        submit: true
+      }, { timeoutMs: 10000 });
+      if (typeRes && typeRes.ok) {
+        return { ok: true, fallback: 'camofox-type', value: email };
+      }
+    } catch (typeErr) {
+      console.log(`❌ [fillEmail] Fallback Camoufox Type thất bại: ${typeErr.message}`);
+    }
+  }
+
+  return res;
 }
 
 /**
@@ -385,7 +405,7 @@ export async function fillEmail(tabId, userId, email) {
  */
 export async function fillPassword(tabId, userId, password) {
   const escaped = JSON.stringify(password);
-  return evalJson(tabId, userId, `
+  let res = await evalJson(tabId, userId, `
     (() => {
       const val = ${escaped};
       const isVisible = el => {
@@ -403,6 +423,7 @@ export async function fillPassword(tabId, userId, password) {
       };
       const selectors = [
         'input[autocomplete="current-password"]',
+        'input[autocomplete="new-password"]',
         'input[type="password"]',
         'input[name="password"]',
         'input[id="password"]',
@@ -429,6 +450,26 @@ export async function fillPassword(tabId, userId, password) {
       return { ok: true, clicked: !!btn, value: '***' };
     })()
   `, 6000);
+
+  // --- FALLBACK: Sử dụng API Camoufox Type nếu DOM JS thất bại ---
+  if (!res || !res.ok) {
+    console.log(`⚠️ [fillPassword] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
+    try {
+      const typeRes = await actType(tabId, userId, {
+        selector: 'input[type="password"], input[name="password"], input[id="password"]',
+        text: password,
+        mode: 'keyboard',
+        submit: true
+      }, { timeoutMs: 10000 });
+      if (typeRes && typeRes.ok) {
+        return { ok: true, fallback: 'camofox-type', value: '***' };
+      }
+    } catch (typeErr) {
+      console.log(`❌ [fillPassword] Fallback Camoufox Type thất bại: ${typeErr.message}`);
+    }
+  }
+
+  return res;
 }
 
 /**

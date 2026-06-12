@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.125] - 2026-06-13 00:40:00
+
+### 🛡️ Tăng Cường Độ Tin Cậy Điền Biểu Mẫu Đăng Ký (Enhance Signup Form Autofill Reliability)
+- **Tối ưu hóa `scripts/lib/openai-login-flow.js`**:
+  - **New-password Selector**: Thêm selector `input[autocomplete="new-password"]` vào hàm `fillPassword` để nhận diện chính xác biểu mẫu tạo mật khẩu mới của OpenAI.
+  - **Keyboard-type Fallback**: Bổ sung kịch bản dự phòng (fallback) tự động kích hoạt nếu JS DOM không thể điền hoặc submit email/mật khẩu. Cơ chế dự phòng sẽ sử dụng API `/type` của Camoufox giả lập sự kiện gõ phím vật lý thực tế (`mode="keyboard"`) và tự động gửi phím `Enter` để đăng ký tiếp.
+  - Giải quyết triệt để lỗi thỉnh thoảng ô mật khẩu bị bỏ trống dù đã tìm và focus được vào ô nhập liệu.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.125`.
+
 ## [0.3.124] - 2026-06-13 00:30:00
 
 ### ⚙️ Loại Bỏ Giới Hạn Cứng Memory Admission Control (Remove Memory Admission Control Limit)
