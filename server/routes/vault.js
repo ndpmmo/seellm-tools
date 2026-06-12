@@ -2525,14 +2525,6 @@ class BulkRegisterRunner {
 
     // 2. Spawn next workers up to concurrency
     while (this.activeWorkers.size < this.concurrency && this.queue.length > 0) {
-      // Memory admission control: kiểm tra RAM trống trước khi mở thêm 1 tab Camoufox mới an toàn
-      const freeMem = os.freemem();
-      const minRequiredMem = 1200 * 1024 * 1024; // 1.2 GB
-      if (freeMem < minRequiredMem && this.activeWorkers.size > 0) {
-        this.log(`⚠️ Cảnh báo RAM: Bộ nhớ RAM trống còn ít (${Math.round(freeMem / 1024 / 1024)}MB). Tạm ngưng mở luồng mới, chờ luồng cũ hoàn tất...`);
-        break;
-      }
-
       const task = this.queue.shift();
       const { emailRecord, proxy } = task;
 

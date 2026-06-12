@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.124] - 2026-06-13 00:30:00
+
+### ⚙️ Loại Bỏ Giới Hạn Cứng Memory Admission Control (Remove Memory Admission Control Limit)
+- **Cải tiến `server/routes/vault.js`**:
+  - Loại bỏ hoàn toàn cơ chế kiểm tra `os.freemem()` trong `BulkRegisterRunner.tick()`.
+  - Việc này đảm bảo số lượng trình duyệt song song được khởi chạy tuân thủ chính xác theo cấu hình `concurrency` của người dùng từ giao diện, không bị trì hoãn bởi logic kiểm tra RAM hệ thống.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.124`.
+
 ## [0.3.123] - 2026-06-13 00:25:00
 
 ### 🛡️ Đảm Bảo Tính Ổn Định: Rollback Môi Trường Thực Thi Sang Node.js (Rollback Runtime to Node.js for Stability)
