@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.118] - 2026-06-12 23:55:00
+
+### 🚀 Tối Ưu Hóa Giao Tiếp curl_cffi Qua Standard Input (stdin) & Imports Python
+- **Tối ưu hóa giao tiếp Node.js và Python trong `scripts/lib/openai-protocol-register.js`**:
+  - **Khắc phục**: Thay thế việc truyền payload JSON của request thông qua Command-Line Arguments bằng cơ chế ghi trực tiếp vào Standard Input (`proc.stdin`). Điều này loại bỏ giới hạn độ dài ký tự của command line trên các hệ điều hành khi truyền các payload lớn (nhiều cookies hoặc body lớn), đồng thời tăng tính bảo mật và hiệu năng giao tiếp tiến trình.
+- **Tối ưu hóa mã nguồn Python trong `scripts/lib/curl_cffi_fetch.py`**:
+  - **Khắc phục**: Di chuyển câu lệnh `from urllib.parse import urljoin` ra ngoài vòng lặp chuyển hướng (redirect loop) lên khối import ở đầu tệp tin nhằm tránh việc import lặp đi lặp lại nhiều lần trong quá trình phân tích chuỗi chuyển hướng URL.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.118`.
+
 ## [0.3.117] - 2026-06-12 23:50:00
 
 ### 🛡️ Thiết Lập Cơ Chế Tự Động Nhận Biết & Khôi Phục Tài Khoản Đăng Ký Dở Dang (Self-Healing & Auto-Recovery for Incomplete/Abandoned Accounts)

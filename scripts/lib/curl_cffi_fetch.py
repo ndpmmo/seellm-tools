@@ -37,6 +37,7 @@ On error:
 
 import json
 import sys
+from urllib.parse import urljoin
 
 
 def main():
@@ -125,7 +126,6 @@ def main():
                 if location.startswith("http"):
                     current_url = location
                 else:
-                    from urllib.parse import urljoin
                     current_url = urljoin(current_url, location)
 
         else:

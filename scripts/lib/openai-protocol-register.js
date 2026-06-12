@@ -312,9 +312,11 @@ function requestViaCurlCffi({ method, url, headers = {}, body = null, proxyUrl =
       impersonate,
     });
 
-    const proc = spawn('python3', [CURL_CFFI_SCRIPT, reqPayload], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const proc = spawn('python3', [CURL_CFFI_SCRIPT], {
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
+    proc.stdin.write(reqPayload);
+    proc.stdin.end();
     const stdoutChunks = [];
     const stderrChunks = [];
 
