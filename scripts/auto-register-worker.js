@@ -1017,7 +1017,7 @@ export async function runAutoRegister(taskInput) {
     // Phase 2, Step 1: Before email submit
     await recorder.before(2, 1, 'email_submit');
     const urlBeforeEmail = await evalJson(tabId, USER_ID, `location.href`);
-    const emailClickInfo = await fillEmail(tabId, USER_ID, email);
+    let emailClickInfo = await fillEmail(tabId, USER_ID, email);
     console.log(`[Email-submit] →`, JSON.stringify(emailClickInfo || {}));
     if (!emailClickInfo || !emailClickInfo.ok) {
       throw new Error(`Email submit failed: ${emailClickInfo?.reason || 'Unknown error'} (${JSON.stringify(emailClickInfo)})`);
@@ -1025,24 +1025,66 @@ export async function runAutoRegister(taskInput) {
 
     // Đợi nhảy sang trang sau khi submit email — detect flow
     console.log("⏳ Chờ OpenAI xử lý Email và chuyển trang...");
-    const newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
-    if (!newUrl) {
-      console.log(`[Email-submit] ⚠️ URL không đổi sau click — kiểm tra xem trang có chuyển in-page không...`);
-      // ChatGPT mới có thể chuyển in-page mà không đổi URL — kiểm tra password input đã xuất hiện chưa
+    let newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
+    let emailSuccess = false;
+
+    // Vòng lặp retry thông minh (lên tới 2 lần) nếu URL không đổi và không có màn hình password/OTP
+    for (let attempt = 1; attempt <= 2 && !emailSuccess; attempt++) {
+      if (newUrl) {
+        emailSuccess = true;
+        break;
+      }
+
       const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
         `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
       );
-      if (!hasPasswordInputAlready) {
-        // Kiểm tra thêm: có phải màn hình email-verification không
-        const bodyCheck = await evalJson(tabId, USER_ID,
-          `(document.body?.innerText || '').toLowerCase()`
+      if (hasPasswordInputAlready) {
+        emailSuccess = true;
+        break;
+      }
+
+      const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
+      const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
+      if (hasVerify) {
+        emailSuccess = true;
+        break;
+      }
+
+      console.log(`[Email-submit] ⚠️ Thao tác submit email chưa chuyển trang (Thử lại ${attempt}/2). Reloading trang và gửi lại...`);
+      await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+      await new Promise(r => setTimeout(r, 5000));
+
+      // Dọn dẹp pop-up chào mừng nếu có sau khi reload
+      await evalJson(tabId, USER_ID, `
+        (() => {
+          const dismissBtn = document.querySelector('[data-testid="dismiss-welcome"]');
+          if (dismissBtn) dismissBtn.click();
+        })()
+      `).catch(() => {});
+
+      // Điền email và click submit lại
+      emailClickInfo = await fillEmail(tabId, USER_ID, email);
+      console.log(`[Email-submit] Retry ${attempt} →`, JSON.stringify(emailClickInfo || {}));
+      newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
+    }
+
+    // Kiểm tra kết quả cuối cùng sau khi hoàn tất retry
+    if (!emailSuccess) {
+      if (!newUrl) {
+        console.log(`[Email-submit] ⚠️ URL vẫn không đổi sau click — kiểm tra xem trang có chuyển in-page không...`);
+        const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
+          `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
         );
-        const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
-        if (!hasVerify) {
-          throw new Error(`[Email-submit] URL không đổi và không có màn hình mật khẩu/OTP — submit email có thể bị thất bại`);
+        if (!hasPasswordInputAlready) {
+          const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
+          const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
+          if (!hasVerify) {
+            throw new Error(`[Email-submit] URL không đổi và không có màn hình mật khẩu/OTP — submit email có thể bị thất bại`);
+          }
         }
       }
     }
+
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
     // Phase 2, Step 1: After email submit
     await recorder.after(2, 1, 'email_submit');
@@ -1185,7 +1227,7 @@ export async function runAutoRegister(taskInput) {
         console.log(`[3] Điền Password [${attempt + 1}/${pwdCandidates.length}] -> ${tryPassword.slice(0, 3)}...`);
 
         const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
-        const pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
+        let pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
         console.log(`[Password-submit] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
         if (!pwdClickInfo || !pwdClickInfo.ok) {
           console.log(`[Password] Attempt ${attempt + 1} UI error: ${pwdClickInfo?.reason || 'Unknown error'}`);
@@ -1200,9 +1242,33 @@ export async function runAutoRegister(taskInput) {
         await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
 
         // Kiểm tra xem password có được chấp nhận không (không còn ở password page)
-        const stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+        let stillOnPasswordPage = await evalJson(tabId, USER_ID, `
           !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
         `);
+
+        // --- SMART RETRY: Nếu vẫn ở màn hình password mà không thấy lỗi hiển thị, reload trang và thử lại chính mật khẩu này ---
+        if (stillOnPasswordPage) {
+          const pageError = await evalJson(tabId, USER_ID, `
+            (() => {
+              const errEl = document.querySelector('[class*="error"], [class*="alert"], [role="alert"], [aria-live], .error-message');
+              return errEl ? (errEl.innerText || '').trim() : null;
+            })()
+          `);
+
+          if (!pageError) {
+            console.log(`[Password] Vẫn ở màn hình Password và không có lỗi hiển thị. Thực hiện reload trang và nhập lại...`);
+            await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+            await new Promise(r => setTimeout(r, 5000));
+
+            pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
+            console.log(`[Password-submit Retry] →`, JSON.stringify(pwdClickInfo || {}));
+            await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
+            
+            stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+              !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
+            `);
+          }
+        }
 
         if (!stillOnPasswordPage) {
           passwordSuccess = true;
@@ -1315,12 +1381,44 @@ export async function runAutoRegister(taskInput) {
         throw new Error(`[OTPScreenPoll] Màn hình OTP không xuất hiện sau khi poll. URL hiện tại: ${await evalJson(tabId, USER_ID, 'location.href').catch(() => '?')}`);
       }
     }
-
     const isOnOtpScreen = otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText);
     if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
-      const otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpWaitTimeout, minTime: otpCheckStartTime });
-      if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau ${CONFIG.otpWaitTimeout}s.`);
+      // Lần đầu chờ OTP trong 50 giây
+      let otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 50, minTime: otpCheckStartTime });
+      
+      if (!otpCode) {
+        console.log(`[OTP] ⚠️ Không nhận được mã OTP sau 50s. Tiến hành click "Resend email" và thử lại...`);
+        const resendRes = await evalJson(tabId, USER_ID, `
+          (() => {
+            const isVisible = el => {
+              if (!el) return false;
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+            };
+            const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
+              .filter(isVisible)
+              .find(el => {
+                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                return t.includes('resend email') || t.includes('resend code') || t.includes('gửi lại');
+              });
+            if (btn) {
+              btn.click();
+              return true;
+            }
+            return false;
+          })()
+        `).catch(() => null);
+        console.log(`[OTP] Resend email click result:`, resendRes);
+        await new Promise(r => setTimeout(r, 5000));
+        
+        // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian mới để tránh nhận mã cũ
+        const newMinTime = Date.now();
+        otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 60, minTime: newMinTime });
+      }
+
+      if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau khi gửi lại.`);
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await recorder.before(4, 2, 'otp_entry');
@@ -1498,8 +1596,27 @@ export async function runAutoRegister(taskInput) {
         }
       }
 
+
       // Check if URL successfully transitioned away from email-verification page
-      const finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+      let finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+      if (finalUrlCheck.includes('email-verification')) {
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Kiểm tra xem trang có bị đơ/trắng không...`);
+        const pageStatus = await evalJson(tabId, USER_ID, `
+          (() => {
+            const body = document.body?.innerText || '';
+            const inputs = document.querySelectorAll('input').length;
+            return { bodyLength: body.length, inputs };
+          })()
+        `);
+        
+        if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0) {
+          console.log(`[OTP] 🔄 Trang bị trống hoặc đơ (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Đang reload lại trang...`);
+          await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+          await new Promise(r => setTimeout(r, 6000));
+          finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+        }
+      }
+
       if (finalUrlCheck.includes('email-verification')) {
         throw new Error('OTP verification submitted but page failed to transition away from email-verification');
       }
