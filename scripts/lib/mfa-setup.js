@@ -386,16 +386,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await saveCheckpoint('mfa_navigate_start');
         
         try {
-            await apiHelper(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/#settings/Security' });
+            await run(`window.location.hash = '#settings/Security'`);
             await wait(3000);
         } catch (navErr) {
-            log(`⚠️ Lỗi khi native navigate (thử fallback location.href): ${navErr.message}`);
-            try {
-                await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`);
-                await wait(4000);
-            } catch (jsNavErr) {
-                log(`❌ Cả native navigate và JS location.href đều lỗi: ${jsNavErr.message}`);
-            }
+            log(`⚠️ Lỗi khi JS navigate to settings: ${navErr.message}`);
         }
 
         // Đảm bảo settings modal được mở
@@ -470,10 +464,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             if (i === 7) {
                 log('Vẫn chưa mở. Thử chuyển sang path-based settings URL...');
                 try {
-                    await apiHelper(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/settings/security' });
+                    await run(`window.location.pathname = '/settings/security'`);
                 } catch (err) {
-                    log(`⚠️ Fallback JS navigate do native navigate thất bại: ${err.message}`);
-                    await run(`window.location.href = 'https://chatgpt.com/settings/security'`).catch(() => {});
+                    log(`⚠️ Chuyển sang /settings/security qua JS thất bại: ${err.message}`);
                 }
             }
             await wait(1000);
@@ -988,21 +981,19 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
         log('Xác minh thông minh: Chuyển hướng ra trang chủ ChatGPT...');
         try {
-            await apiHelper(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/' });
-            await wait(4000);
+            await run(`window.location.hash = ''`);
+            await wait(2000);
         } catch (navAwayErr) {
-            log(`⚠️ Lỗi khi navigate away: ${navAwayErr.message}`);
+            log(`⚠️ Lỗi khi JS navigate away: ${navAwayErr.message}`);
         }
         await saveCheckpoint('navigated_away');
 
         log('Xác minh thông minh: Quay lại Security Settings...');
         try {
-            await apiHelper(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/#settings/Security' });
-            await wait(4000);
+            await run(`window.location.hash = '#settings/Security'`);
+            await wait(3000);
         } catch (navBackErr) {
-            log(`⚠️ Lỗi khi navigate quay lại: ${navBackErr.message}`);
-            await run(`window.location.href = 'https://chatgpt.com/#settings/Security'`).catch(() => {});
-            await wait(5000);
+            log(`⚠️ Lỗi khi JS navigate quay lại settings: ${navBackErr.message}`);
         }
 
         // Chờ modal load lại

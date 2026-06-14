@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.128] - 2026-06-14 14:02:00
+
+### 🛡️ Tối ưu hóa Luồng Đăng ký và Tránh Navigation Timeout trong Settings (Optimize Registration Flow & Prevent Settings Navigation Timeouts)
+- **scripts/lib/openai-login-flow.js**: Chuyển đổi cơ chế điền mật khẩu chính (`fillPassword`) từ `mode: 'keyboard'` (phím ảo gõ mô phỏng phần cứng) sang `mode: 'fill'` (Playwright `fill()`). Phương pháp này đảm bảo gán dữ liệu chính xác, tự động xoá ô cũ, và truyền đầy đủ các sự kiện HTML5/React nhằm giải quyết dứt điểm lỗi OpenAI âm thầm xoá mật khẩu đã điền.
+- **scripts/auto-register-worker.js**:
+  - Hỗ trợ bỏ qua bước gán mật khẩu ban đầu (`Smart Skip`) nếu OpenAI trả về trang xác thực mã OTP trước khi tạo mật khẩu (OTP-first flow), và tự động điền mật khẩu sau khi giải OTP thành công.
+  - Sửa các lệnh điều hướng đầy đủ (`/navigate`) tới trang chủ ở cuối luồng capture session thành cập nhật URL hash (`window.location.hash = ''` hoặc `window.location.reload()`) để tránh nguy cơ timeout gây chết session trình duyệt.
+- **scripts/lib/mfa-setup.js**:
+  - Thay thế toàn bộ các lệnh điều hướng đầy đủ (`/navigate`) tới settings bằng cơ chế thay đổi hash của trình duyệt (`window.location.hash = '#settings/Security'` hoặc `window.location.pathname = '/settings/security'`) chạy trực tiếp trong DOM. Việc này giảm tải đường truyền và ngăn chặn triệt để lỗi timeout khiến Camoufox tự động xoá tab/session.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.128`.
+
 ## [0.3.127] - 2026-06-13 01:38:00
 
 ### 🐛 Fix: fillPassword — Đổi sang Keyboard-First Strategy (React Input Reset Bug)

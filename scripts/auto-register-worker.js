@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey, checkProfileExists, getGlobalUsePersistent } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey, checkProfileExists, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -1053,8 +1053,10 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    // 3. Điền mật khẩu — skip nếu account đã tồn tại
-    if (true) {
+    // 3. Điền mật khẩu — skip nếu account đã tồn tại hoặc nếu flow mới có thể xác minh trực tiếp bằng mã OTP
+    if (flowDetection?.isEmailVerification && flowDetection?.hasCodeInput) {
+      console.log(`[3] Smart Skip: Màn hình OTP đã hiển thị trực tiếp. Bỏ qua điền password để tiếp tục xác minh mã OTP trước.`);
+    } else if (true) {
     // Flow mới: click "Continue with password" link trước
     if (flowDetection?.flow === 'new') {
       // Flow mới: click "Continue with password" link trước
@@ -1256,49 +1258,66 @@ export async function runAutoRegister(taskInput) {
       if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau ${CONFIG.otpWaitTimeout}s.`);
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
-      await evalJson(tabId, USER_ID, `
-              (() => {
-                 const isVisible = el => el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
-                 const setValue = (el, text) => {
-                   const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                   nativeSetter.call(el, text);
-                   el.dispatchEvent(new Event('input', { bubbles: true }));
-                   el.dispatchEvent(new Event('change', { bubbles: true }));
-                   el.blur();
-                   el.focus();
-                 };
+      await recorder.before(4, 2, 'otp_entry');
+      const otpInputSelector = 'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]';
+      await actClick(tabId, USER_ID, { selector: otpInputSelector }).catch(() => {});
+      await new Promise(r => setTimeout(r, 600));
+      for (const char of otpCode) {
+        await actPress(tabId, USER_ID, { key: char });
+        await new Promise(r => setTimeout(r, 100));
+      }
+      await new Promise(r => setTimeout(r, 800));
 
-                 // Robust input finder - same logic as fillMfa in openai-login-flow.js
-                 const input = Array.from(document.querySelectorAll('input')).find(el =>
-                   isVisible(el) && (
-                     el.autocomplete === 'one-time-code' ||
-                     el.getAttribute('autocomplete') === 'one-time-code' ||
-                     el.inputMode === 'numeric' ||
-                     el.getAttribute('inputmode') === 'numeric' ||
-                     (el.name || '').toLowerCase().includes('code') ||
-                     (el.name || '').toLowerCase().includes('otp') ||
-                     (el.placeholder || '').toLowerCase().includes('code') ||
-                     el.maxLength === 6
-                   )
-                 );
-                 if (!input) return { error: 'no-otp-input', inputCount: document.querySelectorAll('input').length };
-                 console.log('[OTP] Found input:', input.name, input.type, input.placeholder, input.maxLength);
-                 setValue(input, "${otpCode}");
+      let submitted = false;
+      try {
+        await actClick(tabId, USER_ID, {
+          selector: 'button[type="submit"]:has-text("Continue"), button:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")'
+        }, { timeoutMs: 3000 });
+        console.log(`[4.2] Đã click nút Continue. Đợi 5s xem page có chuyển hướng không...`);
+        await new Promise(r => setTimeout(r, 5000));
+        const stillOnOtp = await evalJson(tabId, USER_ID, `!!document.querySelector('input[name="code"]')`);
+        if (!stillOnOtp) {
+          submitted = true;
+          console.log(`[4.2] Page đã chuyển hướng hoặc đang load (code input biến mất).`);
+        }
+      } catch (err) {
+        console.log(`[4.2] Click Continue lỗi: ${err.message}`);
+      }
 
-                 const btn = Array.from(document.querySelectorAll('button')).find(b =>
-                    (b.textContent.includes('Continue') || b.textContent.includes('Tiếp tục') || b.textContent.includes('Next') || b.textContent.includes('Verify')) &&
-                    !b.textContent.includes('with') && isVisible(b)
-                 );
-                 if (btn) {
-                   console.log('[OTP] Clicking continue button');
-                   btn.click();
-                 } else {
-                   console.log('[OTP] No continue button found, pressing Enter');
-                   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-                 }
-                 return { ok: true, inputFound: !!input, buttonFound: !!btn };
-              })()
-            `);
+      if (!submitted) {
+        console.log(`[4.2] Vẫn ở trang OTP, thử bấm phím Enter...`);
+        await actPress(tabId, USER_ID, { key: 'Enter' }).catch(() => {});
+        await new Promise(r => setTimeout(r, 4000));
+        const stillOnOtp = await evalJson(tabId, USER_ID, `!!document.querySelector('input[name="code"]')`);
+        if (!stillOnOtp) {
+          submitted = true;
+          console.log(`[4.2] Page chuyển hướng sau khi bấm Enter.`);
+        }
+      }
+
+      if (!submitted) {
+        // Force submit using DOM submit as fallback
+        console.log(`[4.2] Vẫn ở trang OTP, thực hiện fallback DOM submit...`);
+        await evalJson(tabId, USER_ID, `
+          (() => {
+            const input = document.querySelector('input[name="code"]');
+            if (input && input.form) {
+              let intentInput = input.form.querySelector('input[name="intent"]');
+              if (!intentInput) {
+                intentInput = document.createElement('input');
+                intentInput.type = 'hidden';
+                intentInput.name = 'intent';
+                intentInput.value = 'validate';
+                input.form.appendChild(intentInput);
+              }
+              input.form.submit();
+              return { ok: true, msg: 'form-submitted' };
+            }
+            return { ok: false, error: 'form-not-found' };
+          })()
+        `).catch(e => console.log(`[4.2] Lỗi DOM submit: ${e.message}`));
+      }
+
       await new Promise(r => setTimeout(r, 6000));
       
       // Verify OTP entry success - check if still on OTP screen
@@ -1394,6 +1413,66 @@ export async function runAutoRegister(taskInput) {
 
       // Phase 3, Step 1: Pin verified
       await recorder.after(3, 1, 'pin_verified');
+    }
+
+    // Check if password setup is required after OTP validation (e.g. on /create-account/password)
+    const hasPwdInputAfterOtp = await evalJson(tabId, USER_ID, `
+      !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')
+    `);
+    if (hasPwdInputAfterOtp) {
+      console.log(`[4.3] Phát hiện màn hình tạo mật khẩu sau khi giải OTP. Tiến hành điền mật khẩu...`);
+      let pwdCandidates = [];
+      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+      while (pwdCandidates.length < 3) {
+        const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
+          PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
+        ).join('');
+        if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
+      }
+
+      let passwordSuccess = false;
+      let usedPassword = '';
+
+      for (let attempt = 0; attempt < pwdCandidates.length; attempt++) {
+        const tryPassword = pwdCandidates[attempt];
+        console.log(`[4.3] Điền Password [${attempt + 1}/${pwdCandidates.length}] -> ${tryPassword.slice(0, 3)}...`);
+
+        const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
+        const pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
+        console.log(`[Password-submit-after-otp] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
+        if (!pwdClickInfo || !pwdClickInfo.ok) {
+          console.log(`[Password-after-otp] Attempt ${attempt + 1} UI error: ${pwdClickInfo?.reason || 'Unknown error'}`);
+          if (attempt < pwdCandidates.length - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          throw new Error(`Password submit failed after OTP: ${pwdClickInfo?.reason || 'Unknown error'}`);
+        }
+
+        await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
+        await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
+
+        const stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+          !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
+        `);
+
+        if (!stillOnPasswordPage) {
+          passwordSuccess = true;
+          usedPassword = tryPassword;
+          console.log(`✅ [Password-after-otp] Attempt ${attempt + 1} accepted`);
+          break;
+        }
+
+        console.log(`[Password-after-otp] Attempt ${attempt + 1} rejected, trying next...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      if (!passwordSuccess) {
+        throw new Error('All 3 password attempts after OTP rejected');
+      }
+
+      chatGptPassword = usedPassword;
+      await recorder.after(2, 3, 'password_submit_after_otp');
     }
 
     // 5. Cấp User Info (tên, ngày sinh) — chạy nếu là account mới hoặc nếu page có yêu cầu
@@ -1697,7 +1776,7 @@ export async function runAutoRegister(taskInput) {
         console.log(`[7] ⚠️ Toggle not found, retry MFA setup...`);
         for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
           console.log(`[7] MFA retry ${retry}: Navigate về Security page...`);
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/#settings/Security' });
+          await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
           await new Promise(r => setTimeout(r, 3000));
           
           const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
@@ -1728,7 +1807,7 @@ export async function runAutoRegister(taskInput) {
     console.log(`[7.2] 🔍 Đang tiến hành Double-Check trạng thái 2FA trên giao diện DOM...`);
     try {
       // Navigate về trang Security để check DOM ổn định
-      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/#settings/Security' });
+      await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
       await new Promise(r => setTimeout(r, 4000));
 
       const is2FaEnabledActual = await evalJson(tabId, USER_ID, `
@@ -1839,7 +1918,7 @@ export async function runAutoRegister(taskInput) {
     // Đảm bảo trình duyệt điều hướng về trang chủ và ổn định trước khi capture session
     try {
       console.log(`[Capture] 🔄 Đưa trình duyệt về trang chủ https://chatgpt.com để ổn định session...`);
-      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+      await evalJson(tabId, USER_ID, `window.location.hash = ''`).catch(() => {});
       await new Promise(r => setTimeout(r, 4000));
     } catch (navErr) {
       console.log(`[Capture] ⚠️ Không thể điều hướng về trang chủ: ${navErr.message}`);
@@ -1852,7 +1931,7 @@ export async function runAutoRegister(taskInput) {
       if (attempt === 2) {
         console.log(`[Capture] 🔄 Reloading chatgpt.com to refresh session...`);
         try {
-          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await evalJson(tabId, USER_ID, `window.location.reload()`).catch(() => {});
           await new Promise(r => setTimeout(r, 3000));
         } catch (reloadErr) {
           console.log(`[Capture] ⚠️ Reload failed: ${reloadErr.message}`);

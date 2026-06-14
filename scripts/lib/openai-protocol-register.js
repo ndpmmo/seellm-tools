@@ -757,6 +757,14 @@ async function submitSignupForm(session, email, sentinelPayload) {
 // PASSWORD REGISTRATION (with retry)
 // ============================================
 async function registerPassword(session, email, deviceId) {
+  // Warm up Cloudflare to acquire cf_clearance/cookie credentials
+  try {
+    console.log('[Protocol] Warming up Cloudflare session before password registration...');
+    await session.fetch(`${OPENAI_AUTH}/create-account/password`, { timeoutMs: 10000 });
+  } catch (e) {
+    console.log('[Protocol] Cloudflare warm up warning:', e.message);
+  }
+
   const candidates = [];
   while (candidates.length < 3) {
     const pwd = generatePassword();

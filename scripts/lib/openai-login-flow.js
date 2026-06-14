@@ -9,7 +9,7 @@
  * khiến UI render ngôn ngữ khác (ví dụ: Phần Lan → tiếng Đức).
  */
 
-import { evalJson, getSnapshot, clickRef, camofoxPost, actType } from './camofox.js';
+import { evalJson, getSnapshot, clickRef, camofoxPost, actType, actClick, actPress } from './camofox.js';
 
 /**
  * Multi-language keyword sets used by login-flow detectors.
@@ -418,16 +418,156 @@ export async function fillEmail(tabId, userId, email) {
 export async function fillPassword(tabId, userId, password) {
   // --- PRIMARY: Camoufox native keyboard type ---
   console.log(`[fillPassword] Trying Camoufox keyboard type (primary)...`);
+
+  // Step 0: Clear the password field first (important on retries — avoid appending to old value)
+  try {
+    await evalJson(tabId, userId, `
+      (() => {
+        const inp = document.querySelector('input[autocomplete="new-password"], input[autocomplete="current-password"], input[type="password"]');
+        if (!inp) return false;
+        inp.focus();
+        // Select-all + delete to clear via React-compatible way
+        const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+        if (nativeInput) nativeInput.set.call(inp, '');
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()
+    `, 3000).catch(() => {});
+    await new Promise(r => setTimeout(r, 200));
+  } catch (_) {}
+
   try {
     const typeRes = await actType(tabId, userId, {
       selector: 'input[autocomplete="new-password"], input[autocomplete="current-password"], input[type="password"], input[name="password"], input[id="password"]',
       text: password,
-      mode: 'keyboard',
-      submit: true
+      mode: 'fill',
+      submit: false
     }, { timeoutMs: 10000 });
+    
     if (typeRes && typeRes.ok) {
-      console.log(`[fillPassword] Keyboard type succeeded:`, JSON.stringify(typeRes));
-      return { ok: true, strategy: 'keyboard', value: '***' };
+      console.log(`[fillPassword] Keyboard type succeeded. Waiting 800ms for validation...`);
+      await new Promise(r => setTimeout(r, 800));
+
+      // Log any validation error text visible on page (helpful for debugging)
+      const pageErrorText = await evalJson(tabId, userId, `
+        (() => {
+          const body = document.body?.innerText || '';
+          const errEl = document.querySelector('[class*="error"], [class*="alert"], [role="alert"], [aria-live], .error-message');
+          return { bodySnippet: body.slice(0, 300), errEl: errEl?.innerText?.slice(0, 100) };
+        })()
+      `).catch(() => null);
+      if (pageErrorText) {
+        console.log(`[fillPassword] Page state after type:`, JSON.stringify(pageErrorText));
+      }
+      
+      // Try native click on Continue button first (trusted click for React 19 compatibility)
+      console.log(`[fillPassword] Attempting native click on Continue button...`);
+      try {
+        const nativeClickRes = await actClick(tabId, userId, {
+          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")'
+        }, { timeoutMs: 3000 });
+        if (nativeClickRes && nativeClickRes.ok) {
+          console.log(`[fillPassword] Native click succeeded:`, JSON.stringify(nativeClickRes));
+          
+          // Wait and check if page transitioned
+          await new Promise(r => setTimeout(r, 1200));
+          const stillOnPwdPage = await evalJson(tabId, userId, `
+            !!document.querySelector('input[type="password"]')
+          `);
+          if (stillOnPwdPage) {
+            // Log visible error text to understand why submit failed
+            const errInfo = await evalJson(tabId, userId, `
+              (() => {
+                const body = (document.body?.innerText || '').slice(0, 400);
+                const url = location.href;
+                const errEl = document.querySelector('[class*="error"], [role="alert"], [aria-live="polite"], [aria-live="assertive"]');
+                return { url, body, errEl: errEl?.innerText?.slice(0, 150) };
+              })()
+            `).catch(() => null);
+            console.log('[fillPassword] Native click did not transition page. Page info:', JSON.stringify(errInfo));
+
+            // Try form.requestSubmit() — triggers React onSubmit handler (unlike native submit())
+            const submitResult = await evalJson(tabId, userId, `
+              (() => {
+                const submitBtn = document.querySelector('button[type="submit"]');
+                const form = submitBtn?.closest('form') || document.querySelector('form');
+                if (form) {
+                  try {
+                    if (typeof form.requestSubmit === 'function') {
+                      form.requestSubmit(submitBtn || undefined);
+                      return { method: 'requestSubmit', ok: true };
+                    } else {
+                      form.submit();
+                      return { method: 'submit', ok: true };
+                    }
+                  } catch (e) {
+                    return { method: 'error', ok: false, err: e.message };
+                  }
+                }
+                return { method: 'no-form', ok: false };
+              })()
+            `).catch(() => null);
+            console.log('[fillPassword] requestSubmit result:', JSON.stringify(submitResult));
+
+            // Wait and re-check
+            await new Promise(r => setTimeout(r, 1200));
+            const stillOnPwdPage2 = await evalJson(tabId, userId, `
+              !!document.querySelector('input[type="password"]')
+            `);
+            if (stillOnPwdPage2) {
+              console.log('[fillPassword] Still on password page after requestSubmit — returning ok:false');
+              return { ok: false, reason: 'submit-did-not-navigate', strategy: 'keyboard-native-click' };
+            }
+          }
+          
+          return { ok: true, strategy: 'keyboard-native-click', value: '***' };
+        }
+      } catch (clickErr) {
+        console.log(`[fillPassword] Native click failed: ${clickErr.message}`);
+      }
+      
+      // Fallback to DOM click (untrusted but works on some forms)
+      console.log(`[fillPassword] Falling back to DOM click on submit button...`);
+      const domClickRes = await evalJson(tabId, userId, `
+        (() => {
+          const isVisible = el => {
+            if (!el) return false;
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+          };
+          const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+            .filter(isVisible)
+            .find(el => {
+              const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+              return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+            });
+          if (btn) {
+            btn.click();
+            // Try requestSubmit (React-compatible) then fallback to native submit
+            const form = btn.closest('form') || document.querySelector('form');
+            if (form) {
+              try {
+                if (typeof form.requestSubmit === 'function') form.requestSubmit(btn);
+                else form.submit();
+              } catch (_) {}
+            }
+            return { ok: true, clicked: true, text: btn.innerText || btn.textContent };
+          }
+          return { ok: false, reason: 'no-submit-button-found' };
+        })()
+      `, 3000);
+      console.log(`[fillPassword] DOM click result:`, JSON.stringify(domClickRes));
+      
+      if (domClickRes && domClickRes.ok) {
+        return { ok: true, strategy: 'keyboard-dom-click', value: '***' };
+      }
+      
+      // Last resort: Press Enter
+      console.log(`[fillPassword] Last resort: Pressing Enter key...`);
+      await actPress(tabId, userId, { key: 'Enter' }, { timeoutMs: 3000 }).catch(() => {});
+      return { ok: true, strategy: 'keyboard-enter-fallback', value: '***' };
     }
     console.log(`[fillPassword] Keyboard type not-ok:`, JSON.stringify(typeRes));
   } catch (typeErr) {
