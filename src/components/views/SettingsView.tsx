@@ -468,6 +468,26 @@ export function SettingsView() {
             </button>
           </Field>
           <Field
+            label="Tắt chụp ảnh trung gian (Optimize CPU)"
+            hint="Khi BẬT: Bỏ qua toàn bộ ảnh chụp màn hình lúc đăng ký thành công (trước/sau bước, checkpoint) để tối ưu tối đa RAM/CPU. Chỉ chụp ảnh màn hình khi gặp lỗi để debug."
+            full
+          >
+            <button
+              type="button"
+              onClick={() => set('disableScreenshots', f.disableScreenshots === true ? false : true)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.disableScreenshots === true
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.disableScreenshots === true ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.disableScreenshots === true ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.disableScreenshots === true ? 'BẬT — Bỏ qua ảnh trung gian' : 'TẮT — Chụp tất cả ảnh'}
+            </button>
+          </Field>
+          <Field
             label="Lưu trữ Trình duyệt (Persistent Profiles)"
             hint="Khi BẬT: Trình duyệt lưu giữ cookie, phiên đăng nhập và vân tay (fingerprint) để tái sử dụng. Khi TẮT: Trình duyệt mở ẩn danh tạm thời để tiết kiệm dung lượng đĩa."
             full

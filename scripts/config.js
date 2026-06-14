@@ -23,6 +23,7 @@ const defaults = {
   protocolFirst: true, // default true — đã có curl transport + Datadog headers để impersonate Chrome
   warmupScreenshots: true,
   usePersistentProfiles: true,
+  disableScreenshots: false,
 };
 
 export function loadConfig() {
@@ -55,5 +56,6 @@ export const PROTOCOL_FIRST = process.env.PROTOCOL_FIRST !== undefined ? process
 export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;
 export const WARMUP_SCREENSHOTS = config.warmupScreenshots !== false; // default true
 export const USE_PERSISTENT_PROFILES = config.usePersistentProfiles !== false; // default true
+export const DISABLE_SCREENSHOTS = config.disableScreenshots === true; // default false
 
 

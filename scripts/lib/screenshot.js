@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { CAMOUFOX_API } from '../config.js';
+import { CAMOUFOX_API, DISABLE_SCREENSHOTS } from '../config.js';
 
 /**
  * Create a step recorder with structured naming and deduplication
@@ -31,6 +31,10 @@ export function createStepRecorder(runDir, {
    * @returns {Promise<string|null>} Filename or null if skipped
    */
   async function capture({ phase, step, moment, slug, dedupeKey = null } = {}) {
+    if (DISABLE_SCREENSHOTS && moment !== 'error') {
+      return null;
+    }
+
     const key = dedupeKey || `${phase}_${step}_${moment}_${slug}`;
     
     // Deduplication check
@@ -118,6 +122,10 @@ export function createStepRecorder(runDir, {
    * @returns {Promise<void>}
    */
   async function saveStep(label) {
+    if (DISABLE_SCREENSHOTS) {
+      return;
+    }
+
     const legacyKey = `legacy_${label}`;
     if (enableDedupe && capturedKeys.has(legacyKey)) {
       console.log(`[Screenshot] Skipped legacy duplicate: ${label}`);

@@ -61,6 +61,8 @@ export interface AppConfig {
   usePersistentProfiles?: boolean;
   /** Bật/tắt tự động xóa email tương ứng trong Email Pool khi xóa tài khoản Vault */
   deleteLinkedEmail?: boolean;
+  /** Tắt chụp ảnh màn hình trung gian để tối ưu hiệu năng (chỉ chụp khi lỗi) */
+  disableScreenshots?: boolean;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

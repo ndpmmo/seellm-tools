@@ -23,6 +23,7 @@ export function loadConfig() {
     warmupScreenshots: true,
     usePersistentProfiles: true,
     deleteLinkedEmail: false,
+    disableScreenshots: false,
   };
   try {
     if (existsSync(CONFIG_PATH)) {
