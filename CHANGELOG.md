@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.136] - 2026-06-15 03:45:00
+
+### 🔧 Sửa Lỗi Thời Gian OTP Retry — Proxy-Aware Poll Timeout & Fresh minTime
+- **scripts/auto-register-worker.js**:
+  - **OTP Screen Poll timeout tăng cho proxy**: Khi kết nối qua proxy, `pollUntil` chờ màn hình OTP xuất hiện được tăng từ **20s** lên **30s** (`proxyUrl ? 30000 : 20000`) — tránh fail sớm khi connection chậm.
+  - **OTP Retry minTime reset**: Trước đây mỗi lần retry OTP vẫn dùng `otpCheckStartTime` (thời điểm bắt đầu cả session), có thể nhận lại mã OTP cũ đã hết hạn. Sửa: mỗi vòng retry đặt `otpRetryMinTime = Date.now()` tại thời điểm retry để đảm bảo chỉ nhận mã OTP mới nhất từ mail.
+- **package.json**: Nâng phiên bản lên `0.3.136`.
+
 ## [0.3.135] - 2026-06-15 03:32:00
 
 ### 🚀 Tối Ưu Hóa Tránh Nghẽn Luồng, Đợi Mật Khẩu Chủ Động & Nhận Diện OTP Triệt Để (Thread Stagger, Password Wait, Robust OTP Transition & Click Timeout)

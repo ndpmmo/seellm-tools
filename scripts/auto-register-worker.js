@@ -1423,7 +1423,7 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
         return check.hasOtpInput || check.hasVerifyUrl || check.hasVerifyText;
-      }, 'OTPScreenPoll', { intervalMs: 2000, maxWaitMs: 20000 });
+      }, 'OTPScreenPoll', { intervalMs: 2000, maxWaitMs: proxyUrl ? 30000 : 20000 });
       
       if (pollSuccess) {
         // Re-run OTP screen check after successful poll
@@ -1601,7 +1601,9 @@ export async function runAutoRegister(taskInput) {
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
-          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpCheckStartTime });
+          // Use fresh timestamp for each retry to avoid receiving already-seen/expired codes
+          const otpRetryMinTime = Date.now();
+          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime });
           if (!otpRetryCode) {
             console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
             continue;
