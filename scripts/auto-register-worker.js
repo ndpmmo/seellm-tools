@@ -22,7 +22,7 @@ import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
-import { getState, fillEmail, fillPassword, fillMfa } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopup, clickContinueWithPassword } from './lib/openai-login-flow.js';
 import { checkIpLocation } from './lib/proxy-diag.js';
 import { runProtocolRegistration, requestViaCurlCffi } from './lib/openai-protocol-register.js';
 
@@ -309,7 +309,7 @@ async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 30000) {
  * @param {number} maxRetries - Số lần retry tối đa
  * @returns {Promise<boolean>} - true nếu thành công, false nếu fail hết retry
  */
-async function retryWithReload(tabId, userId, checkFn, stepName, maxRetries = 2) {
+async function retryWithReload(tabId, userId, checkFn, stepName, maxRetries = 2, reloadUrl = null) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const result = await checkFn();
     if (result) return true;
@@ -318,8 +318,15 @@ async function retryWithReload(tabId, userId, checkFn, stepName, maxRetries = 2)
 
     if (attempt < maxRetries) {
       try {
-        console.log(`[${stepName}] 🔄 Reload tab và thử lại...`);
-        await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/auth/login' });
+        if (reloadUrl) {
+          // Chỉ điều hướng nếu được chỉ định rõ ràng URL đích
+          console.log(`[${stepName}] 🔄 Reload tab đến ${reloadUrl} và thử lại...`);
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId, url: reloadUrl });
+        } else {
+          // Reload trang hiện tại (không navigate về login page) để tránh mất trạng thái session
+          console.log(`[${stepName}] 🔄 Reload trang hiện tại và thử lại...`);
+          await evalJson(tabId, userId, `(() => { location.reload(); return true; })()`).catch(() => {});
+        }
         await new Promise(r => setTimeout(r, 5000));
       } catch (e) {
         console.log(`[${stepName}] ❌ Reload failed: ${e.message}`);
@@ -448,6 +455,33 @@ async function assertOnExpectedDomain(tabId, userId, label = '') {
   }
   return url;
 }
+
+/**
+ * Utility to assert tab is on one of the allowed URL patterns, fails fast if not.
+ */
+async function assertPageContext(tabId, userId, stepName, allowedPatterns) {
+  const url = await evalJson(tabId, userId, `location.href`).catch(() => '');
+  const matches = allowedPatterns.some(p => url?.includes(p));
+  if (!matches) {
+    throw new Error(`[${stepName}] Tab ở sai trang: ${url}. Cho phép: ${allowedPatterns.join(', ')}`);
+  }
+  return url;
+}
+
+/**
+ * Utility to poll a condition function until it returns true or times out.
+ */
+async function pollUntil(checkFn, stepName, { intervalMs = 2000, maxWaitMs = 20000 } = {}) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const result = await checkFn();
+    if (result) return true;
+    console.log(`[${stepName}] Chờ... (còn ${Math.round((deadline - Date.now()) / 1000)}s)`);
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
 
 /**
  * Đợi URL thay đổi trong vòng N giây sau click — phát hiện click không có hiệu ứng.
@@ -865,8 +899,16 @@ export async function runAutoRegister(taskInput) {
     }
 
     if (!skipRegistrationSteps) {
-    // Domain guard — đảm bảo đang ở chatgpt.com/auth.openai.com
-    await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
+      // Assert page context is correct before anything else
+      await assertPageContext(tabId, USER_ID, 'after-load-login', ['chatgpt.com', 'openai.com']);
+
+      // Domain guard — đảm bảo đang ở chatgpt.com/auth.openai.com
+      await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
+
+      // Dismiss Google One Tap / cookie consent trước khi thao tác
+      console.log(`🧹 [Pre-flight] Đóng cookie banner và Google One Tap popup...`);
+      await tryAcceptCookies(tabId, USER_ID).catch(e => console.log(`[Pre-flight] Cookie dismiss error: ${e.message}`));
+      await dismissGooglePopup(tabId, USER_ID).catch(e => console.log(`[Pre-flight] Google popup dismiss error: ${e.message}`));
 
     // Detect the current signup UI variant before choosing an action.
     console.log(isExistingAccount ? `🖱️  Chuyển sang luồng Đăng nhập (Account đã tồn tại)...` : `🖱️  Chuyển sang luồng Đăng ký...`);
@@ -985,15 +1027,30 @@ export async function runAutoRegister(taskInput) {
     console.log("⏳ Chờ OpenAI xử lý Email và chuyển trang...");
     const newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
     if (!newUrl) {
-      console.log(`[Email-submit] ⚠️ URL không đổi sau click — có thể click không hiệu lực`);
+      console.log(`[Email-submit] ⚠️ URL không đổi sau click — kiểm tra xem trang có chuyển in-page không...`);
+      // ChatGPT mới có thể chuyển in-page mà không đổi URL — kiểm tra password input đã xuất hiện chưa
+      const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
+        `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
+      );
+      if (!hasPasswordInputAlready) {
+        // Kiểm tra thêm: có phải màn hình email-verification không
+        const bodyCheck = await evalJson(tabId, USER_ID,
+          `(document.body?.innerText || '').toLowerCase()`
+        );
+        const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
+        if (!hasVerify) {
+          throw new Error(`[Email-submit] URL không đổi và không có màn hình mật khẩu/OTP — submit email có thể bị thất bại`);
+        }
+      }
     }
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
     // Phase 2, Step 1: After email submit
     await recorder.after(2, 1, 'email_submit');
 
     // Detect flow sau khi submit email
+    await assertPageContext(tabId, USER_ID, 'before-flow-detection', ['chatgpt.com', 'openai.com']);
     await new Promise(r => setTimeout(r, 3000));
-    const flowDetection = await evalJson(tabId, USER_ID, `
+    let flowDetection = await evalJson(tabId, USER_ID, `
       (() => {
         const url = location.href;
         const body = document.body?.innerText?.toLowerCase() || '';
@@ -1015,10 +1072,10 @@ export async function runAutoRegister(taskInput) {
       isExistingAccount = true;
     }
 
-    // If flow detection returns unknown, retry with reload
+    // If flow detection returns unknown, retry with pollUntil
     if (flowDetection?.flow === 'unknown') {
-      console.log(`[Flow Detection] ⚠️ Flow unknown, retry with reload...`);
-      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
+      console.log(`[Flow Detection] ⚠️ Flow unknown, waiting via pollUntil...`);
+      const pollSuccess = await pollUntil(async () => {
         const detection = await evalJson(tabId, USER_ID, `
           (() => {
             const url = location.href;
@@ -1032,11 +1089,11 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
         return detection?.flow !== 'unknown';
-      }, 'FlowDetectionRetry', CONFIG.reloadMaxRetries);
+      }, 'FlowDetectionPoll', { intervalMs: 2000, maxWaitMs: 20000 });
       
-      if (retrySuccess) {
-        // Re-run flow detection after successful retry
-        await new Promise(r => setTimeout(r, 3000));
+      if (pollSuccess) {
+        // Re-run flow detection after successful poll
+        await new Promise(r => setTimeout(r, 1000));
         flowDetection = await evalJson(tabId, USER_ID, `
           (() => {
             const url = location.href;
@@ -1049,14 +1106,17 @@ export async function runAutoRegister(taskInput) {
             return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
           })()
         `, 5000);
-        console.log(`[Flow Detection] After retry:`, JSON.stringify(flowDetection));
+        console.log(`[Flow Detection] After poll:`, JSON.stringify(flowDetection));
+      } else {
+        // Sau khi hết poll mà vẫn không nhận dạng được flow — dừng lại
+        throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
       }
     }
 
-    // 3. Điền mật khẩu — skip nếu account đã tồn tại hoặc nếu flow mới có thể xác minh trực tiếp bằng mã OTP
-    if (flowDetection?.isEmailVerification && flowDetection?.hasCodeInput) {
-      console.log(`[3] Smart Skip: Màn hình OTP đã hiển thị trực tiếp. Bỏ qua điền password để tiếp tục xác minh mã OTP trước.`);
-    } else if (true) {
+    // 3. Điền mật khẩu — chỉ skip nếu account đã tồn tại và màn hình OTP hiển thị trực tiếp
+    if (isExistingAccount && flowDetection?.isEmailVerification && flowDetection?.hasCodeInput) {
+      console.log(`[3] Smart Skip: Màn hình OTP đã hiển thị trực tiếp cho account đã tồn tại. Bỏ qua điền password.`);
+    } else {
     // Flow mới: click "Continue with password" link trước
     if (flowDetection?.flow === 'new') {
       // Flow mới: click "Continue with password" link trước
@@ -1121,6 +1181,7 @@ export async function runAutoRegister(taskInput) {
 
       for (let attempt = 0; attempt < pwdCandidates.length; attempt++) {
         const tryPassword = pwdCandidates[attempt];
+        await assertPageContext(tabId, USER_ID, `before-password-fill-${attempt}`, ['chatgpt.com', 'openai.com']);
         console.log(`[3] Điền Password [${attempt + 1}/${pwdCandidates.length}] -> ${tryPassword.slice(0, 3)}...`);
 
         const urlBeforePwd = await evalJson(tabId, USER_ID, `location.href`);
@@ -1179,6 +1240,7 @@ export async function runAutoRegister(taskInput) {
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
+    await assertPageContext(tabId, USER_ID, 'before-otp-check', ['chatgpt.com', 'openai.com']);
     const otpCheckStartTime = Date.now();
     let otpScreenCheck = await evalJson(tabId, USER_ID, `
       (() => {
@@ -1201,10 +1263,10 @@ export async function runAutoRegister(taskInput) {
     `);
     console.log(`[4] OTP screen check:`, JSON.stringify(otpScreenCheck));
 
-    // If OTP screen not detected but expected, retry with reload
+    // If OTP screen not detected but expected, retry with pollUntil
     if (!otpScreenCheck.hasOtpInput && !otpScreenCheck.hasVerifyUrl && !otpScreenCheck.hasVerifyText) {
-      console.log(`[4] ⚠️ OTP screen not detected, retry with reload...`);
-      const retrySuccess = await retryWithReload(tabId, USER_ID, async () => {
+      console.log(`[4] ⚠️ OTP screen not detected, waiting via pollUntil...`);
+      const pollSuccess = await pollUntil(async () => {
         const check = await evalJson(tabId, USER_ID, `
           (() => {
             const url = location.href.toLowerCase();
@@ -1223,11 +1285,11 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
         return check.hasOtpInput || check.hasVerifyUrl || check.hasVerifyText;
-      }, 'OTPScreenRetry', CONFIG.reloadMaxRetries);
+      }, 'OTPScreenPoll', { intervalMs: 2000, maxWaitMs: 20000 });
       
-      if (retrySuccess) {
-        // Re-run OTP screen check after successful retry
-        await new Promise(r => setTimeout(r, 3000));
+      if (pollSuccess) {
+        // Re-run OTP screen check after successful poll
+        await new Promise(r => setTimeout(r, 1000));
         otpScreenCheck = await evalJson(tabId, USER_ID, `
           (() => {
             const url = location.href.toLowerCase();
@@ -1247,7 +1309,10 @@ export async function runAutoRegister(taskInput) {
             };
           })()
         `);
-        console.log(`[4] OTP screen check after retry:`, JSON.stringify(otpScreenCheck));
+        console.log(`[4] OTP screen check after poll:`, JSON.stringify(otpScreenCheck));
+      } else {
+        // Sau khi hết poll vẫn không phát hiện OTP screen — dừng lại
+        throw new Error(`[OTPScreenPoll] Màn hình OTP không xuất hiện sau khi poll. URL hiện tại: ${await evalJson(tabId, USER_ID, 'location.href').catch(() => '?')}`);
       }
     }
 
@@ -1270,10 +1335,32 @@ export async function runAutoRegister(taskInput) {
 
       let submitted = false;
       try {
-        await actClick(tabId, USER_ID, {
-          selector: 'button[type="submit"]:has-text("Continue"), button:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")'
-        }, { timeoutMs: 3000 });
-        console.log(`[4.2] Đã click nút Continue. Đợi 5s xem page có chuyển hướng không...`);
+        const clickResult = await evalJson(tabId, USER_ID, `
+          (() => {
+            const input = document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]');
+            if (!input) return { ok: false, reason: 'code-input-not-found' };
+            const form = input.closest('form');
+            if (!form) return { ok: false, reason: 'form-not-found' };
+            
+            const buttons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
+            let btn = buttons.find(b => b.getAttribute('value') === 'validate') ||
+                      buttons.find(b => {
+                        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                        return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                      }) ||
+                      buttons[0];
+                      
+            if (btn) {
+              btn.focus?.();
+              btn.click();
+              return { ok: true, clicked: true, text: (btn.innerText || btn.textContent || '').trim() };
+            }
+            return { ok: false, reason: 'submit-button-not-found' };
+          })()
+        `);
+        console.log(`[4.2] Click Continue result:`, JSON.stringify(clickResult));
+
+        console.log(`[4.2] Đợi 5s xem page có chuyển hướng không...`);
         await new Promise(r => setTimeout(r, 5000));
         const stillOnOtp = await evalJson(tabId, USER_ID, `!!document.querySelector('input[name="code"]')`);
         if (!stillOnOtp) {
@@ -1486,6 +1573,7 @@ export async function runAutoRegister(taskInput) {
     `);
     if (!isExistingAccount || hasAboutInputs) {
       console.log(`[5] Bypass thông tin Form About...`);
+      await assertPageContext(tabId, USER_ID, 'before-about-form', ['chatgpt.com', 'openai.com']);
       const userInfo = generateRandomUserInfo();
       await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
       // Phase 3, Step 1: Before about form
@@ -1634,12 +1722,14 @@ export async function runAutoRegister(taskInput) {
         console.log(`[5.2] Btn không tìm thấy, thử lại sau 2s...`);
         await new Promise(r => setTimeout(r, 2000));
         await evalJson(tabId, USER_ID, `
-          const btn = Array.from(document.querySelectorAll('button')).find(b => {
-              const t = b.textContent.toLowerCase().trim();
-              return t.includes('creating') || t.includes('finish') || t === 'continue' || t.includes('agree');
-          });
-          if (btn) btn.click();
-          return btn?.textContent || 'still_not_found';
+          (() => {
+            const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                const t = b.textContent.toLowerCase().trim();
+                return t.includes('creating') || t.includes('finish') || t === 'continue' || t.includes('agree');
+            });
+            if (btn) btn.click();
+            return btn?.textContent || 'still_not_found';
+          })()
         `);
       }
 
@@ -1757,6 +1847,21 @@ export async function runAutoRegister(taskInput) {
       })()
     `);
     await new Promise(r => setTimeout(r, 4000));
+
+    // Verify success home reached
+    console.log(`[5] Kiểm tra trang chủ ChatGPT...`);
+    const homeCheck = await evalJson(tabId, USER_ID, `(() => {
+      const url = location.href;
+      const isChatgpt = url.includes('chatgpt.com') && !url.includes('auth/login') && !url.includes('accounts.google');
+      const hasNav = !!document.querySelector('nav, [data-testid="navigation"], [data-testid="profile-button"], main');
+      return { ok: isChatgpt && hasNav, url };
+    })()`).catch(() => ({ ok: false, url: '' }));
+
+    console.log(`[5] Home check result:`, JSON.stringify(homeCheck));
+    if (!homeCheck || !homeCheck.ok) {
+      throw new Error(`[SuccessDetection] Giao diện trang chủ ChatGPT không được phát hiện. URL hiện tại: ${homeCheck?.url || '?'}`);
+    }
+
     // Phase 5, Step 1: Inside chat home (survey dismissed, welcome closed)
     await recorder.checkpoint(5, 1, 'home_reached');
 

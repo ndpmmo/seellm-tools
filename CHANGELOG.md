@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.129] - 2026-06-14 21:21:00
+
+### 🛡️ Tái cấu trúc Luồng Đăng ký & Tối ưu hóa Trình xác thực (Refactor Registration Flow & Validator Optimization)
+- **scripts/lib/openai-login-flow.js**:
+  - Tách và export hàm `dismissGooglePopup(tabId, userId)` giúp đóng popup "Sign in with Google" / FedCM iframe mà không kích hoạt click vào nút Log in.
+- **scripts/auto-register-worker.js**:
+  - Tích hợp gọi `tryAcceptCookies()` và `dismissGooglePopup()` ngay sau khi load trang login nhằm giải quyết triệt để lỗi Google One Tap popup che khuất giao diện và gây click nhầm.
+  - Loại bỏ hoàn toàn cơ chế `retryWithReload` trong bước Flow Detection và OTP Screen Check, thay thế bằng hàm tiện ích tự viết `pollUntil()` giúp chờ đợi giao diện chuyển trạng thái mà không cần reload trang (tránh làm mất cookies/session state).
+  - Bổ sung hàm tiện ích `assertPageContext(tabId, userId, stepName, allowedPatterns)` chặn đứng nguy cơ tab bị chuyển hướng (drift) sang các trang ngoài luồng đăng ký (như `accounts.google.com`) và fail-fast lập tức.
+  - Khắc phục lỗi Playwright Strict Mode Violation (`strict mode violation: locator(...) resolved to 2 elements`) khi click nút Continue tại bước OTP bằng cách chuyển sang dùng DOM-based click qua `evalJson`, nhắm mục tiêu chính xác nút submit có `value="validate"` hoặc có nhãn "Continue"/"Next"/"Tiếp tục" trong form chứa mã OTP.
+  - Sửa đổi kiểm tra trang chủ ChatGPT (`home_reached`) nghiêm ngặt hơn: URL phải chứa `chatgpt.com` (không chứa `auth/login` hay các domain drift) và giao diện thực tế phải hiển thị các thành phần chính (`nav`, `profile-button` hoặc `main`).
+- **package.json**: Nâng phiên bản của Tools lên `0.3.129`.
+
 ## [0.3.128] - 2026-06-14 14:02:00
 
 ### 🛡️ Tối ưu hóa Luồng Đăng ký và Tránh Navigation Timeout trong Settings (Optimize Registration Flow & Prevent Settings Navigation Timeouts)

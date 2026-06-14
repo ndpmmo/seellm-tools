@@ -9,6 +9,8 @@
  * khiến UI render ngôn ngữ khác (ví dụ: Phần Lan → tiếng Đức).
  */
 
+import fs from 'node:fs/promises';
+import { CAMOUFOX_API } from '../config.js';
 import { evalJson, getSnapshot, clickRef, camofoxPost, actType, actClick, actPress } from './camofox.js';
 
 /**
@@ -364,9 +366,28 @@ export async function fillEmail(tabId, userId, email) {
         return { ok: false, reason: 'value-mismatch-after-set', currentVal: input.value };
       }
 
-      // Tìm nút Continue / Next
-      const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+      // Đóng Google One Tap / FedCM popup nếu xuất hiện (tránh click nhầm nút "Continue" của popup)
+      try {
+        const oneTapContainer = document.querySelector('#credential_picker_container, #credential_picker_iframe, [data-credential_picker_id]');
+        if (oneTapContainer) {
+          const closeBtn = oneTapContainer.querySelector('[aria-label="Close"], button[jsname="VCKitc"], button[jsname="tJiF1b"]');
+          if (closeBtn) closeBtn.click();
+          else oneTapContainer.remove();
+        }
+      } catch (_) {}
+      // Gửi Escape để dismiss FedCM nếu đang hiển thị
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+
+      // Tìm nút Continue / Next — ưu tiên trong form chứa email input, không tìm trong Google overlay
+      const form = input.closest('form');
+      const searchRoot = form || document;
+      const btn = Array.from(searchRoot.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .filter(isVisible)
+        .filter(el => {
+          // Loại bỏ các nút nằm trong Google One Tap / overlay popup
+          const inPopup = el.closest('[id*="credential_picker"], [id*="g_id_"], [class*="nsm7Bb"], [data-credential_picker_id]');
+          return !inPopup;
+        })
         .find(el => {
           const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
           return t === 'continue' || t === 'next' || t === 'tiếp tục';
@@ -441,13 +462,23 @@ export async function fillPassword(tabId, userId, password) {
     const typeRes = await actType(tabId, userId, {
       selector: 'input[autocomplete="new-password"], input[autocomplete="current-password"], input[type="password"], input[name="password"], input[id="password"]',
       text: password,
-      mode: 'fill',
+      mode: 'keyboard',
       submit: false
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
       console.log(`[fillPassword] Keyboard type succeeded. Waiting 800ms for validation...`);
       await new Promise(r => setTimeout(r, 800));
+
+      // Debug: Take a screenshot to verify password value is typed
+      try {
+        const cleanUser = userId.replace('register_', '');
+        await fetch(`${CAMOUFOX_API}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=false`, {
+          signal: AbortSignal.timeout(6000),
+        }).then(res => res.arrayBuffer()).then(buf => {
+          fs.writeFile(`/Users/ndpmmo/Documents/Github/seellm-tools/data/screenshots/register_${cleanUser}/pwd_typed_attempt_${Date.now()}.png`, Buffer.from(buf)).catch(() => {});
+        }).catch(() => {});
+      } catch (_) {}
 
       // Log any validation error text visible on page (helpful for debugging)
       const pageErrorText = await evalJson(tabId, userId, `
@@ -470,8 +501,8 @@ export async function fillPassword(tabId, userId, password) {
         if (nativeClickRes && nativeClickRes.ok) {
           console.log(`[fillPassword] Native click succeeded:`, JSON.stringify(nativeClickRes));
           
-          // Wait and check if page transitioned
-          await new Promise(r => setTimeout(r, 1200));
+          // Wait and check if page transitioned (extended from 1200ms to 3500ms to allow async submission)
+          await new Promise(r => setTimeout(r, 3500));
           const stillOnPwdPage = await evalJson(tabId, userId, `
             !!document.querySelector('input[type="password"]')
           `);
@@ -510,14 +541,14 @@ export async function fillPassword(tabId, userId, password) {
             `).catch(() => null);
             console.log('[fillPassword] requestSubmit result:', JSON.stringify(submitResult));
 
-            // Wait and re-check
-            await new Promise(r => setTimeout(r, 1200));
+            // Wait and re-check (extended from 1200ms to 3500ms)
+            await new Promise(r => setTimeout(r, 3500));
             const stillOnPwdPage2 = await evalJson(tabId, userId, `
               !!document.querySelector('input[type="password"]')
             `);
             if (stillOnPwdPage2) {
-              console.log('[fillPassword] Still on password page after requestSubmit — returning ok:false');
-              return { ok: false, reason: 'submit-did-not-navigate', strategy: 'keyboard-native-click' };
+              console.log('[fillPassword] Still on password page after requestSubmit — throwing to trigger DOM fallback');
+              throw new Error('primary-strategy-failed-to-transition');
             }
           }
           
@@ -941,6 +972,66 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       }
 
       return { ok: results.some(r => r.startsWith('clicked') || r === 'navigated-via-href' || r === 'forced-location-auth-login'), actions: results };
+    })()
+  `, 5000);
+}
+
+/**
+ * Dismiss Google "Sign in with Google" popup overlay
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} Result object
+ */
+export async function dismissGooglePopup(tabId, userId) {
+  return evalJson(tabId, userId, `
+    (() => {
+      const isVisible = el => {
+        if (!el) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      };
+      const safeClick = el => {
+        if (!el) return false;
+        try { el.focus?.(); } catch (_) {}
+        try { el.click(); return true; } catch (_) {}
+        try {
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          return true;
+        } catch (_) {}
+        return false;
+      };
+      const results = [];
+
+      // 1. Đóng popup "Sign in with Google" — multi-language aria-label + iframe removal
+      const closeAriaLabels = ['close','schließen','fermer','cerrar','chiudi','fechar','đóng','закрыть','閉じる','关闭'];
+      const closeButtons = Array.from(document.querySelectorAll(
+        '[aria-label], button[id*="close" i], [data-dismiss], .close-button, [class*="close" i][role="button"]'
+      )).filter(el => {
+        if (!isVisible(el)) return false;
+        const al = (el.getAttribute('aria-label') || '').toLowerCase();
+        return closeAriaLabels.some(k => al.includes(k)) || /close|dismiss/i.test(el.id || '');
+      });
+      const xButtons = Array.from(document.querySelectorAll('button, div[role="button"]'))
+        .filter(el => {
+          if (!isVisible(el)) return false;
+          const t = (el.innerText || el.textContent || '').trim();
+          return t === '✕' || t === '×' || t === 'X' || t === '✖';
+        });
+      const googleClose = closeButtons[0] || xButtons[0];
+      if (googleClose) {
+        safeClick(googleClose);
+        results.push('dismissed-google-popup');
+      }
+
+      // Cũng tìm Google iframe overlay và xóa nó (FedCM popup là iframe accounts.google.com)
+      const googleIframes = document.querySelectorAll('iframe[src*="accounts.google.com"], iframe[src*="gsi/iframe"], iframe[src*="oauth/iframe"]');
+      googleIframes.forEach(iframe => {
+        try { iframe.remove(); } catch (_) {}
+      });
+      if (googleIframes.length > 0) results.push('removed-google-iframes');
+
+      return { ok: results.length > 0, actions: results };
     })()
   `, 5000);
 }
