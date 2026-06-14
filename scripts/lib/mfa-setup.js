@@ -821,6 +821,14 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log(`✅ Secret Key hợp lệ: ${upperSecret}`);
 
         // ── 6. Tạo TOTP và điền vào input ────────────────────────
+        // Check TOTP time window to avoid code expiration near the 30-second boundary (Fix #5)
+        const nowSec = Math.floor(Date.now() / 1000);
+        const secRemaining = 30 - (nowSec % 30);
+        if (secRemaining <= 5) {
+            log(`⏳ [MFA] TOTP chỉ còn ${secRemaining}s trước khi đổi mã, chờ ${secRemaining + 1}s sang chu kỳ mới...`);
+            await new Promise(r => setTimeout(r, (secRemaining + 1) * 1000));
+        }
+
         const totp = generateTOTP(upperSecret);
         log(`TOTP: ${totp}`);
 

@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.138] - 2026-06-15 04:22:00
+
+### 🚀 Tối Ưu Hóa Tránh Rò Rỉ Tài Nguyên, Xử Lý Lỗi Camofox Thống Nhất & Tự Động Phát Hiện Cloudflare (Resource Cleanup, camofox-retry, TOTP Safe-Zone & Cloudflare Guard)
+- **scripts/lib/camofox.js**:
+  - **HTTP 429 / 5xx error throwing**: Cho phép tự động phát hiện mã lỗi tạm thời HTTP 429, 502, 503, 504 khi giao tiếp với Camofox API để chủ động ném lỗi và kích hoạt cơ chế retry của `fetchWithRetry` thay vì crash hẳn.
+- **scripts/lib/mfa-setup.js**:
+  - **TOTP Window Safety (Fix #5)**: Trước khi sinh mã TOTP để điền vào input xác thực MFA, kiểm tra thời gian chu kỳ hiện tại còn lại. Nếu còn nhỏ hơn hoặc bằng 5 giây, trì hoãn (sleep) chờ chu kỳ tiếp theo để tránh việc mã hết hạn trong quá trình server verify.
+- **scripts/auto-register-worker.js**:
+  - **Try/Finally resource cleanup (Fix #2)**: Bọc toàn bộ logic worker trong khối `try/catch/finally`. Dọn dẹp đóng tab Camofox ngay lập tức trong `finally` block để ngăn chặn việc tích lũy tab rác (Tab Leak) trên máy chủ Camofox.
+  - **Capture session optimize (Fix #4)**: Đẩy reload trang OpenAI lên ngay lần thử thứ 2 trong vòng lặp session capture giúp lấy cookie session nhanh hơn.
+  - **MFA pending status (Fix #6)**: Nếu quy trình cài đặt 2FA/MFA thất bại, lưu account với `status: 'mfa_pending'` kết hợp tag `mfa-pending` để dễ dàng lọc và quản lý trong DB thay vì ghi nhận thành công hoàn tất với status `idle`.
+  - **Cloudflare Challenge Guard (Fix #8)**: Tích hợp cơ chế phát hiện trang Cloudflare challenge ngay sau khi tải trang Login. Tự động poll đợi tối đa 25 giây để Camoufox tự xử lý bypass thử thách trước khi tiếp tục các bước điền form.
+  - **Xóa delay thừa (Fix #9)**: Rút ngắn 3000ms chờ không cần thiết trước khi chạy Flow Detection sau khi submit email (chỉ giữ lại 500ms).
+- **package.json**: Nâng phiên bản lên `0.3.138`.
+
 ## [0.3.137] - 2026-06-15 04:15:00
 
 ### 🔧 Sửa Lỗi Redirect chatgpt.com/?slm=1 & Tự Động Phục Hồi Flow Detection (Pre-session Cleanup & Smart ?slm=1 Recovery)

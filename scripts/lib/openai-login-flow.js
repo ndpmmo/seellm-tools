@@ -501,11 +501,16 @@ export async function fillPassword(tabId, userId, password) {
         if (nativeClickRes && nativeClickRes.ok) {
           console.log(`[fillPassword] Native click succeeded:`, JSON.stringify(nativeClickRes));
           
-          // Wait and check if page transitioned (extended from 1200ms to 3500ms to allow async submission)
-          await new Promise(r => setTimeout(r, 3500));
-          const stillOnPwdPage = await evalJson(tabId, userId, `
-            !!document.querySelector('input[type="password"]')
-          `);
+          // Poll checking if still on password page (max 3500ms)
+          let stillOnPwdPage = true;
+          for (let check = 0; check < 7; check++) {
+            stillOnPwdPage = await evalJson(tabId, userId, `
+              !!document.querySelector('input[type="password"]')
+            `).catch(() => false);
+            if (!stillOnPwdPage) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
+
           if (stillOnPwdPage) {
             // Log visible error text to understand why submit failed
             const errInfo = await evalJson(tabId, userId, `
@@ -541,11 +546,16 @@ export async function fillPassword(tabId, userId, password) {
             `).catch(() => null);
             console.log('[fillPassword] requestSubmit result:', JSON.stringify(submitResult));
 
-            // Wait and re-check (extended from 1200ms to 3500ms)
-            await new Promise(r => setTimeout(r, 3500));
-            const stillOnPwdPage2 = await evalJson(tabId, userId, `
-              !!document.querySelector('input[type="password"]')
-            `);
+            // Poll check after requestSubmit (max 3500ms)
+            let stillOnPwdPage2 = true;
+            for (let check = 0; check < 7; check++) {
+              stillOnPwdPage2 = await evalJson(tabId, userId, `
+                !!document.querySelector('input[type="password"]')
+              `).catch(() => false);
+              if (!stillOnPwdPage2) break;
+              await new Promise(r => setTimeout(r, 500));
+            }
+
             if (stillOnPwdPage2) {
               console.log('[fillPassword] Still on password page after requestSubmit — throwing to trigger DOM fallback');
               throw new Error('primary-strategy-failed-to-transition');

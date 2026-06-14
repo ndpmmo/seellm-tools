@@ -67,6 +67,7 @@ function isTransientConnectionError(err) {
   if (msg.includes('econnrefused')) return true;
   if (msg.includes('econnreset')) return true;
   if (msg.includes('timeout') || msg.includes('timed out')) return true;
+  if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')) return true;
   if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return true;
   return false;
 }
@@ -125,6 +126,9 @@ async function fetchWithRetry(url, options = {}, maxAttempts = 3) {
         delete finalOptions.timeoutMs;
       }
       const result = await fetch(url, finalOptions);
+      if (result.status === 429 || result.status === 502 || result.status === 503 || result.status === 504) {
+        throw new Error(`HTTP ${result.status}: Temporary server error or rate limit`);
+      }
       _circuitBreaker.recordSuccess();
       return result;
     } catch (err) {

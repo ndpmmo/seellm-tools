@@ -929,6 +929,37 @@ export async function runAutoRegister(taskInput) {
       // Domain guard — đảm bảo đang ở chatgpt.com/auth.openai.com
       await assertOnExpectedDomain(tabId, USER_ID, 'after-load-login');
 
+      // Cloudflare challenge check (Fix #8)
+      const isCfChallenge = await evalJson(tabId, USER_ID, `
+        (() => {
+          const body = document.body?.innerText?.toLowerCase() || '';
+          return body.includes('checking your browser') || 
+                 body.includes('just a moment') ||
+                 !!document.querySelector('#cf-challenge-running, #cf-spinner, .cf-error-code');
+        })()
+      `).catch(() => false);
+      if (isCfChallenge) {
+        console.log(`[Cloudflare] ⚠️ Phát hiện Cloudflare challenge/interstitial page. Chờ Camoufox tự động bypass tối đa 25s...`);
+        const cfBypassed = await pollUntil(async () => {
+          const cfState = await evalJson(tabId, USER_ID, `
+            (() => {
+              const body = document.body?.innerText?.toLowerCase() || '';
+              const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+              const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"]');
+              const hasCf = body.includes('checking your browser') || body.includes('just a moment') || !!document.querySelector('#cf-challenge-running, #cf-spinner');
+              return { hasEmailInput, hasPasswordInput, hasCf };
+            })()
+          `).catch(() => null);
+          return cfState && !cfState.hasCf && (cfState.hasEmailInput || cfState.hasPasswordInput);
+        }, 'CloudflareBypass', { intervalMs: 2000, maxWaitMs: 25000 }).catch(() => false);
+        
+        if (cfBypassed) {
+          console.log(`[Cloudflare] ✅ Đã vượt qua Cloudflare challenge thành công!`);
+        } else {
+          console.log(`[Cloudflare] ⚠️ Quá thời gian chờ Cloudflare bypass hoặc bị block cứng.`);
+        }
+      }
+
       // Dismiss Google One Tap / cookie consent trước khi thao tác
       console.log(`🧹 [Pre-flight] Đóng cookie banner và Google One Tap popup...`);
       await tryAcceptCookies(tabId, USER_ID).catch(e => console.log(`[Pre-flight] Cookie dismiss error: ${e.message}`));
@@ -1115,7 +1146,7 @@ export async function runAutoRegister(taskInput) {
 
     // Detect flow sau khi submit email
     await assertPageContext(tabId, USER_ID, 'before-flow-detection', ['chatgpt.com', 'openai.com']);
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 500));
     let flowDetection = await evalJson(tabId, USER_ID, `
       (() => {
         const url = location.href;
@@ -2346,7 +2377,7 @@ export async function runAutoRegister(taskInput) {
     for (let attempt = 0; attempt < 5; attempt++) {
       console.log(`[Capture] 🔄 Thử lấy session metadata từ browser (Lần thử ${attempt + 1}/5)...`);
       
-      if (attempt === 2) {
+      if (attempt === 1) {
         console.log(`[Capture] 🔄 Reloading chatgpt.com to refresh session...`);
         try {
           await evalJson(tabId, USER_ID, `window.location.reload()`).catch(() => {});
@@ -2433,13 +2464,14 @@ export async function runAutoRegister(taskInput) {
         password: chatGptPassword,
         two_fa_secret: twoFaSecret || '',
         provider: 'openai',
-        status: 'idle',
+        status: twoFaSecret ? 'idle' : 'mfa_pending',
         skipSync: true,
         restore_deleted: true,
         cookies: tokens,
         tags: JSON.stringify([
           'auto-register',
           'vault-register',
+          ...(!twoFaSecret ? ['mfa-pending'] : []),
           ...(phoneBypassAttempted ? ['phone-verify'] : []),
           ...(phoneBypassSuccess ? ['phone-bypass-ok'] : []),
           ...(codexRefreshToken ? ['codex-oauth'] : []),
@@ -2511,8 +2543,12 @@ export async function runAutoRegister(taskInput) {
       notes: `Error: ${err.message} at ${new Date().toISOString()}`
     });
 
-    if (tabId) { await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => { }); }
     return { success: false, email, error: err.message || String(err) };
+  } finally {
+    if (tabId) {
+      console.log(`🧹 [Cleanup] Đóng tab Camofox ${tabId} cho ${email}...`);
+      await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => { });
+    }
   }
 }
 
