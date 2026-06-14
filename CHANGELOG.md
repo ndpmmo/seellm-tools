@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.133] - 2026-06-15 03:10:00
+
+### ⚡ Tối Ưu Triệt Để Lỗi Timeout Kết Nối Camofox API (Eliminate Camofox API Timeout Errors)
+- **scripts/lib/camofox.js**:
+  - **Progressive timeout**: Mỗi lần retry sẽ tự động tăng thời gian chờ lên 1.5x (lần 1 = base, lần 2 = 1.5x, lần 3 = 2.25x). Điều này đặc biệt hữu ích khi camofox đang bận nhưng không hẳn là chết — chỉ cần nhiều thời gian hơn để phản hồi.
+  - **Jitter ngẫu nhiên (Anti-thundering herd)**: Thêm độ trễ ngẫu nhiên ±500ms vào mỗi lần retry. Khi 3 luồng cùng gặp lỗi và retry đúng thời điểm, jitter đảm bảo chúng không tấn công camofox cùng lúc, tránh tạo ra làn sóng overload mới.
+  - **Circuit breaker toàn cục**: Bộ đếm lỗi liên tiếp chia sẻ giữa tất cả các luồng trong cùng process. Khi đạt 5 lỗi liên tiếp, tự động kích hoạt cooldown 8 giây — tất cả request đều chờ cooldown hết trước khi thử lại, thay vì tiếp tục tạo tải trong khi camofox đang quá tải. Bộ đếm tự reset khi request thành công.
+  - **Tăng timeout mặc định** cho các endpoint nặng: `camofoxPost` 30s→45s, `camofoxGet` 10s→15s, `camofoxGoto` 15s→30s, `navigate` 15s→30s. Giảm đáng kể tần suất timeout giả khi server load cao.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.133`.
+
 ## [0.3.132] - 2026-06-15 02:42:00
 
 ### ⚙️ Tối Ưu Hóa Hiệu Năng & Cơ Chế Tự Động Phục Hồi Lỗi Chạy Hàng Loạt (Optimize Performance & Smart Retry Recovery)

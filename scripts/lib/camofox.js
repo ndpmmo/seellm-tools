@@ -45,6 +45,12 @@ export async function checkProfileExists(userId) {
 /**
  * Helper to fetch with retry for resilient local Camoufox server communication.
  * Retries on connection refuse, reset, or timeout errors.
+ * Features:
+ *   - Progressive timeout: each retry gets 1.5x more time (server may just be slow)
+ *   - Jitter: random ±500ms added to backoff delay to prevent thundering herd
+ *     when multiple workers retry simultaneously
+ *   - Circuit breaker: if Camofox has been failing consistently, automatically
+ *     add a global cooldown to let it recover before hammering it again
  * @param {string} url - Target URL
  * @param {object} options - Fetch options, supports custom timeoutMs field
  * @param {number} maxAttempts - Number of retries
@@ -65,27 +71,79 @@ function isTransientConnectionError(err) {
   return false;
 }
 
+/**
+ * Global circuit breaker state — shared across all workers in the same process.
+ * Tracks consecutive failures and enforces a cooldown when Camofox is overloaded.
+ */
+const _circuitBreaker = {
+  failures: 0,
+  lastFailureTs: 0,
+  cooldownUntil: 0,
+  // Trip circuit after this many consecutive failures
+  threshold: 5,
+  // Cooldown duration when circuit is tripped (ms)
+  cooldownMs: 8000,
+  /** Record a transient failure */
+  recordFailure() {
+    this.failures++;
+    this.lastFailureTs = Date.now();
+    if (this.failures >= this.threshold && Date.now() >= this.cooldownUntil) {
+      this.cooldownUntil = Date.now() + this.cooldownMs;
+      console.warn(`🔴 [camofox-circuit] ${this.failures} lỗi liên tiếp — kích hoạt cooldown ${this.cooldownMs / 1000}s để camofox phục hồi...`);
+    }
+  },
+  /** Record a successful request — reset failure counter */
+  recordSuccess() {
+    if (this.failures > 0) this.failures = 0;
+  },
+  /** Returns how many ms we still need to wait (0 = no cooldown) */
+  remainingCooldownMs() {
+    const remaining = this.cooldownUntil - Date.now();
+    return remaining > 0 ? remaining : 0;
+  },
+};
+
 async function fetchWithRetry(url, options = {}, maxAttempts = 3) {
+  // --- Circuit breaker check: wait out any active cooldown before trying ---
+  const cooldown = _circuitBreaker.remainingCooldownMs();
+  if (cooldown > 0) {
+    console.log(`⏳ [camofox-circuit] Đang chờ cooldown ${Math.ceil(cooldown / 1000)}s trước khi thử lại...`);
+    await new Promise(r => setTimeout(r, cooldown));
+  }
+
   let lastError = null;
+  const baseTimeoutMs = options.timeoutMs;
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       let finalOptions = { ...options };
-      if (options.timeoutMs !== undefined) {
-        finalOptions.signal = AbortSignal.timeout(options.timeoutMs);
+      if (baseTimeoutMs !== undefined) {
+        // Progressive timeout: multiply by 1.5x each retry attempt
+        // attempt=1 → 1.0x, attempt=2 → 1.5x, attempt=3 → 2.25x
+        const progressiveTimeout = Math.round(baseTimeoutMs * Math.pow(1.5, attempt - 1));
+        finalOptions.signal = AbortSignal.timeout(progressiveTimeout);
         delete finalOptions.timeoutMs;
       }
-      return await fetch(url, finalOptions);
+      const result = await fetch(url, finalOptions);
+      _circuitBreaker.recordSuccess();
+      return result;
     } catch (err) {
       lastError = err;
       const transient = isTransientConnectionError(err);
       if (attempt < maxAttempts && transient) {
-        // Exponential backoff: 1.5s → 3s → 5s (longer waits for busy Camofox)
-        const delay = 1500 * attempt;
+        _circuitBreaker.recordFailure();
+        // Exponential backoff + jitter: (1.5s * attempt) ± random 0–500ms
+        // This prevents all 3 workers from retrying at exactly the same moment
+        const jitter = Math.floor(Math.random() * 500);
+        const delay = 1500 * attempt + jitter;
         console.log(`⚠️ [camofox-api] Lỗi kết nối (lần ${attempt}/${maxAttempts}): ${err.message || err}. Thử lại sau ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
       } else if (!transient) {
         // Non-transient errors (HTTP 4xx, 5xx from server) — fail fast, no retry
         throw err;
+      } else {
+        // Final attempt also failed — record it
+        _circuitBreaker.recordFailure();
       }
     }
   }
@@ -119,7 +177,7 @@ export async function checkCamofoxReady(timeoutMs = 3000) {
  * @param {object} options - { timeoutMs = 30000 }
  * @returns {Promise<object>} JSON response
  */
-export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
+export async function camofoxPost(endpoint, body, { timeoutMs = 45000 } = {}) {
   // Inject sessionKey cho v1.8.15+ (yêu cầu trong tất cả requests)
   let finalBody = body || {};
   if (WORKER_AUTH_TOKEN && finalBody.sessionKey === undefined) {
@@ -149,7 +207,7 @@ export async function camofoxPost(endpoint, body, { timeoutMs = 30000 } = {}) {
  * @param {object} options - { timeoutMs = 10000 }
  * @returns {Promise<object>} JSON response
  */
-export async function camofoxGet(endpoint, { timeoutMs = 10000 } = {}) {
+export async function camofoxGet(endpoint, { timeoutMs = 15000 } = {}) {
   const res = await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, { timeoutMs }, 3);
   if (!res.ok) throw new Error(`Camofox GET ${endpoint} → ${res.status}`);
   return res.json();
@@ -173,7 +231,7 @@ export async function camofoxDelete(endpoint, { timeoutMs = 8000 } = {}) {
  * @param {object} options - { timeoutMs = 15000 }
  * @returns {Promise<object>}
  */
-export async function camofoxGoto(tabId, userId, url, { timeoutMs = 15000 } = {}) {
+export async function camofoxGoto(tabId, userId, url, { timeoutMs = 30000 } = {}) {
   return camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs });
 }
 
@@ -210,7 +268,7 @@ export async function evalJson(tabId, userId, expression, { timeoutMs = 8000, ma
  * @param {object} options - { timeoutMs = 15000 }
  * @returns {Promise<void>}
  */
-export async function navigate(tabId, userId, url, { timeoutMs = 15000 } = {}) {
+export async function navigate(tabId, userId, url, { timeoutMs = 30000 } = {}) {
   try {
     await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs });
   } catch (e) {
