@@ -287,7 +287,7 @@ export function VaultAccountsView() {
   const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterTag, setFilterTag] = useState<string>('all');
-  const [filterTime, setFilterTime] = useState<'all' | 'today' | '3days' | '7days' | '30days'>('all');
+  const [filterTime, setFilterTime] = useState<'all' | 'recent' | 'today' | 'yesterday' | '3days' | '7days' | '30days'>('all');
   const [activePreset, setActivePreset] = useState<string>('all');
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
 
@@ -416,8 +416,16 @@ export function VaultAccountsView() {
       const createdDate = new Date(it.created_at);
       const diffMs = new Date().getTime() - createdDate.getTime();
       const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (filterTime === 'recent') {
+        return diffMs <= 4 * 60 * 60 * 1000;
+      }
       if (filterTime === 'today') {
         return new Date().toDateString() === createdDate.toDateString();
+      }
+      if (filterTime === 'yesterday') {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        return yesterday.toDateString() === createdDate.toDateString();
       }
       if (filterTime === '3days') return diffDays <= 3;
       if (filterTime === '7days') return diffDays <= 7;
@@ -1521,7 +1529,9 @@ export function VaultAccountsView() {
                   onChange={e => setFilterTime(e.target.value as any)}
                 >
                   <option value="all" className="bg-[#0f172a]">Tất cả thời gian</option>
+                  <option value="recent" className="bg-[#0f172a]">Mới đây (4 giờ qua)</option>
                   <option value="today" className="bg-[#0f172a]">Hôm nay</option>
+                  <option value="yesterday" className="bg-[#0f172a]">Hôm qua</option>
                   <option value="3days" className="bg-[#0f172a]">3 ngày qua</option>
                   <option value="7days" className="bg-[#0f172a]">7 ngày qua</option>
                   <option value="30days" className="bg-[#0f172a]">30 ngày qua</option>
@@ -1574,7 +1584,9 @@ export function VaultAccountsView() {
                 {filterTime !== 'all' && (
                   <span className="inline-flex items-center gap-1 text-[11px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded">
                     Thời gian: {
+                      filterTime === 'recent' ? 'Mới đây (4h)' :
                       filterTime === 'today' ? 'Hôm nay' :
+                      filterTime === 'yesterday' ? 'Hôm qua' :
                       filterTime === '3days' ? '3 ngày qua' :
                       filterTime === '7days' ? '7 ngày qua' :
                       filterTime === '30days' ? '30 ngày qua' : filterTime

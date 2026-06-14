@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.131] - 2026-06-15 01:57:00
+
+### ⚙️ Mở rộng Bộ lọc Thời gian trong Quản lý Tài khoản (Expand Creation Time Filter in Vault Accounts)
+- **src/components/views/vault/VaultAccountsView.tsx**:
+  - Bổ sung tùy chọn lọc thời gian tạo tài khoản: `"Mới đây (4 giờ qua)"` (`recent`) và `"Hôm qua"` (`yesterday`).
+  - Cập nhật logic lọc (`timeMatch`), cấu trúc state, các thẻ badge hiển thị bộ lọc đang áp dụng, và phần chọn dropdown để hỗ trợ đầy đủ hai tùy chọn mới.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.131`.
+
 ## [0.3.130] - 2026-06-15 01:56:00
 
 ### 🛡️ Khắc Phục Lỗi Trôi Trạng Thái Đăng Ký Chạy Song Song (Fix Concurrency & Silent Fallthrough in Parallel Runs)
