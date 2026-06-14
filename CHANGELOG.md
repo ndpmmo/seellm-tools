@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.135] - 2026-06-15 03:32:00
+
+### 🚀 Tối Ưu Hóa Tránh Nghẽn Luồng, Đợi Mật Khẩu Chủ Động & Nhận Diện OTP Triệt Để (Thread Stagger, Password Wait, Robust OTP Transition & Click Timeout)
+- **scripts/auto-register-worker.js**:
+  - **Trì hoãn Stagger khởi chạy**: Đọc tham số `stagger=delayMs` và trì hoãn thực thi (`setTimeout`) tương ứng ở đầu worker để tránh thói quen khởi chạy cùng lúc gây quá tải Camofox.
+  - **Chờ Password Input chủ động (Sửa lỗi Bug #5)**: Sử dụng `waitForSelector` kết hợp poll `evalJson` chờ ô nhập mật khẩu xuất hiện lên đến **12 giây** (thay vì kiểm tra tức thời và bỏ qua âm thầm). Ném lỗi rõ ràng nếu không thấy ô nhập.
+  - **Xác thực OTP chính xác (Sửa lỗi Bug #6)**: Cập nhật điều kiện xác thực màn hình OTP (`isStillOnOtp` và `isStillOnOtpAfterRetry`) bắt buộc phải có ô nhập mã code (`hasOtpInput === true`) kết hợp với URL/Text xác thực, tránh ngộ nhận "vẫn ở OTP" khi trang đang transition hoặc load trống.
+  - **Dùng helper fillEmail**: Thay thế khối chèn email bằng JS DOM thô chèn chuỗi trực tiếp trong bước phục hồi Application Error bằng việc gọi lại helper `fillEmail` chuẩn hóa, bảo mật hơn.
+- **server/routes/vault.js**:
+  - Thêm cơ chế tính toán và gán `staggerMs = spawnIndex * 6000` cho mỗi worker được spawn trong cùng một tick của Bulk Registration.
+- **camofox-browser (server.js & openapi.json)**:
+  - Cập nhật click handler trong route `/act` để hỗ trợ `timeout`/`timeoutMs` truyền từ client, đồng thời nâng giá trị mặc định lên **10000ms** thay vì khoá cứng 3000ms, cải thiện đáng kể độ tin cậy khi server đang chịu tải cao.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.135`.
+
 ## [0.3.134] - 2026-06-15 03:25:00
 
 ### 🐛 Sửa Lỗi Chạy Hàng Loạt — 4 Pattern Lỗi Phổ Biến (Batch Registration Bug Fixes)

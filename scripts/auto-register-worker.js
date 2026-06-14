@@ -689,6 +689,14 @@ export async function runAutoRegister(taskInput) {
   }
   proxyUrl = normalizeProxyUrl(proxyUrl);
 
+  // Parse stagger delay
+  const staggerPart = parts.find(p => p.startsWith('stagger='));
+  const staggerMs = staggerPart ? (parseInt(staggerPart.split('=')[1], 10) || 0) : 0;
+  if (staggerMs > 0) {
+    console.log(`⏳ [Stagger] Trì hoãn khởi chạy ${staggerMs}ms để tránh nghẽn luồng...`);
+    await new Promise(r => setTimeout(r, staggerMs));
+  }
+
   // Parse oauth flag (format: oauth=1 or oauth=true)
   const enableOAuth = oauthFlag && (oauthFlag.includes('oauth=1') || oauthFlag.includes('oauth=true'));
   console.log(`[Register] OAuth flow: ${enableOAuth ? 'ENABLED' : 'DISABLED'}`);
@@ -1177,21 +1185,9 @@ export async function runAutoRegister(taskInput) {
           `);
           if (reloadFlowCheck?.hasEmailInput) {
             console.log(`[Flow Detection] ✅ Trang đã reload thành công, tiếp tục điền email lại...`);
-            // Re-submit email sau reload — giống email submit retry logic
-            await evalJson(tabId, USER_ID, `
-              (() => {
-                const inp = document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
-                if (inp) {
-                  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                  nativeSetter.call(inp, '${email}');
-                  inp.dispatchEvent(new Event('input', { bubbles: true }));
-                  inp.dispatchEvent(new Event('change', { bubbles: true }));
-                  const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.toLowerCase().includes('continue'));
-                  if (btn) btn.click();
-                }
-                return true;
-              })()
-            `);
+            // Re-submit email sau reload — sử dụng helper fillEmail
+            const emailClickInfo = await fillEmail(tabId, USER_ID, email);
+            console.log(`[Flow Detection] Reload fillEmail →`, JSON.stringify(emailClickInfo || {}));
             await new Promise(r => setTimeout(r, 8000));
             // Re-evaluate flow after reload+resubmit
             flowDetection = await evalJson(tabId, USER_ID, `
@@ -1253,7 +1249,18 @@ export async function runAutoRegister(taskInput) {
     }
 
     // Điền password (cả 2 flow đều cần) — retry với tối đa 3 candidates
-    const hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
+    console.log(`[3] Đang chờ password input xuất hiện...`);
+    const pwdSelector = 'input[type="password"], input[name="password"], input[name="new-password"]';
+    let hasPwdInput = await waitForSelector(tabId, USER_ID, pwdSelector, { timeoutMs: 12000 }).catch(() => false);
+    if (!hasPwdInput) {
+      // Fallback check via evalJson in case Playwright selector matching had issues
+      hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);
+    }
+
+    if (!hasPwdInput) {
+      throw new Error(`[Password] Không tìm thấy ô nhập mật khẩu trên trang. URL hiện tại: ${await evalJson(tabId, USER_ID, 'location.href').catch(() => '?')}`);
+    }
+
     if (hasPwdInput) {
       let pwdCandidates = [];
 
@@ -1588,13 +1595,9 @@ export async function runAutoRegister(taskInput) {
       `);
       console.log(`[OTP] Verify check:`, JSON.stringify(otpVerifyCheck));
 
-      // Retry OTP entry if still on OTP screen (max CONFIG.otpMaxRetries retries)
-      // BUG FIX: dùng hasVerifyUrl là tiêu chí chính, KHÔNG dùng hasOtpInput đơn thuần
-      // vì trang about-you, onboarding cũng có <input> → hasOtpInput=true → false positive!
-      // Chỉ coi là "vẫn ở OTP" khi URL có 'email-verification'/'verify' (hasVerifyUrl=true)
-      // hoặc khi vừa có input numeric VÀ vừa có text 'verify'/'code' (không phải trang form khác)
-      const isStillOnOtp = otpVerifyCheck.hasVerifyUrl ||
-        (otpVerifyCheck.hasOtpInput && otpVerifyCheck.hasVerifyText);
+      // BUG FIX: Chỉ coi là "vẫn ở màn hình OTP" khi vừa khớp URL/Text xác minh VÀ vừa phải có ô nhập mã OTP (hasOtpInput)
+      // Điều này ngăn chặn việc ngộ nhận khi trang đang chuyển hướng (hasOtpInput=false nhưng URL chưa đổi) hoặc khi đã chuyển sang form khác.
+      const isStillOnOtp = (otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText) && otpVerifyCheck.hasOtpInput;
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
@@ -1656,9 +1659,8 @@ export async function runAutoRegister(taskInput) {
               return { hasOtpInput, hasVerifyUrl, hasVerifyText };
             })()
           `);
-          // Dùng cùng logic đã fix: URL mới là tiêu chí chủ yếu, không dùng hasOtpInput đơn thuần
-          const isStillOnOtpAfterRetry = retryCheck.hasVerifyUrl ||
-            (retryCheck.hasOtpInput && retryCheck.hasVerifyText);
+          // Dùng cùng logic đã fix: Phải có cả ô nhập OTP và URL/Text xác thực mới coi là vẫn ở màn hình OTP
+          const isStillOnOtpAfterRetry = (retryCheck.hasVerifyUrl || retryCheck.hasVerifyText) && retryCheck.hasOtpInput;
           if (!isStillOnOtpAfterRetry) {
             console.log(`[OTP] ✅ Retry ${retry} thành công!`);
             break;

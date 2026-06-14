@@ -2524,6 +2524,7 @@ class BulkRegisterRunner {
     }
 
     // 2. Spawn next workers up to concurrency
+    let spawnIndex = 0;
     while (this.activeWorkers.size < this.concurrency && this.queue.length > 0) {
       const task = this.queue.shift();
       const { emailRecord, proxy } = task;
@@ -2534,13 +2535,15 @@ class BulkRegisterRunner {
         break;
       }
 
-      const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}`;
+      const delayMs = spawnIndex * 6000;
+      const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}`;
+      spawnIndex++;
       
       const scriptName = 'auto-register-worker.js';
       const procId = `script_${scriptName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
 
-      this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'}`);
+      this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'} (Stagger: ${delayMs}ms)`);
       
       const cfg = loadConfig();
       const r = processManager.spawnProcess(procId, `📜 ${scriptName}`, 'node', [scriptPath, raw], process.cwd(), {
