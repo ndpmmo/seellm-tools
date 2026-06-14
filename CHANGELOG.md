@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.132] - 2026-06-15 02:42:00
+
+### ⚙️ Tối Ưu Hóa Hiệu Năng & Cơ Chế Tự Động Phục Hồi Lỗi Chạy Hàng Loạt (Optimize Performance & Smart Retry Recovery)
+- **scripts/lib/screenshot.js**:
+  - Tích hợp cờ `DISABLE_SCREENSHOTS` từ file cấu hình. Khi được bật, hệ thống sẽ bỏ qua toàn bộ ảnh chụp màn hình trung gian thành công và chỉ chụp ảnh khi phát hiện lỗi thực tế (`moment === 'error'`), giúp giảm tải I/O ghi đĩa và CPU render.
+- **scripts/config.js** & **server/db/config.js**:
+  - Khai báo và nạp thuộc tính cấu hình `disableScreenshots: false` mặc định từ `tools.config.json`.
+- **src/components/AppContext.tsx**:
+  - Khai báo `disableScreenshots` trong TypeScript interface `AppConfig`.
+- **src/components/views/SettingsView.tsx**:
+  - Bổ sung nút chuyển mạch (Toggle Switch) **"Tắt chụp ảnh trung gian (Optimize CPU)"** trực quan trong giao diện Admin Settings (`?view=settings`).
+- **scripts/auto-register-worker.js**:
+  - Tích hợp vòng lặp retry thông minh (lên tới 2 lần kèm reload trang) tại bước submit Email nếu click mà không đổi URL và không chuyển tiếp sang trang password/OTP.
+  - Tích hợp cơ chế tự động reload trang và nhập lại mật khẩu hiện tại nếu submit mật khẩu thành công nhưng trang vẫn bị đứng im ở màn hình Password mà không hiển thị lỗi validation nào.
+  - Chia nhỏ thời gian chờ OTP: Chờ 50 giây lần đầu, nếu chưa có email sẽ tự động click nút "Resend email" trên OpenAI và tiếp tục quét mail thêm 60 giây với mốc thời gian mới (để tránh nhận mã cũ).
+  - Tự động reload lại trang nếu submit OTP thành công nhưng trang bị đúp/đơ làm trắng tinh nội dung và kẹt ở URL `/email-verification`.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.132`.
+
 ## [0.3.131] - 2026-06-15 01:57:00
 
 ### ⚙️ Mở rộng Bộ lọc Thời gian trong Quản lý Tài khoản (Expand Creation Time Filter in Vault Accounts)
