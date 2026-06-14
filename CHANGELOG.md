@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.137] - 2026-06-15 04:15:00
+
+### 🔧 Sửa Lỗi Redirect chatgpt.com/?slm=1 & Tự Động Phục Hồi Flow Detection (Pre-session Cleanup & Smart ?slm=1 Recovery)
+- **scripts/auto-register-worker.js**:
+  - **Dọn dẹp Session cũ trước khi khởi chạy (Pre-session Cleanup)**: Trước khi tạo tab đăng ký mới, tiến hành xóa session cũ (`camofoxDelete`) của `USER_ID` tương ứng. Điều này ngăn ngừa cookie cũ còn active dẫn đến việc OpenAI tự động chuyển hướng về trang chủ `/?slm=1` thay vì trang đăng ký.
+  - **Phục hồi thông minh khi bị Redirect về trang chủ**: Nếu phát hiện URL bị kẹt tại trang chủ (`chatgpt.com/?slm=` hoặc trang chủ không chứa auth/openai), tự động điều hướng lại về `/auth/login` và thử submit email lại.
+  - **Thêm polling 15s cho email input**: Sau khi điều hướng lại (recovery) hoặc sau khi reload (do Application Error), bổ sung poll chờ email input xuất hiện tối đa 15s để đề phòng trang load chậm trước khi thử điền lại email.
+- **package.json**: Đồng bộ và nâng phiên bản lên `0.3.137`.
+
 ## [0.3.136] - 2026-06-15 03:45:00
 
 ### 🔧 Sửa Lỗi Thời Gian OTP Retry — Proxy-Aware Poll Timeout & Fresh minTime

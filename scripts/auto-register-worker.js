@@ -820,6 +820,16 @@ export async function runAutoRegister(taskInput) {
     console.log(`🚀 [Phase 1] Truy cập trang Login...`);
     const usePersistent = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
     console.log(`[Register] Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'}`);
+
+    // 🧹 Xóa session/cookies cũ trước khi tạo tab đăng ký mới để tránh persistent session redirect
+    // Khi persistent=true, session cũ của email này có thể còn active → OpenAI redirect về /?slm=1
+    if (usePersistent) {
+      console.log(`🧹 [PreClean] Xóa session cũ của ${USER_ID} để tránh stale cookie redirect...`);
+      await camofoxDelete(`/sessions/${USER_ID}`, { timeoutMs: 8000 }).catch(e => {
+        console.log(`[PreClean] Session delete failed (có thể session chưa tồn tại): ${e.message}`);
+      });
+    }
+
     const tabRes = await camofoxPostWithSessionKey('/tabs', {
       userId: USER_ID,
       url: "https://chatgpt.com/auth/login",
@@ -835,6 +845,7 @@ export async function runAutoRegister(taskInput) {
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
 
     await new Promise(r => setTimeout(r, 5000));
+
 
     // If protocol succeeded, seed the browser session and skip registration UI steps
     if (skipRegistrationSteps && protocolResult?.success) {
@@ -1163,33 +1174,31 @@ export async function runAutoRegister(taskInput) {
         `, 5000);
         console.log(`[Flow Detection] After poll:`, JSON.stringify(flowDetection));
       } else {
-        // Kiểm tra nếu trang có Application Error (JS crash phía OpenAI) → reload và thử lại 1 lần
-        const pageBodyCheck = await evalJson(tabId, USER_ID, `
-          (() => {
-            const body = document.body?.innerText || '';
-            const hasAppError = body.toLowerCase().includes('application error') || body.toLowerCase().includes('chunkloaderror');
-            return { hasAppError, url: location.href };
-          })()
-        `);
-        if (pageBodyCheck?.hasAppError) {
-          console.log(`[Flow Detection] 🔄 Phát hiện Application Error trên trang (OpenAI JS crash). Reload và thử lại email submit...`);
-          await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
-          await new Promise(r => setTimeout(r, 6000));
-          // Điền lại email sau khi reload
-          const reloadFlowCheck = await evalJson(tabId, USER_ID, `
-            (() => {
-              const url = location.href;
-              const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
-              return { url, hasEmailInput };
-            })()
-          `);
-          if (reloadFlowCheck?.hasEmailInput) {
-            console.log(`[Flow Detection] ✅ Trang đã reload thành công, tiếp tục điền email lại...`);
-            // Re-submit email sau reload — sử dụng helper fillEmail
-            const emailClickInfo = await fillEmail(tabId, USER_ID, email);
-            console.log(`[Flow Detection] Reload fillEmail →`, JSON.stringify(emailClickInfo || {}));
+        // ─── Phân tích URL để xác định lý do flow vẫn unknown ───
+        const stuckUrl = flowDetection?.url || '';
+        const isRedirectedToHome = stuckUrl.includes('chatgpt.com/?slm=') || 
+                                   (stuckUrl.includes('chatgpt.com') && !stuckUrl.includes('auth') && !stuckUrl.includes('openai.com'));
+
+        if (isRedirectedToHome) {
+          // Trường hợp: Persistent session cũ vẫn còn → OpenAI redirect về trang chủ thay vì login page.
+          // Fix: Điều hướng lại về /auth/login và thử submit email lại từ đầu.
+          console.log(`[Flow Detection] 🔄 Tab đang ở trang chủ ChatGPT (${stuckUrl.slice(0, 60)}) — có thể persistent session cũ. Điều hướng lại về auth/login...`);
+          try {
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
+          } catch (e) {
+            const msg = e?.message || String(e);
+            if (!msg.includes('NS_BINDING_ABORTED')) throw e;
+          }
+          await new Promise(r => setTimeout(r, 5000));
+          
+          // Chờ email input xuất hiện
+          const recoveryState = await collectSignupUiState(tabId, USER_ID);
+          if (recoveryState?.hasEmailInput) {
+            console.log(`[Flow Detection] ✅ Email input xuất hiện sau khi re-navigate — thử fillEmail lại...`);
+            const recoveryFill = await fillEmail(tabId, USER_ID, email);
+            console.log(`[Flow Detection] Recovery fillEmail →`, JSON.stringify(recoveryFill || {}));
             await new Promise(r => setTimeout(r, 8000));
-            // Re-evaluate flow after reload+resubmit
+            // Re-evaluate flow
             flowDetection = await evalJson(tabId, USER_ID, `
               (() => {
                 const url = location.href;
@@ -1202,18 +1211,123 @@ export async function runAutoRegister(taskInput) {
                 return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
               })()
             `, 5000);
-            console.log(`[Flow Detection] After App-Error reload:`, JSON.stringify(flowDetection));
+            console.log(`[Flow Detection] After home-redirect recovery:`, JSON.stringify(flowDetection));
             if (flowDetection?.flow === 'unknown') {
-              throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi reload Application Error. Email submit có thể đã thất bại.`);
+              throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi re-navigate từ trang chủ. URL=${flowDetection?.url}`);
             }
           } else {
-            throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+            // Email input chưa có — có thể trang đang load, thử poll thêm 15s
+            console.log(`[Flow Detection] ⏳ Trang re-navigate chưa có email input, chờ thêm...`);
+            const recoveryPoll = await pollUntil(async () => {
+              const s = await collectSignupUiState(tabId, USER_ID);
+              return s?.hasEmailInput === true;
+            }, 'RenavigateEmailPoll', { intervalMs: 2000, maxWaitMs: 15000 });
+            if (recoveryPoll) {
+              const recoveryFill = await fillEmail(tabId, USER_ID, email);
+              console.log(`[Flow Detection] Recovery (delayed) fillEmail →`, JSON.stringify(recoveryFill || {}));
+              await new Promise(r => setTimeout(r, 8000));
+              flowDetection = await evalJson(tabId, USER_ID, `
+                (() => {
+                  const url = location.href;
+                  const body = document.body?.innerText?.toLowerCase() || '';
+                  const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+                  const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+                  const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+                  const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+                  const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+                  return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+                })()
+              `, 5000);
+              console.log(`[Flow Detection] After delayed re-navigate:`, JSON.stringify(flowDetection));
+              if (flowDetection?.flow === 'unknown') {
+                throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi re-navigate và poll. URL=${flowDetection?.url}`);
+              }
+            } else {
+              throw new Error(`[FlowDetectionPoll] Email input không xuất hiện sau khi re-navigate từ trang chủ. URL=${stuckUrl}`);
+            }
           }
         } else {
-          // Sau khi hết poll mà vẫn không nhận dạng được flow — dừng lại
-          throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+          // Kiểm tra nếu trang có Application Error (JS crash phía OpenAI) → reload và thử lại 1 lần
+          const pageBodyCheck = await evalJson(tabId, USER_ID, `
+            (() => {
+              const body = document.body?.innerText || '';
+              const hasAppError = body.toLowerCase().includes('application error') || body.toLowerCase().includes('chunkloaderror');
+              return { hasAppError, url: location.href, bodyLen: body.length };
+            })()
+          `);
+          if (pageBodyCheck?.hasAppError) {
+            console.log(`[Flow Detection] 🔄 Phát hiện Application Error trên trang (OpenAI JS crash). Reload và thử lại email submit...`);
+            await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+            await new Promise(r => setTimeout(r, 6000));
+            // Điền lại email sau khi reload
+            const reloadFlowCheck = await evalJson(tabId, USER_ID, `
+              (() => {
+                const url = location.href;
+                const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+                return { url, hasEmailInput };
+              })()
+            `);
+            if (reloadFlowCheck?.hasEmailInput) {
+              console.log(`[Flow Detection] ✅ Trang đã reload thành công, tiếp tục điền email lại...`);
+              // Re-submit email sau reload — sử dụng helper fillEmail
+              const emailClickInfo = await fillEmail(tabId, USER_ID, email);
+              console.log(`[Flow Detection] Reload fillEmail →`, JSON.stringify(emailClickInfo || {}));
+              await new Promise(r => setTimeout(r, 8000));
+              // Re-evaluate flow after reload+resubmit
+              flowDetection = await evalJson(tabId, USER_ID, `
+                (() => {
+                  const url = location.href;
+                  const body = document.body?.innerText?.toLowerCase() || '';
+                  const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+                  const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+                  const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+                  const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+                  const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+                  return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+                })()
+              `, 5000);
+              console.log(`[Flow Detection] After App-Error reload:`, JSON.stringify(flowDetection));
+              if (flowDetection?.flow === 'unknown') {
+                throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi reload Application Error. Email submit có thể đã thất bại.`);
+              }
+            } else {
+              // hasEmailInput = false sau reload — trang có thể chưa render xong, poll thêm
+              console.log(`[Flow Detection] ⏳ Sau App-Error reload nhưng chưa có email input, poll thêm 15s...`);
+              const postReloadPoll = await pollUntil(async () => {
+                const s = await collectSignupUiState(tabId, USER_ID);
+                return s?.hasEmailInput === true;
+              }, 'AppErrorReloadPoll', { intervalMs: 2000, maxWaitMs: 15000 });
+              if (postReloadPoll) {
+                const emailClickInfo = await fillEmail(tabId, USER_ID, email);
+                console.log(`[Flow Detection] App-Error delayed fillEmail →`, JSON.stringify(emailClickInfo || {}));
+                await new Promise(r => setTimeout(r, 8000));
+                flowDetection = await evalJson(tabId, USER_ID, `
+                  (() => {
+                    const url = location.href;
+                    const body = document.body?.innerText?.toLowerCase() || '';
+                    const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+                    const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+                    const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+                    const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+                    const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+                    return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+                  })()
+                `, 5000);
+                console.log(`[Flow Detection] After App-Error delayed reload:`, JSON.stringify(flowDetection));
+                if (flowDetection?.flow === 'unknown') {
+                  throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi App-Error reload + poll.`);
+                }
+              } else {
+                throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+              }
+            }
+          } else {
+            // Sau khi hết poll mà vẫn không nhận dạng được flow — dừng lại
+            throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+          }
         }
       }
+
     }
 
     // 3. Điền mật khẩu — chỉ skip nếu account đã tồn tại và màn hình OTP hiển thị trực tiếp
