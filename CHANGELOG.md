@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.140] - 2026-06-15 05:00:00
+
+### 🚀 Đồng Nhất Con Trỏ Đồng Bộ & Sửa Lỗi Trạng Thái Settings (Unified Sync Cursor & Settings Status Sync Fix)
+- **server.js**:
+  - **Tải con trỏ tự động (Reload Sync Cursor)**: Cập nhật hàm `doVaultSync` để luôn nạp lại giá trị cursor từ file trước khi thực hiện pull, đảm bảo đồng bộ hóa tức thì với các thao tác kéo thủ công hoặc check-session từ router.
+- **server/routes/vault.js**:
+  - **Đồng nhất file cursor (Sync Cursor Unification)**: Thay thế việc sử dụng file cursor riêng `vault_sync_cursor.json` bằng file cursor chung `sync_cursor.json`. Điều này sửa đổi triệt để lỗi giao diện Settings hiển thị sai trạng thái con trỏ (lệch giờ) so với tiến trình ngầm và giảm thiểu số lượng yêu cầu kéo trùng lặp.
+
 ## [0.3.139] - 2026-06-15 04:56:00
 
 ### 🚀 Khóa Đồng Bộ Toàn Cục & Tối Ưu Hóa Log Đẩy Dữ Liệu Cloudflare D1 (Global Sync Lock & Clean D1 Push Logs)

@@ -1864,7 +1864,7 @@ router.post('/sync/all', async (req, res) => {
 // Ép đồng bộ dữ liệu từ D1 về local (bỏ qua cursor hiện tại)
 router.post('/sync/force-pull', async (req, res) => {
   try {
-    const CURSOR_FILE = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+    const CURSOR_FILE = path.join(process.cwd(), 'data/sync_cursor.json');
     console.log('[SyncManager] Triggering full force pull from D1 (beginning of time)...');
     
     const pullResult = await SyncManager.pullVault('1970-01-01T00:00:00.000Z');
@@ -1895,7 +1895,7 @@ router.post('/sync/force-pull', async (req, res) => {
 router.get('/sync/status', async (req, res) => {
   try {
     const cfg = loadConfig();
-    const cursorFile = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+    const cursorFile = path.join(process.cwd(), 'data/sync_cursor.json');
     const pendingDeletesFile = path.join(process.cwd(), 'data/pending_d1_deletes.json');
 
     let localCursor = '1970-01-01T00:00:00.000Z';
@@ -3163,7 +3163,7 @@ router.post('/accounts/:id/check-session', async (req, res) => {
     try {
       const cfg = loadConfig();
       if (cfg.d1WorkerUrl && cfg.d1SyncSecret) {
-        const CURSOR_FILE = path.join(process.cwd(), 'data/vault_sync_cursor.json');
+        const CURSOR_FILE = path.join(process.cwd(), 'data/sync_cursor.json');
         let cursor = '1970-01-01T00:00:00.000Z';
         try {
           if (fs.existsSync(CURSOR_FILE)) {

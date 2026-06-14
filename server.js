@@ -893,6 +893,7 @@ app.prepare().then(async () => {
 
   async function doVaultSync() {
     try {
+      lastVaultSyncCursor = loadCursor();
       const data = await SyncManager.pullVault(lastVaultSyncCursor);
       if (data && data.cursor > lastVaultSyncCursor) {
         console.log(`[Sync] New cloud updates found. Cursor: ${data.cursor}`);
