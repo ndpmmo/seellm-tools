@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.130] - 2026-06-15 01:56:00
+
+### 🛡️ Khắc Phục Lỗi Trôi Trạng Thái Đăng Ký Chạy Song Song (Fix Concurrency & Silent Fallthrough in Parallel Runs)
+- **scripts/auto-register-worker.js**:
+  - Cập nhật logic `isStillOnOtp` và `isStillOnOtpAfterRetry` để check cả URL hiện tại: nếu trang vẫn ở `/email-verification`, hệ thống sẽ tiếp tục coi là chưa hoàn thành OTP (kể cả khi input OTP biến mất tạm thời trong lúc load).
+  - Bổ sung chốt chặn nghiêm ngặt (strict URL transition check) ngay sau khi gửi OTP: ném lỗi lập tức nếu URL không chuyển đổi thành công ra khỏi trang verification (như sang `about-you` hoặc trang chủ ChatGPT) để tránh việc điền Form About sai giao diện (silent fallthrough).
+- **package.json**: Nâng phiên bản của Tools lên `0.3.130`.
+
 ## [0.3.129] - 2026-06-14 21:21:00
 
 ### 🛡️ Tái cấu trúc Luồng Đăng ký & Tối ưu hóa Trình xác thực (Refactor Registration Flow & Validator Optimization)

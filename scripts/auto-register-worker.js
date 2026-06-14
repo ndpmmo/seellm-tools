@@ -1426,7 +1426,7 @@ export async function runAutoRegister(taskInput) {
       console.log(`[OTP] Verify check:`, JSON.stringify(otpVerifyCheck));
 
       // Retry OTP entry if still on OTP screen (max CONFIG.otpMaxRetries retries)
-      const isStillOnOtp = otpVerifyCheck.hasOtpInput && (otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText);
+      const isStillOnOtp = otpVerifyCheck.hasOtpInput || otpVerifyCheck.hasVerifyUrl;
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
@@ -1488,7 +1488,7 @@ export async function runAutoRegister(taskInput) {
               return { hasOtpInput, hasVerifyUrl, hasVerifyText };
             })()
           `);
-          const isStillOnOtpAfterRetry = retryCheck.hasOtpInput && (retryCheck.hasVerifyUrl || retryCheck.hasVerifyText);
+          const isStillOnOtpAfterRetry = retryCheck.hasOtpInput || retryCheck.hasVerifyUrl;
           if (!isStillOnOtpAfterRetry) {
             console.log(`[OTP] ✅ Retry ${retry} thành công!`);
             break;
@@ -1496,6 +1496,12 @@ export async function runAutoRegister(taskInput) {
             console.log(`[OTP] Retry ${retry}: vẫn ở màn hình OTP`);
           }
         }
+      }
+
+      // Check if URL successfully transitioned away from email-verification page
+      const finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+      if (finalUrlCheck.includes('email-verification')) {
+        throw new Error('OTP verification submitted but page failed to transition away from email-verification');
       }
 
       // Phase 3, Step 1: Pin verified
