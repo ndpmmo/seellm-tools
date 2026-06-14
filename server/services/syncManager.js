@@ -107,6 +107,7 @@ async function triggerGatewaySync(reason = 'manual') {
  * SyncManager handles pushing Vault data to Cloudflare D1
  */
 export const SyncManager = {
+  isSyncingAll: false,
   async pushVault(type, data, force = false) {
     const cfg = loadConfig();
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) {
@@ -475,7 +476,11 @@ export const SyncManager = {
       }
 
       const counts = result.counts || {};
-      console.log(`[SyncManager] ✅ D1 Push OK: connections=${counts.connections || 0}, managedAccounts=${counts.managedAccounts || 0}, vaultAccounts=${counts.vaultAccounts || 0}`);
+      const countStrings = Object.entries(counts)
+        .filter(([_, val]) => val > 0)
+        .map(([key, val]) => `${key}=${val}`);
+      const countsStr = countStrings.length > 0 ? countStrings.join(', ') : `no changes (${type})`;
+      console.log(`[SyncManager] ✅ D1 Push OK: ${countsStr}`);
       if (Array.isArray(result.skipped) && result.skipped.length > 0) {
         console.warn('[SyncManager] ⚠️ D1 Push skipped records:', JSON.stringify(result.skipped));
       }

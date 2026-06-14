@@ -1807,7 +1807,11 @@ router.post('/accounts/:id/retry-connect', async (req, res) => {
 
 // Sync toàn bộ
 router.post('/sync/all', async (req, res) => {
+  if (SyncManager.isSyncingAll) {
+    return res.status(429).json({ error: 'Tiến trình đồng bộ toàn cục đang chạy, vui lòng không gửi yêu cầu liên tiếp.' });
+  }
   try {
+    SyncManager.isSyncingAll = true;
     const force = req.body?.force === true || req.query?.force === 'true';
     const results = { accounts: 0, emailPool: 0, proxies: 0, keys: 0 };
 
@@ -1852,6 +1856,8 @@ router.post('/sync/all', async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  } finally {
+    SyncManager.isSyncingAll = false;
   }
 });
 

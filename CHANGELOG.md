@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.139] - 2026-06-15 04:56:00
+
+### 🚀 Khóa Đồng Bộ Toàn Cục & Tối Ưu Hóa Log Đẩy Dữ Liệu Cloudflare D1 (Global Sync Lock & Clean D1 Push Logs)
+- **server/routes/vault.js**:
+  - **Khóa Đồng Bộ Toàn Cục (isSyncingAll)**: Ngăn chặn gửi nhiều yêu cầu đồng bộ song song khi người dùng ấn hoặc double-click nút "Đồng bộ tất cả" trong cài đặt bằng cách chặn và trả về lỗi HTTP 429 nếu tiến trình đang chạy.
+- **server/services/syncManager.js**:
+  - **Tối ưu hóa ghi log đẩy D1 (Push Log Cleanup)**: Không in cố định các thuộc tính đếm trống `connections=0, managedAccounts=0, vaultAccounts=0` khi đẩy các thực thể khác như proxies, keys, hay email pools. Thay vào đó, log động chỉ hiển thị các giá trị đếm thực tế lớn hơn 0 (ví dụ `vaultProxies=1`).
+
 ## [0.3.138] - 2026-06-15 04:22:00
 
 ### 🚀 Tối Ưu Hóa Tránh Rò Rỉ Tài Nguyên, Xử Lý Lỗi Camofox Thống Nhất & Tự Động Phát Hiện Cloudflare (Resource Cleanup, camofox-retry, TOTP Safe-Zone & Cloudflare Guard)
