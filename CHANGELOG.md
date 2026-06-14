@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.134] - 2026-06-15 03:25:00
+
+### 🐛 Sửa Lỗi Chạy Hàng Loạt — 4 Pattern Lỗi Phổ Biến (Batch Registration Bug Fixes)
+- **scripts/auto-register-worker.js**:
+  - **[Fix #1 — Critical] OTP False Positive** (`isStillOnOtp` logic): Sửa điều kiện nhận diện "vẫn ở màn hình OTP" bị sai — trang `about-you` (bước tiếp theo sau OTP thành công) cũng có `<input>` khiến `hasOtpInput=true` → script tưởng nhầm là OTP thất bại và retry vô ích 2 lần (~10 phút lãng phí). Fix: dùng `hasVerifyUrl` là tiêu chí chính (dựa trên URL chứa `email-verification`) thay vì `hasOtpInput`. Áp dụng cho cả `isStillOnOtp` và `isStillOnOtpAfterRetry`. Giải quyết **6/17** trường hợp thất bại trong batch gần nhất.
+  - **[Fix #2 — High] IP Check Retry**: Bổ sung 1 lần retry sau 3 giây khi IP check thất bại lần đầu (proxy có thể chậm tạm thời). Chỉ abort nếu thất bại cả 2 lần. Giải quyết **3/17** trường hợp lỗi `curl_cffi timeout`.
+  - **[Fix #3 — High] Application Error Detection**: Khi flow detection poll hết thời gian mà vẫn là `unknown`, kiểm tra thêm `bodyText` xem có `Application Error` (OpenAI JS crash) không. Nếu có → tự động reload trang và re-submit email thay vì dừng hẳn. Giải quyết **2/17** trường hợp lỗi `chatgpt.com/?slm=1 Application Error`.
+- **package.json**: Nâng phiên bản của Tools lên `0.3.134`.
+
 ## [0.3.133] - 2026-06-15 03:10:00
 
 ### ⚡ Tối Ưu Triệt Để Lỗi Timeout Kết Nối Camofox API (Eliminate Camofox API Timeout Errors)

@@ -754,11 +754,16 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    // IP location guard
+    // IP location guard (retry up to 2 times to handle transient proxy timeouts)
     console.log(`🌍 [IP Check] Checking IP location...`);
-    const ipCheck = await checkIpLocation(proxyUrl);
+    let ipCheck = await checkIpLocation(proxyUrl);
     if (!ipCheck.ok) {
-      console.log(`🛑 [IP Check] FAILED: ${ipCheck.error}`);
+      console.log(`⚠️ [IP Check] Lần 1 thất bại: ${ipCheck.error} — Thử lại sau 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+      ipCheck = await checkIpLocation(proxyUrl);
+    }
+    if (!ipCheck.ok) {
+      console.log(`🛑 [IP Check] FAILED sau 2 lần thử: ${ipCheck.error}`);
       throw new Error(`IP Check failed: ${ipCheck.error}`);
     }
     console.log(`✅ [IP Check] Location: ${ipCheck.loc}`);
@@ -1150,8 +1155,68 @@ export async function runAutoRegister(taskInput) {
         `, 5000);
         console.log(`[Flow Detection] After poll:`, JSON.stringify(flowDetection));
       } else {
-        // Sau khi hết poll mà vẫn không nhận dạng được flow — dừng lại
-        throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+        // Kiểm tra nếu trang có Application Error (JS crash phía OpenAI) → reload và thử lại 1 lần
+        const pageBodyCheck = await evalJson(tabId, USER_ID, `
+          (() => {
+            const body = document.body?.innerText || '';
+            const hasAppError = body.toLowerCase().includes('application error') || body.toLowerCase().includes('chunkloaderror');
+            return { hasAppError, url: location.href };
+          })()
+        `);
+        if (pageBodyCheck?.hasAppError) {
+          console.log(`[Flow Detection] 🔄 Phát hiện Application Error trên trang (OpenAI JS crash). Reload và thử lại email submit...`);
+          await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+          await new Promise(r => setTimeout(r, 6000));
+          // Điền lại email sau khi reload
+          const reloadFlowCheck = await evalJson(tabId, USER_ID, `
+            (() => {
+              const url = location.href;
+              const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+              return { url, hasEmailInput };
+            })()
+          `);
+          if (reloadFlowCheck?.hasEmailInput) {
+            console.log(`[Flow Detection] ✅ Trang đã reload thành công, tiếp tục điền email lại...`);
+            // Re-submit email sau reload — giống email submit retry logic
+            await evalJson(tabId, USER_ID, `
+              (() => {
+                const inp = document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+                if (inp) {
+                  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                  nativeSetter.call(inp, '${email}');
+                  inp.dispatchEvent(new Event('input', { bubbles: true }));
+                  inp.dispatchEvent(new Event('change', { bubbles: true }));
+                  const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.toLowerCase().includes('continue'));
+                  if (btn) btn.click();
+                }
+                return true;
+              })()
+            `);
+            await new Promise(r => setTimeout(r, 8000));
+            // Re-evaluate flow after reload+resubmit
+            flowDetection = await evalJson(tabId, USER_ID, `
+              (() => {
+                const url = location.href;
+                const body = document.body?.innerText?.toLowerCase() || '';
+                const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+                const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+                const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+                const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+                const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+                return { url, hasPasswordInput, hasEmailVerificationLink, hasCodeInput, isEmailVerification, flow };
+              })()
+            `, 5000);
+            console.log(`[Flow Detection] After App-Error reload:`, JSON.stringify(flowDetection));
+            if (flowDetection?.flow === 'unknown') {
+              throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi reload Application Error. Email submit có thể đã thất bại.`);
+            }
+          } else {
+            throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+          }
+        } else {
+          // Sau khi hết poll mà vẫn không nhận dạng được flow — dừng lại
+          throw new Error(`[FlowDetectionPoll] Flow vẫn là 'unknown' sau khi poll. Email submit có thể đã thất bại hoặc trang chưa chuyển sang bước tiếp theo.`);
+        }
       }
     }
 
@@ -1524,7 +1589,12 @@ export async function runAutoRegister(taskInput) {
       console.log(`[OTP] Verify check:`, JSON.stringify(otpVerifyCheck));
 
       // Retry OTP entry if still on OTP screen (max CONFIG.otpMaxRetries retries)
-      const isStillOnOtp = otpVerifyCheck.hasOtpInput || otpVerifyCheck.hasVerifyUrl;
+      // BUG FIX: dùng hasVerifyUrl là tiêu chí chính, KHÔNG dùng hasOtpInput đơn thuần
+      // vì trang about-you, onboarding cũng có <input> → hasOtpInput=true → false positive!
+      // Chỉ coi là "vẫn ở OTP" khi URL có 'email-verification'/'verify' (hasVerifyUrl=true)
+      // hoặc khi vừa có input numeric VÀ vừa có text 'verify'/'code' (không phải trang form khác)
+      const isStillOnOtp = otpVerifyCheck.hasVerifyUrl ||
+        (otpVerifyCheck.hasOtpInput && otpVerifyCheck.hasVerifyText);
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
@@ -1586,7 +1656,9 @@ export async function runAutoRegister(taskInput) {
               return { hasOtpInput, hasVerifyUrl, hasVerifyText };
             })()
           `);
-          const isStillOnOtpAfterRetry = retryCheck.hasOtpInput || retryCheck.hasVerifyUrl;
+          // Dùng cùng logic đã fix: URL mới là tiêu chí chủ yếu, không dùng hasOtpInput đơn thuần
+          const isStillOnOtpAfterRetry = retryCheck.hasVerifyUrl ||
+            (retryCheck.hasOtpInput && retryCheck.hasVerifyText);
           if (!isStillOnOtpAfterRetry) {
             console.log(`[OTP] ✅ Retry ${retry} thành công!`);
             break;
