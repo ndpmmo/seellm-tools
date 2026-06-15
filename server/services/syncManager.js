@@ -239,10 +239,12 @@ export const SyncManager = {
         payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: data.deleted_at, version }];
         payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: data.deleted_at, is_active: 0, version }];
       }
-      // ✅ Rule 3: Account idle (chưa/chưa cần deploy) → soft-delete khỏi Gateway, KHÔNG tạo record mới
+      // ✅ Rule 3: Account idle (chưa/chưa cần deploy) → soft-delete khỏi Gateway (chỉ gửi tombstone nếu đã từng ready)
       else if (data.status === 'idle') {
-        payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, version }];
-        payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, is_active: 0, version }];
+        if (data.ever_ready) {
+          payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, version }];
+          payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, is_active: 0, version }];
+        }
       }
       // ✅ Rule 4: Account ready → push đầy đủ cả managedAccounts + connections, đánh dấu ever_ready
       else if (data.status === 'ready') {
@@ -436,8 +438,8 @@ export const SyncManager = {
             // Rule 2: Hard delete → revoked
             newGatewayStatus = 'revoked';
           } else if (data.status === 'idle') {
-            // Rule 3: Idle → revoked (soft-delete from Gateway)
-            newGatewayStatus = 'revoked';
+            // Rule 3: Idle → revoked only if it was ever active, otherwise null (not deployed)
+            newGatewayStatus = data.ever_ready ? 'revoked' : null;
           } else if (data.status === 'ready') {
             // Rule 4: Ready → active
             newGatewayStatus = 'active';
@@ -453,8 +455,8 @@ export const SyncManager = {
               // Keep active if was ever ready
               newGatewayStatus = 'active';
             } else {
-              // Set revoked if never ready or deactivated/dead
-              newGatewayStatus = 'revoked';
+              // Set revoked if was ever ready and now deactivated/dead, otherwise null
+              newGatewayStatus = data.ever_ready ? 'revoked' : null;
             }
           } else {
             // Rule 6: Processing status (pending/processing/...) → rollback pending_push về previous
@@ -753,7 +755,8 @@ export const SyncManager = {
             
             if (ga.deleted_at) {
               // Gateway revocation: set to revoked but DON'T set deleted_at on vault account
-              newGatewayStatus = 'revoked';
+              // Only mark as revoked if it was ever ready, otherwise null (not deployed)
+              newGatewayStatus = existing.ever_ready ? 'revoked' : null;
             } else if (ga.status === 'ready' && !ga.deleted_at) {
               // Active on gateway
               newGatewayStatus = 'active';

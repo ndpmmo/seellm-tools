@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.143] - 2026-06-15 20:21:00
+
+### 🚀 Sửa Lỗi gateway_status "Đã thu hồi" Cho Tài Khoản Chưa Deploy & Đồng Bộ Khớp D1 (Gateway Revoked Status Calculation & Sync Realignment Fix)
+- **server/services/syncManager.js**:
+  - **Khắc phục lỗi Đã thu hồi (Revoked calculation)**: Sửa logic trong `_executePush` (Rule 3) và `pullVault` để chỉ gán trạng thái `revoked` cho tài khoản `idle`/`error`/tombstone trên D1 nếu tài khoản đó đã từng được deploy trước đó (`ever_ready = 1`). Tránh việc tài khoản mới tạo ở trạng thái `idle` và chưa từng deploy bị đánh dấu nhầm thành `Đã thu hồi`.
+- **scripts/push-all-accounts.mjs**:
+  - **Script đồng bộ cưỡng bức (Force-sync accounts)**: Thêm script mới để đồng bộ toàn bộ tài khoản local chưa khớp lên Cloud D1, đồng thời tự động sửa lại trạng thái `gateway_status` của các tài khoản mới về đúng giá trị ban đầu là `null` ("Chưa deploy").
+- **package.json**: Nâng phiên bản lên `0.3.143`.
+
 ## [0.3.142] - 2026-06-15 19:29:00
 
 ### 🚀 Khắc phục lỗi "Session ended / invalid_state" & Tự động phục hồi lỗi Timeout (Session ended & Oops Error recovery)
