@@ -42,7 +42,7 @@ from urllib.parse import urljoin
 
 def main():
     try:
-        from curl_cffi import requests as cffi_requests
+        from curl_cffi import requests as cffi_requests, CurlOpt
     except ImportError:
         print(json.dumps({"error": "curl_cffi not installed: pip3 install curl_cffi"}))
         sys.exit(1)
@@ -79,7 +79,7 @@ def main():
         proxies = {"http": proxy_url, "https": proxy_url}
 
     try:
-        session = cffi_requests.Session(impersonate=impersonate)
+        session = cffi_requests.Session(impersonate=impersonate, curl_options={CurlOpt.IPRESOLVE: 1})
 
         redirect_chain = []
 

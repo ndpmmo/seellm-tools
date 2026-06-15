@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.142] - 2026-06-15 19:29:00
+
+### 🚀 Khắc phục lỗi "Session ended / invalid_state" & Tự động phục hồi lỗi Timeout (Session ended & Oops Error recovery)
+- **scripts/auto-register-worker.js**:
+  - **Loại bỏ `location.reload()` trên Auth0**: Thay thế toàn bộ các lệnh `location.reload()` tại các bước đăng ký (Email retry, Password retry, OTP check, App-Error) bằng cơ chế điều hướng tab về `https://chatgpt.com/auth/login` để tạo một OAuth transaction mới sạch sẽ, tránh làm mất/hỏng transaction state của Auth0.
+  - **Hàm tự động khôi phục thông minh (`checkAndRecoverSessionEnded`)**: Thêm helper nhận diện các màn hình lỗi của Auth0 gồm `Session ended`, `invalid_state`, và lỗi timeout `Oops, an error occurred! Operation timed out`. Khi phát hiện lỗi, tự động điều hướng quay lại login page, điền lại email, và tự động điền lại password (nếu có) để đưa tab quay trở lại đúng màn hình nhập mã OTP.
+  - **Tích hợp chốt chặn khôi phục**: Gọi hàm kiểm tra khôi phục trước khi chạy Flow Detection, trước OTP screen check, và định kỳ bên trong vòng lặp chờ OTP (`OTPScreenPoll`).
+- **package.json**: Nâng phiên bản lên `0.3.142`.
+
 ## [0.3.141] - 2026-06-15 13:35:00
 
 ### 🚀 Fallback Định Vị IP & Sửa Lỗi Nhận Diện Màn Hình OTP (IP Check Fallback & OTP Rendering Wait Fix)

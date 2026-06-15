@@ -209,7 +209,7 @@ export async function fetchTextViaProxy(url, proxyUrl, timeoutMs = 10000) {
       const escapedProxy = String(proxyUrl).replace(/'/g, "'\\''");
       const escapedUrl = String(url).replace(/'/g, "'\\''");
       const timeoutSec = Math.ceil(timeoutMs / 1000) || 10;
-      const cmd = `curl -sS --connect-timeout ${timeoutSec} -x '${escapedProxy}' '${escapedUrl}'`;
+      const cmd = `curl -4 -sS --connect-timeout ${timeoutSec} -x '${escapedProxy}' '${escapedUrl}'`;
       
       exec(cmd, { timeout: timeoutMs }, (error, stdout, stderr) => {
         if (error) {
