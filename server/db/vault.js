@@ -972,13 +972,35 @@ export const vault = {
   },
 
   deleteProxy: (id, skipSync = false) => {
+    const record = db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+    if (!record) return null;
+
     const now = dayjs().toISOString();
     db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
-    const record = db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
-    if (!skipSync && record) {
-      SyncManager.pushVault('proxy', record).catch(() => { });
+
+    // Auto-release/clear proxy_url on active accounts using this proxy
+    if (record.url) {
+      try {
+        const accounts = db.prepare('SELECT * FROM vault_accounts WHERE proxy_url = ? AND deleted_at IS NULL').all(record.url);
+        if (accounts.length > 0) {
+          db.prepare('UPDATE vault_accounts SET proxy_url = NULL, updated_at = ? WHERE proxy_url = ? AND deleted_at IS NULL').run(now, record.url);
+          for (const account of accounts) {
+            const updatedAccount = { ...account, proxy_url: null, updated_at: now };
+            if (!skipSync) {
+              SyncManager.pushVault('account', updatedAccount).catch(() => { });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[deleteProxy] Failed to clean proxy from accounts:', err.message);
+      }
     }
-    return record;
+
+    const updatedRecord = db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);
+    if (!skipSync && updatedRecord) {
+      SyncManager.pushVault('proxy', updatedRecord).catch(() => { });
+    }
+    return updatedRecord;
   },
 
   // CRUD API KEYS

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.145] - 2026-06-16 02:20:00
+
+### 🚀 Tự động giải phóng Proxy khỏi Tài khoản khi xóa Proxy (Auto-release Proxy from Accounts on Proxy Deletion)
+- **server/db/vault.js**:
+  - **Tự động ngắt liên kết Proxy**: Cập nhật hàm `deleteProxy`. Khi người dùng thực hiện xóa một proxy, hệ thống sẽ tự động tìm kiếm toàn bộ các tài khoản đang sử dụng proxy đó (`proxy_url = record.url`), đặt giá trị `proxy_url` của chúng về `NULL` và đẩy trạng thái cập nhật mới nhất lên D1 Cloud để đồng bộ với Gateway. Điều này khắc phục triệt để lỗi tài khoản vẫn hiển thị trạng thái "Đã gán Proxy" mặc dù proxy đã bị xóa khỏi hệ thống.
+- **package.json**: Nâng phiên bản lên `0.3.145`.
+
 ## [0.3.144] - 2026-06-15 22:15:00
 
 ### 🚀 Khắc Phục Lỗi Tự Động Khôi Phục Tài Khoản Đã Xóa Khi Đồng Bộ (Prevent Deleted Accounts Resurrection Bug)
