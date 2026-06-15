@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.144] - 2026-06-15 22:15:00
+
+### 🚀 Khắc Phục Lỗi Tự Động Khôi Phục Tài Khoản Đã Xóa Khi Đồng Bộ (Prevent Deleted Accounts Resurrection Bug)
+- **server/services/syncManager.js**:
+  - **So sánh mốc thời gian xóa (Timestamp-based Deletion Protection)**: Cập nhật hàm `pullVault`. Khi đồng bộ, nếu tài khoản local đã bị xóa (`deleted_at` không phải NULL) nhưng trên D1 remote chưa nhận được lệnh xóa (hoặc đang để `deleted_at = NULL`), hệ thống sẽ so sánh mốc thời gian xóa local với mốc cập nhật cuối của remote D1. Nếu thời điểm xóa local mới hơn, hệ thống sẽ **giữ nguyên trạng thái đã xóa** và tự động đẩy lại lệnh xóa lên D1 thay vì khôi phục nhầm tài khoản đã xóa.
+- **package.json**: Nâng phiên bản lên `0.3.144`.
+
 ## [0.3.143] - 2026-06-15 20:21:00
 
 ### 🚀 Sửa Lỗi gateway_status "Đã thu hồi" Cho Tài Khoản Chưa Deploy & Đồng Bộ Khớp D1 (Gateway Revoked Status Calculation & Sync Realignment Fix)

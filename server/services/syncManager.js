@@ -601,9 +601,20 @@ export const SyncManager = {
           if (localByEmail) {
             // Reset deleted_at nếu bị xóa ảo — đây là account thực cần giữ lại
             if (localByEmail.deleted_at) {
-              localVault.db.prepare('UPDATE vault_accounts SET deleted_at=NULL WHERE id=?').run(localByEmail.id);
-              console.log(`[pullVault] 🔄 Restored deleted account: ${localByEmail.email}`);
-              localByEmail.deleted_at = null;
+              const localDeleteTime = new Date(localByEmail.deleted_at).getTime();
+              const remoteUpdateTime = ga.updated_at ? new Date(ga.updated_at).getTime() : 0;
+              
+              if (localDeleteTime > remoteUpdateTime) {
+                // Local delete is newer than D1 remote update, keep it deleted!
+                console.log(`[pullVault] 🛑 Keep account deleted (local deletion is newer): ${localByEmail.email}`);
+                // Best-effort push to D1 to sync the deletion
+                this.pushVault('account', localByEmail, true).catch(() => {});
+                continue;
+              } else {
+                localVault.db.prepare('UPDATE vault_accounts SET deleted_at=NULL WHERE id=?').run(localByEmail.id);
+                console.log(`[pullVault] 🔄 Restored deleted account (remote is newer): ${localByEmail.email}`);
+                localByEmail.deleted_at = null;
+              }
             }
             // Merge status từ Gateway vào local account (giữ nguyên ID local)
             existing = {
