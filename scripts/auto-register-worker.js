@@ -457,6 +457,61 @@ async function assertOnExpectedDomain(tabId, userId, label = '') {
 }
 
 /**
+ * Kiểm tra xem trang có bị lỗi Session Ended, invalid_state, hoặc Oops error hay không.
+ * Nếu có, thực hiện phục hồi bằng cách quay lại login page, điền email, và điền password nếu được cung cấp.
+ */
+async function checkAndRecoverSessionEnded(tabId, userId, email, password = null) {
+  const bodyText = await evalJson(tabId, userId, `document.body?.innerText || ''`).catch(() => '');
+  const isSessionEnded = bodyText.toLowerCase().includes('session ended') || 
+                         bodyText.toLowerCase().includes('invalid_state') || 
+                         bodyText.toLowerCase().includes('start over to continue') ||
+                         (bodyText.toLowerCase().includes('oops, an error occurred') && bodyText.toLowerCase().includes('try again'));
+                         
+  if (isSessionEnded) {
+    console.log(`[Recover] ⚠️ Phát hiện màn hình lỗi (Session ended / Oops error). Tự động điều hướng quay lại login page...`);
+    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId, url: 'https://chatgpt.com/auth/login' });
+    
+    // Chờ email input xuất hiện
+    const emailInputAppeared = await pollUntil(async () => {
+      const hasInput = await evalJson(tabId, userId,
+        `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`
+      );
+      return hasInput;
+    }, `SessionEndedRecoveryEmail`, { intervalMs: 2000, maxWaitMs: 15000 });
+
+    if (emailInputAppeared) {
+      console.log(`[Recover] ✅ Đã quay lại login page, tiến hành điền lại email...`);
+      await fillEmail(tabId, userId, email);
+      
+      if (password) {
+        // Chờ password input xuất hiện
+        console.log(`[Recover] ⏳ Đang chờ màn hình password xuất hiện...`);
+        const pwdInputAppeared = await pollUntil(async () => {
+          const hasInput = await evalJson(tabId, userId,
+            `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
+          );
+          return hasInput;
+        }, `SessionEndedRecoveryPassword`, { intervalMs: 2000, maxWaitMs: 15000 });
+
+        if (pwdInputAppeared) {
+          console.log(`[Recover] ✅ Đã thấy ô password, tiến hành điền password...`);
+          await fillPassword(tabId, userId, password);
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          console.log(`[Recover] ⚠️ Không xuất hiện ô password sau khi điền lại email.`);
+        }
+      } else {
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    } else {
+      console.log(`[Recover] ❌ Không thể quay lại login page sau lỗi.`);
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Utility to assert tab is on one of the allowed URL patterns, fails fast if not.
  */
 async function assertPageContext(tabId, userId, stepName, allowedPatterns) {
@@ -1105,22 +1160,33 @@ export async function runAutoRegister(taskInput) {
         break;
       }
 
-      console.log(`[Email-submit] ⚠️ Thao tác submit email chưa chuyển trang (Thử lại ${attempt}/2). Reloading trang và gửi lại...`);
-      await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
-      await new Promise(r => setTimeout(r, 5000));
+      console.log(`[Email-submit] ⚠️ Thao tác submit email chưa chuyển trang (Thử lại ${attempt}/2). Điều hướng lại về auth/login để nhận session mới...`);
+      await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
 
-      // Dọn dẹp pop-up chào mừng nếu có sau khi reload
-      await evalJson(tabId, USER_ID, `
-        (() => {
-          const dismissBtn = document.querySelector('[data-testid="dismiss-welcome"]');
-          if (dismissBtn) dismissBtn.click();
-        })()
-      `).catch(() => {});
+      // Chờ email input xuất hiện sau khi navigate
+      const emailInputAppeared = await pollUntil(async () => {
+        const hasInput = await evalJson(tabId, USER_ID,
+          `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`
+        );
+        return hasInput;
+      }, `EmailRetryNavigate-${attempt}`, { intervalMs: 2000, maxWaitMs: 15000 });
 
-      // Điền email và click submit lại
-      emailClickInfo = await fillEmail(tabId, USER_ID, email);
-      console.log(`[Email-submit] Retry ${attempt} →`, JSON.stringify(emailClickInfo || {}));
-      newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
+      if (emailInputAppeared) {
+        // Dọn dẹp pop-up chào mừng nếu có sau khi reload/navigate
+        await evalJson(tabId, USER_ID, `
+          (() => {
+            const dismissBtn = document.querySelector('[data-testid="dismiss-welcome"]');
+            if (dismissBtn) dismissBtn.click();
+          })()
+        `).catch(() => {});
+
+        // Điền email và click submit lại
+        emailClickInfo = await fillEmail(tabId, USER_ID, email);
+        console.log(`[Email-submit] Retry ${attempt} →`, JSON.stringify(emailClickInfo || {}));
+        newUrl = await waitForUrlChange(tabId, USER_ID, urlBeforeEmail, { timeoutMs: 12000 });
+      } else {
+        console.log(`[Email-submit] ⚠️ Không tìm thấy ô email sau khi quay lại login page.`);
+      }
     }
 
     // Kiểm tra kết quả cuối cùng sau khi hoàn tất retry
@@ -1143,6 +1209,9 @@ export async function runAutoRegister(taskInput) {
     await assertOnExpectedDomain(tabId, USER_ID, 'after-email-submit');
     // Phase 2, Step 1: After email submit
     await recorder.after(2, 1, 'email_submit');
+
+    // Kiểm tra và khôi phục nếu bị Session ended / invalid_state trước khi kiểm thử flow
+    await checkAndRecoverSessionEnded(tabId, USER_ID, email);
 
     // Detect flow sau khi submit email
     await assertPageContext(tabId, USER_ID, 'before-flow-detection', ['chatgpt.com', 'openai.com']);
@@ -1287,9 +1356,16 @@ export async function runAutoRegister(taskInput) {
             })()
           `);
           if (pageBodyCheck?.hasAppError) {
-            console.log(`[Flow Detection] 🔄 Phát hiện Application Error trên trang (OpenAI JS crash). Reload và thử lại email submit...`);
-            await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
-            await new Promise(r => setTimeout(r, 6000));
+            console.log(`[Flow Detection] 🔄 Phát hiện Application Error trên trang (OpenAI JS crash). Điều hướng lại về auth/login...`);
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
+
+            // Chờ email input xuất hiện sau khi navigate
+            await pollUntil(async () => {
+              const hasInput = await evalJson(tabId, USER_ID,
+                `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`
+              );
+              return hasInput;
+            }, `AppErrorNavigate`, { intervalMs: 2000, maxWaitMs: 15000 });
             // Điền lại email sau khi reload
             const reloadFlowCheck = await evalJson(tabId, USER_ID, `
               (() => {
@@ -1472,19 +1548,43 @@ export async function runAutoRegister(taskInput) {
             })()
           `);
 
-          if (!pageError) {
-            console.log(`[Password] Vẫn ở màn hình Password và không có lỗi hiển thị. Thực hiện reload trang và nhập lại...`);
-            await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
-            await new Promise(r => setTimeout(r, 5000));
+            console.log(`[Password] Vẫn ở màn hình Password và không có lỗi hiển thị. Thực hiện quay lại login page và điền lại toàn bộ thông tin...`);
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
 
-            pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
-            console.log(`[Password-submit Retry] →`, JSON.stringify(pwdClickInfo || {}));
-            await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
-            
+            // Chờ email input xuất hiện
+            const emailInputAppeared = await pollUntil(async () => {
+              const hasInput = await evalJson(tabId, USER_ID,
+                `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`
+              );
+              return hasInput;
+            }, `PasswordRetryEmailNavigate`, { intervalMs: 2000, maxWaitMs: 15000 });
+
+            if (emailInputAppeared) {
+              // Submit email
+              await fillEmail(tabId, USER_ID, email);
+              
+              // Đợi ô password xuất hiện lại
+              const pwdInputAppeared = await pollUntil(async () => {
+                const hasInput = await evalJson(tabId, USER_ID,
+                  `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
+                );
+                return hasInput;
+              }, `PasswordRetryPwdNavigate`, { intervalMs: 2000, maxWaitMs: 15000 });
+
+              if (pwdInputAppeared) {
+                pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
+                console.log(`[Password-submit Recovery Retry] →`, JSON.stringify(pwdClickInfo || {}));
+                await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
+              } else {
+                console.log(`[Password-submit Recovery Retry] ⚠️ Không tìm thấy ô password sau khi submit email.`);
+              }
+            } else {
+              console.log(`[Password-submit Recovery Retry] ⚠️ Không tìm thấy ô email sau khi quay lại login page.`);
+            }
+
             stillOnPasswordPage = await evalJson(tabId, USER_ID, `
               !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
             `);
-          }
         }
 
         if (!stillOnPasswordPage) {
@@ -1523,6 +1623,8 @@ export async function runAutoRegister(taskInput) {
 
     // 4. Giải OTP (giống bản gốc - luôn check)
     console.log(`[4] Đang phân tích luồng chờ mã Pin Verify...`);
+    await checkAndRecoverSessionEnded(tabId, USER_ID, email, chatGptPassword);
+
     await assertPageContext(tabId, USER_ID, 'before-otp-check', ['chatgpt.com', 'openai.com']);
     const otpCheckStartTime = Date.now();
     let otpScreenCheck = await evalJson(tabId, USER_ID, `
@@ -1550,6 +1652,7 @@ export async function runAutoRegister(taskInput) {
     if (!otpScreenCheck.hasOtpInput && !otpScreenCheck.hasVerifyUrl && !otpScreenCheck.hasVerifyText) {
       console.log(`[4] ⚠️ OTP screen not detected at all, waiting for any OTP indicator via pollUntil...`);
       const pollSuccess = await pollUntil(async () => {
+        await checkAndRecoverSessionEnded(tabId, USER_ID, email, chatGptPassword);
         const check = await evalJson(tabId, USER_ID, `
           (() => {
             const url = location.href.toLowerCase();
@@ -1857,8 +1960,8 @@ export async function runAutoRegister(taskInput) {
         `);
         
         if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0) {
-          console.log(`[OTP] 🔄 Trang bị trống hoặc đơ (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Đang reload lại trang...`);
-          await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+          console.log(`[OTP] 🔄 Trang bị trống hoặc đơ (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Quay lại login page để khôi phục...`);
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
           await new Promise(r => setTimeout(r, 6000));
           finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
         }
@@ -1951,10 +2054,15 @@ export async function runAutoRegister(taskInput) {
 
       const aboutFillInfo = await evalJson(tabId, USER_ID, `
             (() => {
-               const typeReact = (el, text) => {
+               const fillFieldReact = (el, val) => {
                  if (!el) return false;
+                 if (el.tagName === 'SELECT') {
+                   el.value = val;
+                   el.dispatchEvent(new Event('change', { bubbles: true }));
+                   return true;
+                 }
                  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                 nativeSetter.call(el, text);
+                 nativeSetter.call(el, val);
                  el.dispatchEvent(new Event('input', { bubbles: true }));
                  el.dispatchEvent(new Event('change', { bubbles: true }));
                  return true;
@@ -1977,45 +2085,57 @@ export async function runAutoRegister(taskInput) {
                  if (nameEl) break;
                }
                if (nameEl) {
-                   typeReact(nameEl, '${userInfo.name}');
+                   fillFieldReact(nameEl, '${userInfo.name}');
                    filled.name = 'fullname';
                } else {
                    // thử split first/last name
                    const firstName = document.querySelector('input[name="first_name"], input[placeholder*="first" i], input[placeholder*="First" i]');
                    const lastName  = document.querySelector('input[name="last_name"],  input[placeholder*="last" i],  input[placeholder*="Last" i]');
                    const parts = '${userInfo.name}'.split(' ');
-                   if (firstName) { typeReact(firstName, parts[0] || ''); filled.name = 'first'; }
-                   if (lastName)  { typeReact(lastName,  parts[1] || parts[0]); filled.name = filled.name + '+last'; }
+                   if (firstName) { fillFieldReact(firstName, parts[0] || ''); filled.name = 'first'; }
+                   if (lastName)  { fillFieldReact(lastName,  parts[1] || parts[0]); filled.name = filled.name + '+last'; }
                }
 
                // Điền ngày sinh / tuổi
-              const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i]') ||
-                            document.querySelector('input[type="number"]');
-              const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                            document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
-                            document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+               const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+               const birthDayEl = document.querySelector('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
+               const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
 
-              if (ageEl && ageEl.type !== 'date') {
-                  typeReact(ageEl, '${userInfo.age.toString()}');
-                  filled.bday = 'age';
-              } else if (dobEl) {
-                  // Nếu input type="date", dùng format YYYY-MM-DD
-                  if (dobEl.type === 'date') {
-                      typeReact(dobEl, '${userInfo.birthdate}');
-                      filled.bday = 'dob-date';
-                  } else {
-                      // format DD/MM/YYYY hoặc MM/DD/YYYY dựa trên placeholder
-                      const placeholder = dobEl.placeholder || '';
-                      let dobStr;
-                      if (placeholder.startsWith('MM')) {
-                          dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
-                      } else {
-                          dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
-                      }
-                      typeReact(dobEl, dobStr);
-                      filled.bday = 'dob-text';
-                  }
-              }
+               if ((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl)) {
+                   if (birthMonthEl) fillFieldReact(birthMonthEl, '${userInfo.birthdate.slice(5, 7)}');
+                   if (birthDayEl) fillFieldReact(birthDayEl, '${userInfo.birthdate.slice(8, 10)}');
+                   if (birthYearEl) fillFieldReact(birthYearEl, '${userInfo.birthdate.slice(0, 4)}');
+                   const hiddenDobEl = document.querySelector('input[type="date"]');
+                   if (hiddenDobEl) fillFieldReact(hiddenDobEl, '${userInfo.birthdate}');
+                   filled.bday = 'dob-segmented';
+               } else {
+                   const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
+                   const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                                 document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
+                                 document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+
+                   if (ageEl && ageEl.type !== 'date') {
+                       fillFieldReact(ageEl, '${userInfo.age.toString()}');
+                       filled.bday = 'age';
+                   } else if (dobEl) {
+                       // Nếu input type="date", dùng format YYYY-MM-DD
+                       if (dobEl.type === 'date') {
+                           fillFieldReact(dobEl, '${userInfo.birthdate}');
+                           filled.bday = 'dob-date';
+                       } else {
+                           // format DD/MM/YYYY hoặc MM/DD/YYYY dựa trên placeholder
+                           const placeholder = dobEl.placeholder || '';
+                           let dobStr;
+                           if (placeholder.startsWith('MM')) {
+                               dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+                           } else {
+                               dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+                           }
+                           fillFieldReact(dobEl, dobStr);
+                           filled.bday = 'dob-text';
+                       }
+                   }
+               }
 
                // Click nút Agree / Continue / Finish creating account
                const btn = Array.from(document.querySelectorAll('button')).find(b => {
@@ -2037,8 +2157,14 @@ export async function runAutoRegister(taskInput) {
       if (aboutFillInfo?.bday) {
         const birthdayValidation = await evalJson(tabId, USER_ID, `
           (() => {
+            const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+            const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
             const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
                           document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+            
+            if (birthMonthEl && birthYearEl) {
+              return { found: true, value: (birthMonthEl.value && birthYearEl.value) ? 'segmented-filled' : '', type: 'segmented' };
+            }
             if (!dobEl) return { found: false, value: null };
             return { found: true, value: dobEl.value, type: dobEl.type };
           })()
@@ -2050,36 +2176,60 @@ export async function runAutoRegister(taskInput) {
           console.log(`[5.1] ⚠️ Birthday input trống sau khi điền, retry...`);
           await evalJson(tabId, USER_ID, `
             (() => {
-              const typeReact = (el, text) => {
-                if (!el) return false;
-                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                nativeSetter.call(el, text);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-                return true;
-              };
-              const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                            document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
-              if (dobEl && dobEl.type === 'date') {
-                typeReact(dobEl, '${userInfo.birthdate}');
-              } else if (dobEl) {
-                const placeholder = dobEl.placeholder || '';
-                let dobStr;
-                if (placeholder.startsWith('MM')) {
-                  dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
-                } else {
-                  dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+               const fillFieldReact = (el, text) => {
+                 if (!el) return false;
+                 if (el.tagName === 'SELECT') {
+                   el.value = text;
+                   el.dispatchEvent(new Event('change', { bubbles: true }));
+                   return true;
+                 }
+                 const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                 nativeSetter.call(el, text);
+                 el.dispatchEvent(new Event('input', { bubbles: true }));
+                 el.dispatchEvent(new Event('change', { bubbles: true }));
+                 return true;
+               };
+
+              const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+              const birthDayEl = document.querySelector('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
+              const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
+
+              if (birthMonthEl && birthYearEl) {
+                if (birthMonthEl) fillFieldReact(birthMonthEl, '${userInfo.birthdate.slice(5, 7)}');
+                if (birthDayEl) fillFieldReact(birthDayEl, '${userInfo.birthdate.slice(8, 10)}');
+                if (birthYearEl) fillFieldReact(birthYearEl, '${userInfo.birthdate.slice(0, 4)}');
+                const hiddenDobEl = document.querySelector('input[type="date"]');
+                if (hiddenDobEl) fillFieldReact(hiddenDobEl, '${userInfo.birthdate}');
+              } else {
+                const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+                              document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+                if (dobEl && dobEl.type === 'date') {
+                  fillFieldReact(dobEl, '${userInfo.birthdate}');
+                } else if (dobEl) {
+                  const placeholder = dobEl.placeholder || '';
+                  let dobStr;
+                  if (placeholder.startsWith('MM')) {
+                    dobStr = '${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(0, 4)}';
+                  } else {
+                    dobStr = '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}';
+                  }
+                  fillFieldReact(dobEl, dobStr);
                 }
-                typeReact(dobEl, dobStr);
               }
-              return { ok: !!dobEl };
+              return { ok: true };
             })()
           `);
           await new Promise(r => setTimeout(r, 2000));
           const retryValidation = await evalJson(tabId, USER_ID, `
             (() => {
+              const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+              const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
               const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
                             document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+              
+              if (birthMonthEl && birthYearEl) {
+                return { found: true, value: (birthMonthEl.value && birthYearEl.value) ? 'segmented-filled' : '' };
+              }
               return { found: !!dobEl, value: dobEl?.value || null };
             })()
           `);
@@ -2103,7 +2253,27 @@ export async function runAutoRegister(taskInput) {
         `);
       }
 
-      await new Promise(r => setTimeout(r, 6000)); // được redirect vào dashboard sau click
+      console.log(`[5.2] Đang chờ trình duyệt hoàn tất callback và chuyển hướng vào dashboard...`);
+      let redirectOk = false;
+      for (let attempt = 1; attempt <= 20; attempt++) {
+        const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => 'unknown');
+        const hasNav = await evalJson(tabId, USER_ID, `!!document.querySelector('nav, [data-testid="navigation"], [data-testid="profile-button"], main, input[name="phone"]')`).catch(() => false);
+        
+        console.log(`[5.2] [Chờ redirect] Lần thử ${attempt}/20 | URL: ${currentUrl} | HasNav: ${hasNav}`);
+        
+        if (currentUrl.includes('chatgpt.com') && 
+            !currentUrl.includes('api/auth/callback') && 
+            !currentUrl.includes('auth/login')) {
+          if (hasNav || currentUrl.includes('add-phone')) {
+            redirectOk = true;
+            break;
+          }
+        }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      if (!redirectOk) {
+        console.log(`[5.2] ⚠️ Cảnh báo: Trình duyệt chưa chuyển hướng hoàn toàn ra khỏi callback URL.`);
+      }
       // Phase 3, Step 2: About form completed
       await recorder.after(3, 2, 'about_completed');
     } // end if (!isExistingAccount)
@@ -2535,6 +2705,10 @@ export async function runAutoRegister(taskInput) {
     // Enhanced error logging
     try {
       if (tabId) {
+        // Capture screenshot on error
+        if (recorder) {
+          await recorder.after(9, 9, 'error_occurred').catch(() => {});
+        }
         const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => 'unknown');
         console.log(`[Error] Current URL: ${currentUrl}`);
         
