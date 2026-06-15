@@ -233,55 +233,30 @@ export async function fetchTextViaProxy(url, proxyUrl, timeoutMs = 10000) {
 export async function checkIpLocation(proxyUrl = null) {
   try {
     const { requestViaCurlCffi } = await import('./openai-protocol-register.js');
+    const res = await requestViaCurlCffi({
+      method: 'GET',
+      url: 'https://cloudflare.com/cdn-cgi/trace',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      proxyUrl,
+      timeoutMs: 10000,
+    });
     
-    const endpoints = [
-      {
-        url: 'https://cloudflare.com/cdn-cgi/trace',
-        parse: (text) => {
-          const m = text.match(/loc=([A-Z]+)/);
-          return m ? m[1] : null;
-        }
-      },
-      {
-        url: 'https://ipinfo.io/country',
-        parse: (text) => text.trim().toUpperCase()
-      },
-      {
-        url: 'https://ipapi.co/country/',
-        parse: (text) => text.trim().toUpperCase()
-      }
-    ];
-
-    const errors = [];
-    for (const ep of endpoints) {
-      try {
-        const res = await requestViaCurlCffi({
-          method: 'GET',
-          url: ep.url,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          },
-          proxyUrl,
-          timeoutMs: 20000,
-        });
-        
-        if (res.status === 200 && res.body) {
-          const loc = ep.parse(res.body);
-          if (loc && loc.length === 2 && /^[A-Z]+$/.test(loc)) {
-            const blocked = ['CN', 'HK', 'MO', 'TW'];
-            if (blocked.includes(loc)) {
-              return { ok: false, loc, error: `IP location ${loc} is blocked for registration` };
-            }
-            return { ok: true, loc };
-          }
-        }
-        errors.push(`${ep.url} (status ${res.status || 'unknown'})`);
-      } catch (err) {
-        errors.push(`${ep.url} (${err.message})`);
-      }
+    if (res.status !== 200) {
+      throw new Error(`Trace request failed: status ${res.status}`);
     }
-    
-    return { ok: false, loc: null, error: `Tất cả geolocation endpoints đều thất bại: ${errors.join(' | ')}` };
+    const traceText = res.body || '';
+
+    const locMatch = traceText.match(/loc=([A-Z]+)/);
+    const loc = locMatch ? locMatch[1] : null;
+
+    const blocked = ['CN', 'HK', 'MO', 'TW'];
+    if (loc && blocked.includes(loc)) {
+      return { ok: false, loc, error: `IP location ${loc} is blocked for registration` };
+    }
+
+    return { ok: true, loc };
   } catch (e) {
     return { ok: false, loc: null, error: e.message };
   }

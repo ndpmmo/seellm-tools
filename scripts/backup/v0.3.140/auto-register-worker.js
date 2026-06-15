@@ -1546,9 +1546,9 @@ export async function runAutoRegister(taskInput) {
     `);
     console.log(`[4] OTP screen check:`, JSON.stringify(otpScreenCheck));
 
-    // Case 1: The page is still loading and we don't see anything yet (neither inputs nor verification indicators)
+    // If OTP screen not detected but expected, retry with pollUntil
     if (!otpScreenCheck.hasOtpInput && !otpScreenCheck.hasVerifyUrl && !otpScreenCheck.hasVerifyText) {
-      console.log(`[4] ⚠️ OTP screen not detected at all, waiting for any OTP indicator via pollUntil...`);
+      console.log(`[4] ⚠️ OTP screen not detected, waiting via pollUntil...`);
       const pollSuccess = await pollUntil(async () => {
         const check = await evalJson(tabId, USER_ID, `
           (() => {
@@ -1594,36 +1594,10 @@ export async function runAutoRegister(taskInput) {
         `);
         console.log(`[4] OTP screen check after poll:`, JSON.stringify(otpScreenCheck));
       } else {
-        // Sau khi hết poll vẫn không phát hiện bất kỳ tín hiệu nào của OTP screen — dừng lại
+        // Sau khi hết poll vẫn không phát hiện OTP screen — dừng lại
         throw new Error(`[OTPScreenPoll] Màn hình OTP không xuất hiện sau khi poll. URL hiện tại: ${await evalJson(tabId, USER_ID, 'location.href').catch(() => '?')}`);
       }
     }
-
-    // Case 2: We have OTP page indicators (URL or text) but the input element itself is not rendered yet (React loading)
-    if (!otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText)) {
-      console.log(`[4] ⚠️ OTP page detected but input not rendered yet, waiting for input element...`);
-      const inputPollSuccess = await pollUntil(async () => {
-        const check = await evalJson(tabId, USER_ID, `
-          (() => {
-            return !!(
-              document.querySelector('input[autocomplete="one-time-code"]') ||
-              document.querySelector('input[inputmode="numeric"]') ||
-              document.querySelector('input[name="code"]') ||
-              document.querySelector('input[maxlength="6"]')
-            );
-          })()
-        `);
-        return check;
-      }, 'OTPInputPoll', { intervalMs: 1500, maxWaitMs: 15000 });
-
-      if (inputPollSuccess) {
-        console.log(`[4] ✅ OTP input element appeared!`);
-        otpScreenCheck.hasOtpInput = true;
-      } else {
-        throw new Error(`[OTPInputPoll] Ô nhập mã OTP không hiển thị dù đang ở trang xác thực. URL hiện tại: ${await evalJson(tabId, USER_ID, 'location.href').catch(() => '?')}`);
-      }
-    }
-
     const isOnOtpScreen = otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText);
     if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);

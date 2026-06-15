@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.141] - 2026-06-15 13:35:00
+
+### 🚀 Fallback Định Vị IP & Sửa Lỗi Nhận Diện Màn Hình OTP (IP Check Fallback & OTP Rendering Wait Fix)
+- **scripts/lib/proxy-diag.js**:
+  - **Fallback Định vị IP (IP Geolocation Fallback)**: Tích hợp thêm các endpoint dự phòng (`ipinfo.io/country` và `ipapi.co/country/`) khi kiểm tra quốc gia của IP proxy. Tăng timeout từ 10s lên 20s để giải quyết triệt để lỗi timeout (curl error 28) khi sử dụng proxy xoay/proxy dân cư phản hồi chậm.
+- **scripts/auto-register-worker.js**:
+  - **Chờ tải ô nhập OTP (Wait for OTP inputs)**: Sửa lỗi bỏ qua giai đoạn OTP khi URL đã chuyển hướng sang `/email-verification` nhưng React chưa render xong ô nhập mã. Tiến hành poll đợi tối đa 15 giây cho đến khi ô nhập OTP xuất hiện trên trang thay vì bỏ qua và gây lỗi SuccessDetection.
+
 ## [0.3.140] - 2026-06-15 05:00:00
 
 ### 🚀 Đồng Nhất Con Trỏ Đồng Bộ & Sửa Lỗi Trạng Thái Settings (Unified Sync Cursor & Settings Status Sync Fix)
