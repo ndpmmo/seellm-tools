@@ -606,7 +606,10 @@ app.prepare().then(async () => {
     const camofoxNode = resolveCamofoxNodeCommand(cfg);
     const r = spawnProcess('camofox', '🦊 Camofox Browser Server',
       camofoxNode, ['server.js'], cfg.camofoxPath,
-      { CAMOFOX_PORT: String(cfg.camofoxPort) });
+      { 
+        CAMOFOX_PORT: String(cfg.camofoxPort),
+        MAX_CONCURRENT_TAB_CREATIONS: String(cfg.maxConcurrentTabCreations || 3),
+      });
     if (r.error) return res.status(400).json(r);
     res.json({ ok: true, command: camofoxNode, ...r });
 

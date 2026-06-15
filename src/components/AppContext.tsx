@@ -63,6 +63,8 @@ export interface AppConfig {
   deleteLinkedEmail?: boolean;
   /** Tắt chụp ảnh màn hình trung gian để tối ưu hiệu năng (chỉ chụp khi lỗi) */
   disableScreenshots?: boolean;
+  /** Số luồng tạo tab đồng thời tối đa của Camofox */
+  maxConcurrentTabCreations?: number;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

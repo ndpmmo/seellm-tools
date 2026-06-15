@@ -45,7 +45,7 @@ export function SettingsView() {
   const { config, saveConfig, addToast } = useApp();
   const [f, setF] = useState<AppConfig>({
     camofoxPath: '', camofoxNodePath: '/usr/local/bin/node', camofoxPort: 3000,
-    camofoxApi: 'http://localhost:9377',
+    camofoxApi: 'http://localhost:9377', maxConcurrentTabCreations: 3,
     gatewayUrl: 'http://localhost:20128',
     workerAuthToken: '', pollIntervalMs: 15000, maxThreads: 3,
     forceEnLocale: true,
@@ -361,6 +361,9 @@ export function SettingsView() {
           </Field>
           <Field label="Camofox API URL" hint="URL API nội bộ (thường port 9377)">
             <Input mono className="font-mono text-xs" value={f.camofoxApi} onChange={e => set('camofoxApi', e.target.value)} placeholder="http://localhost:9377" />
+          </Field>
+          <Field label="Số luồng tạo tab đồng thời tối đa" hint="Giới hạn số lượng khởi tạo tab song song cùng một lúc (Khuyên dùng: 2-5)">
+            <Input type="number" value={f.maxConcurrentTabCreations || 3} onChange={e => set('maxConcurrentTabCreations', Number(e.target.value))} />
           </Field>
         </Section>
 

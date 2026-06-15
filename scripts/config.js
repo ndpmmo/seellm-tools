@@ -18,6 +18,7 @@ const defaults = {
   workerAuthToken: '',
   pollIntervalMs: 15000,
   maxThreads: 3,
+  maxConcurrentTabCreations: 3,
   forceEnLocale: true,
   workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
   protocolFirst: true, // default true — đã có curl transport + Datadog headers để impersonate Chrome

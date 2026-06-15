@@ -17,6 +17,7 @@ export function loadConfig() {
     d1SyncSecret:   '',
     pollIntervalMs: 15000,
     maxThreads:    3,
+    maxConcurrentTabCreations: 3,
     forceEnLocale: true,
     workerMode: 'auto', // 'auto' | 'direct-login' | 'pkce-login'
     protocolFirst: true, // 'true' | 'false' — bật/tắt protocol-mode registration
