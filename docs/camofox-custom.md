@@ -649,3 +649,21 @@ await act(tabId, userId, 'type', { ref: 'e2', text: 'hello' });
 await act(tabId, userId, 'press', { key: 'Enter' });
 await act(tabId, userId, 'scroll', { direction: 'down', amount: 500 });
 ```
+
+## Tối ưu hóa tải cao và hàng đợi luồng tạo tab (v0.3.143 - v0.3.144)
+
+Khi chạy đồng thời hàng chục luồng worker song song, Camofox có thể bị nghẽn tài nguyên dẫn đến lỗi timeout. Hai cơ chế tối ưu hóa chính đã được áp dụng:
+
+### 1. Cơ chế Hàng đợi Khởi tạo (Semaphore Queue)
+- **Mục đích**: Giới hạn số lượng trình duyệt/tab được khởi tạo đồng thời để tránh đột biến CPU/RAM khi mở trình duyệt và tải trang đầu tiên.
+- **Hoạt động**: Sử dụng một Semaphore toàn cục trên Camofox Server với dung lượng mặc định là `3` (cấu hình qua thuộc tính `maxConcurrentTabCreations`). Yêu cầu vượt quá giới hạn sẽ xếp hàng đợi, chỉ bắt đầu tính thời gian timeout của request khi slot đã được cấp phát.
+- **Tích hợp UI**: Cấu hình `Số luồng tạo tab đồng thời tối đa` có thể được chỉnh sửa trực quan trong tab **Settings** của SeeLLM Tools và được tự động đồng bộ sang tiến trình Camofox qua biến môi trường `MAX_CONCURRENT_TAB_CREATIONS`.
+
+### 2. Tự động đồng bộ và tăng giới hạn Timeout
+- **Tăng mặc định Server-side Timeouts**:
+  - `handlerTimeoutMs` tăng lên **60 giây** (60000ms) để cho phép các action phức tạp hoàn thành dưới tải cao.
+  - `navigateTimeoutMs` tăng lên **60 giây** (60000ms) giúp các trang load chậm qua proxy không bị timeout sớm.
+- **Thay thế timeout gán cứng**: Các câu lệnh `page.goto` trong `server.js` của Camofox (tại route `/tabs` và `/tabs/:tabId/navigate`) đã chuyển từ giá trị gán cứng `30000ms` sang sử dụng hằng số `NAVIGATE_TIMEOUT_MS`.
+- **Tab Lock Timeout**: Lock acquire timeout của tab được gán động bằng `HANDLER_TIMEOUT_MS + 5000` (mặc định là 65 giây) để tránh tình trạng hàng đợi lock bị timeout trước khi tác vụ đang hoạt động kết thúc.
+- **Worker Timeout**: Hàm wrapper client `camofoxPostWithSessionKey` tăng thời gian chờ mặc định lên **90 giây** để tạo đủ thời gian chờ (headroom) khi phải xếp hàng ở server.
+```
