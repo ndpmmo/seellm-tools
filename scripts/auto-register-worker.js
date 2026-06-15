@@ -295,7 +295,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}) 
 let WORKER_SESSION_KEY = WORKER_AUTH_TOKEN;
 
 // Wrapper for camofoxPost that injects sessionKey (auto-register specific)
-async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 30000) {
+async function camofoxPostWithSessionKey(endpoint, body, timeoutMs = 90000) {
   const payload = { ...body, sessionKey: WORKER_SESSION_KEY };
   return camofoxPost(endpoint, payload, { timeoutMs });
 }
