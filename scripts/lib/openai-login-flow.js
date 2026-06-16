@@ -212,13 +212,13 @@ export async function getState(tabId, userId) {
       // Khác với hasEmailInboxScreen (chỉ có nút bypass, không có ô code):
       // Màn hình này có cả ô nhập mã code VÀ nút "Continue with password".
       // Dùng để các flow cần lấy email OTP thực sự (2FA regen, register) không bị bypass nhầm.
-      const hasEmailOtpInput = hasContinueWithPassword && !!(
-        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email')) &&
+      const hasEmailOtpInput = !!(
+        (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email') || body.includes('xác minh email')) &&
         Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code') || el.type === 'number'))
       );
 
-      // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen và KHÔNG có nút Continue với Password) ──
-      const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !hasContinueWithPassword && !!(
+      // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen, KHÔNG phải email OTP, và KHÔNG có nút Continue với Password) ──
+      const hasMfaInput = !isAddPhonePage && !hasEmailInboxScreen && !hasContinueWithPassword && !hasEmailOtpInput && !!(
         href.includes('/mfa') || href.includes('/totp') || href.includes('two-factor') || href.includes('/otp') ||
         body.includes('one-time code') || body.includes('authenticator app') || body.includes('6-digit') ||
         body.includes('mã xác minh') || body.includes('mã xác thực') || body.includes('mã otp') || body.includes('verification code') ||

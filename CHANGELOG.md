@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.147] - 2026-06-16 15:38:00
+
+### 🚀 Khắc phục lỗi login loop & Nhận dạng màn hình xác minh Email (Warmup Login Loop & Email OTP Fix)
+- **scripts/warmup.js**:
+  - **Thêm transition guard cho login redirect**: Bổ sung bộ lọc kiểm tra trạng thái chuyển trang. Nếu tiến trình vừa thực hiện điền email/password và đang chờ chuyển trang, kịch bản sẽ bỏ qua việc điều hướng lại tới login (ngăn chặn việc click "Log in" liên tục làm tải lại trang và xóa sạch input).
+  - **Xử lý màn hình Email OTP (Device Verification)**: Tích hợp cơ chế nhận diện màn hình yêu cầu mã xác minh qua Email (`state.hasEmailOtpInput`). Khi phát hiện màn hình này, warmup script sẽ dừng và báo lỗi `EMAIL_OTP_REQUIRED` lập tức thay vì gửi liên tục mã TOTP không hợp lệ (tránh nguy cơ bị khóa tài khoản).
+- **scripts/lib/openai-login-flow.js**:
+  - **Tách biệt Email OTP và TOTP**: Cập nhật hàm `hasEmailOtpInput` không yêu cầu nút "Continue with password", đồng thời loại trừ nó khỏi `hasMfaInput` giúp phân biệt chính xác màn hình Authenticator App với màn hình Email code.
+
 ## [0.3.146] - 2026-06-16 15:15:00
 
 ### 🚀 Sửa lỗi Tự Động Gán Proxy & Thống nhất hiển thị Slot trên D1 Cloud (Auto Proxy Assign Fix & Slot Realignment)

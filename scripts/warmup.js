@@ -296,6 +296,14 @@ async function runWarmup() {
         
         // 1. Get current state
         const state = await getState(tabId, USER_ID);
+        console.log(`[Warmup] ℹ️ Lượt ${attempt} trạng thái trang:`);
+        console.log(`   - URL: ${state.href}`);
+        console.log(`   - onAuthDomain: ${state.onAuthDomain}`);
+        console.log(`   - looksLoggedIn: ${state.looksLoggedIn}`);
+        console.log(`   - hasEmailInput: ${state.hasEmailInput}`);
+        console.log(`   - hasPasswordInput: ${state.hasPasswordInput}`);
+        console.log(`   - hasMfaInput: ${state.hasMfaInput}`);
+        console.log(`   - hasContinueWithPassword: ${state.hasContinueWithPassword}`);
         
         if (state.looksLoggedIn) {
           console.log(`[Warmup] 👤 Đăng nhập thành công (trạng thái looksLoggedIn = true)!`);
@@ -516,9 +524,26 @@ async function runWarmup() {
           await delay(5000);
           continue;
         }
+
+        // 7.5. Handle Email OTP Screen (Device Verification) — Warmup does not support it
+        if (state.hasEmailOtpInput) {
+          throw new Error('EMAIL_OTP_REQUIRED: Tài khoản yêu cầu xác minh qua Email (Device Verification), nhưng warmup không hỗ trợ tự động đọc email!');
+        }
         
         // 8. If stuck on chatgpt.com landing/homepage but not logged in and not on auth domain
-        if (!state.onAuthDomain) {
+        if (!state.onAuthDomain && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && !state.hasEmailOtpInput) {
+          // Guard: Nếu vừa điền email hoặc password và đang đợi transition thì không chuyển hướng lại
+          if (emailFilled && emailWaitCount < 3) {
+            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền email...`);
+            await delay(3000);
+            continue;
+          }
+          if (passwordFilled && passwordWaitCount < 3) {
+            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền password...`);
+            await delay(3000);
+            continue;
+          }
+
           console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
           await dismissGooglePopupAndClickLogin(tabId, USER_ID);
           await delay(4000);
