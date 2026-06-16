@@ -53,6 +53,9 @@ export function SettingsView() {
     protocolFirst: true,
     usePersistentProfiles: true,
     deleteLinkedEmail: false,
+    autoExpandSlots: false,
+    autoExpandSlotStep: 1,
+    defaultSlotsPerProxy: 4,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -529,6 +532,52 @@ export function SettingsView() {
               </span>
               {f.deleteLinkedEmail === true ? 'BẬT — Tự động xóa Email liên kết' : 'TẮT — Giữ lại Email trong Pool'}
             </button>
+          </Field>
+          <Field
+            label="Số slot mặc định mỗi Proxy khi import"
+            hint="Số lượng slot phân bổ mặc định cho mỗi proxy khi thực hiện import hàng loạt. Mặc định là 4."
+          >
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={f.defaultSlotsPerProxy ?? 4}
+              onChange={e => set('defaultSlotsPerProxy', parseInt(e.target.value, 10) || 4)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full"
+            />
+          </Field>
+          <Field
+            label="Tự động mở rộng Slot (Auto Expand Slots)"
+            hint="Khi BẬT: Nếu toàn bộ slot trên tất cả active proxies đã được gán đầy, hệ thống sẽ tự động tăng thêm K slot cho từng proxy theo vòng (round-robin) khi có tài khoản mới được tạo thành công."
+          >
+            <button
+              type="button"
+              onClick={() => set('autoExpandSlots', f.autoExpandSlots === true ? false : true)}
+              className={`relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-[12px] font-semibold transition-all ${
+                f.autoExpandSlots === true
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/15'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`w-9 h-5 rounded-full transition-colors ${f.autoExpandSlots === true ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${f.autoExpandSlots === true ? 'translate-x-4' : ''}`} />
+              </span>
+              {f.autoExpandSlots === true ? 'BẬT — Tự động tăng slot nếu đầy' : 'TẮT — Không tự động tăng slot'}
+            </button>
+          </Field>
+          <Field
+            label="Số slot tự động tăng (+K slots) khi mở rộng"
+            hint="Số lượng slot sẽ tự động tạo thêm cho proxy khi kích hoạt chế độ mở rộng tự động. Mặc định là 1."
+          >
+            <input
+              type="number"
+              min={1}
+              max={50}
+              disabled={f.autoExpandSlots !== true}
+              value={f.autoExpandSlotStep ?? 1}
+              onChange={e => set('autoExpandSlotStep', Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className={`bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full ${f.autoExpandSlots !== true ? 'opacity-50 cursor-not-allowed' : ''}`}
+            />
           </Field>
         </Section>
 

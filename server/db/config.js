@@ -25,6 +25,9 @@ export function loadConfig() {
     usePersistentProfiles: true,
     deleteLinkedEmail: false,
     disableScreenshots: false,
+    autoExpandSlots: false,
+    defaultSlotsPerProxy: 4,
+    autoExpandSlotStep: 1,
   };
   try {
     if (existsSync(CONFIG_PATH)) {

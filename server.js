@@ -27,6 +27,7 @@ import { vault } from './server/db/vault.js';
 import { auditLog } from './server/db/auditLog.js';
 import { SyncManager } from './server/services/syncManager.js';
 import { recoverProfilesOnStartup, closeAllProfiles } from './server/profileManager.js';
+import { getNextProxyLabel, reallocateAccountsFromDeletedProxies, allocateProxySlotForAccount } from './server/services/proxySlotAllocator.js';
 import { FINGERPRINT_PRESETS, TIMEZONE_OPTIONS, LANGUAGE_OPTIONS, RESOLUTION_OPTIONS } from './server/fingerprintPresets.js';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -1437,6 +1438,17 @@ app.prepare().then(async () => {
     return bindings;
   }
 
+  const sortProxiesByLabel = (a, b) => {
+    const labelA = a.proxy.label || '';
+    const labelB = b.proxy.label || '';
+    const matchA = labelA.match(/^P(\d+)$/i);
+    const matchB = labelB.match(/^P(\d+)$/i);
+    if (matchA && matchB) return parseInt(matchA[1], 10) - parseInt(matchB[1], 10);
+    if (matchA) return -1;
+    if (matchB) return 1;
+    return labelA.localeCompare(labelB);
+  };
+
   function getAssignableProxy(proxies = [], capByProxy, usedByProxy, explicitProxyId = null) {
     if (explicitProxyId) {
       const p = proxies.find(x => x.id === explicitProxyId);
@@ -1453,7 +1465,7 @@ app.prepare().then(async () => {
         return { proxy: p, free: cap - used, cap };
       })
       .filter((x) => x.cap > 0 && x.free > 0)
-      .sort((a, b) => b.free - a.free);
+      .sort(sortProxiesByLabel);
 
     if (!candidates.length) return { error: 'No proxy with free slots' };
     return { proxy: candidates[0].proxy };
@@ -1639,28 +1651,12 @@ app.prepare().then(async () => {
     if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
     try {
-      const [accountsR, proxiesR] = await Promise.all([
-        d1Request(cfg, 'inspect/accounts?limit=1000'),
-        d1Request(cfg, 'inspect/proxies'),
-      ]);
-      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxiesR = await d1Request(cfg, 'inspect/proxies');
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
-      let account = accounts.find(a => a.id === accountId);
-      if (!account) {
-        console.log(`[D1 Proxy] Account ${accountId} not found in D1. Attempting auto-sync from local...`);
-        const localAcc = vault.getAccount(accountId);
-        if (!localAcc) return res.status(404).json({ error: 'Account not found in local vault' });
-
-        try {
-          const syncResult = await SyncManager.pushVault('account', localAcc);
-          if (!syncResult || !syncResult.ok) throw new Error('Sync failed');
-        } catch (err) {
-          console.error(`[D1 Proxy] Auto-sync failed for ${accountId}:`, err.message);
-          return res.status(500).json({ error: 'Account not mirrored in Cloud D1. Please click "Sync All to D1" first.' });
-        }
-        account = localAcc;
-      }
+      
+      const account = vault.getAccount(accountId);
+      if (!account) return res.status(404).json({ error: 'Account not found in local vault' });
 
       const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
       let chosen = null;
@@ -1672,18 +1668,23 @@ app.prepare().then(async () => {
         const ranked = proxies
           .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
           .filter((x) => x.free > 0)
-          .sort((a, b) => b.free - a.free);
+          .sort(sortProxiesByLabel);
         if (!ranked.length) return res.status(400).json({ error: 'No proxy with free slots' });
         chosen = ranked[0].proxy;
       }
 
       const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
       const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
-      if (!patchR.ok) {
+      if (!patchR.ok && patchR.status !== 404) {
         return res.status(patchR.status).json(patchR.data || { error: patchR.text || 'Patch failed' });
       }
 
       mirrorPatchedAccountToLocal(accountId, patchBody);
+      const updatedLocalAcc = vault.getAccount(accountId);
+      if (updatedLocalAcc) {
+        await SyncManager.pushVault('account', updatedLocalAcc, true);
+      }
+
       const slotSync = await rebindProxySlotForAccount({
         cfg,
         accountId,
@@ -1707,12 +1708,11 @@ app.prepare().then(async () => {
     }
 
     try {
-      const [accountsR, proxiesR, connectionsR] = await Promise.all([
-        d1Request(cfg, 'inspect/accounts?limit=1000'),
+      const [proxiesR, connectionsR] = await Promise.all([
         d1Request(cfg, 'inspect/proxies'),
         d1Request(cfg, 'inspect/connections?limit=1000').catch(() => ({ data: { items: [] } })),
       ]);
-      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const accounts = vault.getAccountsFull();
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
       const connections = Array.isArray(connectionsR.data?.items) ? connectionsR.data.items : [];
@@ -1763,11 +1763,16 @@ app.prepare().then(async () => {
 
       const patchBody = { proxyUrl: '', proxyId: null };
       const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
-      if (!patchR.ok) {
+      if (!patchR.ok && patchR.status !== 404) {
         return res.status(patchR.status).json(patchR.data || { error: patchR.text || 'Patch failed' });
       }
 
       mirrorPatchedAccountToLocal(accountId, patchBody);
+      const updatedLocalAcc = vault.getAccount(accountId);
+      if (updatedLocalAcc) {
+        await SyncManager.pushVault('account', updatedLocalAcc, true);
+      }
+
       const slotSync = await rebindProxySlotForAccount({
         cfg,
         accountId,
@@ -1797,11 +1802,7 @@ app.prepare().then(async () => {
     if (!ids.length) return res.status(400).json({ error: 'accountIds is required' });
 
     try {
-      const [accountsR, proxiesR] = await Promise.all([
-        d1Request(cfg, 'inspect/accounts?limit=1000'),
-        d1Request(cfg, 'inspect/proxies'),
-      ]);
-      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxiesR = await d1Request(cfg, 'inspect/proxies');
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
       const freeByProxy = computeProxyFreeSlots(proxies, proxySlots);
@@ -1810,14 +1811,20 @@ app.prepare().then(async () => {
       const errors = [];
       for (const accountId of ids) {
         try {
-          const account = accounts.find((a) => a.id === accountId) || vault.getAccount(accountId);
+          const account = vault.getAccount(accountId);
           if (!account) throw new Error('Account not found');
 
           if (action === 'unassign') {
             const patchBody = { proxyUrl: '', proxyId: null };
             const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
-            if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+            if (!patchR.ok && patchR.status !== 404) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+            
             mirrorPatchedAccountToLocal(accountId, patchBody);
+            const updatedLocalAcc = vault.getAccount(accountId);
+            if (updatedLocalAcc) {
+              await SyncManager.pushVault('account', updatedLocalAcc, true);
+            }
+
             const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: null, proxySlots });
             if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
             done++;
@@ -1838,8 +1845,14 @@ app.prepare().then(async () => {
               } else {
                 const patchBody = { proxyUrl: existingProxyUrl, proxyId: existingProxyId || null };
                 const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
-                if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+                if (!patchR.ok && patchR.status !== 404) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+                
                 mirrorPatchedAccountToLocal(accountId, patchBody);
+                const updatedLocalAcc = vault.getAccount(accountId);
+                if (updatedLocalAcc) {
+                  await SyncManager.pushVault('account', updatedLocalAcc, true);
+                }
+
                 const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: null, proxySlots });
                 if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
                 done++;
@@ -1856,15 +1869,21 @@ app.prepare().then(async () => {
             const ranked = proxies
               .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
               .filter((x) => x.free > 0)
-              .sort((a, b) => b.free - a.free);
+              .sort(sortProxiesByLabel);
             if (!ranked.length) throw new Error('No proxy with free slots');
             chosen = ranked[0].proxy;
           }
 
           const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
           const patchR = await d1Request(cfg, `accounts/${accountId}`, { method: 'PATCH', body: patchBody });
-          if (!patchR.ok) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+          if (!patchR.ok && patchR.status !== 404) throw new Error(patchR.data?.error || patchR.text || 'Patch failed');
+          
           mirrorPatchedAccountToLocal(accountId, patchBody);
+          const updatedLocalAcc = vault.getAccount(accountId);
+          if (updatedLocalAcc) {
+            await SyncManager.pushVault('account', updatedLocalAcc, true);
+          }
+
           const slotSync = await rebindProxySlotForAccount({ cfg, accountId, targetProxyId: chosen.id, proxySlots });
           if (!slotSync.ok) throw new Error(slotSync.error || 'Slot sync failed');
           freeByProxy.set(chosen.id, Math.max(0, (freeByProxy.get(chosen.id) || 0) - 1));
@@ -1888,11 +1907,7 @@ app.prepare().then(async () => {
     }
 
     try {
-      const [accountsR, proxiesR] = await Promise.all([
-        d1Request(cfg, 'inspect/accounts?limit=1000'),
-        d1Request(cfg, 'inspect/proxies'),
-      ]);
-      const accounts = Array.isArray(accountsR.data?.items) ? accountsR.data.items : [];
+      const proxiesR = await d1Request(cfg, 'inspect/proxies');
       const proxies = Array.isArray(proxiesR.data?.proxies) ? proxiesR.data.proxies : [];
       const proxySlots = Array.isArray(proxiesR.data?.proxySlots) ? proxiesR.data.proxySlots : [];
 
@@ -1905,25 +1920,20 @@ app.prepare().then(async () => {
         const ranked = proxies
           .map((p) => ({ proxy: p, free: freeByProxy.get(p.id) || 0 }))
           .filter((x) => x.free > 0)
-          .sort((a, b) => b.free - a.free);
+          .sort(sortProxiesByLabel);
         if (!ranked.length) break;
-
-        // Nếu account chưa có trên D1, tự động đồng bộ lên trước khi gán
-        if (!accounts.find(a => a.id === account.id)) {
-          console.log(`[D1 Proxy] Auto-syncing missing account ${account.email} before assign...`);
-          try {
-            await SyncManager.pushVault('account', account);
-          } catch (err) {
-            console.error(`[D1 Proxy] Auto-sync failed for ${account.email}:`, err.message);
-            continue; // Bỏ qua account bị lỗi sync
-          }
-        }
 
         const chosen = ranked[0].proxy;
         const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
         const patchR = await d1Request(cfg, `accounts/${account.id}`, { method: 'PATCH', body: patchBody });
-        if (!patchR.ok) continue;
+        if (!patchR.ok && patchR.status !== 404) continue;
+        
         mirrorPatchedAccountToLocal(account.id, patchBody);
+        const updatedLocalAcc = vault.getAccount(account.id);
+        if (updatedLocalAcc) {
+          await SyncManager.pushVault('account', updatedLocalAcc, true);
+        }
+
         const slotSync = await rebindProxySlotForAccount({
           cfg,
           accountId: account.id,
@@ -2006,6 +2016,11 @@ app.prepare().then(async () => {
       const { ids } = req.body || {};
       if (Array.isArray(ids) && ids.length > 0) {
         console.log(`[D1 Proxy] 🛑 Bắt lệnh xóa bulk proxy từ UI (Gateway). Số lượng: ${ids.length}`);
+        
+        // Retrieve deleted proxies first to get their URLs
+        const deletedProxies = ids.map(id => vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id)).filter(Boolean);
+        const deletedUrls = deletedProxies.map(p => p.url).filter(Boolean);
+
         const now = new Date().toISOString();
         const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
         const transaction = vault.db.transaction((proxyIds) => {
@@ -2021,6 +2036,11 @@ app.prepare().then(async () => {
             SyncManager.pushVault('proxy', record).catch(() => {});
           }
         }
+
+        // Reallocate accounts that were bound to deleted proxies
+        reallocateAccountsFromDeletedProxies(deletedUrls, ids).catch((err) => {
+          console.error('[D1 Proxy] Failed to reallocate accounts after bulk proxy deletion:', err.message);
+        });
       }
       return next();
     } catch (e) {
@@ -2037,10 +2057,21 @@ app.prepare().then(async () => {
     if (!Array.isArray(items) || items.length === 0) return next();
 
     try {
+      // Auto-generate sequential labels P1, P2... and assign default slot count
+      let startIdx = getNextProxyLabel();
+      const processedItems = items.map((item) => {
+        startIdx++;
+        return {
+          ...item,
+          label: `P${startIdx}`,
+          slotCount: item.slotCount || cfg.defaultSlotsPerProxy || 4
+        };
+      });
+
       const d1Res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/proxies/bulk-add`, {
         method: 'POST',
         headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items: processedItems }),
         signal: AbortSignal.timeout(60000),
       });
       const d1Data = await d1Res.json();
@@ -2070,7 +2101,7 @@ app.prepare().then(async () => {
             }, true);
           }
         });
-        transaction(items, d1Data.ids);
+        transaction(processedItems, d1Data.ids);
 
         for (const id of d1Data.ids) {
           const record = vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id);

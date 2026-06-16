@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { vault } from '../db/vault.js';
 import { SyncManager } from '../services/syncManager.js';
 import { loadConfig } from '../db/config.js';
+import { getNextProxyLabel, reallocateAccountsFromDeletedProxies, allocateProxySlotForAccount } from '../services/proxySlotAllocator.js';
 import {
   parseCodexIdToken,
   getConsistentMachineId,
@@ -440,6 +441,10 @@ router.post('/proxies/bulk-delete', async (req, res) => {
       return res.status(400).json({ error: 'Missing or invalid ids' });
     }
 
+    // Retrieve deleted proxies first to get their URLs
+    const deletedProxies = ids.map(id => vault.db.prepare('SELECT * FROM vault_proxies WHERE id = ?').get(id)).filter(Boolean);
+    const deletedUrls = deletedProxies.map(p => p.url).filter(Boolean);
+
     const now = new Date().toISOString();
     const stmt = vault.db.prepare('UPDATE vault_proxies SET deleted_at = ?, updated_at = ? WHERE id = ?');
     const transaction = vault.db.transaction((proxyIds) => {
@@ -467,6 +472,11 @@ router.post('/proxies/bulk-delete', async (req, res) => {
       source: 'ui',
       details: { ids },
     });
+
+    // Reallocate accounts that were bound to deleted proxies
+    reallocateAccountsFromDeletedProxies(deletedUrls, ids).catch((err) => {
+      console.error('[Vault Router] Failed to reallocate accounts after bulk proxy deletion:', err.message);
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -477,6 +487,16 @@ router.post('/proxies/bulk-add', async (req, res) => {
       return res.status(400).json({ error: 'Missing or invalid items' });
     }
 
+    // Auto-generate sequential labels P1, P2...
+    let startIdx = getNextProxyLabel();
+    const processedItems = items.map((item) => {
+      startIdx++;
+      return {
+        ...item,
+        label: `P${startIdx}`
+      };
+    });
+
     const added = [];
     const transaction = vault.db.transaction((rows) => {
       for (const row of rows) {
@@ -484,7 +504,7 @@ router.post('/proxies/bulk-add', async (req, res) => {
         added.push(record);
       }
     });
-    transaction(items);
+    transaction(processedItems);
 
     for (const record of added) {
       SyncManager.pushVault('proxy', record).catch(() => {});
@@ -1224,6 +1244,11 @@ router.post('/accounts/result', async (req, res) => {
           source: 'worker',
         });
 
+        // Allocate proxy slot sequentially on success
+        allocateProxySlotForAccount(targetId).catch((err) => {
+          console.error('[Result Path 1] Failed to allocate proxy slot:', err.message);
+        });
+
         if (emitSSE) {
           emitSSE('vault:update', { reason: 'result-success', id: targetId, email: targetEmail });
         }
@@ -1321,6 +1346,11 @@ router.post('/accounts/result', async (req, res) => {
           }).catch(() => { });
         }
       }
+
+      // Allocate proxy slot sequentially on success
+      allocateProxySlotForAccount(id).catch((err) => {
+        console.error('[Result Path 2] Failed to allocate proxy slot:', err.message);
+      });
 
       if (emitSSE) {
         emitSSE('vault:update', { reason: 'result-success-direct', id, email: fullRecord?.email });

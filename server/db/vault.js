@@ -981,16 +981,16 @@ export const vault = {
     // Auto-release/clear proxy_url on active accounts using this proxy
     if (record.url) {
       try {
-        const accounts = db.prepare('SELECT * FROM vault_accounts WHERE proxy_url = ? AND deleted_at IS NULL').all(record.url);
-        if (accounts.length > 0) {
+        // Trigger reallocation in the background
+        import('../services/proxySlotAllocator.js').then(({ reallocateAccountsFromDeletedProxies }) => {
+          reallocateAccountsFromDeletedProxies([record.url], [id]).catch((err) => {
+            console.error('[deleteProxy] reallocation failed, falling back to direct NULL update:', err.message);
+            db.prepare('UPDATE vault_accounts SET proxy_url = NULL, updated_at = ? WHERE proxy_url = ? AND deleted_at IS NULL').run(now, record.url);
+          });
+        }).catch((err) => {
+          console.error('[deleteProxy] failed to load allocator module:', err.message);
           db.prepare('UPDATE vault_accounts SET proxy_url = NULL, updated_at = ? WHERE proxy_url = ? AND deleted_at IS NULL').run(now, record.url);
-          for (const account of accounts) {
-            const updatedAccount = { ...account, proxy_url: null, updated_at: now };
-            if (!skipSync) {
-              SyncManager.pushVault('account', updatedAccount).catch(() => { });
-            }
-          }
-        }
+        });
       } catch (err) {
         console.error('[deleteProxy] Failed to clean proxy from accounts:', err.message);
       }

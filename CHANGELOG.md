@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.146] - 2026-06-16 15:15:00
+
+### 🚀 Sửa lỗi Tự Động Gán Proxy & Thống nhất hiển thị Slot trên D1 Cloud (Auto Proxy Assign Fix & Slot Realignment)
+- **server.js**:
+  - **Sửa lỗi Auto Gán Proxy cho tài khoản Idle**: Bỏ qua lỗi `404` khi gán proxy cho các tài khoản `idle` chưa deploy, tự động push lên D1 `vault_accounts` trước khi rebind slot.
+  - **Tối ưu hóa request**: Loại bỏ các request fetch `inspect/accounts?limit=1000` không cần thiết ở các route `/api/proxy-assign/assign`, `/api/proxy-assign/bulk`, và `/api/proxy-assign/auto` giúp tăng tốc độ API.
+  - **Dùng tài khoản local để map bindings**: Truy vấn danh sách tài khoản local `vault.getAccountsFull()` thay vì query D1 `inspect/accounts` trong `/api/proxy/state` để hiển thị đầy đủ liên kết proxy của cả tài khoản `idle` và `ready`.
+- **src/components/views/ProxiesView.tsx**:
+  - **Tự động làm mới giao diện**: Bổ sung listener sự kiện `seellm:vault-update` để giao diện tự động cập nhật slot theo thời gian thực mỗi khi có thay đổi trạng thái proxy/tài khoản mà không cần F5.
+
 ## [0.3.145] - 2026-06-16 02:20:00
 
 ### 🚀 Tự động giải phóng Proxy khỏi Tài khoản khi xóa Proxy (Auto-release Proxy from Accounts on Proxy Deletion)

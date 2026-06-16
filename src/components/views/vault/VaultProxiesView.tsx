@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Plus, Upload, Search, RefreshCw, Trash2, Globe, Activity,
   ChevronDown, ChevronUp, Check, X, Pencil, Save, Copy,
-  Zap, MapPin, Server, Clock, AlertCircle, Database, CheckSquare, Square, Lock
+  Zap, MapPin, Server, Clock, AlertCircle, Database, CheckSquare, Square, Lock, Settings
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
@@ -141,16 +141,81 @@ function LatencyBadge({ ms }: { ms?: number | null }) {
 
 // ── Main View ──────────────────────────────────────────────────────────────
 export function VaultProxiesView() {
-  const { addToast } = useApp();
+  const { config, saveConfig, addToast } = useApp();
   const { confirm: askConfirm, modal: confirmModal } = useConfirm();
+
+  // All useState hooks
   const [items, setItems]       = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
   const [typeFilter, _setTypeFilter] = useState('all');
   const [statusFilter, _setStatusFilter] = useState('all');
+  const [sortBy, setSortBy]     = useState<'label-asc' | 'recent'>('label-asc');
+
+  // Auto-Expand settings states
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  const [cfgExpand, setCfgExpand] = useState(false);
+  const [cfgStep, setCfgStep] = useState(1);
+  const [cfgDefaultSlots, setCfgDefaultSlots] = useState(4);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [testingAll, setTestingAll] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkRows, setBulkRows] = useState<ReturnType<typeof parseBulk>>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [addingOpen, setAddingOpen] = useState(false);
+  const [editId, setEditId]     = useState<string | null>(null);
+  const [copied, setCopied]     = useState<string | null>(null);
+
+  // Form state
+  const [form, setForm] = useState({ label: '', url: '', type: 'http', country: '', notes: '' });
+  const setFormField = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(v => ({ ...v, [k]: e.target.value }));
+
+  // Memoized/Callback/Effect hooks
+  useEffect(() => {
+    if (config) {
+      setCfgExpand(config.autoExpandSlots ?? false);
+      setCfgStep(config.autoExpandSlotStep ?? 1);
+      setCfgDefaultSlots(config.defaultSlotsPerProxy ?? 4);
+    }
+  }, [config]);
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      await saveConfig({
+        autoExpandSlots: cfgExpand,
+        autoExpandSlotStep: cfgStep,
+        defaultSlotsPerProxy: cfgDefaultSlots
+      });
+      setShowConfigPanel(false);
+    } catch (e: any) {
+      addToast(`❌ Lỗi lưu cài đặt: ${e.message}`, 'error');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const nextProxyLabelIndex = useMemo(() => {
+    let max = 0;
+    for (const p of items) {
+      if (p.label) {
+        const match = p.label.match(/^P(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > max) max = num;
+        }
+      }
+    }
+    return max + 1;
+  }, [items]);
 
   const setTypeFilter = useCallback((t: string) => {
     _setTypeFilter(t);
@@ -183,22 +248,6 @@ export function VaultProxiesView() {
       }
     }
   }, []);
-
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
-  const [testingAll, setTestingAll] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkText, setBulkText] = useState('');
-  const [bulkRows, setBulkRows] = useState<ReturnType<typeof parseBulk>>([]);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [addingOpen, setAddingOpen] = useState(false);
-  const [editId, setEditId]     = useState<string | null>(null);
-  const [copied, setCopied]     = useState<string | null>(null);
-
-  // Form state
-  const [form, setForm] = useState({ label: '', url: '', type: 'http', country: '', notes: '' });
-  const setFormField = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(v => ({ ...v, [k]: e.target.value }));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -236,6 +285,31 @@ export function VaultProxiesView() {
     });
   }, [items, search, typeFilter, statusFilter]);
 
+  const sorted = useMemo(() => {
+    const parseLabelNumber = (label?: string) => {
+      if (!label) return Infinity;
+      const match = label.match(/^P(\d+)$/i);
+      return match ? parseInt(match[1], 10) : Infinity;
+    };
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'label-asc') {
+        const numA = parseLabelNumber(a.label);
+        const numB = parseLabelNumber(b.label);
+        if (numA !== numB) return numA - numB;
+        return (a.label || '').localeCompare(b.label || '');
+      } else {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        if (dateA !== dateB) return dateB - dateA;
+        const numA = parseLabelNumber(a.label);
+        const numB = parseLabelNumber(b.label);
+        if (numA !== numB) return numB - numA;
+        return (b.label || '').localeCompare(a.label || '');
+      }
+    });
+  }, [filtered, sortBy]);
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 
   useEffect(() => {
@@ -244,14 +318,14 @@ export function VaultProxiesView() {
     }
   }, [currentPage, totalPages]);
 
-  // Reset page when filters change
+  // Reset page when filters or sorting change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, typeFilter, statusFilter]);
+  }, [search, typeFilter, statusFilter, sortBy]);
 
   const paginated = useMemo(() => {
-    return filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  }, [filtered, currentPage, pageSize]);
+    return sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [sorted, currentPage, pageSize]);
 
   // ── Actions ────────────────────────────────────────────────────────────
   const save = async (editingId?: string) => {
@@ -436,11 +510,108 @@ export function VaultProxiesView() {
       {confirmModal}
       
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mt-2">
+      <div className="grid grid-cols-4 gap-4 mt-2 shrink-0">
         <StatBox label="Tổng Proxy" value={stats.total} icon={Globe} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
         <StatBox label="Active" value={stats.active} icon={Check} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
         <StatBox label="Down" value={stats.down} icon={AlertCircle} colorClass="text-rose-400" bgClass="bg-rose-500/10" active={statusFilter === 'down'} onClick={() => setStatusFilter('down')} />
         <StatBox label="Chưa Test" value={stats.unknown} icon={Clock} colorClass="text-amber-400" bgClass="bg-amber-500/10" active={statusFilter === 'unknown'} onClick={() => setStatusFilter('unknown')} />
+      </div>
+
+      {/* Smart Allocation Banner */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500/10 via-cyan-500/5 to-emerald-500/5 border border-white/10 flex flex-col gap-3 p-4 shrink-0">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+              <Activity size={16} />
+            </div>
+            <div>
+              <div className="text-[12.5px] font-semibold text-slate-200">Hệ thống Phân bổ Proxy & Slot Thông minh</div>
+              <div className="text-[11px] text-slate-400 leading-relaxed mt-0.5">
+                Tự động gán nhãn tuần tự <code className="text-cyan-400 font-mono bg-cyan-500/10 px-1 rounded">P1, P2...</code> khi import. Tự động tìm slot trống và giải phóng slot khi tài khoản/proxy bị xóa.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5 self-start sm:self-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Auto Label: P{nextProxyLabelIndex}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowConfigPanel(!showConfigPanel)}
+              className={`flex items-center gap-1 text-[11px] px-2.5 py-1 ${showConfigPanel ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}`}
+            >
+              <Settings size={12} className={showConfigPanel ? 'animate-spin-slow' : ''} />
+              Cấu hình
+            </Button>
+          </div>
+        </div>
+
+        {showConfigPanel && (
+          <div className="mt-2 pt-3 border-t border-white/5 grid grid-cols-1 md:grid-cols-3 gap-4 animate-fadeIn">
+            {/* Auto Expand Toggle */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                Tự động mở rộng Slot
+              </label>
+              <button
+                type="button"
+                onClick={() => setCfgExpand(!cfgExpand)}
+                className={`relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[11.5px] font-semibold transition-all ${
+                  cfgExpand
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/15'
+                    : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                }`}
+              >
+                <span className={`w-7 h-4 rounded-full transition-colors ${cfgExpand ? 'bg-emerald-500' : 'bg-slate-600'} relative`}>
+                  <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${cfgExpand ? 'translate-x-3' : ''}`} />
+                </span>
+                {cfgExpand ? 'Đang Bật' : 'Đang Tắt'}
+              </button>
+            </div>
+
+            {/* Auto Expand Step */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-400">
+                Số slot tự động tăng (+K slots)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={cfgStep}
+                disabled={!cfgExpand}
+                onChange={e => setCfgStep(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className={`bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[11.5px] text-white focus:outline-none focus:border-indigo-500/50 w-full ${!cfgExpand ? 'opacity-50 cursor-not-allowed' : ''}`}
+              />
+            </div>
+
+            {/* Default Slots Per Proxy */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-400">
+                Số slot mặc định mỗi Proxy khi import
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={cfgDefaultSlots}
+                  onChange={e => setCfgDefaultSlots(Math.max(1, parseInt(e.target.value, 10) || 4))}
+                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[11.5px] text-white focus:outline-none focus:border-indigo-500/50 w-full"
+                />
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={savingSettings}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-[11.5px] px-4 py-1.5 h-full whitespace-nowrap"
+                >
+                  {savingSettings ? 'Đang lưu...' : 'Lưu'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -466,6 +637,14 @@ export function VaultProxiesView() {
               </Button>
             )}
             <div className="flex-1" />
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as 'label-asc' | 'recent')}
+              className="bg-white/5 border border-white/10 text-slate-200 text-xs rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-500/50 cursor-pointer h-8"
+            >
+              <option value="label-asc" className="bg-[#0b0f19] text-slate-200">Sắp xếp: P1 → PN</option>
+              <option value="recent" className="bg-[#0b0f19] text-slate-200">Sắp xếp: Gần đây</option>
+            </select>
             <div className="relative flex items-center">
               <Search size={12} className="absolute left-2.5 text-slate-500 pointer-events-none" />
               <Input className="pl-7 h-8 w-[180px] text-xs bg-white/5 border-white/10" placeholder="Tìm proxy…" value={search} onChange={e => setSearch(e.target.value)} />

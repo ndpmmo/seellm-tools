@@ -65,6 +65,12 @@ export interface AppConfig {
   disableScreenshots?: boolean;
   /** Số luồng tạo tab đồng thời tối đa của Camofox */
   maxConcurrentTabCreations?: number;
+  /** Tự động mở rộng slot khi các slot hiện tại đầy */
+  autoExpandSlots?: boolean;
+  /** Số slot mặc định cho mỗi Proxy */
+  defaultSlotsPerProxy?: number;
+  /** Số slot tự động tăng thêm mỗi lần mở rộng */
+  autoExpandSlotStep?: number;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }
