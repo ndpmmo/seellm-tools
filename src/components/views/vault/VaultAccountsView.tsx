@@ -11,6 +11,20 @@ import { fmtDateTimeVN, useConfirm } from '../../Views';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, GatewayBadge } from '../../ui';
 
 /* ── Helpers ── */
+function getRelativeTimeShort(isoString?: string) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return 'vừa xong';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'vừa xong';
+  if (mins < 60) return `${mins}p`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}g`;
+  const days = Math.floor(hours / 24);
+  return `${days}n`;
+}
+
 function StatusBadge({ status, notes, tags = [] }: { status: string; notes?: string; tags?: string[] }) {
   // 1. Trường hợp đặc biệt cao nhất: tài khoản bị Vô hiệu hóa (Dead / Deactivated)
   if (tags.includes('account_deactivated') || status === 'dead') {
@@ -1966,7 +1980,16 @@ export function VaultAccountsView() {
                             if (ps.warmupStatus === 'pending') {
                               badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20"><RefreshCw size={9} className="animate-spin mr-0.5" /> Warming</span>);
                             } else if (ps.warmupStatus === 'success') {
-                              badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-orange-400 font-semibold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20"><Flame size={9} className="mr-0.5 animate-pulse" /> Warmed</span>);
+                              const relTime = getRelativeTimeShort(ps.lastWarmedAt);
+                              badges.push(
+                                <span 
+                                  key="warm" 
+                                  className="inline-flex items-center text-[10px] text-orange-400 font-semibold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20"
+                                  title={ps.lastWarmedAt ? `Warmup lúc: ${fmtDateTimeVN(ps.lastWarmedAt)}` : undefined}
+                                >
+                                  <Flame size={9} className="mr-0.5 animate-pulse" /> Warmed {relTime ? `(${relTime})` : ''}
+                                </span>
+                              );
                             } else if (ps.warmupStatus === 'failed') {
                               badges.push(<span key="warm" className="inline-flex items-center text-[10px] text-rose-400 font-medium bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">⚠️ Failed</span>);
                             }

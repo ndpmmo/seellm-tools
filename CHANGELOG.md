@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.149] - 2026-06-16 23:43:00
+
+### 🚀 Hiển thị thời gian Warmup rút gọn trên danh sách tài khoản (Relative Warmup Time Badge)
+- **src/components/views/vault/VaultAccountsView.tsx**:
+  - **getRelativeTimeShort**: Bổ sung hàm tiện ích chuyển đổi mốc thời gian `lastWarmedAt` sang dạng tương đối rút gọn (`Xp` - X phút, `Xg` - X giờ, `Xn` - X ngày hoặc `vừa xong`).
+  - **Warmed Badge**: Tích hợp nhãn thời gian tương đối hiển thị trực tiếp bên cạnh trạng thái `Warmed` (ví dụ: `Warmed (5p)`, `Warmed (3g)`), giúp người dùng dễ dàng theo dõi thời điểm hoàn thành của từng tài khoản khi duyệt danh sách lớn.
+  - **Detailed Tooltip**: Thêm thuộc tính `title` để hiển thị thời gian chính xác theo múi giờ Việt Nam khi di chuột qua nhãn.
+
 ## [0.3.148] - 2026-06-16 20:43:00
 
 ### 🚀 Tối ưu hóa độ tin cậy đăng nhập Warmup & Khắc phục lỗi timeout với Proxy chậm
