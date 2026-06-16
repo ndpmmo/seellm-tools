@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.148] - 2026-06-16 20:43:00
+
+### 🚀 Tối ưu hóa độ tin cậy đăng nhập Warmup & Khắc phục lỗi timeout với Proxy chậm
+- **scripts/lib/openai-login-flow.js**:
+  - **Tối ưu hóa looksLoggedIn**: Tránh việc input email ở các settings/share modal trên trang chủ `chatgpt.com` ghi đè trạng thái đăng nhập thành false. Chỉ kiểm tra `!hasEmailInput`, `!hasPasswordInput`, `!hasMfaInput`, `!hasContinueWithPassword` khi trình duyệt thực sự đang ở trên miền xác thực `auth.openai.com`.
+  - **Khắc phục lỗi nhận diện sai error**: Loại bỏ từ khóa `'signing you in'` khỏi danh sách `somethingWrong` để ngăn chặn việc nhận diện sai trạng thái tải trang authorize bình thường thành màn hình lỗi và gây lặp lại đăng nhập.
+  - **Khắc phục nghẽn hàng đợi actClick**: Bổ sung `timeoutMs: 6000` vào tham số body gửi lên Camofox server của `actClick` để đồng bộ thời gian chờ Playwright trên server-side, tránh việc client fetch bị timeout trước (3 giây) và tự động gửi trùng lặp request gây nghẽn tab lock.
+- **scripts/lib/camofox.js**:
+  - **Khắc phục nuốt lỗi navigate**: Thay đổi hàm `navigate` ném lại lỗi (`throw e`) thay vì chỉ log, giúp kịch bản warmup nhận diện sớm các sự cố mạng/proxy chết để dừng sớm và giải phóng tài nguyên.
+
 ## [0.3.147] - 2026-06-16 15:38:00
 
 ### 🚀 Khắc phục lỗi login loop & Nhận dạng màn hình xác minh Email (Warmup Login Loop & Email OTP Fix)

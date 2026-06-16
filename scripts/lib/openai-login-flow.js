@@ -133,7 +133,7 @@ export const MULTILANG = {
     'authentication error', 'an error occurred during authentication',
     'workspaces not found', 'invalid authorize request',
     'session ended', 'invalid_state',
-    'oops!', 'we ran into an issue', 'signing you in',
+    'oops!', 'we ran into an issue',
     'please take a break', 'try again soon',
   ],
 };
@@ -287,19 +287,28 @@ export async function getState(tabId, userId) {
       const hasResetPasswordScreen = onAuthDomain && (body.includes('reset password') || body.includes('khôi phục mật khẩu') || body.includes('đặt lại mật khẩu') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password'));
 
        // ── Logged-in indicators ──
-      const looksLoggedIn = (
-        !hasEmailInput &&
-        !hasPasswordInput &&
-        !hasMfaInput &&
-        !hasContinueWithPassword &&
-        !hasResetPasswordScreen &&
-        !hasPhoneScreen &&
-        !hasError &&
-        !hasDeactivated &&
-        !isOnboarding &&
-        !isWorkspaceScr &&
-        !isConsentScr &&
-        tempLooksLoggedIn
+      const looksLoggedIn = tempLooksLoggedIn && (
+        onAuthDomain ? (
+          !hasEmailInput &&
+          !hasPasswordInput &&
+          !hasMfaInput &&
+          !hasContinueWithPassword &&
+          !hasResetPasswordScreen &&
+          !hasPhoneScreen &&
+          !hasError &&
+          !hasDeactivated &&
+          !isOnboarding &&
+          !isWorkspaceScr &&
+          !isConsentScr
+        ) : (
+          !hasResetPasswordScreen &&
+          !hasPhoneScreen &&
+          !hasError &&
+          !hasDeactivated &&
+          !isOnboarding &&
+          !isWorkspaceScr &&
+          !isConsentScr
+        )
       );
 
       return {
@@ -496,8 +505,9 @@ export async function fillPassword(tabId, userId, password) {
       console.log(`[fillPassword] Attempting native click on Continue button...`);
       try {
         const nativeClickRes = await actClick(tabId, userId, {
-          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")'
-        }, { timeoutMs: 3000 });
+          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
+          timeoutMs: 6000
+        }, { timeoutMs: 9000 });
         if (nativeClickRes && nativeClickRes.ok) {
           console.log(`[fillPassword] Native click succeeded:`, JSON.stringify(nativeClickRes));
           

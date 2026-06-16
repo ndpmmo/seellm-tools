@@ -277,6 +277,7 @@ export async function navigate(tabId, userId, url, { timeoutMs = 30000 } = {}) {
     await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs });
   } catch (e) {
     console.log(`[camofox] navigate failed: ${e.message}`);
+    throw e;
   }
 }
 
