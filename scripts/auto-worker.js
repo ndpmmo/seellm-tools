@@ -22,7 +22,7 @@ import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
 import { decodeJwtPayload, extractAccountMeta } from './lib/openai-auth.js';
-import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, selectPersonalWorkspaceOnWorkspacePage, clickContinueWithPassword, MULTILANG } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopupAndClickLogin, waitForState, isPhoneVerificationScreen, isConsentScreen, isAuthLoginLikeScreen, selectPersonalWorkspaceOnWorkspacePage, clickContinueWithPassword, MULTILANG, tryDismissPasskeyEnrollment } from './lib/openai-login-flow.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { acquireCodexCallbackViaProtocol, acquireCodexCallbackViaSessionSeeding } from './lib/openai-protocol-register.js';
 import { waitForOTPCode } from './lib/ms-graph-email.js';
@@ -2574,6 +2574,15 @@ async function runLoginFlow(task) {
         redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
         if (!redirectUrl) { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return; }
         break;
+      }
+      if (curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey') || html.includes('log in faster next time') || html.includes('set up faster login')) {
+        console.log(`[Login] 🔑 Passkey enrollment screen detected. Dismissing...`);
+        const dismissed = await tryDismissPasskeyEnrollment(tabId, USER_ID);
+        if (dismissed) {
+          console.log(`[Login] ✅ Dismissed passkey enrollment screen successfully.`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
       }
       if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
         console.log(`[Login] 🔐 Consent page detected (wait loop ${i + 1}), clicking Continue...`);

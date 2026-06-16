@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.155] - 2026-06-17 01:30:00
+
+### 🚀 Tự động vượt qua màn hình đăng ký Passkey (Log in faster next time)
+- **scripts/lib/openai-login-flow.js**:
+  - **Phát hiện màn hình Passkey**: Tích hợp cờ `hasPasskeyEnrollScreen` vào hàm `getState()`, tự động phát hiện khi URL chứa `/login-enroll-passkey` hoặc trang chứa nội dung "Log in faster next time" (hoặc "set up faster login").
+  - **Tự động đóng Passkey**: Bổ sung helper `tryDismissPasskeyEnrollment()` giúp tìm và click các nút bỏ qua ("Skip", "Bỏ qua", "Dismiss", "Later", "Not now") để tiếp tục quá trình đăng nhập.
+- **scripts/warmup.js**, **scripts/auto-worker.js**, **scripts/auto-register-worker.js**:
+  - **Tích hợp xử lý tự động**: Gọi helper `tryDismissPasskeyEnrollment()` ngay khi phát hiện màn hình Passkey xuất hiện sau bước đăng nhập/OTP, giúp tiến trình không bị nghẽn (hang) dẫn đến timeout.
+
 ## [0.3.154] - 2026-06-17 01:25:00
 
 ### 🚀 Tối ưu hóa khởi động Tab (about:blank) & Tự động chuyển trạng thái Relogin khi sai thông tin

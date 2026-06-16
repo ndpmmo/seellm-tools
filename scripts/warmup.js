@@ -18,6 +18,7 @@ import {
   dismissGooglePopupAndClickLogin,
   selectPersonalWorkspaceOnWorkspacePage,
   clickContinueWithPassword,
+  tryDismissPasskeyEnrollment,
 } from './lib/openai-login-flow.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -533,6 +534,17 @@ async function runWarmup() {
         // 7.5. Handle Email OTP Screen (Device Verification) — Warmup does not support it
         if (state.hasEmailOtpInput) {
           throw new Error('EMAIL_OTP_REQUIRED: Tài khoản yêu cầu xác minh qua Email (Device Verification), nhưng warmup không hỗ trợ tự động đọc email!');
+        }
+
+        // 7.6. Handle Passkey Enrollment (faster login) screen
+        if (state.hasPasskeyEnrollScreen) {
+          console.log(`[Warmup] 🔑 Phát hiện màn hình đăng ký Passkey ("Log in faster next time"). Tiến hành bỏ qua...`);
+          const dismissed = await tryDismissPasskeyEnrollment(tabId, USER_ID);
+          if (dismissed) {
+            console.log(`[Warmup] ✅ Đã bỏ qua màn hình Passkey thành công!`);
+            await delay(3000);
+            continue;
+          }
         }
         
         // 8. If stuck on chatgpt.com landing/homepage but not logged in and not on auth domain

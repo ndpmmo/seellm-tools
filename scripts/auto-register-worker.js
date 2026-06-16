@@ -22,7 +22,7 @@ import { waitForOTPCode } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
-import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopup, clickContinueWithPassword } from './lib/openai-login-flow.js';
+import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopup, clickContinueWithPassword, tryDismissPasskeyEnrollment } from './lib/openai-login-flow.js';
 import { checkIpLocation } from './lib/proxy-diag.js';
 import { runProtocolRegistration, requestViaCurlCffi } from './lib/openai-protocol-register.js';
 
@@ -2283,6 +2283,12 @@ export async function runAutoRegister(taskInput) {
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);
+    const curUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
+    if (curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey')) {
+      console.log(`[6] 🔑 Passkey enrollment screen detected. Dismissing...`);
+      await tryDismissPasskeyEnrollment(tabId, USER_ID);
+      await new Promise(r => setTimeout(r, 3000));
+    }
     const pageUrl = await evalJson(tabId, USER_ID, `location.href`);
     if (pageUrl.includes('add-phone')) {
       console.log(`[6.1] Phát hiện add-phone → thử conditional bypass trước...`);
