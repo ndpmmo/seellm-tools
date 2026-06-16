@@ -21,6 +21,7 @@ import {
 } from './lib/openai-login-flow.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 
 
@@ -237,10 +238,10 @@ async function runWarmup() {
     
     // Set up step recorder for screenshots if enabled
     if (WARMUP_SCREENSHOTS) {
-      const runDir = path.join(process.cwd(), 'data', 'screenshots', `warmup_${account.id}`);
+      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`);
       await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
       await fs.mkdir(runDir, { recursive: true });
-      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
       console.log(`[Warmup] 📸 Chụp ảnh logs đã bật! Thư mục ảnh: ${runDir}`);
     }
 

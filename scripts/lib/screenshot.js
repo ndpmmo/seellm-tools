@@ -21,6 +21,7 @@ export function createStepRecorder(runDir, {
   userId,
   camofoxApi = CAMOUFOX_API,
   enableDedupe = true,
+  ignoreGlobalDisable = false,
 } = {}) {
   let stepCount = 0;
   const capturedKeys = new Set(); // Track dedupe keys
@@ -31,7 +32,7 @@ export function createStepRecorder(runDir, {
    * @returns {Promise<string|null>} Filename or null if skipped
    */
   async function capture({ phase, step, moment, slug, dedupeKey = null } = {}) {
-    if (DISABLE_SCREENSHOTS && moment !== 'error') {
+    if (DISABLE_SCREENSHOTS && moment !== 'error' && !ignoreGlobalDisable) {
       return null;
     }
 
@@ -122,7 +123,7 @@ export function createStepRecorder(runDir, {
    * @returns {Promise<void>}
    */
   async function saveStep(label) {
-    if (DISABLE_SCREENSHOTS) {
+    if (DISABLE_SCREENSHOTS && !ignoreGlobalDisable) {
       return;
     }
 

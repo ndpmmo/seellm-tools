@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.152] - 2026-06-17 00:35:00
+
+### 🚀 Tách biệt ảnh chụp logs Warmup & Tự động ghi nhận tài khoản Deactivated/Dead
+- **scripts/lib/screenshot.js**:
+  - **ignoreGlobalDisable**: Hỗ trợ tham số `ignoreGlobalDisable` cho trình chụp ảnh để bỏ qua cấu hình CPU Optimization (`disableScreenshots: true`) của kịch bản đăng ký. Đảm bảo ảnh logs Warmup được lưu lại đầy đủ theo từng bước/checkpoint khi người dùng bật chế độ chụp logs Warmup ở Settings, khắc phục tình trạng thư mục ảnh bị trống.
+- **scripts/warmup.js**:
+  - Tích hợp `ignoreGlobalDisable: true` khi khởi tạo `createStepRecorder`, khôi phục tính năng chụp ảnh logs Warmup.
+  - Sửa lỗi đường dẫn tương đối bằng cách thay `process.cwd()` thành đường dẫn tuyệt đối (resolve thông qua `import.meta.url`) để bảo vệ dữ liệu ảnh logs tránh bị ghi sai vị trí khi tiến trình được khởi tạo ở các thư mục làm việc khác nhau.
+- **server/routes/vault.js**:
+  - **Xử lý Deactivated trong Warmup/2FA**: Tích hợp kiểm tra `isDeactivatedMsg(error)` vào hai route nhận kết quả `/accounts/:id/warmup-result` và `/accounts/:id/regenerate-2fa-result`. Khi phát hiện tài khoản bị OpenAI khóa (`ACCOUNT_DEACTIVATED`), hệ thống tự động gán tag `account_deactivated`, đổi trạng thái tài khoản thành `'dead'` và cập nhật ghi chú giải thích để hiển thị trực quan lên UI.
+
 ## [0.3.151] - 2026-06-17 00:05:00
 
 ### 🚀 Tối ưu hàng đợi tiến trình không chặn HTTP & Cải thiện độ ổn định tương tác ChatGPT

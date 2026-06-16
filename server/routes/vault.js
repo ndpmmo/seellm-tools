@@ -3426,14 +3426,21 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       updateData.status = (account.status === 'idle') ? 'idle' : 'ready';
     }
     
-    let targetStatus = accountStatus;
-    if (preCheckStatus === 'idle') {
-      targetStatus = 'idle';
-      console.log(`[Warmup-Result] Restoring account ${account.email || id} status to 'idle' (was idle before check)`);
+    const isDeactivated = isDeactivatedMsg(error);
+    if (isDeactivated) {
+      maybeAddAccountDeactivatedTag(id, error);
+      updateData.status = 'dead';
+      updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong Warmup: ${error})`;
+    } else {
+      let targetStatus = accountStatus;
+      if (preCheckStatus === 'idle') {
+        targetStatus = 'idle';
+        console.log(`[Warmup-Result] Restoring account ${account.email || id} status to 'idle' (was idle before check)`);
+      }
+      
+      if (targetStatus) updateData.status = targetStatus;
+      if (notes !== null) updateData.notes = notes;
     }
-    
-    if (targetStatus) updateData.status = targetStatus;
-    if (notes !== null) updateData.notes = notes;
     if (accessToken) updateData.access_token = accessToken;
     if (plan) updateData.plan = plan;
     if (workspaceId) updateData.workspace_id = workspaceId;
@@ -3568,7 +3575,12 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
       provider_specific_data: existingProviderData
     };
     
-    if (status === 'success' && secret) {
+    const isDeactivated = isDeactivatedMsg(error);
+    if (isDeactivated) {
+      maybeAddAccountDeactivatedTag(id, error);
+      updateData.status = 'dead';
+      updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong 2FA Regen: ${error})`;
+    } else if (status === 'success' && secret) {
       updateData.two_fa_secret = secret;
       // Trạng thái: nếu trước đó là 'idle' thì giữ nguyên 'idle' để tránh tự động đẩy active lên gateway.
       // Các trạng thái khác (ready, error, relogin, need_phone) được chuyển thành 'ready' vì đã login thành công.
