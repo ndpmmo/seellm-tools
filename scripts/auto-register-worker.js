@@ -2283,11 +2283,16 @@ export async function runAutoRegister(taskInput) {
 
     // 6. Nhẩy Bypass Phone & Nhẩy vào Workspace
     console.log(`[6] Tiến hành Bypass Screen (if Phone requested) và lấy Access Token...`);
-    const curUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
-    if (curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey')) {
-      console.log(`[6] 🔑 Passkey enrollment screen detected. Dismissing...`);
-      await tryDismissPasskeyEnrollment(tabId, USER_ID);
-      await new Promise(r => setTimeout(r, 3000));
+    for (let check = 0; check < 3; check++) {
+      const checkState = await getState(tabId, USER_ID).catch(() => null);
+      const curUrl = checkState?.href || '';
+      if (checkState?.hasPasskeyEnrollScreen || curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey')) {
+        console.log(`[6] 🔑 Passkey enrollment screen detected (check ${check + 1}/3). Dismissing...`);
+        await tryDismissPasskeyEnrollment(tabId, USER_ID);
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        break;
+      }
     }
     const pageUrl = await evalJson(tabId, USER_ID, `location.href`);
     if (pageUrl.includes('add-phone')) {
@@ -2580,6 +2585,17 @@ export async function runAutoRegister(taskInput) {
     // Vòng lặp retry 5 lần để đảm bảo lấy được session metadata ổn định
     for (let attempt = 0; attempt < 5; attempt++) {
       console.log(`[Capture] 🔄 Thử lấy session metadata từ browser (Lần thử ${attempt + 1}/5)...`);
+      
+      try {
+        const checkState = await getState(tabId, USER_ID).catch(() => null);
+        if (checkState?.hasPasskeyEnrollScreen) {
+          console.log(`[Capture] 🔑 Passkey enrollment screen detected during capture. Dismissing...`);
+          await tryDismissPasskeyEnrollment(tabId, USER_ID);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (checkErr) {
+        console.log(`[Capture] ⚠️ Check/dismiss passkey error: ${checkErr.message}`);
+      }
       
       if (attempt === 1) {
         console.log(`[Capture] 🔄 Reloading chatgpt.com to refresh session...`);

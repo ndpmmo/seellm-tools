@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.156] - 2026-06-17 01:55:00
+
+### 🚀 Tối ưu hóa bỏ qua Passkey khi Reload & Hỗ trợ đa ngôn ngữ mở rộng
+- **scripts/lib/openai-login-flow.js**:
+  - **Mở rộng nhận diện Passkey**: Bổ sung bộ từ khóa phát hiện Passkey đa ngôn ngữ trong hàm `getState()` (ví dụ: tiếng Tây Ban Nha, tiếng Pháp, tiếng Đức, tiếng Nga, tiếng Việt) để đảm bảo phát hiện chính xác màn hình "Log in faster next time" trên mọi proxy quốc tế.
+- **scripts/auto-register-worker.js**:
+  - **Tự động đóng Passkey tại Step 6**: Chuyển đổi kiểm tra URL thông thường thành vòng lặp 3 lần sử dụng `getState()` để phát hiện và dismiss màn hình Passkey kể cả khi URL hiển thị là trang chủ hoặc callback.
+  - **Tự động đóng Passkey khi Capture Session**: Tích hợp kiểm tra và đóng Passkey trước mỗi lượt thử lấy session (5 lần), xử lý triệt để trường hợp reload trang nhưng vẫn bị kẹt lại màn hình Passkey.
+- **scripts/auto-worker.js**:
+  - **Tự động đóng Passkey khi Session Fallback**: Kiểm tra và click Skip đối với màn hình Passkey tại đầu vòng lặp session fallback (5 lần) để tránh bị nghẽn (hang) khi lấy cookie session.
+
 ## [0.3.155] - 2026-06-17 01:30:00
 
 ### 🚀 Tự động vượt qua màn hình đăng ký Passkey (Log in faster next time)

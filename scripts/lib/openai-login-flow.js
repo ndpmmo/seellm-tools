@@ -287,7 +287,11 @@ export async function getState(tabId, userId) {
       const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
       const hasResetPasswordScreen = onAuthDomain && (body.includes('reset password') || body.includes('khôi phục mật khẩu') || body.includes('đặt lại mật khẩu') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password'));
       const hasWrongPassword = onAuthDomain && WRONG_PASSWORD_KW.some(k => body.includes(k));
-      const hasPasskeyEnrollScreen = lowerUrl.includes('login-enroll-passkey') || lowerUrl.includes('enroll-passkey') || body.includes('log in faster next time') || body.includes('setup faster login') || body.includes('set up faster login');
+      const hasPasskeyEnrollScreen = lowerUrl.includes('login-enroll-passkey') || lowerUrl.includes('enroll-passkey') || 
+        body.includes('log in faster next time') || body.includes('setup faster login') || body.includes('set up faster login') ||
+        body.includes('faster login') || body.includes('passkey') || body.includes('đăng nhập nhanh hơn') || body.includes('khóa truy cập') ||
+        body.includes('iniciar sesión más rápido') || body.includes('connexion plus rapide') || body.includes('schneller anmelden') ||
+        body.includes('быстрее войти');
 
        // ── Logged-in indicators ──
       const looksLoggedIn = tempLooksLoggedIn && (
@@ -826,7 +830,10 @@ export async function tryDismissPasskeyEnrollment(tabId, userId) {
         const r = el.getBoundingClientRect();
         return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
       };
-      const skipKeywords = ['skip', 'bỏ qua', 'dismiss', 'later', 'not now', 'để sau'];
+      const skipKeywords = [
+        'skip', 'bỏ qua', 'dismiss', 'later', 'not now', 'để sau',
+        'omitir', 'ignorer', 'пропустить', 'cancel', 'hủy', 'abbrechen', 'annuler'
+      ];
       const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
         .filter(isVisible)
         .find(el => {

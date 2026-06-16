@@ -2310,6 +2310,17 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   let accessToken = '';
   let sessionData = null;
   for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const checkState = await getState(tabId, userId).catch(() => null);
+      if (checkState?.hasPasskeyEnrollScreen) {
+        console.log(`[Capture] 🔑 Passkey enrollment screen detected during session fallback. Dismissing...`);
+        await tryDismissPasskeyEnrollment(tabId, userId);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (checkErr) {
+      console.log(`[Capture] ⚠️ Check/dismiss passkey error: ${checkErr.message}`);
+    }
+
     if (attempt === 2) {
       console.log(`[Capture] 🔄 Session fallback: reload chatgpt.com (attempt ${attempt + 1})...`);
       await navigate(tabId, userId, 'https://chatgpt.com', 10000);
