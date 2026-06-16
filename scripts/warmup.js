@@ -810,8 +810,11 @@ async function runWarmup() {
     // 7. Perform conversational Q&A warmup
     console.log(`\n💬 [Warmup] Bắt đầu tương tác Q&A (${qCountArg} câu hỏi)...`);
     
-    // Generate random conversational prompts dynamically using dynamic combinations
-    const selectedPrompts = generateWarmupPrompts(qCountArg);
+    // Generate deterministic prompts per account run to avoid collisions
+    const existingProviderData = account.provider_specific_data || {};
+    const warmupCount = existingProviderData.warmupCount || 0;
+    const seed = `seellm_warmup_${account.id}_${warmupCount}`;
+    const selectedPrompts = generateWarmupPrompts(qCountArg, seed);
     
     for (let idx = 0; idx < selectedPrompts.length; idx++) {
       const promptText = selectedPrompts[idx];

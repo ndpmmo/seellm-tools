@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.153] - 2026-06-17 01:05:00
+
+### 🚀 Thuật toán tạo câu hỏi khử trùng lặp tuyệt đối (Deterministic Seed-based Prompts) & Mở rộng Topic Pools
+- **scripts/lib/warmup-prompts.js**:
+  - **Deterministic Prompt Generation**: Tích hợp thuật toán băm FNV-1a hash. Khi nhận vào một `seedString` dạng `${accountId}_${warmupCount}`, thuật toán sẽ chọn danh mục (category), chủ đề (topic), vai diễn (persona), định dạng (format) và mẫu câu (template) hoàn toàn độc lập và cố định dựa theo seed. Khắc phục triệt để xác suất trùng lặp câu hỏi ngẫu nhiên giữa 1000+ tài khoản chạy song song.
+  - **Mở rộng Topic Pools**: Bổ sung thêm nhiều chủ đề mới cho các nhóm Technology (lên 35), Creative (lên 22), Lifestyle (lên 22), Business (lên 22) và Learning (lên 22). Tổng số lượng chủ đề tăng từ 70 lên **125 chủ đề**.
+  - **Persona & Format Expansion**: Bổ sung thêm 6 Persona mới và 5 định dạng Format mới, nâng tổng số tổ hợp câu hỏi Tiếng Anh duy nhất có thể tạo ra lên **87,500 tổ hợp** (trước đây là 20,160).
+- **scripts/warmup.js**:
+  - Tự động lấy `warmupCount` từ metadata tài khoản để dựng seed string dạng `seellm_warmup_${accountId}_${warmupCount}` và truyền vào `generateWarmupPrompts`.
+- **server/routes/vault.js**:
+  - Cập nhật tăng giá trị `warmupCount = warmupCount + 1` trong `provider_specific_data` ở route `/warmup-result` sau mỗi lượt chạy (bất kể thành công hay thất bại) để thay đổi seed sinh câu hỏi cho lượt kế tiếp của tài khoản đó.
+
 ## [0.3.152] - 2026-06-17 00:35:00
 
 ### 🚀 Tách biệt ảnh chụp logs Warmup & Tự động ghi nhận tài khoản Deactivated/Dead

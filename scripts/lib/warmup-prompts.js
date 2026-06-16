@@ -1,3 +1,14 @@
+// Simple FNV-1a hash function to convert a seed string to a 32-bit unsigned integer
+function fnv1a(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    // Multiply by FNV prime (16777619)
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return hash >>> 0;
+}
+
 // 1. Topic pools across diverse categories (highly expanded for maximum variation)
 const TOPICS = {
   technology: [
@@ -20,7 +31,22 @@ const TOPICS = {
     "how OAuth 2.0 authorization code flow works under the hood",
     "semantic HTML and why it is critical for screen readers",
     "using CSS Grid vs Flexbox for complex layout patterns",
-    "micro-frontends architecture pros and cons for large engineering teams"
+    "micro-frontends architecture pros and cons for large engineering teams",
+    "micro-frontends vs monorepos in scalable architectures",
+    "how garbage collection works in Java vs V8 Javascript engine",
+    "the difference between TCP and UDP protocols with examples",
+    "implementing rate limiting algorithms like Token Bucket in APIs",
+    "how Redis caching improves read-heavy database performance",
+    "the role of WebAssembly in bringing desktop apps to the browser",
+    "implementing secure session cookies vs local storage for JWT tokens",
+    "how GraphQL resolvers work under the hood",
+    "the difference between symmetrical and asymmetrical encryption simply explained",
+    "using Server-Sent Events (SSE) vs WebSockets for real-time notifications",
+    "optimizing SQL queries by analyzing EXPLAIN query plans",
+    "how DNS propagation works when changing name servers",
+    "the core principles of Git version control internal storage model",
+    "how Content Delivery Networks (CDNs) cache static assets globally",
+    "the difference between CPU-bound and I/O-bound tasks in Node.js"
   ],
   creative: [
     "a quiet morning in the foggy mountains",
@@ -34,7 +60,17 @@ const TOPICS = {
     "a story about the last library on Earth operating on a satellite",
     "a dialogue between two trees who have watched a city grow around them for 200 years",
     "a whimsical fairy tale about a dragon who is afraid of fire and prefers baking",
-    "a sci-fi thriller about a submariner crew encountering a mysterious ancient vault at the bottom of the Mariana Trench"
+    "a sci-fi thriller about a submariner crew encountering a mysterious ancient vault at the bottom of the Mariana Trench",
+    "a chef who opens a restaurant serving memories instead of food",
+    "an old grandfather clock that controls the speed of time in a house",
+    "a stray cat who secretly runs a neighborhood library for mice",
+    "a writer who discovers that whatever they write on an old typewriter comes true",
+    "a futuristic city where citizens trade emotions like currency",
+    "a lighthouse keeper who guides ships between parallel universes",
+    "a painting of a doorway that occasionally opens into a real garden",
+    "a musician who plays a melody that makes people forget their worries",
+    "a gardener who grows flowers that bloom with the sound of music",
+    "a message in a bottle found on a dry desert dune"
   ],
   lifestyle: [
     "highly-rated non-touristy restaurants or cafes in Tokyo",
@@ -48,7 +84,17 @@ const TOPICS = {
     "simple mindfulness techniques to reduce daily screen fatigue",
     "a curated list of coffee brewing methods and how they affect taste profile",
     "how to build a sustainable capsule wardrobe on a budget",
-    "practical meal prep strategies for busy remote developers"
+    "practical meal prep strategies for busy remote developers",
+    "creating a weekly routine for learning a new language in 15 minutes a day",
+    "a 10-minute morning stretching routine for office workers to relieve stiffness",
+    "simple meal planning guide to reduce food waste and save budget",
+    "tips for maintaining long-distance friendships while working remotely",
+    "a list of indoor house plants that require minimal sunlight and care",
+    "how to organize a digital clutter clean-up for your computer and phone",
+    "the health benefits of drinking loose leaf green tea daily",
+    "a beginner's guide to journaling for mental clarity and goal tracking",
+    "how to build a basic travel packing list for light-weight carry-on travel",
+    "practical strategies for falling asleep naturally without screens"
   ],
   business: [
     "writing a polite feedback-request email to a project manager",
@@ -62,7 +108,17 @@ const TOPICS = {
     "how to prioritize tasks using the Eisenhower Matrix for startup founders",
     "best practices for preparing and presenting annual budget reviews",
     "how to establish healthy boundaries as a contractor working with multiple clients",
-    "resolving a communication bottleneck between product managers and engineering teams"
+    "resolving a communication bottleneck between product managers and engineering teams",
+    "negotiating a salary increase during a performance review",
+    "how to write a brief project proposal for cross-departmental approval",
+    "best practices for delegating tasks as a newly promoted manager",
+    "how to handle a difficult conversation with an underperforming team member",
+    "crafting an elevator pitch for a software-as-a-service (SaaS) product",
+    "strategies for staying focused during long virtual meetings",
+    "how to organize and categorize project requirements using user stories",
+    "the difference between cap tables and equity shares in a startup",
+    "best practices for reviewing pull requests constructively as a lead developer",
+    "how to calculate customer acquisition cost (CAC) and lifetime value (LTV)"
   ],
   learning: [
     "the difference between deep learning and traditional machine learning",
@@ -76,7 +132,17 @@ const TOPICS = {
     "how the human brain forms new habits according to modern neuroscience",
     "the history of cryptography from Caesar cipher to modern RSA key pairs",
     "basic principles of financial planning and compound interest explained simply",
-    "the science of sleep and how blue light affects sleep cycles"
+    "the science of sleep and how blue light affects sleep cycles",
+    "the main differences between classical mechanics and quantum mechanics",
+    "how the human immune system remembers past infections",
+    "the history of the Silk Road and how it shaped trade routes",
+    "the difference between inflation and deflation in economics",
+    "how the water cycle works and the role of forests in rainfall",
+    "how the printing press changed education in Europe",
+    "the basic rules of playing chess for beginners",
+    "how solar panels convert sunlight into electricity",
+    "the origins of the solar system and how planets formed",
+    "the difference between deductive and inductive reasoning"
   ]
 };
 
@@ -133,7 +199,13 @@ const PERSONAS = [
   "Could you help me outline",
   "I am curious about",
   "What are the most common practices for",
-  "Can you write a creative piece about"
+  "Can you write a creative piece about",
+  "Give me a critical analysis of",
+  "I need a comparative study of",
+  "Can you draft a comprehensive guide about",
+  "What are the key points to remember regarding",
+  "Please explain the fundamental concepts of",
+  "I am looking for a creative perspective on"
 ];
 
 const PERSONAS_VI = [
@@ -159,7 +231,12 @@ const FORMATS = [
   "Explain with a simple real-world analogy.",
   "Keep it concise and straight to the point.",
   "Provide a couple of realistic examples.",
-  "Organize with clear subheadings."
+  "Organize with clear subheadings.",
+  "Format the response with code snippets where applicable.",
+  "Include a table comparing the main aspects.",
+  "Write in the style of an educational blog post.",
+  "End with a list of frequently asked questions.",
+  "Structure the explanation from simplest to most advanced concepts."
 ];
 
 const FORMATS_VI = [
@@ -177,9 +254,10 @@ const FORMATS_VI = [
 /**
  * Generates N unique prompts for account warmup
  * @param {number} count Number of prompts to generate
+ * @param {string} seedString Optional string seed to generate deterministic prompts per account run
  * @returns {string[]} Array of unique, highly varied prompts
  */
-export function generateWarmupPrompts(count = 3) {
+export function generateWarmupPrompts(count = 3, seedString = '') {
   const prompts = [];
   
   // Track used topics in this batch to avoid repeating
@@ -192,24 +270,50 @@ export function generateWarmupPrompts(count = 3) {
     const activeTopics = isVi ? TOPICS_VI : TOPICS;
     const activePersonas = isVi ? PERSONAS_VI : PERSONAS;
     const activeFormats = isVi ? FORMATS_VI : FORMATS;
-    
     const categories = Object.keys(activeTopics);
-    const cat = categories[Math.floor(Math.random() * categories.length)];
-    const topicList = activeTopics[cat];
     
-    let topic = topicList[Math.floor(Math.random() * topicList.length)];
-    let attempts = 0;
-    while (usedTopics.has(topic) && attempts < 10) {
+    let persona, topic, format, templateId;
+    
+    if (seedString) {
+      const qSeed = `${seedString}_q${i}`;
+      const hashVal = fnv1a(qSeed);
+      
+      const cat = categories[hashVal % categories.length];
+      const topicList = activeTopics[cat];
+      
+      let topicIdx = (hashVal >> 2) % topicList.length;
+      topic = topicList[topicIdx];
+      
+      let attempts = 0;
+      while (usedTopics.has(topic) && attempts < 10) {
+        const altHash = fnv1a(`${qSeed}_alt${attempts}`);
+        topicIdx = altHash % topicList.length;
+        topic = topicList[topicIdx];
+        attempts++;
+      }
+      usedTopics.add(topic);
+      
+      persona = activePersonas[(hashVal >> 4) % activePersonas.length];
+      format = activeFormats[(hashVal >> 6) % activeFormats.length];
+      templateId = (hashVal >> 8) % 5;
+    } else {
+      const cat = categories[Math.floor(Math.random() * categories.length)];
+      const topicList = activeTopics[cat];
+      
       topic = topicList[Math.floor(Math.random() * topicList.length)];
-      attempts++;
+      let attempts = 0;
+      while (usedTopics.has(topic) && attempts < 10) {
+        topic = topicList[Math.floor(Math.random() * topicList.length)];
+        attempts++;
+      }
+      usedTopics.add(topic);
+      
+      persona = activePersonas[Math.floor(Math.random() * activePersonas.length)];
+      format = activeFormats[Math.floor(Math.random() * activeFormats.length)];
+      templateId = Math.floor(Math.random() * 5);
     }
-    usedTopics.add(topic);
-    
-    const persona = activePersonas[Math.floor(Math.random() * activePersonas.length)];
-    const format = activeFormats[Math.floor(Math.random() * activeFormats.length)];
     
     // Select a template layout dynamically to create different syntactical structures
-    const templateId = Math.floor(Math.random() * 5);
     let prompt = '';
     
     if (isVi) {
