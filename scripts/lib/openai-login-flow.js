@@ -232,6 +232,7 @@ export async function getState(tabId, userId) {
       const CONSENT_KW = ${JSON.stringify(MULTILANG.consent)};
       const WORKSPACE_KW = ${JSON.stringify(MULTILANG.workspace)};
       const ORG_KW = ${JSON.stringify(MULTILANG.organization)};
+      const WRONG_PASSWORD_KW = ${JSON.stringify(MULTILANG.wrongPassword)};
 
       // ── Cookie banner ──
       const hasCookieBanner = (() => {
@@ -285,6 +286,7 @@ export async function getState(tabId, userId) {
 
       const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
       const hasResetPasswordScreen = onAuthDomain && (body.includes('reset password') || body.includes('khôi phục mật khẩu') || body.includes('đặt lại mật khẩu') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password'));
+      const hasWrongPassword = onAuthDomain && WRONG_PASSWORD_KW.some(k => body.includes(k));
 
        // ── Logged-in indicators ──
       const looksLoggedIn = tempLooksLoggedIn && (
@@ -294,6 +296,7 @@ export async function getState(tabId, userId) {
           !hasMfaInput &&
           !hasContinueWithPassword &&
           !hasResetPasswordScreen &&
+          !hasWrongPassword &&
           !hasPhoneScreen &&
           !hasError &&
           !hasDeactivated &&
@@ -302,6 +305,7 @@ export async function getState(tabId, userId) {
           !isConsentScr
         ) : (
           !hasResetPasswordScreen &&
+          !hasWrongPassword &&
           !hasPhoneScreen &&
           !hasError &&
           !hasDeactivated &&
@@ -320,6 +324,7 @@ export async function getState(tabId, userId) {
         hasEmailOtpInput,
         hasContinueWithPassword,
         hasResetPasswordScreen,
+        hasWrongPassword,
         isConsentScreen: isConsentScr,
         isWorkspaceScreen: !hasError && isWorkspaceScr,
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),

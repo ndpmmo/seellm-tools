@@ -695,13 +695,16 @@ async function runConnectFlow(task) {
     const usePersistent = task.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
     console.log(`[Connect] [1] Mở ${LOGIN_URL}... (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
     const opened = await camofoxPost('/tabs', {
-      userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: LOGIN_URL,
+      userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: 'about:blank',
       proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
       screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
     }, { timeoutMs: 25000 });
     tabId = opened.tabId;
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
-    await new Promise(r => setTimeout(r, 5000));
+    
+    console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
+    await navigate(tabId, USER_ID, LOGIN_URL);
+    await new Promise(r => setTimeout(r, 3000));
 
     if (effectiveProxy && preFlightResult) {
       console.log(`[Connect] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
@@ -2403,12 +2406,15 @@ async function runLoginFlow(task) {
     const usePersistent = account.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
     console.log(`[Login] [1] Mở URL: ${loginUrl} (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
     const { tabId: tid, userAgent } = await camofoxPost('/tabs', {
-      userId: USER_ID, sessionKey: SESSION_KEY, url: loginUrl,
+      userId: USER_ID, sessionKey: SESSION_KEY, url: 'about:blank',
       proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
       screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
     });
     tabId = tid;
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+    
+    console.log(`[Login] 🌐 Mở trang ChatGPT login...`);
+    await navigate(tabId, USER_ID, loginUrl);
     await new Promise(r => setTimeout(r, 2000));
 
     if (effectiveProxy && preFlightResult) {
@@ -2642,14 +2648,17 @@ async function tryBypassPhoneRequirement({ task, userId, tabId, sessionKey, prox
     await camofoxGoto(tabId, userId, CODEX_CONSENT_URL, { timeoutMs: 15000 });
   } catch (gotoErr) {
     const opened = await camofoxPost('/tabs', {
-      userId, sessionKey, url: CODEX_CONSENT_URL, proxy: proxyUrl || undefined,
+      userId, sessionKey, url: 'about:blank', proxy: proxyUrl || undefined,
       persistent: false, os: 'macos', screen: { width: 1440, height: 900 },
       humanize: true, headless: false, randomFonts: true, canvas: 'random',
     });
     bypassTabId = opened.tabId;
     openedExtraTab = true;
+    
+    console.log(`[Consent] 🌐 Mở trang Codex Consent...`);
+    await navigate(bypassTabId, userId, CODEX_CONSENT_URL);
+    await new Promise(r => setTimeout(r, 3000));
   }
-  await new Promise(r => setTimeout(r, 3000));
   await recorder.before(1, 1, 'consent_bypass');
 
   let bootstrapAttempts = 0;

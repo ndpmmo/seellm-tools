@@ -81,7 +81,7 @@ async function main() {
     const launchOptions = {
       userId: USER_ID,
       sessionKey: `restore_ws_test_${Date.now()}`,
-      url: 'https://example.com/', // start on neutral domain
+      url: 'about:blank', // start on neutral domain
       persistent: false,
       os: 'macos',
       screen: { width: 1440, height: 900 },

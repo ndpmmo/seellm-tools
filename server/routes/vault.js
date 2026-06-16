@@ -112,7 +112,7 @@ function isDeactivatedMsg(message) {
 function isReloginMsg(message) {
   if (!message) return false;
   const msg = String(message).toLowerCase();
-  return msg.includes('relogin') || msg.includes('password_reset_required') || msg.includes('reset password') || msg.includes('đặt lại mật khẩu');
+  return msg.includes('relogin') || msg.includes('password_reset_required') || msg.includes('reset password') || msg.includes('đặt lại mật khẩu') || msg.includes('wrong_password') || msg.includes('incorrect password') || msg.includes('mật khẩu không đúng') || msg.includes('sai mật khẩu');
 }
 
 function maybeAddAccountDeactivatedTag(id, message) {
@@ -3432,6 +3432,9 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       maybeAddAccountDeactivatedTag(id, error);
       updateData.status = 'dead';
       updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong Warmup: ${error})`;
+    } else if (isReloginMsg(error)) {
+      updateData.status = 'relogin';
+      updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong Warmup: ${error})`;
     } else {
       let targetStatus = accountStatus;
       if (preCheckStatus === 'idle') {
@@ -3581,6 +3584,9 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
       maybeAddAccountDeactivatedTag(id, error);
       updateData.status = 'dead';
       updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong 2FA Regen: ${error})`;
+    } else if (isReloginMsg(error)) {
+      updateData.status = 'relogin';
+      updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong 2FA Regen: ${error})`;
     } else if (status === 'success' && secret) {
       updateData.two_fa_secret = secret;
       // Trạng thái: nếu trước đó là 'idle' thì giữ nguyên 'idle' để tránh tự động đẩy active lên gateway.

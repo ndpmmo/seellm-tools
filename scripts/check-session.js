@@ -180,7 +180,7 @@ async function runCheck() {
     console.log(`[CheckSession] 🦊 Khởi động Camofox tab...`);
     const launchData = {
       userId: USER_ID,
-      url: 'https://example.com/',
+      url: 'about:blank',
       proxy: proxyConfig || undefined
     };
 

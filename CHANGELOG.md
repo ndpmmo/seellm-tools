@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.154] - 2026-06-17 01:25:00
+
+### 🚀 Tối ưu hóa khởi động Tab (about:blank) & Tự động chuyển trạng thái Relogin khi sai thông tin
+- **scripts/warmup.js**, **scripts/check-session.js**, **scripts/regenerate-2fa.js**, **scripts/test-cookie-restore-workspace.js**, **scripts/test-switch-workspace-dropdown.js**, **scripts/auto-register-worker.js**, **scripts/auto-worker.js**:
+  - **Khởi động Tab an toàn (about:blank)**: Thay thế URL ban đầu khi gọi `camofoxPost('/tabs', ...)` từ các URL bên ngoài (`https://example.com/`, `https://chatgpt.com/auth/login`) thành `about:blank`. Việc này giúp loại bỏ hoàn toàn các lỗi nghẽn mạng ban đầu (`NS_ERROR_NET_TIMEOUT` / `page.goto timeout`) trên các proxy chậm trong quá trình tạo tab. Các trang đích được tải tuần tự ngay sau đó bằng lệnh `/navigate` có kèm cơ chế retry.
+- **scripts/lib/openai-login-flow.js**:
+  - **Nhận diện sai thông tin đăng nhập**: Bổ sung từ khóa phát hiện `wrongPassword` từ bộ đa ngôn ngữ `MULTILANG` vào hàm `getState()`. Trả về cờ `hasWrongPassword` khi xuất hiện thông báo lỗi mật khẩu (như "Incorrect email address or password", "mật khẩu không đúng").
+- **scripts/warmup.js**:
+  - Ném lỗi rõ ràng `WRONG_PASSWORD: Mật khẩu không đúng` khi phát hiện cờ `hasWrongPassword` trong vòng lặp đăng nhập, giúp tiến trình kết thúc sớm thay vì lặp vô tận đến khi timeout.
+- **server/routes/vault.js**:
+  - **Tự động chuyển trạng thái Relogin**: Kiểm tra lỗi phản hồi từ Warmup và 2FA Regen qua `isReloginMsg()`. Khi phát hiện các lỗi mật khẩu sai hoặc yêu cầu đặt lại mật khẩu, tự động cập nhật trạng thái tài khoản thành `'relogin'` và thêm ghi chú giải thích để hiển thị trực quan lên giao diện quản trị.
+
 ## [0.3.153] - 2026-06-17 01:05:00
 
 ### 🚀 Thuật toán tạo câu hỏi khử trùng lặp tuyệt đối (Deterministic Seed-based Prompts) & Mở rộng Topic Pools

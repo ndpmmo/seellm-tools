@@ -183,7 +183,7 @@ async function run2faRegen() {
     const opened = await camofoxPost('/tabs', {
       userId: USER_ID,
       sessionKey: SESSION_KEY,
-      url: 'https://example.com/',
+      url: 'about:blank',
       proxy: effectiveProxy || undefined,
       persistent: true, // Reuse profiles/cookies inside Camofox
       os: 'macos',

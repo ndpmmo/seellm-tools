@@ -224,7 +224,7 @@ async function runWarmup() {
     const opened = await camofoxPost('/tabs', {
       userId: USER_ID,
       sessionKey: SESSION_KEY,
-      url: 'https://example.com/',
+      url: 'about:blank',
       proxy: effectiveProxy || undefined,
       persistent: true, // Reuse profiles/cookies inside Camofox
       os: 'macos',
@@ -318,6 +318,10 @@ async function runWarmup() {
 
         if (state.hasResetPasswordScreen) {
           throw new Error('PASSWORD_RESET_REQUIRED: Tài khoản yêu cầu đặt lại mật khẩu');
+        }
+
+        if (state.hasWrongPassword) {
+          throw new Error('WRONG_PASSWORD: Mật khẩu không đúng');
         }
         
         // 1.5. Handle OpenAI/ChatGPT Error screen with self-healing click

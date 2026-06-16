@@ -56,7 +56,7 @@ async function main() {
     const launchOptions = {
       userId: USER_ID,
       sessionKey: `dropdown_switch_test_${Date.now()}`,
-      url: 'https://example.com/',
+      url: 'about:blank',
       persistent: false,
       os: 'macos',
       screen: { width: 1440, height: 900 },

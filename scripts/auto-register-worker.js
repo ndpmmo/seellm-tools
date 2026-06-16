@@ -887,7 +887,7 @@ export async function runAutoRegister(taskInput) {
 
     const tabRes = await camofoxPostWithSessionKey('/tabs', {
       userId: USER_ID,
-      url: "https://chatgpt.com/auth/login",
+      url: "about:blank",
       headless: false,
       humanize: true,
       persistent: usePersistent,
@@ -899,6 +899,8 @@ export async function runAutoRegister(taskInput) {
 
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
 
+    console.log(`🌐 Mở trang chatgpt.com/auth/login...`);
+    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
     await new Promise(r => setTimeout(r, 5000));
 
 
