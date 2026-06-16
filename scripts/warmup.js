@@ -829,14 +829,31 @@ async function runWarmup() {
         }
       }
       
-      // Wait for prompt-textarea to be visible
-      const isInputVisible = await evalJson(tabId, USER_ID, `(() => {
-        const ta = document.querySelector('#prompt-textarea');
-        return ta && ta.offsetParent !== null;
-      })()`);
+      // Wait for prompt-textarea to be visible with retry/polling loop
+      let isInputVisible = false;
+      const waitStart = Date.now();
+      const waitTimeout = 45000; // 45 seconds max wait
+      while (Date.now() - waitStart < waitTimeout) {
+        isInputVisible = await evalJson(tabId, USER_ID, `(() => {
+          const ta = document.querySelector('#prompt-textarea');
+          return ta && ta.offsetParent !== null;
+        })()`).catch(() => false);
+        
+        if (isInputVisible) {
+          break;
+        }
+        
+        // Also check/dismiss onboarding modals while waiting
+        const dismissed = await dismissOnboardingModals(tabId, USER_ID);
+        if (dismissed) {
+          console.log(`[Warmup] 🛡️ Phát hiện và đóng hộp thoại giới thiệu trong lúc chờ hộp thoại chat...`);
+        }
+        
+        await delay(1500);
+      }
       
       if (!isInputVisible) {
-        throw new Error('Không tìm thấy hộp thoại chat của ChatGPT!');
+        throw new Error('Không tìm thấy hộp thoại chat của ChatGPT! (Chờ 45 giây không xuất hiện)');
       }
       
       // Type message

@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.151] - 2026-06-17 00:05:00
+
+### 🚀 Tối ưu hàng đợi tiến trình không chặn HTTP & Cải thiện độ ổn định tương tác ChatGPT
+- **server/routes/vault.js**:
+  - **Hàng đợi không chặn socket (Non-blocking Background Queue)**: Thiết kế lại cơ chế hàng đợi chạy song song sang dạng xử lý bất tuần tự nền (Background task queue). Các route `/warmup`, `/check-session`, và `/regenerate-2fa` sẽ ghi nhận trạng thái `'pending'` vào database, phát tín hiệu SSE cho UI cập nhật ngay lập tức và phản hồi HTTP `200 OK` về phía client trong vài mili giây. Tránh hoàn toàn lỗi treo/ngắt kết nối mạng HTTP (như Gateway Timeout 504 / Connection Reset) khi người dùng kích hoạt hàng loạt tài khoản.
+  - **Khử xung đột kiểm tra định kỳ (Background Worker Queue)**: Quản lý hàng đợi tập trung qua `executionQueue` và cơ chế chạy tuần tự nền `triggerQueueProcessing()`. Đảm bảo giãn cách (stagger) ít nhất 2.5 giây giữa các tiến trình spawn mới để tránh đột biến sử dụng CPU/RAM và băng thông proxy.
+- **scripts/warmup.js**:
+  - **Khắc phục lỗi nhận diện chatbox (Prompt Textarea Retry)**: Thay đổi bước kiểm tra hộp thoại nhập liệu `#prompt-textarea` từ kiểm tra tức thời (1 lượt) thành vòng lặp kiểm tra định kỳ (chờ tối đa 45 giây). Kết hợp tự động phát hiện và đóng các onboarding modal giới thiệu xuất hiện trong thời gian tải trang ChatGPT. Giúp kịch bản vượt qua các đợt tải trang chậm hoặc nghẽn mạng do proxy mà không bị vấp lỗi "Không tìm thấy hộp thoại chat của ChatGPT!".
+
+## [0.3.150] - 2026-06-16 23:59:00
+
+### 🚀 Giới hạn luồng chạy song song & Tránh xung đột tiến trình Warmup/MFA (Concurrency Queue & Guard Rails)
+- **server/routes/vault.js**:
+  - **Khắc phục lỗi chạy trùng lặp (Duplicate Process Guard)**: Bổ sung bộ lọc kiểm tra trạng thái hoạt động hiện tại. Nếu tài khoản đang chạy tiến trình warmup (`warmupStatus === 'pending'`), check-session (`status === 'pending' || 'processing'`), hoặc 2FA regeneration (`twoFaRegenStatus === 'pending'`), hệ thống sẽ từ chối spawn tiến trình mới trùng lặp để tránh xung đột thao tác trên cùng một tab/session Camofox.
+  - **Hàng đợi chạy song song (Backend Concurrency Queue)**: Tích hợp hàm `getActiveProcessesCount()` đếm số lượng tiến trình tự động đang chạy nền (warmup, check-session, 2FA, register). Giới hạn tối đa **3 tiến trình chạy song song**.
+  - **Mô hình hàng đợi (Queue Poll/Wait)**: Nếu vượt quá 3 tiến trình, các yêu cầu mới sẽ tự động đưa vào trạng thái chờ (poll/wait mỗi 2 giây, tối đa 3 phút) ở phía backend, tự động kích hoạt khi có slot trống. Tránh tình trạng quá tải CPU/RAM của server và quá tải băng thông của proxy gây ra lỗi unstyled page (mất CSS/JS).
+
 ## [0.3.149] - 2026-06-16 23:43:00
 
 ### 🚀 Hiển thị thời gian Warmup rút gọn trên danh sách tài khoản (Relative Warmup Time Badge)

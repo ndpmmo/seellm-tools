@@ -2476,6 +2476,52 @@ export function registerProcessManager(pm) {
   processManager = pm;
 }
 
+function getActiveProcessesCount() {
+  if (!processManager.getProcesses) return 0;
+  const allProcs = processManager.getProcesses();
+  return Object.values(allProcs).filter(
+    p => p.status === 'running' && (
+      p.id.startsWith('warmup_') || 
+      p.id.startsWith('check_session_') || 
+      p.id.startsWith('2fa_regen_') ||
+      p.id.startsWith('script_')
+    )
+  ).length;
+}
+
+const executionQueue = [];
+let queueProcessing = false;
+
+function enqueueTask(taskFn) {
+  executionQueue.push(taskFn);
+  triggerQueueProcessing();
+}
+
+async function triggerQueueProcessing() {
+  if (queueProcessing) return;
+  queueProcessing = true;
+  
+  try {
+    while (executionQueue.length > 0) {
+      if (getActiveProcessesCount() < 3) {
+        const nextTask = executionQueue.shift();
+        try {
+          await nextTask();
+        } catch (err) {
+          console.error('[Queue] Error executing background process task:', err);
+        }
+        // Wait 2.5 seconds to allow the process to register as running and start up
+        await new Promise(r => setTimeout(r, 2500));
+      } else {
+        // Wait 2 seconds before checking again
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+  } finally {
+    queueProcessing = false;
+  }
+}
+
 let currentBulkRun = null;
 
 class BulkRegisterRunner {
@@ -3144,6 +3190,10 @@ router.post('/accounts/:id/warmup', async (req, res) => {
     
     // Set the warmup status to pending in provider_specific_data
     const existingProviderData = account.provider_specific_data || {};
+    if (existingProviderData.warmupStatus === 'pending') {
+      return res.status(400).json({ error: 'Tài khoản này đang trong tiến trình warmup rồi.' });
+    }
+    
     existingProviderData.warmupStatus = 'pending';
     existingProviderData.lastWarmedAt = new Date().toISOString();
     existingProviderData.warmupError = null;
@@ -3152,33 +3202,57 @@ router.post('/accounts/:id/warmup', async (req, res) => {
       id,
       provider_specific_data: existingProviderData
     });
+
+    emitSSE('vault:update');
     
-    // Spawn scripts/warmup.js as a detached background child process
-    const { fileURLToPath } = await import('node:url');
-    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/warmup.js');
-    
-    if (processManager.spawnProcess) {
-      const procId = `warmup_${id}_${Date.now()}`;
-      console.log(`[Server] Spawning warmup process ${procId} via processManager`);
-      processManager.spawnProcess(
-        procId, 
-        `🔥 Warmup ${account.email}`, 
-        'node', 
-        [scriptPath, '--accountId', id, '--questions', String(questionsCount)], 
-        process.cwd(), 
-        { env: { ...process.env } }
-      );
-    } else {
-      const { spawn } = await import('node:child_process');
-      console.log(`[Server] Spawning warmup worker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id, '--questions', String(questionsCount)], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-    }
-    
-    res.json({ ok: true, message: 'Warmup task triggered successfully' });
+    // Return immediately to the client to avoid socket timeouts
+    res.json({ ok: true, message: 'Warmup task queued successfully', status: 'pending' });
+
+    const enqueuedAt = Date.now();
+    enqueueTask(async () => {
+      const currAcc = vault.getAccount(id);
+      if (!currAcc) return;
+      const currProviderData = currAcc.provider_specific_data || {};
+      
+      if (currProviderData.warmupStatus !== 'pending') return;
+
+      if (Date.now() - enqueuedAt > 10 * 60 * 1000) {
+        currProviderData.warmupStatus = 'failed';
+        currProviderData.warmupError = 'Hệ thống quá tải (chờ quá 10 phút trong hàng đợi). Vui lòng thử lại sau.';
+        vault.upsertAccount({
+          id,
+          provider_specific_data: currProviderData
+        });
+        emitSSE('vault:update');
+        return;
+      }
+      
+      // Spawn scripts/warmup.js as a detached background child process
+      const { fileURLToPath } = await import('node:url');
+      const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/warmup.js');
+      
+      if (processManager.spawnProcess) {
+        const procId = `warmup_${id}_${Date.now()}`;
+        console.log(`[Server] Spawning warmup process ${procId} via processManager`);
+        processManager.spawnProcess(
+          procId, 
+          `🔥 Warmup ${currAcc.email}`, 
+          'node', 
+          [scriptPath, '--accountId', id, '--questions', String(questionsCount)], 
+          process.cwd(), 
+          { env: { ...process.env } }
+        );
+      } else {
+        const { spawn } = await import('node:child_process');
+        console.log(`[Server] Spawning warmup worker for ${currAcc.email} (${id})`);
+        const child = spawn('node', [scriptPath, '--accountId', id, '--questions', String(questionsCount)], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+      }
+    });
+
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3222,6 +3296,10 @@ router.post('/accounts/:id/check-session', async (req, res) => {
     const account = vault.getAccount(id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
     
+    if (account.status === 'pending' || account.status === 'processing') {
+      return res.status(400).json({ error: 'Tài khoản đang trong tiến trình xử lý khác (pending/processing).' });
+    }
+
     // Save original status in provider_specific_data to avoid auto-deploying non-deployed accounts if check succeeds
     const existingProviderData = typeof account.provider_specific_data === 'string'
       ? JSON.parse(account.provider_specific_data)
@@ -3236,33 +3314,59 @@ router.post('/accounts/:id/check-session', async (req, res) => {
       notes: 'Checking cookie/session...',
       provider_specific_data: existingProviderData
     });
+
+    emitSSE('vault:update');
     
-    // Spawn scripts/check-session.js as a detached background child process
-    const { fileURLToPath } = await import('node:url');
-    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/check-session.js');
-    
-    if (processManager.spawnProcess) {
-      const procId = `check_session_${id}_${Date.now()}`;
-      console.log(`[Server] Spawning check-session process ${procId} via processManager`);
-      processManager.spawnProcess(
-        procId, 
-        `🛡️ Check Session ${account.email}`, 
-        'node', 
-        [scriptPath, '--accountId', id], 
-        process.cwd(), 
-        { env: { ...process.env } }
-      );
-    } else {
-      const { spawn } = await import('node:child_process');
-      console.log(`[Server] Spawning session checker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-    }
-    
-    res.json({ ok: true, message: 'Session check task triggered successfully' });
+    // Return immediately to the client to avoid socket timeouts
+    res.json({ ok: true, message: 'Session check task queued successfully', status: 'pending' });
+
+    const enqueuedAt = Date.now();
+    enqueueTask(async () => {
+      const currAcc = vault.getAccount(id);
+      if (!currAcc) return;
+      
+      if (currAcc.status !== 'pending') return;
+
+      const currProviderData = typeof currAcc.provider_specific_data === 'string'
+        ? JSON.parse(currAcc.provider_specific_data)
+        : (currAcc.provider_specific_data || {});
+
+      if (Date.now() - enqueuedAt > 10 * 60 * 1000) {
+        vault.upsertAccount({
+          id,
+          status: currProviderData.preCheckStatus || 'error',
+          notes: 'Check session thất bại: Hàng đợi quá tải (chờ quá 10 phút).'
+        });
+        emitSSE('vault:update');
+        return;
+      }
+      
+      // Spawn scripts/check-session.js as a detached background child process
+      const { fileURLToPath } = await import('node:url');
+      const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/check-session.js');
+      
+      if (processManager.spawnProcess) {
+        const procId = `check_session_${id}_${Date.now()}`;
+        console.log(`[Server] Spawning check-session process ${procId} via processManager`);
+        processManager.spawnProcess(
+          procId, 
+          `🛡️ Check Session ${currAcc.email}`, 
+          'node', 
+          [scriptPath, '--accountId', id], 
+          process.cwd(), 
+          { env: { ...process.env } }
+        );
+      } else {
+        const { spawn } = await import('node:child_process');
+        console.log(`[Server] Spawning session checker for ${currAcc.email} (${id})`);
+        const child = spawn('node', [scriptPath, '--accountId', id], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+      }
+    });
+
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3367,6 +3471,10 @@ router.post('/accounts/:id/regenerate-2fa', async (req, res) => {
       ? JSON.parse(account.provider_specific_data)
       : (account.provider_specific_data || {});
       
+    if (existingProviderData.twoFaRegenStatus === 'pending') {
+      return res.status(400).json({ error: 'Tài khoản này đang trong tiến trình tái tạo 2FA rồi.' });
+    }
+    
     existingProviderData.twoFaRegenStatus = 'pending';
     existingProviderData.twoFaRegenError = null;
     
@@ -3374,33 +3482,60 @@ router.post('/accounts/:id/regenerate-2fa', async (req, res) => {
       id,
       provider_specific_data: existingProviderData
     });
+
+    emitSSE('vault:update');
     
-    // Spawn scripts/regenerate-2fa.js as a detached background child process
-    const { fileURLToPath } = await import('node:url');
-    const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/regenerate-2fa.js');
-    
-    if (processManager.spawnProcess) {
-      const procId = `2fa_regen_${id}_${Date.now()}`;
-      console.log(`[Server] Spawning 2FA regeneration process ${procId} via processManager`);
-      processManager.spawnProcess(
-        procId, 
-        `🛡️ 2FA Regen ${account.email}`, 
-        'node', 
-        [scriptPath, '--accountId', id], 
-        process.cwd(), 
-        { env: { ...process.env } }
-      );
-    } else {
-      const { spawn } = await import('node:child_process');
-      console.log(`[Server] Spawning 2FA regeneration worker for ${account.email} (${id})`);
-      const child = spawn('node', [scriptPath, '--accountId', id], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-    }
-    
-    res.json({ ok: true, message: '2FA regeneration task triggered successfully' });
+    // Return immediately to the client to avoid socket timeouts
+    res.json({ ok: true, message: '2FA regeneration task queued successfully', status: 'pending' });
+
+    const enqueuedAt = Date.now();
+    enqueueTask(async () => {
+      const currAcc = vault.getAccount(id);
+      if (!currAcc) return;
+
+      const currProviderData = typeof currAcc.provider_specific_data === 'string'
+        ? JSON.parse(currAcc.provider_specific_data)
+        : (currAcc.provider_specific_data || {});
+
+      if (currProviderData.twoFaRegenStatus !== 'pending') return;
+
+      if (Date.now() - enqueuedAt > 10 * 60 * 1000) {
+        currProviderData.twoFaRegenStatus = 'failed';
+        currProviderData.twoFaRegenError = 'Tái tạo 2FA thất bại: Hàng đợi quá tải (chờ quá 10 phút).';
+        vault.upsertAccount({
+          id,
+          provider_specific_data: currProviderData
+        });
+        emitSSE('vault:update');
+        return;
+      }
+      
+      // Spawn scripts/regenerate-2fa.js as a detached background child process
+      const { fileURLToPath } = await import('node:url');
+      const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/regenerate-2fa.js');
+      
+      if (processManager.spawnProcess) {
+        const procId = `2fa_regen_${id}_${Date.now()}`;
+        console.log(`[Server] Spawning 2FA regeneration process ${procId} via processManager`);
+        processManager.spawnProcess(
+          procId, 
+          `🛡️ 2FA Regen ${currAcc.email}`, 
+          'node', 
+          [scriptPath, '--accountId', id], 
+          process.cwd(), 
+          { env: { ...process.env } }
+        );
+      } else {
+        const { spawn } = await import('node:child_process');
+        console.log(`[Server] Spawning 2FA regeneration worker for ${currAcc.email} (${id})`);
+        const child = spawn('node', [scriptPath, '--accountId', id], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+      }
+    });
+
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
