@@ -64,6 +64,8 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   
   let hasStarted = false;
   const startTimeout = 8000; // 8 seconds to start generating
+  let lastTextLength = 0;
+  let textLengthStableSec = 0;
   
   while (Date.now() - startTime < timeoutMs) {
     const state = await evalJson(tabId, userId, `(() => {
@@ -88,13 +90,52 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
         }
       }
       
+      // Get text length of main conversation container to monitor typing progress
+      const mainEl = document.querySelector('main');
+      const textLength = mainEl ? mainEl.innerText.length : 0;
+      
+      // Check for error elements or warning text
+      let errorText = '';
+      const errorSelectors = [
+        '[data-testid="error-message"]',
+        '.text-token-text-error',
+        '.border-red-500',
+        '.text-red-500',
+        '.bg-red-500'
+      ];
+      for (const sel of errorSelectors) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) {
+          errorText = el.innerText || el.textContent || '';
+          break;
+        }
+      }
+      if (!errorText) {
+        const bodyText = (document.body?.innerText || '');
+        const lowerBody = bodyText.toLowerCase();
+        if (lowerBody.includes('something went wrong') ||
+            lowerBody.includes('error generating a response') ||
+            lowerBody.includes('try signing in again') ||
+            lowerBody.includes('token has been invalidated') ||
+            lowerBody.includes('unusual activity')) {
+          errorText = bodyText.slice(0, 150).replace(/\\n/g, ' ');
+        }
+      }
+      
       return {
         isGenerating: isStopVisible || isStreaming || isSubmitStop,
-        generatingReason: isStopVisible ? 'stop-button' : (isStreaming ? 'streaming-element' : (isSubmitStop ? 'submit-stop' : 'none'))
+        generatingReason: isStopVisible ? 'stop-button' : (isStreaming ? 'streaming-element' : (isSubmitStop ? 'submit-stop' : 'none')),
+        textLength,
+        errorText
       };
     })()`);
     
     const elapsed = Date.now() - startTime;
+    
+    if (state.errorText) {
+      console.log(`[Warmup] ❌ Phát hiện lỗi trên trang ChatGPT: "${state.errorText}"`);
+      throw new Error(`session_expired: Lỗi trên trang ChatGPT: ${state.errorText}`);
+    }
     
     if (state.isGenerating) {
       hasStarted = true;
@@ -105,7 +146,26 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
         console.log(`[Warmup] ✅ ChatGPT đã trả lời xong!`);
         return true;
       }
-      console.log(`[Warmup] ⏱️ Generation status: generating (${state.generatingReason}) (${Math.round(elapsed / 1000)}s)`);
+      
+      // Monitor if the text length is changing
+      if (state.textLength === lastTextLength) {
+        textLengthStableSec += 2;
+      } else {
+        textLengthStableSec = 0;
+        lastTextLength = state.textLength;
+      }
+      
+      console.log(`[Warmup] ⏱️ Generation status: generating (${state.generatingReason}) (${Math.round(elapsed / 1000)}s, stable: ${textLengthStableSec}s)`);
+      
+      // If the response text has not changed for 14 seconds
+      if (textLengthStableSec >= 14) {
+        if (state.generatingReason === 'streaming-element') {
+          console.log(`[Warmup] ⚠️ Độ dài văn bản không đổi trong 14s ở trạng thái streaming-element. Coi như hoàn tất.`);
+          return true;
+        } else if (state.generatingReason === 'submit-stop' && elapsed > 80000) {
+          throw new Error(`session_expired: Phản hồi bị kẹt (thinking/sending quá 80 giây mà không thay đổi)`);
+        }
+      }
     } else {
       // If we haven't seen it start generating yet
       if (elapsed > startTimeout) {

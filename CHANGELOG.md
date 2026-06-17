@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.162] - 2026-06-18 03:26:00
+
+### 🚀 Tối ưu hóa giám sát phản hồi và phát hiện lỗi phiên bản ChatGPT trong lúc Warmup
+
+- **scripts/warmup.js**:
+  - **Giám sát tiến độ văn bản (Text Progress Monitor)**: Bổ sung cơ chế theo dõi độ dài text (`textLength`) của đoạn hội thoại để nhận diện tiến trình thực tế. Nếu trạng thái là `streaming-element` nhưng text không thay đổi quá 14 giây, script tự động coi như hoàn tất phản hồi (khắc phục lỗi UI kẹt trạng thái streaming ảo của React).
+  - **Phát hiện lỗi/hết hạn phiên trực tiếp**: Tự động rà soát các thông báo lỗi hiển thị trên trang (ví dụ: `Your authentication token has been invalidated`, `Something went wrong`, v.v.). Khi phát hiện lỗi xác thực, script sẽ ném lỗi `session_expired` để kích hoạt vòng lặp tự động đăng nhập lại từ đầu, làm mới cookies và tiếp tục warmup thay vì kẹt chờ vô vọng.
+  - **Tránh kẹt trong chế độ suy nghĩ (Thinking State Guard)**: Nếu nút submit ở trạng thái dừng (`submit-stop` / đang suy nghĩ) quá 80 giây mà không có thay đổi văn bản, script sẽ ném lỗi `session_expired` để tự động khôi phục phiên.
+
 ## [0.3.161] - 2026-06-18 02:22:00
 
 ### 🚀 Tự phục hồi khi ChatGPT bị kẹt loading spinner trong lúc Warmup Q&A
