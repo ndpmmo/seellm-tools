@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.160] - 2026-06-18 02:07:00
+
+### 🐛 Khắc phục lỗi navigate timeout không được retry khi Warmup
+
+- **scripts/warmup.js**:
+  - **Mở rộng điều kiện `isRetriable`**: Thêm các lỗi navigate timeout vào danh sách lỗi có thể retry, bao gồm `page.goto: Timeout`, `navigate timed out`, `net_timeout`, và `aborted due to timeout`. Trước đây, script throw exception và bỏ qua cơ chế retry khi proxy chậm gây navigate timeout.
+  - **Thêm phân loại lỗi `isNavigateTimeout`**: Tự động phát hiện lỗi navigate timeout để áp dụng thời gian chờ dài hơn trước khi retry (12 giây thay vì 5 giây), giúp Camofox có đủ thời gian huỷ session cũ, giải phóng proxy slot và khởi tạo BrowserContext mới.
+  - **Tăng `maxAttempts` từ 2 lên 3**: Tăng số lần thử tối đa để có thêm cơ hội phục hồi khi proxy không ổn định hoặc mạng bị nghẽn.
+  - **Cải thiện log retry**: Phân biệt rõ ràng trong log giữa lỗi `navigate timeout (proxy chậm)` và lỗi `trình duyệt/session` để dễ debug.
+
 ## [0.3.159] - 2026-06-18 01:53:00
 
 ### 🚀 Khắc phục lỗi kẹt vòng lặp Q&A vô tận khi Warmup ChatGPT

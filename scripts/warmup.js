@@ -203,7 +203,7 @@ async function runWarmup() {
   let stepRecorder = null;
   
   try {
-    const maxAttempts = 2;
+    const maxAttempts = 3;
     let runSuccess = false;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -1060,7 +1060,15 @@ async function runWarmup() {
     break; // Exit retry loop on success
     } catch (err) {
       const msg = String(err.message || err || '').toLowerCase();
+      
+      // Classify error type for logging and wait-time decision
+      const isNavigateTimeout = (
+        msg.includes('page.goto') ||
+        msg.includes('navigate timed out') ||
+        (msg.includes('timeout') && msg.includes('navigate'))
+      );
       const isRetriable = (
+        isNavigateTimeout ||
         msg.includes('browser_restarted') ||
         msg.includes('session_expired') ||
         msg.includes('tab no longer exists') ||
@@ -1068,17 +1076,23 @@ async function runWarmup() {
         msg.includes('browser session expired') ||
         msg.includes('target page, context or browser has been closed') ||
         msg.includes('context closed') ||
-        msg.includes('browser closed')
+        msg.includes('browser closed') ||
+        msg.includes('net_timeout') ||
+        msg.includes('aborted due to timeout')
       );
       
       if (isRetriable && attempt < maxAttempts) {
-        console.warn(`\n⚠️ [Warmup] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
+        // Navigate timeouts need longer recovery: camofox destroys the session and
+        // needs time to reinitialise a fresh BrowserContext with a clean proxy slot.
+        const retryWaitMs = isNavigateTimeout ? 12000 : 5000;
+        console.warn(`\n⚠️ [Warmup] Phát hiện lỗi ${ isNavigateTimeout ? 'navigate timeout (proxy chậm)' : 'trình duyệt/session' } ở lượt ${attempt}/${maxAttempts}: ${err.message}.`);
+        console.warn(`⏳ [Warmup] Chờ ${retryWaitMs / 1000}s rồi khởi động lại tab mới...`);
         if (tabId) {
           console.log(`[Warmup] 🧹 Đóng tab cũ: ${tabId}`);
           await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
           tabId = null;
         }
-        await delay(5000);
+        await delay(retryWaitMs);
         continue;
       }
       throw err;
