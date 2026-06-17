@@ -458,8 +458,12 @@ async function runWarmup() {
             passwordWaitCount++;
             if (passwordWaitCount < 3) {
               console.log(`[Warmup] 🔑 Password đã được điền ở lượt trước, đang chờ đăng nhập (lần đợi ${passwordWaitCount})...`);
-              // Retrigger password submit click just in case
-              await evalJson(tabId, USER_ID, `(() => {
+              // Retrigger password submit click just in case the password is still in the input box
+              const clicked = await evalJson(tabId, USER_ID, `(() => {
+                const input = document.querySelector('input[type="password"], input[name="password"], input[id="password"]');
+                if (input && !input.value.trim()) {
+                  return false;
+                }
                 const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
                   .find(el => {
                     const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
@@ -468,8 +472,16 @@ async function runWarmup() {
                 if (btn) {
                   btn.click();
                   btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  return true;
                 }
-              })()`).catch(() => {});
+                return false;
+              })()`).catch(() => null);
+              
+              if (clicked === false) {
+                console.log(`[Warmup] 🔑 Ô nhập password bị trống (trang đã bị reset) -> Tiến hành điền lại password ngay...`);
+                passwordFilled = false;
+                passwordWaitCount = 0;
+              }
               await delay(3000);
               continue;
             } else {
@@ -494,8 +506,26 @@ async function runWarmup() {
             emailWaitCount++;
             if (emailWaitCount < 3) {
               console.log(`[Warmup] 📧 Email đã được điền ở lượt trước, đang chờ chuyển trang (lần đợi ${emailWaitCount})...`);
-              // Retrigger the continue click just in case
-              await evalJson(tabId, USER_ID, `(() => {
+              // Retrigger the continue click just in case the email is actually in the input box
+              const clicked = await evalJson(tabId, USER_ID, `(() => {
+                const selectors = [
+                  'input[autocomplete="email"]',
+                  'input[name="username"]',
+                  'input[type="email"]',
+                  'input[id="username"]',
+                  'input[name="email"]',
+                ];
+                let input = null;
+                for (const s of selectors) {
+                  const el = document.querySelector(s);
+                  if (el && el.offsetParent !== null) { input = el; break; }
+                }
+                
+                // If there's an input box but it has no value (cleared), don't click Continue
+                if (input && !input.value.trim()) {
+                  return false;
+                }
+                
                 const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
                   .find(el => {
                     const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
@@ -504,8 +534,16 @@ async function runWarmup() {
                 if (btn) {
                   btn.click();
                   btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  return true;
                 }
-              })()`).catch(() => {});
+                return false;
+              })()`).catch(() => null);
+              
+              if (clicked === false) {
+                console.log(`[Warmup] 📧 Ô nhập email bị trống (trang đã bị reset) -> Tiến hành điền lại email ngay...`);
+                emailFilled = false;
+                emailWaitCount = 0;
+              }
               await delay(3000);
               continue;
             } else {
