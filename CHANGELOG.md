@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.169] - 2026-06-18 05:20:00
+
+### 🚀 Đồng bộ và lưu trữ Cấu hình luồng chạy cho Bulk Register (Persist & Apply Retry Config)
+
+- **src/components/views/vault/VaultWorkshopView.tsx**:
+  - **Thêm nút Lưu cấu hình**: Thêm nút "Lưu cấu hình" trong giao diện Cấu hình luồng chạy để lưu trữ thủ công toàn bộ cấu hình hoạt động hiện tại (emails, proxies, ratio, concurrency, enableOAuth) vào `localStorage`.
+  - **Truyền cấu hình UI hiện tại khi Retry**: Cập nhật hàm `handleRetryFailed` và `handleRetryItem` để gửi kèm cấu hình hiện thời trên UI xuống backend thông qua request body.
+- **server/routes/vault.js**:
+  - **Cập nhật động cấu hình cho BulkRunner**: Thêm phương thức `updateConfig(config)` cho `BulkRegisterRunner` để cập nhật động số luồng chạy song song (`concurrency`), trạng thái kết nối OAuth2 (`enableOAuth`), và danh sách proxy hoạt động (`proxies`).
+  - **Áp dụng cấu hình khi thử lại**: Cập nhật các endpoint và hàm xử lý `retryFailed(config)` và `retryItem(email, config)` để áp dụng cấu hình mới và tự động tái phân bổ proxy theo tỷ lệ ratio và pool proxy mới nhất được cập nhật trên UI.
+
 ## [0.3.168] - 2026-06-18 05:12:00
 
 ### 🚀 Bổ sung cơ chế tự động xoay Proxy khi chạy lại (Proxy Rotation on Retry)

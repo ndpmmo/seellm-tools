@@ -2578,6 +2578,27 @@ class BulkRegisterRunner {
     this.log(`Khởi tạo tiến trình Bulk Registration với ${this.total} accounts, tối đa ${concurrency} luồng.`);
   }
 
+  updateConfig(config) {
+    if (!config) return;
+    if (typeof config.concurrency === 'number' && config.concurrency >= 1) {
+      const oldConcurrency = this.concurrency;
+      this.concurrency = config.concurrency;
+      if (oldConcurrency !== this.concurrency) {
+        this.log(`⚙️ Cập nhật số luồng chạy song song (Concurrency): ${oldConcurrency} ➔ ${this.concurrency}`);
+      }
+    }
+    if (typeof config.enableOAuth === 'boolean') {
+      const oldEnable = this.enableOAuth;
+      this.enableOAuth = config.enableOAuth;
+      if (oldEnable !== this.enableOAuth) {
+        this.log(`⚙️ Cập nhật trạng thái Connect OAuth2: ${oldEnable} ➔ ${this.enableOAuth}`);
+      }
+    }
+    if (Array.isArray(config.proxies)) {
+      this.proxies = config.proxies;
+    }
+  }
+
   log(text) {
     const timestamp = new Date().toLocaleTimeString();
     if (!this.logs) this.logs = [];
@@ -2728,24 +2749,29 @@ class BulkRegisterRunner {
     }
   }
 
-  retryFailed() {
+  retryFailed(config) {
     if (this.status === 'running') {
       return false;
+    }
+    if (config) {
+      this.updateConfig(config);
     }
     const failedEmails = this.failed.map(f => f.email);
     const tasksToRetry = this.allTasks.filter(t => failedEmails.includes(t.emailRecord.email));
     if (tasksToRetry.length === 0) return false;
 
-    // Rotate proxies for tasks to retry if we have a pool of proxies
-    if (this.proxies && this.proxies.length > 1) {
-      for (const task of tasksToRetry) {
+    // Rotate/Distribute proxies for tasks to retry if we have a pool of proxies
+    if (this.proxies && this.proxies.length > 0) {
+      const parsedRatio = (config && typeof config.ratio === 'number') ? config.ratio : 1;
+      tasksToRetry.forEach((task, idx) => {
         const currentFailedProxy = task.proxy;
-        const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
-        if (otherProxies.length > 0) {
-          task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+        const proxyIdx = Math.floor(idx / parsedRatio) % this.proxies.length;
+        const newProxy = this.proxies[proxyIdx];
+        if (currentFailedProxy !== newProxy) {
+          task.proxy = newProxy;
           this.log(`🔄 [Tự động xoay Proxy] Thử lại ${task.emailRecord.email} với Proxy mới: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
         }
-      }
+      });
     }
 
     this.queue = [...this.queue, ...tasksToRetry];
@@ -2757,17 +2783,23 @@ class BulkRegisterRunner {
     return true;
   }
 
-  retryItem(email) {
+  retryItem(email, config) {
     const task = this.allTasks.find(t => t.emailRecord.email === email);
     if (!task) return false;
 
+    if (config) {
+      this.updateConfig(config);
+    }
+
     // Rotate proxy for this task if we have a pool of proxies
-    if (this.proxies && this.proxies.length > 1) {
+    if (this.proxies && this.proxies.length > 0) {
       const currentFailedProxy = task.proxy;
       const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
       if (otherProxies.length > 0) {
         task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
         this.log(`🔄 [Tự động xoay Proxy] Thử lại ${email} với Proxy mới: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
+      } else {
+        task.proxy = this.proxies[0];
       }
     }
     
@@ -3197,7 +3229,8 @@ router.post('/accounts/bulk-register/retry-failed', (req, res) => {
     if (!currentBulkRun) {
       return res.status(400).json({ error: 'Không có tiến trình Bulk Registration nào tồn tại.' });
     }
-    const ok = currentBulkRun.retryFailed();
+    const { concurrency, enableOAuth, proxies, ratio } = req.body;
+    const ok = currentBulkRun.retryFailed({ concurrency, enableOAuth, proxies, ratio });
     res.json({ ok });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -3207,14 +3240,14 @@ router.post('/accounts/bulk-register/retry-failed', (req, res) => {
 // POST /api/vault/accounts/bulk-register/retry-item
 router.post('/accounts/bulk-register/retry-item', (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, concurrency, enableOAuth, proxies, ratio } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email không hợp lệ.' });
     }
     if (!currentBulkRun) {
       return res.status(400).json({ error: 'Không có tiến trình Bulk Registration nào tồn tại.' });
     }
-    const ok = currentBulkRun.retryItem(email);
+    const ok = currentBulkRun.retryItem(email, { concurrency, enableOAuth, proxies, ratio });
     res.json({ ok });
   } catch (e) {
     res.status(500).json({ error: e.message });

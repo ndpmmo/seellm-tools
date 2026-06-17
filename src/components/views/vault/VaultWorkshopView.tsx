@@ -300,10 +300,28 @@ export function VaultWorkshopView() {
         }
     };
 
+    const handleSaveConfig = () => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('seellm_bulk_emails', bulkEmailsText);
+            localStorage.setItem('seellm_bulk_proxies', bulkProxiesText);
+            localStorage.setItem('seellm_bulk_ratio', String(bulkRatio));
+            localStorage.setItem('seellm_bulk_concurrency', String(bulkConcurrency));
+            localStorage.setItem('seellm_bulk_enable_oauth', String(bulkEnableOAuth));
+            addToast('Đã lưu cấu hình thành công', 'success');
+        }
+    };
+
     const handleRetryFailed = async () => {
         try {
             const res = await fetch('/api/vault/accounts/bulk-register/retry-failed', {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    concurrency: bulkConcurrency,
+                    enableOAuth: bulkEnableOAuth,
+                    proxies: bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean),
+                    ratio: bulkRatio
+                })
             });
             const data = await res.json();
             if (data.ok) {
@@ -322,7 +340,13 @@ export function VaultWorkshopView() {
             const res = await fetch('/api/vault/accounts/bulk-register/retry-item', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
+                body: JSON.stringify({
+                    email,
+                    concurrency: bulkConcurrency,
+                    enableOAuth: bulkEnableOAuth,
+                    proxies: bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean),
+                    ratio: bulkRatio
+                })
             });
             const data = await res.json();
             if (data.ok) {
@@ -2111,6 +2135,13 @@ export function VaultWorkshopView() {
 
                                     {/* Actions */}
                                     <div className="flex gap-3 pt-2">
+                                        <Button
+                                            variant="secondary"
+                                            className="flex-1"
+                                            onClick={handleSaveConfig}
+                                        >
+                                            <Save size={14} className="mr-2" /> Lưu cấu hình
+                                        </Button>
                                         <Button
                                             variant="primary"
                                             className="flex-1 shadow-lg shadow-indigo-500/20"
