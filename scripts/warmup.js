@@ -939,6 +939,8 @@ async function runWarmup() {
       
       // Wait for prompt-textarea to be visible with retry/polling loop
       let isInputVisible = false;
+      let spinnerDetectedSec = 0;
+      let hasReloaded = false;
       const waitStart = Date.now();
       const waitTimeout = 45000; // 45 seconds max wait
       while (Date.now() - waitStart < waitTimeout) {
@@ -949,6 +951,30 @@ async function runWarmup() {
         
         if (isInputVisible) {
           break;
+        }
+        
+        // Check if there is a loading spinner on the page
+        const isSpinnerVisible = await evalJson(tabId, USER_ID, `(() => {
+          const spinner = document.querySelector('svg.animate-spin, .loading, [class*="loading"], [class*="spinner"], .status-loading');
+          if (spinner && spinner.offsetParent !== null) return true;
+          const bodyText = (document.body?.innerText || '').trim().toLowerCase();
+          return bodyText === 'loading...' || bodyText === 'loading';
+        })()`).catch(() => false);
+        
+        if (isSpinnerVisible) {
+          spinnerDetectedSec += 1.5;
+          if (spinnerDetectedSec >= 15 && !hasReloaded) {
+            console.log(`[Warmup] ⚠️ Phát hiện trang bị kẹt ở trạng thái loading spinner quá 15 giây. Tiến hành tự động reload trang...`);
+            hasReloaded = true;
+            spinnerDetectedSec = 0;
+            try {
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/');
+            } catch (navErr) {
+              console.log(`[Warmup] ⚠️ Reload trang thất bại: ${navErr.message}`);
+            }
+          }
+        } else {
+          spinnerDetectedSec = 0;
         }
         
         // Also check/dismiss onboarding modals while waiting
@@ -1078,7 +1104,8 @@ async function runWarmup() {
         msg.includes('context closed') ||
         msg.includes('browser closed') ||
         msg.includes('net_timeout') ||
-        msg.includes('aborted due to timeout')
+        msg.includes('aborted due to timeout') ||
+        msg.includes('không tìm thấy hộp thoại chat')
       );
       
       if (isRetriable && attempt < maxAttempts) {

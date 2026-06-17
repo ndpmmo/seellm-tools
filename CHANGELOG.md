@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.161] - 2026-06-18 02:22:00
+
+### 🚀 Tự phục hồi khi ChatGPT bị kẹt loading spinner trong lúc Warmup Q&A
+
+- **scripts/warmup.js**:
+  - **Tự động reload khi kẹt loading**: Trong lúc chờ hộp thoại nhập câu hỏi (`#prompt-textarea`), nếu phát hiện trang bị kẹt ở trạng thái loading spinner liên tục quá 15 giây, script sẽ tự động reload trang (điều hướng lại về `chatgpt.com`).
+  - **Mở rộng danh sách lỗi có thể retry**: Thêm lỗi `Không tìm thấy hộp thoại chat của ChatGPT` vào danh sách `isRetriable`, cho phép script khởi động lại phiên trình duyệt mới và thử lại thay vì kết thúc thất bại ngay lập tức.
+
 ## [0.3.160] - 2026-06-18 02:07:00
 
 ### 🐛 Khắc phục lỗi navigate timeout không được retry khi Warmup
