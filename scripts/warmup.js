@@ -62,50 +62,59 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   const startTime = Date.now();
   console.log(`[Warmup] ⏳ Chờ ChatGPT phản hồi xong...`);
   
+  let hasStarted = false;
+  const startTimeout = 8000; // 8 seconds to start generating
+  
   while (Date.now() - startTime < timeoutMs) {
-    const status = await evalJson(tabId, userId, `(() => {
+    const state = await evalJson(tabId, userId, `(() => {
       // 1. Check for visible "Stop generating" button
-      const stopBtn = document.querySelector('button[aria-label*="Stop"], button[data-testid*="stop"], button[data-testid="stop-generating-button"], button[class*="composer-submit"] svg[use*="stop"]');
-      if (stopBtn && stopBtn.offsetParent !== null) {
-        return 'generating (stop button visible)';
-      }
+      const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[class*="composer-submit"] svg[use*="stop"]');
+      const isStopVisible = stopBtn && stopBtn.offsetParent !== null;
       
       // 2. Check for active streaming classes or selectors
       const streamingEl = document.querySelector('.result-streaming, .streaming, [class*="streaming"]');
-      if (streamingEl) {
-        return 'generating (streaming element active)';
-      }
+      const isStreaming = !!streamingEl;
       
       // 3. Check submit/voice button state
-      const submitBtn = document.querySelector('button[class*="composer-submit"], button[aria-label="Start Voice"], button[aria-label="Send prompt"], button[data-testid="send-button"]');
+      const submitBtn = document.querySelector('button[class*="composer-submit"], button[aria-label="Send prompt"], button[data-testid="send-button"]');
+      let isSubmitStop = false;
       if (submitBtn && submitBtn.offsetParent !== null) {
-        // If it's a stop button or disabled
         const ariaLabel = (submitBtn.getAttribute('aria-label') || '').toLowerCase();
         const className = (submitBtn.className || '').toLowerCase();
-        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]') || !!submitBtn.querySelector('svg rect'); // stop icon has rect
+        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]') || !!submitBtn.querySelector('svg rect');
         
         if (ariaLabel.includes('stop') || className.includes('stop') || hasStopSvg) {
-          return 'generating (composer-submit stop active)';
+          isSubmitStop = true;
         }
-        
-        // If it's idle/voice or send is enabled (meaning ready for next prompt)
-        const isDisabled = submitBtn.hasAttribute('disabled') || submitBtn.disabled;
-        if (isDisabled && !ariaLabel.includes('voice')) {
-          return 'generating (submit button disabled)';
-        }
-        return 'complete';
       }
       
-      return 'checking';
+      return {
+        isGenerating: isStopVisible || isStreaming || isSubmitStop,
+        generatingReason: isStopVisible ? 'stop-button' : (isStreaming ? 'streaming-element' : (isSubmitStop ? 'submit-stop' : 'none'))
+      };
     })()`);
     
-    if (status === 'complete') {
-      console.log(`[Warmup] ✅ ChatGPT đã trả lời xong!`);
-      return true;
+    const elapsed = Date.now() - startTime;
+    
+    if (state.isGenerating) {
+      hasStarted = true;
     }
     
-    // Log occasionally
-    console.log(`[Warmup] ⏱️ Generation status: ${status} (${Math.round((Date.now() - startTime) / 1000)}s)`);
+    if (hasStarted) {
+      if (!state.isGenerating) {
+        console.log(`[Warmup] ✅ ChatGPT đã trả lời xong!`);
+        return true;
+      }
+      console.log(`[Warmup] ⏱️ Generation status: generating (${state.generatingReason}) (${Math.round(elapsed / 1000)}s)`);
+    } else {
+      // If we haven't seen it start generating yet
+      if (elapsed > startTimeout) {
+        console.log(`[Warmup] ⚠️ Không phát hiện trạng thái generating sau ${startTimeout / 1000}s. Coi như phản hồi hoàn tất hoặc lỗi.`);
+        return false;
+      }
+      console.log(`[Warmup] ⏱️ Generation status: waiting for start (${Math.round(elapsed / 1000)}s)`);
+    }
+    
     await delay(2000);
   }
   
@@ -955,15 +964,28 @@ async function runWarmup() {
         throw new Error('Không tìm thấy hộp thoại chat của ChatGPT! (Chờ 45 giây không xuất hiện)');
       }
       
-      // Type message
+      // Type message using keyboard mode to ensure ProseMirror state updates correctly
       if (WARMUP_SCREENSHOTS && stepRecorder) {
         await stepRecorder.before(3 + idx, 1, `q${idx + 1}_sending`);
       }
-      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: '#prompt-textarea', text: promptText });
+      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: '#prompt-textarea', text: promptText, mode: 'keyboard', delay: 10 });
       await delay(1000);
       
-      // Send message
-      await pressKey(tabId, USER_ID, 'Enter');
+      // Send message (try clicking Send button first, fallback to pressing Enter key)
+      const sent = await evalJson(tabId, USER_ID, `(() => {
+        const sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[class*="composer-submit"]');
+        if (sendBtn && sendBtn.offsetParent !== null && !sendBtn.disabled && !sendBtn.hasAttribute('disabled')) {
+          sendBtn.click();
+          sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          return true;
+        }
+        return false;
+      })()`).catch(() => false);
+      
+      if (!sent) {
+        console.log(`[Warmup] ⚠️ Không tìm thấy nút gửi khả dụng hoặc nút bị vô hiệu hóa, tiến hành nhấn phím Enter...`);
+        await pressKey(tabId, USER_ID, 'Enter');
+      }
       await delay(2000);
       
       // Wait for complete response

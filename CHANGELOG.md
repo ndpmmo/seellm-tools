@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.159] - 2026-06-18 01:53:00
+
+### 🚀 Khắc phục lỗi kẹt vòng lặp Q&A vô tận khi Warmup ChatGPT
+- **scripts/warmup.js**:
+  - **Tối ưu hóa `waitForGenerationComplete`**:
+    - Sử dụng cờ theo dõi trạng thái `hasStarted` để phát hiện khi cuộc trò chuyện thực sự bắt đầu phản hồi trước khi chờ phản hồi kết thúc, tránh nhận diện sai trạng thái hoàn thành.
+    - Thu hẹp bộ lọc nút dừng (`stopBtn`) để tránh xung đột với các nút dừng giọng nói/đọc văn bản (voice/speech controls) trong giao diện mới của ChatGPT.
+    - Loại bỏ kiểm tra trả về `'generating (submit button disabled)'` khi nút Gửi bị vô hiệu hóa, vì trong giao diện mới của ChatGPT, nút Gửi luôn hiển thị và bị vô hiệu hóa khi ô nhập liệu trống.
+    - Tự động bỏ qua và tiếp tục nếu không phát hiện phản hồi bắt đầu sau 8 giây (tránh treo vô tận).
+  - **Tối ưu hóa hành động nhập liệu và gửi tin nhắn**:
+    - Nạp văn bản bằng cơ chế gõ phím Camofox (`mode: 'keyboard'`, `delay: 10`) thay vì ghi giá trị trực tiếp, đảm bảo React/ProseMirror đồng bộ hóa dữ liệu và kích hoạt nút Gửi.
+    - Gửi tin nhắn thông qua click trực tiếp vào nút Gửi (`button[data-testid="send-button"]`, `button[aria-label="Send prompt"]`) nếu khả dụng và được bật; tự động quay lại phím `Enter` nếu nút gửi bị vô hiệu hóa hoặc không tìm thấy.
+
 ## [0.3.158] - 2026-06-18 01:38:00
 
 ### 🚀 Tối ưu hóa tự phục hồi lỗi trình duyệt cho các tiến trình Worker ngầm (Resiliency Worker Recovery)
