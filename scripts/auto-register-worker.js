@@ -1159,8 +1159,12 @@ export async function runAutoRegister(taskInput) {
     // Vòng lặp retry thông minh (lên tới 2 lần) nếu URL không đổi và không có màn hình password/OTP
     for (let attempt = 1; attempt <= 2 && !emailSuccess; attempt++) {
       if (newUrl) {
-        emailSuccess = true;
-        break;
+        if (newUrl.includes('auth/login?email=') || newUrl.includes('auth/login/?email=')) {
+          console.log(`[Email-submit] ❌ Bị redirect ngược lại về login landing page (Proxy/Reputation block). URL: ${newUrl}`);
+        } else {
+          emailSuccess = true;
+          break;
+        }
       }
 
       const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
@@ -1209,6 +1213,10 @@ export async function runAutoRegister(taskInput) {
 
     // Kiểm tra kết quả cuối cùng sau khi hoàn tất retry
     if (!emailSuccess) {
+      const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
+      if (currentUrl.includes('auth/login?email=') || currentUrl.includes('auth/login/?email=')) {
+        throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block). URL: ${currentUrl}`);
+      }
       if (!newUrl) {
         console.log(`[Email-submit] ⚠️ URL vẫn không đổi sau click — kiểm tra xem trang có chuyển in-page không...`);
         const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
@@ -1262,16 +1270,20 @@ export async function runAutoRegister(taskInput) {
       const pollSuccess = await pollUntil(async () => {
         const detection = await evalJson(tabId, USER_ID, `
           (() => {
-            const url = location.href;
+            const url = location.href.toLowerCase();
             const body = document.body?.innerText?.toLowerCase() || '';
             const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
             const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
             const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
             const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
             const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
-            return { flow };
+            const isBlocked = url.includes('auth/login?email=') || url.includes('auth/login/?email=');
+            return { flow, isBlocked };
           })()
         `);
+        if (detection?.isBlocked) {
+          throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block) trong FlowDetectionPoll.`);
+        }
         return detection?.flow !== 'unknown';
       }, 'FlowDetectionPoll', { intervalMs: 2000, maxWaitMs: 20000 });
       
@@ -1606,6 +1618,10 @@ export async function runAutoRegister(taskInput) {
         }
 
         if (!stillOnPasswordPage) {
+          const currentUrl = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+          if (currentUrl.includes('auth/login?email=') || currentUrl.includes('auth/login/?email=')) {
+            throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page sau khi submit password (Proxy/Reputation block). URL: ${currentUrl}`);
+          }
           passwordSuccess = true;
           usedPassword = tryPassword;
           console.log(`✅ [Password] Attempt ${attempt + 1} accepted`);
@@ -1668,7 +1684,6 @@ export async function runAutoRegister(taskInput) {
 
     // Case 1: The page is still loading and we don't see anything yet (neither inputs nor verification indicators)
     if (!otpScreenCheck.hasOtpInput && !otpScreenCheck.hasVerifyUrl && !otpScreenCheck.hasVerifyText) {
-      console.log(`[4] ⚠️ OTP screen not detected at all, waiting for any OTP indicator via pollUntil...`);
       const pollSuccess = await pollUntil(async () => {
         await checkAndRecoverSessionEnded(tabId, USER_ID, email, chatGptPassword);
         const check = await evalJson(tabId, USER_ID, `
@@ -1681,13 +1696,18 @@ export async function runAutoRegister(taskInput) {
               document.querySelector('input[name="code"]') ||
               document.querySelector('input[maxlength="6"]')
             );
+            const isBlocked = url.includes('auth/login?email=') || url.includes('auth/login/?email=');
             return {
               hasOtpInput,
               hasVerifyUrl: url.includes('email-verification') || url.includes('verify'),
-              hasVerifyText: body.includes('verify') || body.includes('code') || body.includes('enter code')
+              hasVerifyText: body.includes('verify') || body.includes('code') || body.includes('enter code'),
+              isBlocked
             };
           })()
         `);
+        if (check.isBlocked) {
+          throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block) trong OTPScreenPoll.`);
+        }
         return check.hasOtpInput || check.hasVerifyUrl || check.hasVerifyText;
       }, 'OTPScreenPoll', { intervalMs: 2000, maxWaitMs: proxyUrl ? 30000 : 20000 });
       
@@ -1989,6 +2009,10 @@ export async function runAutoRegister(taskInput) {
         throw new Error('OTP verification submitted but page failed to transition away from email-verification');
       }
 
+      if (finalUrlCheck.includes('auth/login') || finalUrlCheck.includes('google.com') || finalUrlCheck.includes('apple.com')) {
+        throw new Error(`[OTP] Xác minh OTP thất bại hoặc bị điều hướng sai URL. URL hiện tại: ${finalUrlCheck}`);
+      }
+
       // Phase 3, Step 1: Pin verified
       await recorder.after(3, 1, 'pin_verified');
     }
@@ -2054,6 +2078,11 @@ export async function runAutoRegister(taskInput) {
     }
 
     // 5. Cấp User Info (tên, ngày sinh) — chạy nếu là account mới hoặc nếu page có yêu cầu
+    const currentUrlBeforeAbout = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+    if (currentUrlBeforeAbout.includes('auth/login')) {
+      throw new Error(`[AboutForm] Vẫn ở trang login page sau khi qua bước OTP. URL: ${currentUrlBeforeAbout}`);
+    }
+
     const hasAboutInputs = await evalJson(tabId, USER_ID, `
       (() => {
         const url = location.href.toLowerCase();

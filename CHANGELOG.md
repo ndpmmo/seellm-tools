@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.166] - 2026-06-18 04:55:00
+
+### 🚀 Tối ưu hóa xử lý lỗi đăng ký và ngăn chặn chuyển hướng sai lệch (Drift Guard)
+
+- **scripts/auto-register-worker.js**:
+  - **Phát hiện redirect ngược về trang đăng nhập**: Tích hợp các bộ lọc URL (`auth/login?email=` hoặc `auth/login/?email=`) tại các bước quan trọng như nộp email (email submit retry loop), xác định luồng (`FlowDetectionPoll`), nộp mật khẩu (`Password-submit`), và chờ màn hình OTP (`OTPScreenPoll`). Khi phát hiện OpenAI từ chối đăng ký và trả ngược về login page (thường do proxy bị block hoặc reputation IP kém), script sẽ ném lỗi `BLOCKED_BY_OPENAI` lập tức để ngắt tiến trình chạy ngầm, tiết kiệm 20-30s chờ đợi vô ích.
+  - **Ngăn chặn lỗi "fake success" khi gửi mật khẩu**: Sửa logic kiểm tra mật khẩu. Nếu các ô nhập mật khẩu biến mất do trang bị đẩy ngược về login page, script sẽ phát hiện được URL login thay vì mặc định coi là thành công (`passwordSuccess = true`).
+  - **Tối ưu hóa phục hồi trang OTP bị đơ/trắng**: Cập nhật bước OTP verification. Nếu trang bị đơ/trắng và tự phục hồi bằng cách chuyển về `/auth/login` hoặc bị drift sang các trang OAuth như Google/Apple, script sẽ throw lỗi ngay lập tức thay vì bỏ qua và tiếp tục gửi thông tin ảo.
+  - **Thêm guard check cho trang điền thông tin Form About**: Trước khi điền thông tin cá nhân (Step 5), kiểm tra nếu URL hiện tại vẫn ở `/auth/login` (do bị mất session/redirection), lập tức ném lỗi để tránh click nhầm nút "Continue" của trang login và drift sang `accounts.google.com`.
+
 ## [0.3.165] - 2026-06-18 03:39:00
 
 ### 🚀 Tối ưu hóa phát hiện đăng nhập khi có modal hết hạn phiên
