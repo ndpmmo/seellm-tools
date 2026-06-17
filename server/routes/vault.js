@@ -63,25 +63,34 @@ function logAudit(opts) {
  */
 async function triggerGatewaySync(reason = 'manual') {
   const cfg = loadConfig();
-  if (!cfg.gatewayUrl || !cfg.d1SyncSecret) return;
-  // Skip nếu gatewayUrl trỏ đến D1 Worker (không có route /api/sync/trigger)
-  if (cfg.gatewayUrl.includes('workers.dev') || cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
-    return; // D1 Worker không có Next.js route
+  if (!cfg.d1SyncSecret) return;
+
+  const targets = [];
+  if (cfg.gatewayUrl && !cfg.gatewayUrl.includes('workers.dev') && !cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+    targets.push(cfg.gatewayUrl);
   }
-  try {
-    const res = await fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
-      method: 'POST',
-      headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) {
-      console.log(`[GatewayTrigger] ✅ Gateway pulled snapshot (reason=${reason})`);
-    } else if (res.status !== 404) {
-      console.log(`[GatewayTrigger] ⚠️ Gateway trigger HTTP ${res.status} (reason=${reason})`);
+  if (cfg.gatewayAppUrl) {
+    targets.push(cfg.gatewayAppUrl);
+  } else {
+    targets.push('http://localhost:1404');
+  }
+
+  for (const target of targets) {
+    try {
+      const url = `${target.replace(/\/+$/, '')}/api/sync/trigger`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        console.log(`[GatewayTrigger] ✅ Gateway ${target} pulled snapshot (reason=${reason})`);
+      } else if (res.status !== 404) {
+        console.log(`[GatewayTrigger] ⚠️ Gateway ${target} trigger HTTP ${res.status} (reason=${reason})`);
+      }
+    } catch (e) {
+      // Best-effort
     }
-    // 404 = Gateway không có Next.js route, silently skip
-  } catch (e) {
-    // Best-effort — Gateway có thể down hoặc không config
   }
 }
 
@@ -106,7 +115,16 @@ function maybeAddNeedPhoneTag(id, message) {
 function isDeactivatedMsg(message) {
   if (!message) return false;
   const msg = String(message).toLowerCase();
-  return msg.includes('account_deactivated') || msg.includes('deactivated') || msg.includes('vô hiệu hóa') || msg.includes('đã bị xóa');
+  return msg.includes('account_deactivated') || 
+         msg.includes('deactivated') || 
+         msg.includes('deactive') || 
+         msg.includes('vô hiệu hóa') || 
+         msg.includes('vô hiệu hoá') || 
+         msg.includes('đã bị xóa') || 
+         msg.includes('đã bị xoá') || 
+         msg.includes('bị khóa') || 
+         msg.includes('bị khoá') || 
+         msg.includes('bị block');
 }
 
 function isReloginMsg(message) {
@@ -1447,6 +1465,22 @@ router.post('/accounts/:id/stop', async (req, res) => {
       psChanged = true;
     }
 
+    // Dừng tất cả các tiến trình ngầm (warmup, check-session, 2fa) đang chạy cho account này
+    const targetAccountId = req.params.id;
+    if (processManager.getProcesses && processManager.stopProcess) {
+      const allProcs = processManager.getProcesses();
+      for (const procId of Object.keys(allProcs)) {
+        if (
+          procId.startsWith(`warmup_${targetAccountId}_`) ||
+          procId.startsWith(`check_${targetAccountId}_`) ||
+          procId.startsWith(`regen_2fa_${targetAccountId}_`)
+        ) {
+          console.log(`[Server] Stopping active process ${procId} for account ${targetAccountId} via stop route`);
+          processManager.stopProcess(procId);
+        }
+      }
+    }
+
     vault.updateAccountStatus(req.params.id, 'idle');
 
     if (psChanged) {
@@ -2503,7 +2537,9 @@ async function triggerQueueProcessing() {
   
   try {
     while (executionQueue.length > 0) {
-      if (getActiveProcessesCount() < 3) {
+      const cfg = loadConfig();
+      const maxThreads = cfg.maxThreads || 3;
+      if (getActiveProcessesCount() < maxThreads) {
         const nextTask = executionQueue.shift();
         try {
           await nextTask();

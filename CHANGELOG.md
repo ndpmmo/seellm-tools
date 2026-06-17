@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.157] - 2026-06-18 00:55:00
+
+### 🚀 Tự động phục hồi lỗi trình duyệt khi Warmup & Hỗ trợ dừng vật lý tiến trình cùng bộ lọc khóa thông minh
+- **scripts/warmup.js**:
+  - **Tự phục hồi lỗi trình duyệt**: Tích hợp vòng lặp thử lại tối đa 2 lần cho tiến trình warmup. Khi gặp các lỗi trình duyệt bị đóng bất ngờ (`browser_restarted`, `session_expired`, `Tab no longer exists`), tiến trình tự động dọn dẹp Tab ID cũ, nghỉ 5 giây và khởi động lại tab mới để chạy lại từ đầu.
+  - Khắc phục lỗi cú pháp `SyntaxError: Unexpected token 'catch'` do ngoặc lồng lệch pha của khối try-catch ngoài cùng.
+- **server/routes/vault.js**:
+  - **Dừng vật lý tiến trình ngầm**: Khi người dùng nhấn nút "Dừng" (Stop) trên UI của tài khoản, route `/accounts/:id/stop` sẽ tự động quét danh sách tiến trình của `processManager` và chấm dứt (kill) ngay lập tức các tiến trình ngầm (`warmup`, `check-session`, `2fa-regen`) đang chạy của tài khoản đó thay vì chỉ reset cờ trong database.
+- **scripts/lib/openai-login-flow.js**:
+  - **Mở rộng bộ lọc tài khoản khóa (Smart Check)**: Nâng cấp cờ `hasDeactivated` thành cơ chế kiểm tra linh hoạt hơn, bao phủ toàn bộ các biến thể tiếng Anh và tiếng Việt như `vô hiệu hoá/hóa`, `bị khóa/khoá`, `đã bị xóa/xoá`, `bị block`, `ngừng hoạt động`, `account suspended` để tránh việc bỏ sót tài khoản bị vô hiệu hóa.
+- **scripts/auto-worker.js**:
+  - **Chẩn đoán tài khoản khóa thông minh**: Cập nhật hàm `checkDeactivatedInSnapshot` sang bộ lọc từ khóa thông minh tương tự để phát hiện chính xác tài khoản chết trong quá trình connect.
+
 ## [0.3.156] - 2026-06-17 01:55:00
 
 ### 🚀 Tối ưu hóa bỏ qua Passkey khi Reload & Hỗ trợ đa ngôn ngữ mở rộng

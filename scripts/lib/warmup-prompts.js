@@ -281,7 +281,7 @@ export function generateWarmupPrompts(count = 3, seedString = '') {
       const cat = categories[hashVal % categories.length];
       const topicList = activeTopics[cat];
       
-      let topicIdx = (hashVal >> 2) % topicList.length;
+      let topicIdx = (hashVal >>> 2) % topicList.length;
       topic = topicList[topicIdx];
       
       let attempts = 0;
@@ -293,9 +293,9 @@ export function generateWarmupPrompts(count = 3, seedString = '') {
       }
       usedTopics.add(topic);
       
-      persona = activePersonas[(hashVal >> 4) % activePersonas.length];
-      format = activeFormats[(hashVal >> 6) % activeFormats.length];
-      templateId = (hashVal >> 8) % 5;
+      persona = activePersonas[(hashVal >>> 4) % activePersonas.length];
+      format = activeFormats[(hashVal >>> 6) % activeFormats.length];
+      templateId = (hashVal >>> 8) % 5;
     } else {
       const cat = categories[Math.floor(Math.random() * categories.length)];
       const topicList = activeTopics[cat];

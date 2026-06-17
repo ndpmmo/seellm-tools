@@ -295,6 +295,10 @@ export function VaultAccountsView() {
   const [isBulkWarmupFormOpen, setIsBulkWarmupFormOpen] = useState(false);
   const [bulkWarmupFilter, setBulkWarmupFilter] = useState<'all_ready' | 'no_warmup_today' | 'no_warmup_24h' | 'no_warmup_3d' | 'no_warmup_7d' | 'never_warmed'>('no_warmup_today');
   const [isBulkWarmingAuto, setIsBulkWarmingAuto] = useState(false);
+  const [warmupQuestionsCount, setWarmupQuestionsCount] = useState<number>(0);
+  const [warmupStaggerSecs, setWarmupStaggerSecs] = useState<number>(0);
+  const [maxWarmupAccounts, setMaxWarmupAccounts] = useState<number>(0);
+  const [selectedWarmupAccountIds, setSelectedWarmupAccountIds] = useState<Set<string>>(new Set());
 
   // Custom Advanced Filter States
   const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'workspace' | 'personal'>('all');
@@ -692,15 +696,15 @@ export function VaultAccountsView() {
   const bulkWarmupSelected = async () => {
     const readySelected = Array.from(selectedIds).filter(id => {
       const acc = items.find(it => it.id === id);
-      return acc && acc.status === 'ready';
+      return acc && ['ready', 'idle', 'error', 'relogin'].includes(acc.status);
     });
     
     if (readySelected.length === 0) {
-      addToast('⚠️ Chỉ có thể Warmup tài khoản ở trạng thái Ready', 'warning');
+      addToast('⚠️ Chỉ có thể Warmup tài khoản ở trạng thái hoạt động (Ready, Idle, Error, Re-login)', 'warning');
       return;
     }
     
-    if (!await askConfirm('Warmup Hàng Loạt', `Kích hoạt Warmup cho ${readySelected.length} tài khoản Ready đã chọn?`, { variant: 'info', confirmLabel: 'Bắt đầu' })) return;
+    if (!await askConfirm('Warmup Hàng Loạt', `Kích hoạt Warmup cho ${readySelected.length} tài khoản đã chọn?`, { variant: 'info', confirmLabel: 'Bắt đầu' })) return;
     
     let success = 0;
     for (const id of readySelected) {
@@ -823,8 +827,8 @@ export function VaultAccountsView() {
       const tags = safeParseTags(it.tags);
       // Only ChatGPT / Codex accounts
       if (!isOpenAI(it.provider)) return false;
-      // Only Ready accounts
-      if (it.status !== 'ready') return false;
+      // Only active/warmable accounts (ready, idle, error, relogin)
+      if (!['ready', 'idle', 'error', 'relogin'].includes(it.status)) return false;
       // Must not be deactivated
       if (tags.includes('account_deactivated')) return false;
 
@@ -867,27 +871,41 @@ export function VaultAccountsView() {
     });
   }, [items]);
 
+  useEffect(() => {
+    if (isBulkWarmupFormOpen) {
+      const targets = getAutoWarmupTargets(bulkWarmupFilter);
+      setSelectedWarmupAccountIds(new Set(targets.map(t => t.id)));
+    }
+  }, [bulkWarmupFilter, isBulkWarmupFormOpen, getAutoWarmupTargets]);
+
   const startAutoWarmup = async () => {
-    const targets = getAutoWarmupTargets(bulkWarmupFilter);
-    if (targets.length === 0) {
-      return addToast('Không tìm thấy tài khoản nào phù hợp với bộ lọc đã chọn', 'warning');
+    const allMatchingTargets = getAutoWarmupTargets(bulkWarmupFilter);
+    let selectedTargets = allMatchingTargets.filter(t => selectedWarmupAccountIds.has(t.id));
+
+    if (maxWarmupAccounts > 0) {
+      selectedTargets = selectedTargets.slice(0, maxWarmupAccounts);
+    }
+
+    if (selectedTargets.length === 0) {
+      return addToast('Vui lòng chọn ít nhất 1 tài khoản để bắt đầu Warmup', 'warning');
     }
 
     if (!await askConfirm(
       'Tự Động Warmup', 
-      `Kích hoạt Warmup cho ${targets.length} tài khoản phù hợp với điều kiện đã chọn?`, 
+      `Kích hoạt Warmup cho ${selectedTargets.length} tài khoản đã chọn? ${warmupStaggerSecs > 0 ? `(Độ trễ giãn cách: ${warmupStaggerSecs}s)` : ''}`, 
       { variant: 'info', confirmLabel: 'Bắt đầu' }
     )) return;
 
     setIsBulkWarmingAuto(true);
     let success = 0;
 
-    for (const it of targets) {
+    for (let idx = 0; idx < selectedTargets.length; idx++) {
+      const it = selectedTargets[idx];
       try {
         const r = await fetch(`/api/vault/accounts/${it.id}/warmup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ questionsCount: 0 })
+          body: JSON.stringify({ questionsCount: warmupQuestionsCount })
         });
         const text = await r.text();
         let d;
@@ -912,11 +930,15 @@ export function VaultAccountsView() {
         addToast(e.message, 'error');
         break;
       }
+
+      if (warmupStaggerSecs > 0 && idx < selectedTargets.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, warmupStaggerSecs * 1000));
+      }
     }
 
     setIsBulkWarmingAuto(false);
     if (success > 0) {
-      addToast(`🔥 Đã kích hoạt Warmup cho ${success}/${targets.length} tài khoản`, 'success');
+      addToast(`🔥 Đã kích hoạt Warmup cho ${success}/${selectedTargets.length} tài khoản`, 'success');
       setIsBulkWarmupFormOpen(false);
       loadAccounts();
     }
@@ -1451,7 +1473,7 @@ export function VaultAccountsView() {
 
       {/* ═══ ADVANCED FILTER PANEL ═══ */}
       {isAdvancedFilterOpen && (
-        <Card className="mb-2 border-indigo-500/20 bg-indigo-500/[0.01] animate-slideDown overflow-visible relative z-20">
+        <Card className="mb-2 border-indigo-500/20 bg-indigo-500/[0.01] animate-slideDown overflow-visible relative z-20 shrink-0">
           <CardContent className="py-4">
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
               {/* Provider Selection */}
@@ -1651,7 +1673,7 @@ export function VaultAccountsView() {
 
       {/* ═══ FORM ═══ */}
       {uiState.isAdding && (
-        <Card className="mb-6 animate-slideDown">
+        <Card className="mb-6 animate-slideDown shrink-0">
           <CardHeader>
             <CardTitle>
               {uiState.editId ? <Pencil size={14} /> : <Plus size={14} />}
@@ -1706,7 +1728,7 @@ export function VaultAccountsView() {
 
       {/* ═══ BULK FORM ═══ */}
       {uiState.isBulk && (
-        <Card className="mb-6 animate-slideDown">
+        <Card className="mb-6 animate-slideDown shrink-0">
           <CardHeader>
             <CardTitle><CopyPlus size={14} /> Nhập tài khoản hàng loạt</CardTitle>
           </CardHeader>
@@ -1736,7 +1758,7 @@ export function VaultAccountsView() {
 
       {/* ═══ AUTO BULK DEPLOY FORM ═══ */}
       {isBulkDeployFormOpen && (
-        <Card className="mb-6 animate-slideDown border-emerald-500/20 bg-emerald-500/[0.02]">
+        <Card className="mb-6 animate-slideDown border-emerald-500/20 bg-emerald-500/[0.02] shrink-0">
           <CardHeader>
             <CardTitle className="text-emerald-400">
               <Bot size={14} className="text-emerald-400" /> Tự động Deploy Hàng Loạt
@@ -1805,51 +1827,207 @@ export function VaultAccountsView() {
 
       {/* ═══ AUTO BULK WARMUP FORM ═══ */}
       {isBulkWarmupFormOpen && (
-        <Card className="mb-6 animate-slideDown border-orange-500/20 bg-orange-500/[0.02]">
-          <CardHeader>
-            <CardTitle className="text-orange-400">
-              <Flame size={14} className="text-orange-400 mr-1.5 inline" /> Tự động Warmup Hàng Loạt
+        <Card className="mb-6 animate-slideDown border-orange-500/20 bg-orange-500/[0.02] shrink-0">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-orange-400 flex items-center justify-between text-sm">
+              <span className="flex items-center"><Flame size={14} className="text-orange-400 mr-2" /> Cấu hình Tự động Warmup Hàng Loạt</span>
+              <Button size="sm" variant="ghost" onClick={() => setIsBulkWarmupFormOpen(false)} className="text-slate-400 hover:text-white p-1 h-auto">
+                <X size={14} />
+              </Button>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+          <CardContent className="space-y-4">
+            {/* Settings Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Tiêu chí lựa chọn tài khoản</label>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Tiêu chí lựa chọn tài khoản</label>
                 <select 
-                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-[13px] text-slate-100 outline-none focus:border-indigo-500/50" 
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-orange-500/50" 
                   value={bulkWarmupFilter} 
                   onChange={e => setBulkWarmupFilter(e.target.value as any)}
                 >
-                  <option value="no_warmup_today" className="bg-[#0f172a]">Chưa warmup hôm nay (Múi giờ VN)</option>
+                  <option value="no_warmup_today" className="bg-[#0f172a]">Chưa warmup hôm nay (VN)</option>
                   <option value="no_warmup_24h" className="bg-[#0f172a]">Chưa warmup &gt; 24 giờ</option>
                   <option value="no_warmup_3d" className="bg-[#0f172a]">Chưa warmup &gt; 3 ngày</option>
                   <option value="no_warmup_7d" className="bg-[#0f172a]">Chưa warmup &gt; 7 ngày</option>
                   <option value="never_warmed" className="bg-[#0f172a]">Chưa từng warmup</option>
-                  <option value="all_ready" className="bg-[#0f172a]">Tất cả tài khoản Ready</option>
+                  <option value="all_ready" className="bg-[#0f172a]">Tất cả tài khoản hoạt động</option>
                 </select>
               </div>
 
               <div>
-                <div className="text-[12px] text-slate-300 font-medium">
-                  Có <span className="font-bold text-orange-400 text-[14px]">{getAutoWarmupTargets(bulkWarmupFilter).length}</span> tài khoản Ready phù hợp tiêu chí.
-                </div>
-                <div className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-                  Chỉ áp dụng cho tài khoản ChatGPT/Codex có trạng thái Ready và không bị khóa.
-                </div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Số câu hỏi mỗi account</label>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-orange-500/50" 
+                  value={warmupQuestionsCount} 
+                  onChange={e => setWarmupQuestionsCount(Number(e.target.value))}
+                >
+                  <option value={0} className="bg-[#0f172a]">Ngẫu nhiên (1 - 3 câu)</option>
+                  <option value={1} className="bg-[#0f172a]">1 câu hỏi</option>
+                  <option value={2} className="bg-[#0f172a]">2 câu hỏi</option>
+                  <option value={3} className="bg-[#0f172a]">3 câu hỏi</option>
+                  <option value={4} className="bg-[#0f172a]">4 câu hỏi</option>
+                  <option value={5} className="bg-[#0f172a]">5 câu hỏi</option>
+                </select>
               </div>
 
-              <div className="flex justify-end gap-2 text-right">
-                <Button 
-                  variant="primary" 
-                  className="bg-orange-600 hover:bg-orange-500 border-orange-500/30 text-white" 
-                  onClick={startAutoWarmup} 
-                  disabled={isBulkWarmingAuto}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Độ trễ giãn cách (Stagger)</label>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-orange-500/50" 
+                  value={warmupStaggerSecs} 
+                  onChange={e => setWarmupStaggerSecs(Number(e.target.value))}
                 >
-                  {isBulkWarmingAuto ? <RefreshCw size={14} className="animate-spin mr-1.5" /> : <Flame size={14} className="mr-1.5" />} 
-                  {isBulkWarmingAuto ? 'Đang kích hoạt...' : 'Bắt đầu Auto Warmup'}
-                </Button>
+                  <option value={0} className="bg-[#0f172a]">Chạy đồng thời (Không trễ)</option>
+                  <option value={10} className="bg-[#0f172a]">Trễ 10 giây</option>
+                  <option value={30} className="bg-[#0f172a]">Trễ 30 giây</option>
+                  <option value={60} className="bg-[#0f172a]">Trễ 1 phút</option>
+                  <option value={120} className="bg-[#0f172a]">Trễ 2 phút</option>
+                  <option value={300} className="bg-[#0f172a]">Trễ 5 phút</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Giới hạn số acc chạy</label>
+                <Input 
+                  type="number"
+                  min={0}
+                  placeholder="Không giới hạn"
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1 text-xs text-slate-100 outline-none focus:border-orange-500/50 h-[28px]"
+                  value={maxWarmupAccounts || ''} 
+                  onChange={e => setMaxWarmupAccounts(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                />
               </div>
             </div>
+
+            {/* Checklist Preview */}
+            <div className="border border-white/5 rounded-lg p-3 bg-black/10">
+              {(() => {
+                const targets = getAutoWarmupTargets(bulkWarmupFilter);
+                const isAllSelected = targets.length > 0 && targets.every(t => selectedWarmupAccountIds.has(t.id));
+                const isSomeSelected = targets.length > 0 && targets.some(t => selectedWarmupAccountIds.has(t.id)) && !isAllSelected;
+
+                const toggleAllTargets = () => {
+                  if (isAllSelected) {
+                    setSelectedWarmupAccountIds(new Set());
+                  } else {
+                    setSelectedWarmupAccountIds(new Set(targets.map(t => t.id)));
+                  }
+                };
+
+                const toggleTarget = (id: string) => {
+                  const next = new Set(selectedWarmupAccountIds);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  setSelectedWarmupAccountIds(next);
+                };
+
+                return (
+                  <>
+                    <div className="flex items-center justify-between pb-2 border-b border-white/5 mb-2">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer select-none">
+                        <input 
+                          type="checkbox"
+                          className="rounded border-white/15 bg-white/5 text-orange-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          checked={isAllSelected}
+                          ref={el => {
+                            if (el) el.indeterminate = isSomeSelected;
+                          }}
+                          onChange={toggleAllTargets}
+                          disabled={targets.length === 0}
+                        />
+                        <span>Danh sách tài khoản ({targets.length > 0 ? `${targets.filter(t => selectedWarmupAccountIds.has(t.id)).length}/${targets.length}` : '0'} đã chọn)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-500">Chỉ áp dụng cho tài khoản hoạt động (Ready, Idle, Error, Re-login)</span>
+                    </div>
+
+                    {targets.length === 0 ? (
+                      <div className="text-center py-6 text-xs text-slate-500">
+                        Không tìm thấy tài khoản nào khớp với tiêu chí lựa chọn.
+                      </div>
+                    ) : (
+                      <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+                        {targets.map(it => {
+                          const isChecked = selectedWarmupAccountIds.has(it.id);
+                          const ps = it.provider_specific_data || {};
+                          return (
+                            <div 
+                              key={it.id} 
+                              onClick={() => toggleTarget(it.id)}
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs cursor-pointer select-none transition ${isChecked ? 'bg-orange-500/5 hover:bg-orange-500/10 border border-orange-500/10' : 'bg-white/[0.01] hover:bg-white/5 border border-transparent'}`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <input 
+                                  type="checkbox"
+                                  className="rounded border-white/10 bg-white/5 text-orange-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                                  checked={isChecked}
+                                  onChange={() => {}} // handled by row click
+                                />
+                                <span className="font-medium text-slate-200 truncate">{it.email}</span>
+                                {it.label && <span className="text-[10px] text-slate-400 truncate bg-white/5 px-1.5 py-0.5 rounded">({it.label})</span>}
+                              </div>
+
+                              <div className="flex items-center gap-3 text-slate-400 text-[10px]">
+                                {ps.lastWarmedAt ? (
+                                  <span className="flex items-center gap-1"><Clock size={10} /> {getRelativeTimeShort(ps.lastWarmedAt)} trước</span>
+                                ) : (
+                                  <span className="text-slate-500">Chưa từng warmup</span>
+                                )}
+                                {ps.warmupCount !== undefined && ps.warmupCount > 0 && (
+                                  <span className="bg-orange-500/10 text-orange-400 px-1 py-0.2 rounded font-semibold">{ps.warmupCount} lần</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Bottom Actions Row */}
+            {(() => {
+              const allMatchingTargets = getAutoWarmupTargets(bulkWarmupFilter);
+              let selectedTargets = allMatchingTargets.filter(t => selectedWarmupAccountIds.has(t.id));
+              if (maxWarmupAccounts > 0) {
+                selectedTargets = selectedTargets.slice(0, maxWarmupAccounts);
+              }
+
+              // Est total duration (3 min avg per warmup process + stagger)
+              const estTotalMins = selectedTargets.length > 0 
+                ? Math.round((selectedTargets.length * 3 * 60 + (selectedTargets.length - 1) * warmupStaggerSecs) / 60)
+                : 0;
+
+              return (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-white/5">
+                  <div className="text-[11px] text-slate-400">
+                    {selectedTargets.length > 0 ? (
+                      <div>
+                        Sẽ khởi chạy warmup cho <span className="font-bold text-orange-400">{selectedTargets.length}</span> tài khoản.
+                        {warmupStaggerSecs > 0 && <span> Giãn cách mỗi đợt: <span className="font-semibold text-orange-300">{warmupStaggerSecs}s</span>.</span>}
+                        {estTotalMins > 0 && <span> Ước tính hoàn tất: ~<span className="font-semibold text-orange-300">{estTotalMins} phút</span>.</span>}
+                      </div>
+                    ) : (
+                      <span className="text-rose-400">Chưa chọn tài khoản nào để chạy Warmup.</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 shrink-0">
+                    <Button 
+                      variant="primary" 
+                      className="bg-orange-600 hover:bg-orange-500 border-orange-500/30 text-white font-semibold text-xs py-1.5 px-4 rounded-md" 
+                      onClick={startAutoWarmup} 
+                      disabled={isBulkWarmingAuto || selectedTargets.length === 0}
+                    >
+                      {isBulkWarmingAuto ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : <Flame size={12} className="mr-1.5" />} 
+                      {isBulkWarmingAuto ? 'Đang kích hoạt...' : 'Bắt đầu Auto Warmup'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}

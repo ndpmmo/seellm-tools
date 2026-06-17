@@ -47,7 +47,7 @@ export function buildOAuthURL(pkce) {
 // ============================================
 // TOKEN EXCHANGE
 // ============================================
-export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
+export async function exchangeCodeForTokens(code, pkce, proxyUrl = null, userAgent = null) {
   const params = new URLSearchParams({
     grant_type: 'authorization_code',
     client_id: OAUTH_CLIENT_ID,
@@ -56,6 +56,7 @@ export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
     code_verifier: pkce.codeVerifier,
   });
   const postData = params.toString();
+  const ua = userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
 
   // ── Nếu có proxy: dùng curl để đồng bộ IP với trình duyệt ──
   if (proxyUrl) {
@@ -65,6 +66,9 @@ export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
         const proc = spawn('curl', [
           '-s', '-X', 'POST',
           '-H', 'Content-Type: application/x-www-form-urlencoded',
+          '-H', `User-Agent: ${ua}`,
+          '-H', 'Origin: https://auth.openai.com',
+          '-H', 'Referer: https://auth.openai.com/',
           '-H', 'Accept: application/json',
           '--proxy', proxyUrl,
           '--data', postData,
@@ -91,6 +95,9 @@ export async function exchangeCodeForTokens(code, pkce, proxyUrl = null) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': ua,
+      'Origin': 'https://auth.openai.com',
+      'Referer': 'https://auth.openai.com/',
       'Accept': 'application/json',
     },
     body: postData,

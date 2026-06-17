@@ -9,6 +9,7 @@ import { normalizeProxyUrl, assertProxyApplied, probeProxyExitIp, getLocalPublic
 import { getFreshTOTP } from './lib/totp.js';
 import { generateWarmupPrompts } from './lib/warmup-prompts.js';
 import { createStepRecorder } from './lib/screenshot.js';
+import { waitForOTPCode } from './lib/ms-graph-email.js';
 import {
   getState,
   fillEmail,
@@ -193,11 +194,18 @@ async function runWarmup() {
   let stepRecorder = null;
   
   try {
-    // 2. Pre-flight Proxy Assert (traffic isolation security)
-    if (effectiveProxy) {
-      console.log(`[Warmup] 🔒 [PreFlight] Kiểm tra proxy: ${effectiveProxy}`);
+    const maxAttempts = 2;
+    let runSuccess = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        let lastErr = null;
+        questionsAsked = 0; // Reset question count on retry attempt
+        
+        // 2. Pre-flight Proxy Assert (traffic isolation security)
+        if (effectiveProxy) {
+          console.log(`[Warmup] 🔒 [PreFlight] Kiểm tra proxy (lượt ${attempt}/${maxAttempts}): ${effectiveProxy}`);
+          try {
+            let lastErr = null;
         for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
           try {
             preFlightResult = await assertProxyApplied(effectiveProxy);
@@ -531,9 +539,42 @@ async function runWarmup() {
           continue;
         }
 
-        // 7.5. Handle Email OTP Screen (Device Verification) — Warmup does not support it
+        // 7.5. Handle Email OTP Screen (Device Verification)
         if (state.hasEmailOtpInput) {
-          throw new Error('EMAIL_OTP_REQUIRED: Tài khoản yêu cầu xác minh qua Email (Device Verification), nhưng warmup không hỗ trợ tự động đọc email!');
+          console.log(`[Warmup] 📧 Phát hiện thử thách OTP gửi qua Email!`);
+          let emailCreds = null;
+          try {
+            const res = await fetch(`${TOOLS_API_URL}/api/vault/email-pool/${encodeURIComponent(account.email)}`);
+            if (res.ok) {
+              const data = await res.json();
+              emailCreds = data.item;
+            }
+          } catch (_) {}
+
+          const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+          const clientId = emailCreds?.clientId || emailCreds?.client_id;
+          if (refreshToken && clientId) {
+            console.log(`[Warmup] 🔄 Đang tự động lấy mã OTP từ Email...`);
+            if (stepRecorder) await stepRecorder.before(4, 1, 'before_email_otp');
+            const otpCode = await waitForOTPCode({
+              email: account.email,
+              refreshToken: refreshToken,
+              clientId: clientId,
+              senderDomain: 'openai.com',
+              maxWaitSecs: 120
+            });
+            if (otpCode) {
+              console.log(`[Warmup] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+              await fillMfa(tabId, USER_ID, otpCode);
+              await delay(6000);
+              if (stepRecorder) await stepRecorder.after(4, 1, 'email_otp_filled');
+              continue;
+            } else {
+              throw new Error('EMAIL_OTP_REQUIRED: Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
+            }
+          } else {
+            throw new Error('EMAIL_OTP_REQUIRED: Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!');
+          }
         }
 
         // 7.6. Handle Passkey Enrollment (faster login) screen
@@ -955,6 +996,40 @@ async function runWarmup() {
     
     console.log(`[Warmup] ✅ Hoàn tất cập nhật trạng thái Warmup thành công!`);
     
+    runSuccess = true;
+    break; // Exit retry loop on success
+    } catch (err) {
+      const msg = String(err.message || err || '').toLowerCase();
+      const isRetriable = (
+        msg.includes('browser_restarted') ||
+        msg.includes('session_expired') ||
+        msg.includes('tab no longer exists') ||
+        msg.includes('browser was restarted') ||
+        msg.includes('browser session expired') ||
+        msg.includes('target page, context or browser has been closed') ||
+        msg.includes('context closed') ||
+        msg.includes('browser closed')
+      );
+      
+      if (isRetriable && attempt < maxAttempts) {
+        console.warn(`\n⚠️ [Warmup] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
+        if (tabId) {
+          console.log(`[Warmup] 🧹 Đóng tab cũ: ${tabId}`);
+          await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+          tabId = null;
+        }
+        await delay(5000);
+        continue;
+      }
+      throw err;
+    } finally {
+      if (tabId && !runSuccess && attempt < maxAttempts) {
+        console.log(`[Warmup] 🧹 Đóng tab của lượt thử thất bại...`);
+        await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+        tabId = null;
+      }
+    }
+  }
   } catch (err) {
     console.error(`\n❌ [Warmup] Lỗi trong quá trình chạy: ${err.message}`);
     

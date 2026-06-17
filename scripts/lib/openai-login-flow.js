@@ -49,6 +49,7 @@ export const MULTILANG = {
   // Login error: wrong password
   wrongPassword: [
     'wrong password', 'incorrect password', 'invalid password',
+    'incorrect email address or password', 'incorrect email or password',
     'falsches passwort', 'passwort ist falsch', 'ungültiges passwort',
     'mot de passe incorrect', 'mot de passe invalide',
     'contraseña incorrecta', 'contraseña inválida',
@@ -284,7 +285,19 @@ export async function getState(tabId, userId) {
       const tempLooksLoggedIn = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
       const hasError = rawHasError && (onAuthDomain || !tempLooksLoggedIn);
 
-      const hasDeactivated = body.includes('account_deactivated') || body.includes('deactivated') || (body.includes('vô hiệu hóa') && body.includes('tài khoản'));
+      const hasDeactivated = body.includes('account_deactivated') || 
+        body.includes('deactivated') || 
+        body.includes('deactive') || 
+        body.includes('vô hiệu hóa') || 
+        body.includes('vô hiệu hoá') || 
+        body.includes('đã bị xóa') || 
+        body.includes('đã bị xoá') || 
+        body.includes('bị khóa') || 
+        body.includes('bị khoá') || 
+        body.includes('bị block') ||
+        body.includes('account suspended') ||
+        body.includes('suspended account') ||
+        (body.includes('tài khoản') && body.includes('vô hiệu'));
       const hasResetPasswordScreen = onAuthDomain && (body.includes('reset password') || body.includes('khôi phục mật khẩu') || body.includes('đặt lại mật khẩu') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password'));
       const hasWrongPassword = onAuthDomain && WRONG_PASSWORD_KW.some(k => body.includes(k));
       const hasPasskeyEnrollScreen = lowerUrl.includes('login-enroll-passkey') || lowerUrl.includes('enroll-passkey') || 

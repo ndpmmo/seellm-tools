@@ -114,7 +114,7 @@ async function tryConsentOrWorkspaceFlow(tabId, userId) {
   return bypassResult; // { code, error, ... }
 }
 
-async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}) {
+async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, userAgent = null) {
   console.log(`[OAuth] Starting Codex OAuth PKCE flow...`);
   const pkce = generatePKCE();
   const authUrl = buildOAuthURL(pkce);
@@ -277,7 +277,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}) 
   // ── Exchange code for tokens ──
   console.log(`[OAuth] Exchanging code for tokens...`);
   try {
-    const tokens = await exchangeCodeForTokens(authCode, pkce, proxyUrl);
+    const tokens = await exchangeCodeForTokens(authCode, pkce, proxyUrl, userAgent);
     if (!tokens?.refresh_token && !tokens?.access_token) {
       return { success: false, error: 'Token exchange returned empty tokens', tokens };
     }
@@ -778,6 +778,7 @@ export async function runAutoRegister(taskInput) {
   await fs.mkdir(runDir, { recursive: true }).catch(() => { });
 
   let tabId = null;
+  let userAgent = null;
   let recorder = null;
   let preFlightResult = null;
   let phoneBypassAttempted = false;
@@ -857,6 +858,10 @@ export async function runAutoRegister(taskInput) {
       if (protocolResult?.success) {
         console.log(`✅ [Protocol] Registration successful via protocol mode!`);
         skipRegistrationSteps = true;
+        if (protocolResult.password) {
+          chatGptPassword = protocolResult.password;
+          console.log(`[Protocol] Updated chatGptPassword to the registered password: ${chatGptPassword}`);
+        }
       } else if (protocolResult?.isExistingAccount) {
         console.log(`[Protocol] Email already registered — will switch to login flow`);
         isExistingAccount = true;
@@ -895,6 +900,7 @@ export async function runAutoRegister(taskInput) {
     });
     console.log(proxyUrl ? `🔌 Dùng proxy: ${proxyUrl}` : '🌐 Không dùng proxy');
     tabId = tabRes.tabId;
+    userAgent = tabRes.userAgent || null;
     console.log(`Tab ID: ${tabId}`);
 
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
@@ -2520,7 +2526,7 @@ export async function runAutoRegister(taskInput) {
         email,
         password: chatGptPassword,
         mfaSecret: twoFaSecret,
-      });
+      }, userAgent);
       if (oauthResult.success && oauthResult.tokens) {
         codexRefreshToken = oauthResult.tokens.refresh_token || null;
         console.log(`[7.5] 🟢 Codex OAuth thành công! Refresh token: ${codexRefreshToken ? 'YES' : 'NO'}`);

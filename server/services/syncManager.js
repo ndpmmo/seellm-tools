@@ -82,24 +82,34 @@ function isCriticalAccountChange(prevState, nextState) {
 
 async function triggerGatewaySync(reason = 'manual') {
   const cfg = loadConfig();
-  if (!cfg.gatewayUrl || !cfg.d1SyncSecret) return;
-  // Skip nếu gatewayUrl trỏ đến D1 Worker
-  if (cfg.gatewayUrl.includes('workers.dev') || cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
-    return;
+  if (!cfg.d1SyncSecret) return;
+
+  const targets = [];
+  if (cfg.gatewayUrl && !cfg.gatewayUrl.includes('workers.dev') && !cfg.gatewayUrl.includes('gateway-db.seellm.xyz')) {
+    targets.push(cfg.gatewayUrl);
   }
-  try {
-    const res = await fetch(`${cfg.gatewayUrl.replace(/\/+$/, '')}/api/sync/trigger`, {
-      method: 'POST',
-      headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) {
-      console.log(`[SyncManager] [GatewayTrigger] ✅ Gateway pulled snapshot (reason=${reason})`);
-    } else if (res.status !== 404) {
-      console.log(`[SyncManager] [GatewayTrigger] ⚠️ Gateway trigger HTTP ${res.status} (reason=${reason})`);
+  if (cfg.gatewayAppUrl) {
+    targets.push(cfg.gatewayAppUrl);
+  } else {
+    targets.push('http://localhost:1404');
+  }
+
+  for (const target of targets) {
+    try {
+      const url = `${target.replace(/\/+$/, '')}/api/sync/trigger`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        console.log(`[SyncManager] [GatewayTrigger] ✅ Gateway ${target} pulled snapshot (reason=${reason})`);
+      } else if (res.status !== 404) {
+        console.log(`[SyncManager] [GatewayTrigger] ⚠️ Gateway ${target} trigger HTTP ${res.status} (reason=${reason})`);
+      }
+    } catch (e) {
+      // Silently ignore
     }
-  } catch (e) {
-    // Silently ignore
   }
 }
 

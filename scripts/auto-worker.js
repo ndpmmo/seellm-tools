@@ -562,7 +562,21 @@ async function checkDeactivatedInSnapshot(tabId, userId, task, snapData) {
   if (!snapData) return;
   const url = (snapData.url || '').toLowerCase();
   const text = (snapData.snapshot || '').toLowerCase();
-  if (text.includes('account_deactivated') || text.includes('deactivated') || (text.includes('vô hiệu hóa') && text.includes('tài khoản'))) {
+  if (
+    text.includes('account_deactivated') || 
+    text.includes('deactivated') || 
+    text.includes('deactive') || 
+    text.includes('vô hiệu hóa') || 
+    text.includes('vô hiệu hoá') || 
+    text.includes('đã bị xóa') || 
+    text.includes('đã bị xoá') || 
+    text.includes('bị khóa') || 
+    text.includes('bị khoá') || 
+    text.includes('bị block') ||
+    text.includes('account suspended') ||
+    text.includes('suspended account') ||
+    (text.includes('tài khoản') && text.includes('vô hiệu'))
+  ) {
     await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
     throw new Error('ACCOUNT_DEACTIVATED');
   }
@@ -700,6 +714,7 @@ async function runConnectFlow(task) {
       screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
     }, { timeoutMs: 25000 });
     tabId = opened.tabId;
+    const userAgent = opened.userAgent || null;
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
     
     console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
@@ -750,7 +765,7 @@ async function runConnectFlow(task) {
 
     if (state?.looksLoggedIn) {
       console.log(`[Connect] ✅ Đã có session! Lấy token ngay...`);
-      await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
+      await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
       return;
     }
 
@@ -974,7 +989,7 @@ async function runConnectFlow(task) {
         if (afterMfaState?.looksLoggedIn) {
           console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
           await recorder.after(5, 3, 'post_login_mfa');
-          await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
+          await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
           return;
         }
       }
@@ -982,7 +997,7 @@ async function runConnectFlow(task) {
     }
     console.log(`[Connect] ✅ Đã đăng nhập!`);
     await recorder.after(5, 4, 'post_login');
-    await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy);
+    await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
 
   } catch (err) {
     const rawMsg = err?.message || String(err);
@@ -1508,7 +1523,7 @@ async function _completeBrowserOAuth(tabId, userId, authUrl, pkce, email, passwo
 // ═══════════════════════════════════════════════════════════════
 // CAPTURE & REPORT (sau khi đã logged in → PKCE + token exchange)
 // ═══════════════════════════════════════════════════════════════
-async function captureAndReport(tabId, userId, runDir, task, email, recorder, effectiveProxy) {
+async function captureAndReport(tabId, userId, runDir, task, email, recorder, effectiveProxy, userAgent = null) {
   console.log(`[Capture] 🔍 Bắt đầu lấy OAuth tokens (PKCE flow)...`);
   const captureStartedAt = Date.now();
   const elapsedMs = (start = captureStartedAt) => Date.now() - start;
@@ -2250,7 +2265,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       console.log(`[Capture] 🔄 Exchanging code for tokens...`);
       await recorder.before(1, 15, 'token_exchange');
       const tokenExchangeStep = 15;
-      const tokenData = await exchangeCodeForTokens(authCode, pkce, effectiveProxy);
+      const tokenData = await exchangeCodeForTokens(authCode, pkce, effectiveProxy, userAgent);
       const accessToken = tokenData.access_token || '';
       const refreshToken = tokenData.refresh_token || '';
       const idToken = tokenData.id_token || '';
