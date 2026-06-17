@@ -117,7 +117,11 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
             lowerBody.includes('error generating a response') ||
             lowerBody.includes('try signing in again') ||
             lowerBody.includes('token has been invalidated') ||
-            lowerBody.includes('unusual activity')) {
+            lowerBody.includes('unusual activity') ||
+            lowerBody.includes('session has expired') ||
+            lowerBody.includes('session expired') ||
+            lowerBody.includes('please log in again') ||
+            lowerBody.includes('please sign in again')) {
           errorText = bodyText.slice(0, 150).replace(/\\n/g, ' ');
         }
       }

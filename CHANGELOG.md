@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.163] - 2026-06-18 03:30:00
+
+### 🚀 Nâng cấp bộ nhận diện lỗi hết hạn phiên ChatGPT trong lúc Warmup
+
+- **scripts/warmup.js**:
+  - **Mở rộng từ khóa phát hiện hết hạn phiên (Session Expiration Keywords)**: Bổ sung các từ khóa thông báo hết hạn phiên trực quan trên UI của ChatGPT như `session has expired`, `session expired`, `please log in again`, và `please sign in again`. Khi phát hiện modal cảnh báo hết hạn, script lập tức ném lỗi `session_expired`, đóng tab cũ và kích hoạt tiến trình re-login sạch với thông tin đăng nhập trong Vault để khôi phục phiên hoạt động thay vì đi qua luồng tiếp theo với session lỗi.
+
 ## [0.3.162] - 2026-06-18 03:26:00
 
 ### 🚀 Tối ưu hóa giám sát phản hồi và phát hiện lỗi phiên bản ChatGPT trong lúc Warmup
