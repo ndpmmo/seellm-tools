@@ -238,7 +238,7 @@ async function run2faRegen() {
     if (!isLoggedIn) {
       console.log(`[2FA Regen] 👤 Chưa đăng nhập hoặc cookie hết hạn! Tiến hành đăng nhập...`);
 
-      const maxLoginAttempts = 15;
+      const maxLoginAttempts = 40;
       let emailFilled = false;
       let emailWaitCount = 0;
       let passwordFilled = false;

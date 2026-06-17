@@ -362,7 +362,7 @@ async function runWarmup() {
     if (!isLoggedIn) {
       console.log(`[Warmup] 👤 Chưa đăng nhập hoặc cookie hết hạn! Tiến hành đăng nhập...`);
       
-      const maxLoginAttempts = 15;
+      const maxLoginAttempts = 40;
       let emailFilled = false;
       let emailWaitCount = 0;
       let passwordFilled = false;

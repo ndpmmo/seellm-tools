@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.164] - 2026-06-18 03:34:00
+
+### 🚀 Tăng giới hạn số lượt thử đăng nhập để tăng cường khả năng phục hồi
+
+- **scripts/warmup.js** & **scripts/regenerate-2fa.js**:
+  - **Tăng số lượt thử vòng lặp đăng nhập (Increase maxLoginAttempts)**: Nâng số lượt thử tối đa (`maxLoginAttempts`) từ 15 lên 40. Thay đổi này ngăn chặn việc cạn kiệt lượt thử đăng nhập khi trang chủ hoặc tiến trình chuyển hướng bị chậm (ví dụ: mất nhiều thời gian mở modal/iframe login qua proxy chậm), dành nhiều cơ hội hơn cho việc điền form và thực hiện gửi thông tin (submit) đăng nhập thực tế.
+
 ## [0.3.163] - 2026-06-18 03:30:00
 
 ### 🚀 Nâng cấp bộ nhận diện lỗi hết hạn phiên ChatGPT trong lúc Warmup
