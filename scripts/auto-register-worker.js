@@ -1167,6 +1167,18 @@ export async function runAutoRegister(taskInput) {
         }
       }
 
+      // Check for inline "already exists" error
+      const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
+      const isAlreadyRegistered = bodyCheck.includes('user already exists') || 
+                                  bodyCheck.includes('already registered') || 
+                                  bodyCheck.includes('already have an account') ||
+                                  bodyCheck.includes('email is registered') ||
+                                  bodyCheck.includes('tài khoản đã tồn tại') ||
+                                  bodyCheck.includes('đã đăng ký');
+      if (isAlreadyRegistered) {
+        throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI. Giao diện: ${bodyCheck.slice(0, 150)}`);
+      }
+
       const hasPasswordInputAlready = await evalJson(tabId, USER_ID,
         `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
       );
@@ -1175,7 +1187,6 @@ export async function runAutoRegister(taskInput) {
         break;
       }
 
-      const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
       const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
       if (hasVerify) {
         emailSuccess = true;
@@ -1214,6 +1225,16 @@ export async function runAutoRegister(taskInput) {
     // Kiểm tra kết quả cuối cùng sau khi hoàn tất retry
     if (!emailSuccess) {
       const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
+      const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
+      const isAlreadyRegistered = bodyCheck.includes('user already exists') || 
+                                  bodyCheck.includes('already registered') || 
+                                  bodyCheck.includes('already have an account') ||
+                                  bodyCheck.includes('email is registered') ||
+                                  bodyCheck.includes('tài khoản đã tồn tại') ||
+                                  bodyCheck.includes('đã đăng ký');
+      if (isAlreadyRegistered) {
+        throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI. Giao diện: ${bodyCheck.slice(0, 150)}`);
+      }
       if (currentUrl.includes('auth/login?email=') || currentUrl.includes('auth/login/?email=')) {
         throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block). URL: ${currentUrl}`);
       }
@@ -1223,9 +1244,7 @@ export async function runAutoRegister(taskInput) {
           `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
         );
         if (!hasPasswordInputAlready) {
-          const bodyCheck = await evalJson(tabId, USER_ID, `(document.body?.innerText || '').toLowerCase()`);
-          const hasVerify = bodyCheck?.includes('email-verification') || bodyCheck?.includes('check your inbox') || bodyCheck?.includes('verification code');
-          if (!hasVerify) {
+          if (!bodyCheck.includes('email-verification') && !bodyCheck.includes('check your inbox') && !bodyCheck.includes('verification code')) {
             throw new Error(`[Email-submit] URL không đổi và không có màn hình mật khẩu/OTP — submit email có thể bị thất bại`);
           }
         }
@@ -1278,9 +1297,18 @@ export async function runAutoRegister(taskInput) {
             const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
             const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
             const isBlocked = url.includes('auth/login?email=') || url.includes('auth/login/?email=');
-            return { flow, isBlocked };
+            const isAlreadyRegistered = body.includes('user already exists') || 
+                                        body.includes('already registered') || 
+                                        body.includes('already have an account') ||
+                                        body.includes('email is registered') ||
+                                        body.includes('tài khoản đã tồn tại') ||
+                                        body.includes('đã đăng ký');
+            return { flow, isBlocked, isAlreadyRegistered };
           })()
         `);
+        if (detection?.isAlreadyRegistered) {
+          throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI.`);
+        }
         if (detection?.isBlocked) {
           throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block) trong FlowDetectionPoll.`);
         }
@@ -1636,7 +1664,7 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
         if (errorCheck?.hasAlreadyError) {
-          throw new Error('Email already registered on OpenAI');
+          throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI. (Phát hiện lỗi already exists tại password page)`);
         }
 
         console.log(`[Password] Attempt ${attempt + 1} rejected, trying next...`);

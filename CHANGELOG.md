@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.167] - 2026-06-18 05:00:00
+
+### 🚀 Bổ sung cơ chế phát hiện tài khoản đã đăng ký (ACCOUNT_EXISTS)
+
+- **scripts/auto-register-worker.js**:
+  - **Phát hiện lỗi tài khoản đã tồn tại ở bước Email Submit**: Thêm quét nội dung DOM (`user already exists`, `already registered`, `already have an account`, `email is registered`, v.v.) ngay trong vòng lặp nhập và nộp email (email submit retry loop) và bước kiểm tra kết quả cuối cùng. Nếu phát hiện các lỗi này, ném lỗi rõ ràng `ACCOUNT_EXISTS` ngay lập tức để hệ thống nhận diện nhanh thay vì đợi timeout hoặc báo lỗi sai mật khẩu.
+  - **Bắt lỗi tài khoản tồn tại ở bước Flow Detection**: Tích hợp cờ quét `isAlreadyRegistered` vào hàm `FlowDetectionPoll` để ngắt tiến trình nhanh nếu OpenAI báo tài khoản đã đăng ký trước đó.
+  - **Đồng bộ hóa thông báo lỗi ở bước Password Submit**: Thay đổi thông điệp lỗi trong password loop khi phát hiện lỗi "already exists" để cùng sử dụng format lỗi chuẩn `ACCOUNT_EXISTS: Email <email> đã được đăng ký trước đó trên OpenAI`.
+
 ## [0.3.166] - 2026-06-18 04:55:00
 
 ### 🚀 Tối ưu hóa xử lý lỗi đăng ký và ngăn chặn chuyển hướng sai lệch (Drift Guard)
