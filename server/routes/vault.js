@@ -2561,10 +2561,11 @@ async function triggerQueueProcessing() {
 let currentBulkRun = null;
 
 class BulkRegisterRunner {
-  constructor(id, queue, concurrency, enableOAuth) {
+  constructor(id, queue, concurrency, enableOAuth, proxies = []) {
     this.id = id;
     this.queue = queue; // array of { emailRecord, proxy }
     this.allTasks = [...queue];
+    this.proxies = proxies; // list of active proxies
     this.total = queue.length;
     this.concurrency = concurrency;
     this.enableOAuth = enableOAuth;
@@ -2735,6 +2736,18 @@ class BulkRegisterRunner {
     const tasksToRetry = this.allTasks.filter(t => failedEmails.includes(t.emailRecord.email));
     if (tasksToRetry.length === 0) return false;
 
+    // Rotate proxies for tasks to retry if we have a pool of proxies
+    if (this.proxies && this.proxies.length > 1) {
+      for (const task of tasksToRetry) {
+        const currentFailedProxy = task.proxy;
+        const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
+        if (otherProxies.length > 0) {
+          task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+          this.log(`🔄 [Tự động xoay Proxy] Thử lại ${task.emailRecord.email} với Proxy mới: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
+        }
+      }
+    }
+
     this.queue = [...this.queue, ...tasksToRetry];
     this.total = this.completed.length + this.failed.length + this.queue.length + this.activeWorkers.size;
     this.failed = this.failed.filter(f => !failedEmails.includes(f.email));
@@ -2747,6 +2760,16 @@ class BulkRegisterRunner {
   retryItem(email) {
     const task = this.allTasks.find(t => t.emailRecord.email === email);
     if (!task) return false;
+
+    // Rotate proxy for this task if we have a pool of proxies
+    if (this.proxies && this.proxies.length > 1) {
+      const currentFailedProxy = task.proxy;
+      const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
+      if (otherProxies.length > 0) {
+        task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+        this.log(`🔄 [Tự động xoay Proxy] Thử lại ${email} với Proxy mới: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
+      }
+    }
     
     this.failed = this.failed.filter(f => f.email !== email);
     
@@ -3118,7 +3141,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
     });
 
     const bulkRunId = `bulk_${Date.now()}`;
-    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth);
+    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth, activeProxies);
     currentBulkRun.start();
 
     res.json({

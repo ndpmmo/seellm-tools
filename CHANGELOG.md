@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.168] - 2026-06-18 05:12:00
+
+### 🚀 Bổ sung cơ chế tự động xoay Proxy khi chạy lại (Proxy Rotation on Retry)
+
+- **server/routes/vault.js**:
+  - **Lưu trữ danh sách proxy gốc**: Cập nhật `BulkRegisterRunner` và POST route `/accounts/bulk-register` để truyền và lưu trữ danh sách các proxy hợp lệ ban đầu (`this.proxies`).
+  - **Tự động xoay proxy khi click Thử lại (Retry)**: Cập nhật hàm `retryFailed()` và `retryItem(email)`. Khi một tác vụ bị lỗi (ví dụ do bị OpenAI chặn IP `BLOCKED_BY_OPENAI`), nếu người dùng nhấn chạy lại tác vụ đó, hệ thống sẽ tự động loại trừ proxy lỗi hiện tại và gán một proxy ngẫu nhiên khác từ pool proxy ban đầu để tăng tỉ lệ thành công của lần thử sau.
+
 ## [0.3.167] - 2026-06-18 05:00:00
 
 ### 🚀 Bổ sung cơ chế phát hiện tài khoản đã đăng ký (ACCOUNT_EXISTS)
