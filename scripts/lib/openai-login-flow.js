@@ -307,7 +307,13 @@ export async function getState(tabId, userId) {
         body.includes('быстрее войти');
 
        // ── Logged-in indicators ──
-      const looksLoggedIn = tempLooksLoggedIn && (
+      const hasSessionExpiredText = body.includes('session has expired') || 
+        body.includes('session expired') || 
+        body.includes('please log in again') || 
+        body.includes('please sign in again') ||
+        body.includes('token has been invalidated');
+
+      const looksLoggedIn = !hasSessionExpiredText && tempLooksLoggedIn && (
         onAuthDomain ? (
           !hasEmailInput &&
           !hasPasswordInput &&

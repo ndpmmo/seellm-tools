@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.165] - 2026-06-18 03:39:00
+
+### 🚀 Tối ưu hóa phát hiện đăng nhập khi có modal hết hạn phiên
+
+- **scripts/lib/openai-login-flow.js**:
+  - **Sửa lỗi nhận diện looksLoggedIn sai lệch**: Tích hợp kiểm tra văn bản hết hạn phiên (`hasSessionExpiredText`) trực tiếp vào hàm `getState()`. Nếu trang hiển thị modal/popup hết hạn phiên (chứa các từ khóa `session has expired`, `please log in again`, v.v.), trạng thái đăng nhập `looksLoggedIn` sẽ bị cưỡng chế bằng `false` ngay lập tức, ngay cả khi giao diện chat cũ của ChatGPT vẫn đang hiển thị ở phần nền (DOM). Thay đổi này giúp script nhận biết được tình trạng mất kết nối phiên trước khi chạy Q&A để tự động kích hoạt luồng re-login chính xác.
+
 ## [0.3.164] - 2026-06-18 03:34:00
 
 ### 🚀 Tăng giới hạn số lượt thử đăng nhập để tăng cường khả năng phục hồi
