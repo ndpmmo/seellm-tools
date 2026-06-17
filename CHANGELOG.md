@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.170] - 2026-06-18 05:30:00
+
+### 🚀 Sửa cơ chế phục hồi nộp mật khẩu lỗi và bắt Turnstile/Proxy Block sớm (Fail-Fast Password Submit Block)
+
+- **scripts/auto-register-worker.js**:
+  - **Loại bỏ cơ chế Recovery quay về login page bất hợp lý**: Khi nộp password bị đứng/kẹt mà không hiển thị lỗi (thường do Turnstile block), script trước đây sẽ ép trình duyệt quay lại `/auth/login` và điền lại email. Điều này kích hoạt bot detection của OpenAI và dẫn đến lỗi redirect block. Thay đổi này loại bỏ hoàn toàn cơ chế điều hướng ngược.
+  - **Bắt lỗi thực tế hiển thị trên trang**: Đọc và hiển thị chính xác nội dung lỗi trên trang (`pageError`) thay vì bỏ qua. Nếu phát hiện email đã đăng ký, lập tức ném lỗi `ACCOUNT_EXISTS`.
+  - **Phát hiện Turnstile/Proxy Block và Fail-Fast**: Khi kẹt ở màn hình password, script kiểm tra xem có bị redirect về `/auth/login?email=` hay không để ném `BLOCKED_BY_OPENAI`. Nếu vẫn kẹt và không có lỗi sau 5 giây chờ dự phòng, ném lỗi rõ ràng `BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Password (Turnstile/Proxy reputation block)` để dừng sớm và giải phóng tài nguyên.
+
 ## [0.3.169] - 2026-06-18 05:20:00
 
 ### 🚀 Đồng bộ và lưu trữ Cấu hình luồng chạy cho Bulk Register (Persist & Apply Retry Config)

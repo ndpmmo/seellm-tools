@@ -1597,52 +1597,43 @@ export async function runAutoRegister(taskInput) {
           !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
         `);
 
-        // --- SMART RETRY: Nếu vẫn ở màn hình password mà không thấy lỗi hiển thị, reload trang và thử lại chính mật khẩu này ---
+        // --- KIỂM TRA MÀN HÌNH PASSWORD SAU KHI SUBMIT ---
         if (stillOnPasswordPage) {
           const pageError = await evalJson(tabId, USER_ID, `
             (() => {
               const errEl = document.querySelector('[class*="error"], [class*="alert"], [role="alert"], [aria-live], .error-message');
               return errEl ? (errEl.innerText || '').trim() : null;
             })()
-          `);
+          `).catch(() => null);
 
-            console.log(`[Password] Vẫn ở màn hình Password và không có lỗi hiển thị. Thực hiện quay lại login page và điền lại toàn bộ thông tin...`);
-            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
-
-            // Chờ email input xuất hiện
-            const emailInputAppeared = await pollUntil(async () => {
-              const hasInput = await evalJson(tabId, USER_ID,
-                `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`
-              );
-              return hasInput;
-            }, `PasswordRetryEmailNavigate`, { intervalMs: 2000, maxWaitMs: 15000 });
-
-            if (emailInputAppeared) {
-              // Submit email
-              await fillEmail(tabId, USER_ID, email);
-              
-              // Đợi ô password xuất hiện lại
-              const pwdInputAppeared = await pollUntil(async () => {
-                const hasInput = await evalJson(tabId, USER_ID,
-                  `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`
-                );
-                return hasInput;
-              }, `PasswordRetryPwdNavigate`, { intervalMs: 2000, maxWaitMs: 15000 });
-
-              if (pwdInputAppeared) {
-                pwdClickInfo = await fillPassword(tabId, USER_ID, tryPassword);
-                console.log(`[Password-submit Recovery Retry] →`, JSON.stringify(pwdClickInfo || {}));
-                await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
-              } else {
-                console.log(`[Password-submit Recovery Retry] ⚠️ Không tìm thấy ô password sau khi submit email.`);
-              }
-            } else {
-              console.log(`[Password-submit Recovery Retry] ⚠️ Không tìm thấy ô email sau khi quay lại login page.`);
+          if (pageError) {
+            console.log(`[Password] Mật khẩu bị từ chối với lỗi hiển thị trên trang: "${pageError}"`);
+            if (pageError.toLowerCase().includes('already') || pageError.toLowerCase().includes('exists') || pageError.toLowerCase().includes('user_exists')) {
+              throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI. (Phát hiện lỗi: ${pageError})`);
             }
+          } else {
+            // Không có lỗi hiển thị nhưng vẫn ở màn hình password -> Có thể do tải chậm hoặc Turnstile bị block
+            const currentUrl = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+            if (currentUrl.includes('auth/login?email=') || currentUrl.includes('auth/login/?email=')) {
+              throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page sau khi submit password (Proxy/Reputation block). URL: ${currentUrl}`);
+            }
+
+            console.log(`[Password] Vẫn ở màn hình Password và không có lỗi hiển thị. Chờ thêm 5 giây kiểm tra tải trang...`);
+            await new Promise(r => setTimeout(r, 5000));
 
             stillOnPasswordPage = await evalJson(tabId, USER_ID, `
               !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
-            `);
+            `).catch(() => false);
+
+            if (stillOnPasswordPage) {
+              const finalUrl = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+              if (finalUrl.includes('auth/login?email=') || finalUrl.includes('auth/login/?email=')) {
+                throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page sau khi submit password (Proxy/Reputation block). URL: ${finalUrl}`);
+              }
+              // Thực sự bị chặn submit (Turnstile/IP reputation block)
+              throw new Error(`BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Password (Turnstile/Proxy reputation block). URL: ${finalUrl}`);
+            }
+          }
         }
 
         if (!stillOnPasswordPage) {
