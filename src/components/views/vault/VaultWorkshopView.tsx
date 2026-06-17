@@ -120,6 +120,7 @@ export function VaultWorkshopView() {
 
     const [bulkSubmitting, setBulkSubmitting] = useState(false);
     const bulkLogsEndRef = useRef<HTMLDivElement>(null);
+    const isFirstRender = useRef(true);
 
     // Load from localStorage on mount
     useEffect(() => {
@@ -135,36 +136,41 @@ export function VaultWorkshopView() {
             if (savedRatio) setBulkRatio(parseInt(savedRatio, 10) || 1);
             if (savedConcurrency) setBulkConcurrency(parseInt(savedConcurrency, 10) || 2);
             if (savedEnableOAuth) setBulkEnableOAuth(savedEnableOAuth === 'true');
+            
+            // Mark loading complete with a short delay to allow React state updates to cycle
+            setTimeout(() => {
+                isFirstRender.current = false;
+            }, 100);
         }
     }, []);
 
     // Save to localStorage when changed
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
             localStorage.setItem('seellm_bulk_emails', bulkEmailsText);
         }
     }, [bulkEmailsText]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
             localStorage.setItem('seellm_bulk_proxies', bulkProxiesText);
         }
     }, [bulkProxiesText]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
             localStorage.setItem('seellm_bulk_ratio', String(bulkRatio));
         }
     }, [bulkRatio]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
             localStorage.setItem('seellm_bulk_concurrency', String(bulkConcurrency));
         }
     }, [bulkConcurrency]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
             localStorage.setItem('seellm_bulk_enable_oauth', String(bulkEnableOAuth));
         }
     }, [bulkEnableOAuth]);

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.171] - 2026-06-18 05:35:00
+
+### 🚀 Sửa lỗi race condition của localStorage khi mount component (Fix LocalStorage Overwrite Mismatch)
+
+- **src/components/views/vault/VaultWorkshopView.tsx**:
+  - **Bảo vệ dữ liệu đã lưu bằng isFirstRender Ref**: Khắc phục lỗi khi component khởi tạo (mount), các state mặc định của Bulk Register (như emails trống, proxies trống, concurrency=2) lập tức kích hoạt hook `useEffect` lưu và ghi đè giá trị mặc định đè lên các giá trị người dùng đã lưu trước đó trong `localStorage`. Tích hợp biến `isFirstRender` dạng Ref để bỏ qua việc ghi đè này khi bắt đầu mount, giúp giữ nguyên vẹn cấu hình khi F5 tải lại trang hoặc chuyển tab.
+
 ## [0.3.170] - 2026-06-18 05:30:00
 
 ### 🚀 Sửa cơ chế phục hồi nộp mật khẩu lỗi và bắt Turnstile/Proxy Block sớm (Fail-Fast Password Submit Block)
