@@ -876,10 +876,20 @@ export async function runAutoRegister(taskInput) {
       }
     }
 
-    // 1. Khởi động - Đi từ trang login để tránh bị blank page
-    console.log(`🚀 [Phase 1] Truy cập trang Login...`);
-    const usePersistent = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
-    console.log(`[Register] Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'}`);
+    const maxAttempts = 2;
+    let runSuccess = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        phoneBypassAttempted = false;
+        phoneBypassSuccess = false;
+        oauthError = null;
+        isExistingAccount = protocolResult?.isExistingAccount || false;
+
+        // 1. Khởi động - Đi từ trang login để tránh bị blank page
+        console.log(`🚀 [Phase 1] Truy cập trang Login...`);
+        const usePersistent = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
+        console.log(`[Register] Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'}`);
 
     // 🧹 Xóa session/cookies cũ trước khi tạo tab đăng ký mới để tránh persistent session redirect
     // Khi persistent=true, session cũ của email này có thể còn active → OpenAI redirect về /?slm=1
@@ -2723,9 +2733,44 @@ export async function runAutoRegister(taskInput) {
       notes: `Thành công | PID: ${process.pid} | Acc ID: ${accData.id}`
     });
 
-    return {
-      success: true, email, password: chatGptPassword, twoFaSecret, sessionToken, createdAt: new Date().toISOString()
-    };
+        runSuccess = true;
+        return {
+          success: true, email, password: chatGptPassword, twoFaSecret, sessionToken, createdAt: new Date().toISOString()
+        };
+      } catch (err) {
+        const msg = String(err.message || err || '').toLowerCase();
+        const isRetriable = (
+          msg.includes('browser_restarted') ||
+          msg.includes('session_expired') ||
+          msg.includes('tab no longer exists') ||
+          msg.includes('browser was restarted') ||
+          msg.includes('browser session expired') ||
+          msg.includes('target page, context or browser has been closed') ||
+          msg.includes('context closed') ||
+          msg.includes('browser closed') ||
+          msg.includes('net_timeout') ||
+          msg.includes('aborted due to timeout')
+        );
+        
+        if (isRetriable && attempt < maxAttempts) {
+          console.warn(`\n⚠️ [Register] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt thử ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
+          if (tabId) {
+            console.log(`[Register] 🧹 Đóng tab cũ: ${tabId}`);
+            await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => {});
+            tabId = null;
+          }
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+        throw err;
+      } finally {
+        if (tabId && !runSuccess && attempt < maxAttempts) {
+          console.log(`[Register] 🧹 Đóng tab của lượt thử thất bại...`);
+          await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => {});
+          tabId = null;
+        }
+      }
+    }
 
   } catch (err) {
     console.log(`==========================================`);

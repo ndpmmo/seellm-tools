@@ -682,323 +682,365 @@ async function runConnectFlow(task) {
   let preFlightResult = null;
 
   try {
-    if (effectiveProxy) {
-      console.log(`[Connect] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
+    const maxAttempts = 2;
+    let runSuccess = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        let lastErr = null;
-        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+        if (effectiveProxy) {
+          console.log(`[Connect] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
           try {
-            preFlightResult = await assertProxyApplied(effectiveProxy);
-            lastErr = null;
-            break;
-          } catch (err) {
-            lastErr = err;
-            const msg = String(err?.message || err || '');
-            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP');
-            if (!isTransient || preflightAttempt === 2) break;
-            console.log(`[Connect] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
-            await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+            let lastErr = null;
+            for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+              try {
+                preFlightResult = await assertProxyApplied(effectiveProxy);
+                lastErr = null;
+                break;
+              } catch (err) {
+                lastErr = err;
+                const msg = String(err?.message || err || '');
+                const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP');
+                if (!isTransient || preflightAttempt === 2) break;
+                console.log(`[Connect] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
+                await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+              }
+            }
+            if (!preFlightResult && lastErr) throw lastErr;
+            console.log(`[Connect] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
+          } catch (err) { console.log(`[Connect] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
+        }
+
+        const LOGIN_URL = 'https://chatgpt.com/auth/login';
+        const usePersistent = task.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
+        console.log(`[Connect] [1] Mở ${LOGIN_URL}... (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
+        const opened = await camofoxPost('/tabs', {
+          userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: 'about:blank',
+          proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
+          screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
+        }, { timeoutMs: 25000 });
+        tabId = opened.tabId;
+        const userAgent = opened.userAgent || null;
+        recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+        
+        console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
+        await navigate(tabId, USER_ID, LOGIN_URL);
+        await new Promise(r => setTimeout(r, 3000));
+
+        if (effectiveProxy && preFlightResult) {
+          console.log(`[Connect] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+          let verifyCheck = null;
+          let lastVerifyErr = null;
+          for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+            try {
+              verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+              if (verifyCheck?.ip) {
+                lastVerifyErr = null;
+                break;
+              }
+              lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
+            } catch (err) {
+              lastVerifyErr = err;
+            }
+            if (verifyAttempt < 2) {
+              console.log(`[Connect] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
+              await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+            }
+          }
+
+          if (!verifyCheck?.ip) {
+            throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
+          }
+
+          // Compare with host local IP to detect fallback leaks
+          const isLocalRelay = isLocalRelayProxy(effectiveProxy);
+          const localIp = isLocalRelay ? null : await getLocalPublicIp();
+          if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
+            throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
+          }
+
+          if (verifyCheck.ip !== preFlightResult.exitIp) {
+            console.log(`[Connect] ⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating?)`);
+          } else {
+            console.log(`[Connect] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
           }
         }
-        if (!preFlightResult && lastErr) throw lastErr;
-        console.log(`[Connect] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
-      } catch (err) { console.log(`[Connect] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
-    }
+        await recorder.checkpoint(1, 1, 'login_page');
 
-    const LOGIN_URL = 'https://chatgpt.com/auth/login';
-    const usePersistent = task.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
-    console.log(`[Connect] [1] Mở ${LOGIN_URL}... (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
-    const opened = await camofoxPost('/tabs', {
-      userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: 'about:blank',
-      proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
-      screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
-    }, { timeoutMs: 25000 });
-    tabId = opened.tabId;
-    const userAgent = opened.userAgent || null;
-    recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
-    
-    console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
-    await navigate(tabId, USER_ID, LOGIN_URL);
-    await new Promise(r => setTimeout(r, 3000));
+        let state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
 
-    if (effectiveProxy && preFlightResult) {
-      console.log(`[Connect] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
-      let verifyCheck = null;
-      let lastVerifyErr = null;
-      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
-        try {
-          verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
-          if (verifyCheck?.ip) {
-            lastVerifyErr = null;
-            break;
-          }
-          lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
-        } catch (err) {
-          lastVerifyErr = err;
+        if (state?.looksLoggedIn) {
+          console.log(`[Connect] ✅ Đã có session! Lấy token ngay...`);
+          await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
+          runSuccess = true;
+          return;
         }
-        if (verifyAttempt < 2) {
-          console.log(`[Connect] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
-          await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+
+        await tryAcceptCookies(tabId, USER_ID);
+        await new Promise(r => setTimeout(r, 1500));
+
+        console.log(`[Connect] [1b] Dismiss Google popup + bấm Log in...`);
+        await recorder.before(1, 2, 'before_login_click');
+        const loginClick = await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+        console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
+        // Nếu form đã visible (UI mới sau click More options), giảm wait time
+        const waitTime = loginClick?.formVisible ? 2000 : 4000;
+        await new Promise(r => setTimeout(r, waitTime));
+        await recorder.after(1, 2, 'after_login_click');
+        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+
+        if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
+          console.log(`[Connect] [1c] Chưa redirect, thử bấm Log in lần 2...`);
+          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+          await new Promise(r => setTimeout(r, 5000));
+          await recorder.checkpoint(1, 3, 'login_retry');
+          state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
         }
-      }
 
-      if (!verifyCheck?.ip) {
-        throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
-      }
-
-      // Compare with host local IP to detect fallback leaks
-      const isLocalRelay = isLocalRelayProxy(effectiveProxy);
-      const localIp = isLocalRelay ? null : await getLocalPublicIp();
-      if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
-        throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
-      }
-
-      if (verifyCheck.ip !== preFlightResult.exitIp) {
-        console.log(`[Connect] ⚠️ [PostVerify] Exit IP changed: pre=${preFlightResult.exitIp} → post=${verifyCheck.ip} (rotating?)`);
-      } else {
-        console.log(`[Connect] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
-      }
-    }
-    await recorder.checkpoint(1, 1, 'login_page');
-
-    let state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-
-    if (state?.looksLoggedIn) {
-      console.log(`[Connect] ✅ Đã có session! Lấy token ngay...`);
-      await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
-      return;
-    }
-
-    await tryAcceptCookies(tabId, USER_ID);
-    await new Promise(r => setTimeout(r, 1500));
-
-    console.log(`[Connect] [1b] Dismiss Google popup + bấm Log in...`);
-    await recorder.before(1, 2, 'before_login_click');
-    const loginClick = await dismissGooglePopupAndClickLogin(tabId, USER_ID);
-    console.log(`[Connect] [1b] Result:`, JSON.stringify(loginClick));
-    // Nếu form đã visible (UI mới sau click More options), giảm wait time
-    const waitTime = loginClick?.formVisible ? 2000 : 4000;
-    await new Promise(r => setTimeout(r, waitTime));
-    await recorder.after(1, 2, 'after_login_click');
-    state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-
-    if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
-      console.log(`[Connect] [1c] Chưa redirect, thử bấm Log in lần 2...`);
-      await dismissGooglePopupAndClickLogin(tabId, USER_ID);
-      await new Promise(r => setTimeout(r, 5000));
-      await recorder.checkpoint(1, 3, 'login_retry');
-      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-    }
-
-    if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
-      console.log(`[Connect] [1d] Fallback: authorize URL trực tiếp...`);
-      await recorder.before(1, 4, 'before_authorize_fallback');
-      await navigate(tabId, USER_ID,
-        'https://auth.openai.com/authorize?client_id=DRivsnm2Mu42T3KOpqdtwB3NYviHYzwD&audience=https%3A%2F%2Fapi.openai.com%2Fv1&redirect_uri=https%3A%2F%2Fchatgpt.com%2Fapi%2Fauth%2Fcallback%2Flogin-web&scope=openid+email+profile+offline_access+model.request+model.read+organization.read+organization.write&response_type=code&response_mode=query&state=login&prompt=login',
-        { timeoutMs: 15000 });
-      await new Promise(r => setTimeout(r, 5000));
-      await recorder.checkpoint(1, 4, 'authorize_fallback');
-      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-    }
-
-    // Email
-    let emailDone = false;
-    for (let attempt = 0; attempt < 8 && !emailDone; attempt++) {
-      if (state?.looksLoggedIn || state?.hasPasswordInput) { emailDone = true; break; }
-      if (state?.hasEmailInput) {
-        console.log(`[Connect] [2] Điền email (attempt ${attempt + 1})...`);
-        if (attempt === 0) await recorder.before(2, 1, 'before_email');
-        const r = await fillEmail(tabId, USER_ID, email);
-        await new Promise(r2 => setTimeout(r2, 3000));
-        if (attempt === 0) await recorder.after(2, 1, 'email_filled');
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-        if (r?.ok) emailDone = true;
-      } else {
-        await new Promise(r => setTimeout(r, 2500));
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      }
-    }
-    if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
-      if (state?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
-      return sendResult(task, 'error', `Không tìm thấy email input. URL: ${state?.href}`);
-    }
-
-     // Email verification screen bypass ("Check your inbox" -> "Continue with password")
-    if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
-      console.log(`[Connect] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
-      await recorder.before(2, 2, 'before_click_continue_with_password');
-      const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
-      if (cwpResult?.ok) {
-        console.log(`[Connect] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
-        await new Promise(r => setTimeout(r, 5000));
-        await recorder.after(2, 2, 'clicked_continue_with_password');
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      } else {
-        console.warn(`[Connect] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
-      }
-    }
-
-    // Password
-    let passDone = false;
-    for (let attempt = 0; attempt < 5 && !passDone; attempt++) {
-      if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
-      if (state?.hasPasswordInput) {
-        console.log(`[Connect] [3] Điền password (attempt ${attempt + 1})...`);
-        if (attempt === 0) await recorder.before(3, 1, 'before_password');
-        const r = await fillPassword(tabId, USER_ID, password);
-        await new Promise(r2 => setTimeout(r2, 3500));
-        if (attempt === 0) await recorder.after(3, 1, 'password_filled');
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      } else {
-        await new Promise(r => setTimeout(r, 2500));
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      }
-    }
-
-    // Safety re-check after password loop: catch slow redirects to MFA/phone
-    if (!state?.looksLoggedIn && !state?.hasMfaInput && !state?.hasPhoneScreen) {
-      await new Promise(r => setTimeout(r, 3000));
-      state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      await recorder.checkpoint(3, 2, 'after_password_wait');
-    }
-
-    // MFA / Email OTP Loop (Handles sequential challenges like Email OTP -> Authenticator TOTP)
-    let mfaAttempt = 0;
-    const maxMfaAttempts = 5;
-    while (state?.hasMfaInput && mfaAttempt < maxMfaAttempts) {
-      mfaAttempt++;
-      console.log(`[Connect] [4] MFA / Email OTP challenge (Attempt ${mfaAttempt}/${maxMfaAttempts})...`);
-
-      // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
-      const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
-        const b = (document.body?.innerText || '').toLowerCase();
-        const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
-                              b.includes('sent a code') || b.includes('temporary verification code') || 
-                              b.includes('vérification') || b.includes('código de verificación') ||
-                              b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
-        const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
-        if (hasAuthWords) {
-          if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
-            return true;
-          }
-          return false;
+        if (!state?.onAuthDomain && !state?.hasEmailInput && !state?.looksLoggedIn) {
+          console.log(`[Connect] [1d] Fallback: authorize URL trực tiếp...`);
+          await recorder.before(1, 4, 'before_authorize_fallback');
+          await navigate(tabId, USER_ID,
+            'https://auth.openai.com/authorize?client_id=DRivsnm2Mu42T3KOpqdtwB3NYviHYzwD&audience=https%3A%2F%2Fapi.openai.com%2Fv1&redirect_uri=https%3A%2F%2Fchatgpt.com%2Fapi%2Fauth%2Fcallback%2Flogin-web&scope=openid+email+profile+offline_access+model.request+model.read+organization.read+organization.write&response_type=code&response_mode=query&state=login&prompt=login',
+            { timeoutMs: 15000 });
+          await new Promise(r => setTimeout(r, 5000));
+          await recorder.checkpoint(1, 4, 'authorize_fallback');
+          state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
         }
-        return hasEmailWords;
-      })()`);
 
-      if (isEmailOtpScreen) {
-        console.log(`[Connect] 📧 Phát hiện thử thách OTP gửi qua Email!`);
-        let emailCreds = null;
-        try {
-          const res = await fetch(`${TOOLS_API}/api/vault/email-pool/${encodeURIComponent(task.email)}`);
-          if (res.ok) {
-            const data = await res.json();
-            emailCreds = data.item;
+        // Email
+        let emailDone = false;
+        for (let attempt = 0; attempt < 8 && !emailDone; attempt++) {
+          if (state?.looksLoggedIn || state?.hasPasswordInput) { emailDone = true; break; }
+          if (state?.hasEmailInput) {
+            console.log(`[Connect] [2] Điền email (attempt ${attempt + 1})...`);
+            if (attempt === 0) await recorder.before(2, 1, 'before_email');
+            const r = await fillEmail(tabId, USER_ID, email);
+            await new Promise(r2 => setTimeout(r2, 3000));
+            if (attempt === 0) await recorder.after(2, 1, 'email_filled');
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+            if (r?.ok) emailDone = true;
+          } else {
+            await new Promise(r => setTimeout(r, 2500));
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
           }
-        } catch (_) {}
+        }
+        if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
+          if (state?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+          return sendResult(task, 'error', `Không tìm thấy email input. URL: ${state?.href}`);
+        }
 
-        const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
-        const clientId = emailCreds?.clientId || emailCreds?.client_id;
-        if (refreshToken && clientId) {
-          console.log(`[Connect] 🔄 Đang tự động lấy mã OTP từ Email...`);
-          await recorder.before(4, mfaAttempt, `before_email_otp_${mfaAttempt}`);
-          const otpCode = await waitForOTPCode({
-            email: task.email,
-            refreshToken: refreshToken,
-            clientId: clientId,
-            senderDomain: 'openai.com',
-            maxWaitSecs: 120
-          });
-          if (otpCode) {
-            console.log(`[Connect] 🔢 Nhập mã OTP từ email: ${otpCode}`);
-            await fillMfa(tabId, USER_ID, otpCode);
-            await new Promise(r2 => setTimeout(r2, 6000));
-            await recorder.after(4, mfaAttempt, `email_otp_filled_${mfaAttempt}`);
+         // Email verification screen bypass ("Check your inbox" -> "Continue with password")
+        if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
+          console.log(`[Connect] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
+          await recorder.before(2, 2, 'before_click_continue_with_password');
+          const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
+          if (cwpResult?.ok) {
+            console.log(`[Connect] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
+            await new Promise(r => setTimeout(r, 5000));
+            await recorder.after(2, 2, 'clicked_continue_with_password');
             state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
           } else {
-            return sendResult(task, 'error', 'Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
+            console.warn(`[Connect] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
           }
-        } else {
-          return sendResult(task, 'error', 'Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!');
         }
-      } else {
-        // Authenticator TOTP
-        if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
-        console.log(`[Connect] [4] MFA → sinh TOTP...`);
-        await recorder.before(4, mfaAttempt, `before_mfa_${mfaAttempt}`);
-        const { otp } = await getFreshTOTP(totpSecret, 8);
-        await fillMfa(tabId, USER_ID, otp);
-        await new Promise(r2 => setTimeout(r2, 6000));
-        await recorder.after(4, mfaAttempt, `mfa_filled_${mfaAttempt}`);
-        state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      }
-    }
 
-    // Wait for login
-    console.log(`[Connect] [5] Đợi redirect sau login...`);
-    let finalState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 60000, intervalMs: 2000 });
-    if (finalState?.hasDeactivated) {
-      await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
-      throw new Error('ACCOUNT_DEACTIVATED');
-    }
+        // Password
+        let passDone = false;
+        for (let attempt = 0; attempt < 5 && !passDone; attempt++) {
+          if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
+          if (state?.hasPasswordInput) {
+            console.log(`[Connect] [3] Điền password (attempt ${attempt + 1})...`);
+            if (attempt === 0) await recorder.before(3, 1, 'before_password');
+            const r = await fillPassword(tabId, USER_ID, password);
+            await new Promise(r2 => setTimeout(r2, 3500));
+            if (attempt === 0) await recorder.after(3, 1, 'password_filled');
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          } else {
+            await new Promise(r => setTimeout(r, 2500));
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          }
+        }
 
-    // Handle workspace selection page (appears after MFA for accounts in workspaces)
-    // waitForState returns early when isWorkspaceScreen is detected
-    if (finalState?.isWorkspaceScreen && !finalState?.looksLoggedIn) {
-      console.log(`[Connect] [5a] Workspace selection page detected → clicking Personal account...`);
-      task.hasWorkspace = true;
-      await recorder.before(5, 5, 'workspace_page');
-      const wsPageResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
-      if (wsPageResult?.ok) {
-        console.log(`[Connect] ✅ Personal workspace selected: ${wsPageResult.text || ''} → ${wsPageResult.reason}`);
-        await recorder.after(5, 5, 'workspace_page_selected');
-        // Wait for redirect to chatgpt.com after workspace selection
-        const afterWsState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 30000, intervalMs: 2000 });
-        if (afterWsState?.hasDeactivated) {
+        // Safety re-check after password loop: catch slow redirects to MFA/phone
+        if (!state?.looksLoggedIn && !state?.hasMfaInput && !state?.hasPhoneScreen) {
+          await new Promise(r => setTimeout(r, 3000));
+          state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          await recorder.checkpoint(3, 2, 'after_password_wait');
+        }
+
+        // MFA / Email OTP Loop (Handles sequential challenges like Email OTP -> Authenticator TOTP)
+        let mfaAttempt = 0;
+        const maxMfaAttempts = 5;
+        while (state?.hasMfaInput && mfaAttempt < maxMfaAttempts) {
+          mfaAttempt++;
+          console.log(`[Connect] [4] MFA / Email OTP challenge (Attempt ${mfaAttempt}/${maxMfaAttempts})...`);
+
+          // 1. Kiểm tra xem đây có phải là màn hình yêu cầu OTP từ Email hay không
+          const isEmailOtpScreen = await evalJson(tabId, USER_ID, `(() => {
+            const b = (document.body?.innerText || '').toLowerCase();
+            const hasEmailWords = b.includes('email') || b.includes('verification code') || b.includes('mã xác minh') || 
+                                  b.includes('sent a code') || b.includes('temporary verification code') || 
+                                  b.includes('vérification') || b.includes('código de verificación') ||
+                                  b.includes('we\\'ve sent') || b.includes('sent to') || b.includes('check your inbox') || b.includes('hộp thư');
+            const hasAuthWords = b.includes('authenticator') || b.includes('ứng dụng xác thực') || b.includes('auth app');
+            if (hasAuthWords) {
+              if (b.includes('sent to your email') || b.includes('send code to email') || b.includes('email verification')) {
+                return true;
+              }
+              return false;
+            }
+            return hasEmailWords;
+          })()`);
+
+          if (isEmailOtpScreen) {
+            console.log(`[Connect] 📧 Phát hiện thử thách OTP gửi qua Email!`);
+            let emailCreds = null;
+            try {
+              const res = await fetch(`${TOOLS_API}/api/vault/email-pool/${encodeURIComponent(task.email)}`);
+              if (res.ok) {
+                const data = await res.json();
+                emailCreds = data.item;
+              }
+            } catch (_) {}
+
+            const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+            const clientId = emailCreds?.clientId || emailCreds?.client_id;
+            if (refreshToken && clientId) {
+              console.log(`[Connect] 🔄 Đang tự động lấy mã OTP từ Email...`);
+              await recorder.before(4, mfaAttempt, `before_email_otp_${mfaAttempt}`);
+              const otpCode = await waitForOTPCode({
+                email: task.email,
+                refreshToken: refreshToken,
+                clientId: clientId,
+                senderDomain: 'openai.com',
+                maxWaitSecs: 120
+              });
+              if (otpCode) {
+                console.log(`[Connect] 🔢 Nhập mã OTP từ email: ${otpCode}`);
+                await fillMfa(tabId, USER_ID, otpCode);
+                await new Promise(r2 => setTimeout(r2, 6000));
+                await recorder.after(4, mfaAttempt, `email_otp_filled_${mfaAttempt}`);
+                state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+              } else {
+                return sendResult(task, 'error', 'Không lấy được mã OTP từ email hoặc hết thời gian chờ!');
+              }
+            } else {
+              return sendResult(task, 'error', 'Yêu cầu mã OTP email nhưng thông tin email pool không đủ để lấy OTP (thiếu refresh_token/client_id)!');
+            }
+          } else {
+            // Authenticator TOTP
+            if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
+            console.log(`[Connect] [4] MFA → sinh TOTP...`);
+            await recorder.before(4, mfaAttempt, `before_mfa_${mfaAttempt}`);
+            const { otp } = await getFreshTOTP(totpSecret, 8);
+            await fillMfa(tabId, USER_ID, otp);
+            await new Promise(r2 => setTimeout(r2, 6000));
+            await recorder.after(4, mfaAttempt, `mfa_filled_${mfaAttempt}`);
+            state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          }
+        }
+
+        // Wait for login
+        console.log(`[Connect] [5] Đợi redirect sau login...`);
+        let finalState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 60000, intervalMs: 2000 });
+        if (finalState?.hasDeactivated) {
           await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
           throw new Error('ACCOUNT_DEACTIVATED');
         }
-        if (afterWsState?.looksLoggedIn) {
-          finalState = afterWsState;
-        } else {
-          // Workspace selected but not yet on chatgpt.com — may need more time
-          console.log(`[Connect] ⚠️ Workspace selected but not yet on chatgpt.com, waiting...`);
+
+        // Handle workspace selection page (appears after MFA for accounts in workspaces)
+        // waitForState returns early when isWorkspaceScreen is detected
+        if (finalState?.isWorkspaceScreen && !finalState?.looksLoggedIn) {
+          console.log(`[Connect] [5a] Workspace selection page detected → clicking Personal account...`);
+          task.hasWorkspace = true;
+          await recorder.before(5, 5, 'workspace_page');
+          const wsPageResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
+          if (wsPageResult?.ok) {
+            console.log(`[Connect] ✅ Personal workspace selected: ${wsPageResult.text || ''} → ${wsPageResult.reason}`);
+            await recorder.after(5, 5, 'workspace_page_selected');
+            // Wait for redirect to chatgpt.com after workspace selection
+            const afterWsState = await waitForState(tabId, USER_ID, { looksLoggedIn: true }, { timeoutMs: 30000, intervalMs: 2000 });
+            if (afterWsState?.hasDeactivated) {
+              await sendResult(task, 'error', 'ACCOUNT_DEACTIVATED: Tài khoản đã bị vô hiệu hóa hoặc xóa');
+              throw new Error('ACCOUNT_DEACTIVATED');
+            }
+            if (afterWsState?.looksLoggedIn) {
+              finalState = afterWsState;
+            } else {
+              // Workspace selected but not yet on chatgpt.com — may need more time
+              console.log(`[Connect] ⚠️ Workspace selected but not yet on chatgpt.com, waiting...`);
+              await new Promise(r => setTimeout(r, 5000));
+              finalState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+            }
+          } else {
+            console.log(`[Connect] ⚠️ Workspace selection failed: ${wsPageResult?.reason || 'unknown'}`);
+            await recorder.error(5, 5, 'workspace_page_failed');
+          }
+        }
+
+        if (!finalState?.looksLoggedIn) {
+          const currentState = finalState || await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          await recorder.error(5, 1, 'login_timeout');
+          if (currentState?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+          if (currentState?.hasMfaInput) {
+            // MFA appeared during wait - handle it now
+            if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
+            console.log(`[Connect] [5b] MFA xuất hiện trong wait → xử lý...`);
+            await recorder.before(5, 2, 'before_mfa_late');
+            const { otp } = await getFreshTOTP(totpSecret, 8);
+            await fillMfa(tabId, USER_ID, otp);
+            await new Promise(r2 => setTimeout(r2, 4000));
+            await recorder.after(5, 2, 'mfa_late');
+            const afterMfaState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+            if (afterMfaState?.looksLoggedIn) {
+              console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
+              await recorder.after(5, 3, 'post_login_mfa');
+              await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
+              runSuccess = true;
+              return;
+            }
+          }
+          return sendResult(task, 'error', `Timeout 60s. URL: ${currentState?.href}`);
+        }
+        console.log(`[Connect] ✅ Đã đăng nhập!`);
+        await recorder.after(5, 4, 'post_login');
+        await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
+        runSuccess = true;
+        break;
+      } catch (err) {
+        const msg = String(err.message || err || '').toLowerCase();
+        const isRetriable = (
+          msg.includes('browser_restarted') ||
+          msg.includes('session_expired') ||
+          msg.includes('tab no longer exists') ||
+          msg.includes('browser was restarted') ||
+          msg.includes('browser session expired') ||
+          msg.includes('target page, context or browser has been closed') ||
+          msg.includes('context closed') ||
+          msg.includes('browser closed') ||
+          msg.includes('net_timeout') ||
+          msg.includes('aborted due to timeout')
+        );
+        
+        if (isRetriable && attempt < maxAttempts) {
+          console.warn(`\n⚠️ [Connect] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
+          if (tabId) {
+            console.log(`[Connect] 🧹 Đóng tab cũ: ${tabId}`);
+            await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+            tabId = null;
+          }
           await new Promise(r => setTimeout(r, 5000));
-          finalState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+          continue;
         }
-      } else {
-        console.log(`[Connect] ⚠️ Workspace selection failed: ${wsPageResult?.reason || 'unknown'}`);
-        await recorder.error(5, 5, 'workspace_page_failed');
-      }
-    }
-
-    if (!finalState?.looksLoggedIn) {
-      const currentState = finalState || await checkStateAndReportDeactivated(tabId, USER_ID, task);
-      await recorder.error(5, 1, 'login_timeout');
-      if (currentState?.hasPhoneScreen) return sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
-      if (currentState?.hasMfaInput) {
-        // MFA appeared during wait - handle it now
-        if (!totpSecret) return sendResult(task, 'error', 'MFA required nhưng account chưa có 2FA secret');
-        console.log(`[Connect] [5b] MFA xuất hiện trong wait → xử lý...`);
-        await recorder.before(5, 2, 'before_mfa_late');
-        const { otp } = await getFreshTOTP(totpSecret, 8);
-        await fillMfa(tabId, USER_ID, otp);
-        await new Promise(r2 => setTimeout(r2, 4000));
-        await recorder.after(5, 2, 'mfa_late');
-        const afterMfaState = await checkStateAndReportDeactivated(tabId, USER_ID, task);
-        if (afterMfaState?.looksLoggedIn) {
-          console.log(`[Connect] ✅ Đã đăng nhập (sau MFA)!`);
-          await recorder.after(5, 3, 'post_login_mfa');
-          await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
-          return;
+        throw err;
+      } finally {
+        if (tabId && !runSuccess && attempt < maxAttempts) {
+          console.log(`[Connect] 🧹 Đóng tab của lượt thử thất bại...`);
+          await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+          tabId = null;
         }
       }
-      return sendResult(task, 'error', `Timeout 60s. URL: ${currentState?.href}`);
     }
-    console.log(`[Connect] ✅ Đã đăng nhập!`);
-    await recorder.after(5, 4, 'post_login');
-    await captureAndReport(tabId, USER_ID, runDir, task, email, recorder, effectiveProxy, userAgent);
-
   } catch (err) {
     const rawMsg = err?.message || String(err);
     if (rawMsg === 'ACCOUNT_DEACTIVATED' || rawMsg === 'PASSWORD_RESET_REQUIRED') return;
@@ -2405,263 +2447,325 @@ async function runLoginFlow(task) {
   let recorder = null, preFlightResult = null;
 
   try {
-    if (effectiveProxy) {
-      console.log(`[Login] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
+    const maxAttempts = 2;
+    let runSuccess = false;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        let lastErr = null;
-        for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+        if (effectiveProxy) {
+          console.log(`[Login] 🔒 [PreFlight] Asserting proxy: ${effectiveProxy}`);
           try {
-            preFlightResult = await assertProxyApplied(effectiveProxy);
-            lastErr = null;
-            break;
-          } catch (err) {
-            lastErr = err;
-            const msg = String(err?.message || err || '');
-            const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED');
-            if (!isTransient || preflightAttempt === 2) break;
-            console.log(`[Login] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
-            await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+            let lastErr = null;
+            for (let preflightAttempt = 0; preflightAttempt < 3; preflightAttempt++) {
+              try {
+                preFlightResult = await assertProxyApplied(effectiveProxy);
+                lastErr = null;
+                break;
+              } catch (err) {
+                lastErr = err;
+                const msg = String(err?.message || err || '');
+                const isTransient = msg.includes('fetch failed') || msg.includes('Không lấy được exit IP') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED');
+                if (!isTransient || preflightAttempt === 2) break;
+                console.log(`[Login] ⚠️ [PreFlight] Retry ${preflightAttempt + 1}/2 sau lỗi tạm thời: ${msg}`);
+                await new Promise(r => setTimeout(r, 2000 + preflightAttempt * 1500));
+              }
+            }
+            if (!preFlightResult && lastErr) throw lastErr;
+            console.log(`[Login] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
+          } catch (err) { console.log(`[Login] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
+        }
+
+        const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
+        const usePersistent = account.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
+        console.log(`[Login] [1] Mở URL: ${loginUrl} (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
+        const { tabId: tid, userAgent } = await camofoxPost('/tabs', {
+          userId: USER_ID, sessionKey: SESSION_KEY, url: 'about:blank',
+          proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
+          screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
+        });
+        tabId = tid;
+        recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+        
+        console.log(`[Login] 🌐 Mở trang ChatGPT login...`);
+        await navigate(tabId, USER_ID, loginUrl);
+        await new Promise(r => setTimeout(r, 2000));
+
+        if (effectiveProxy && preFlightResult) {
+          console.log(`[Login] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
+          let verifyCheck = null;
+          let lastVerifyErr = null;
+          for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+            try {
+              verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
+              if (verifyCheck?.ip) {
+                lastVerifyErr = null;
+                break;
+              }
+              lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
+            } catch (err) {
+              lastVerifyErr = err;
+            }
+            if (verifyAttempt < 2) {
+              console.log(`[Login] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
+              await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
+            }
+          }
+
+          if (!verifyCheck?.ip) {
+            throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
+          }
+
+          // Compare with host local IP to detect fallback leaks
+          const isLocalRelay = isLocalRelayProxy(effectiveProxy);
+          const localIp = isLocalRelay ? null : await getLocalPublicIp();
+          if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
+            throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
+          }
+
+          if (verifyCheck.ip !== preFlightResult.exitIp) {
+            console.log(`[Login] ⚠️ [PostVerify] Exit IP changed (rotating proxy?)`);
+          } else {
+            console.log(`[Login] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
           }
         }
-        if (!preFlightResult && lastErr) throw lastErr;
-        console.log(`[Login] ✅ [PreFlight] Exit IP: ${preFlightResult.exitIp}`);
-      } catch (err) { console.log(`[Login] 🛑 [PreFlight] FAILED: ${err.message}`); throw err; }
-    }
+        await recorder.checkpoint(1, 1, 'khoi_dong');
 
-    const loginUrl = account.loginUrl || account.authUrl || 'https://chatgpt.com/auth/login';
-    const usePersistent = account.usePersistentProfiles !== false || (await checkProfileExists(USER_ID));
-    console.log(`[Login] [1] Mở URL: ${loginUrl} (Dynamic Hybrid Persistence: ${usePersistent ? 'ENABLED' : 'DISABLED'})`);
-    const { tabId: tid, userAgent } = await camofoxPost('/tabs', {
-      userId: USER_ID, sessionKey: SESSION_KEY, url: 'about:blank',
-      proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
-      screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
-    });
-    tabId = tid;
-    recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
-    
-    console.log(`[Login] 🌐 Mở trang ChatGPT login...`);
-    await navigate(tabId, USER_ID, loginUrl);
-    await new Promise(r => setTimeout(r, 2000));
+        let state = await getState(tabId, USER_ID);
 
-    if (effectiveProxy && preFlightResult) {
-      console.log(`[Login] 🔍 [PostVerify] Verifying proxy applied after tab creation...`);
-      let verifyCheck = null;
-      let lastVerifyErr = null;
-      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
-        try {
-          verifyCheck = await probeProxyExitIp(USER_ID, effectiveProxy, true);  // reuse session
-          if (verifyCheck?.ip) {
-            lastVerifyErr = null;
-            break;
+        // Email loop
+        let emailDone = false;
+        for (let attemptLoop = 0; attemptLoop < 8 && !emailDone; attemptLoop++) {
+          if (state?.looksLoggedIn || state?.hasPasswordInput) { emailDone = true; break; }
+          if (state?.hasEmailInput) {
+            console.log(`[Login] [2] Điền email (attempt ${attemptLoop + 1})...`);
+            if (attemptLoop === 0) await recorder.before(1, 2, 'before_email');
+            const r = await fillEmail(tabId, USER_ID, account.email);
+            await new Promise(r2 => setTimeout(r2, 3000));
+            if (attemptLoop === 0) await recorder.after(1, 2, 'email_filled');
+            state = await getState(tabId, USER_ID);
+            if (r?.ok) emailDone = true;
+          } else {
+            await new Promise(r => setTimeout(r, 2500));
+            state = await getState(tabId, USER_ID);
           }
-          lastVerifyErr = new Error(verifyCheck?.error || 'Empty IP');
-        } catch (err) {
-          lastVerifyErr = err;
         }
-        if (verifyAttempt < 2) {
-          console.log(`[Login] ⚠️ [PostVerify] Retry ${verifyAttempt + 1}/2 after failure: ${lastVerifyErr.message}`);
-          await new Promise(r => setTimeout(r, 2000 + verifyAttempt * 1500));
-        }
-      }
-
-      if (!verifyCheck?.ip) {
-        throw new Error(`[PostVerify Failed] Không probe được sau khi tạo tab: ${lastVerifyErr?.message}`);
-      }
-
-      // Compare with host local IP to detect fallback leaks
-      const isLocalRelay = isLocalRelayProxy(effectiveProxy);
-      const localIp = isLocalRelay ? null : await getLocalPublicIp();
-      if (localIp && String(localIp).toLowerCase() === String(verifyCheck.ip).toLowerCase()) {
-        throw new Error(`[PostVerify Failed] Proxy bypassed: Exit IP (${verifyCheck.ip}) trùng với Host Public IP (${localIp})`);
-      }
-
-      if (verifyCheck.ip !== preFlightResult.exitIp) {
-        console.log(`[Login] ⚠️ [PostVerify] Exit IP changed (rotating proxy?)`);
-      } else {
-        console.log(`[Login] ✅ [PostVerify] Exit IP consistent: ${verifyCheck.ip}`);
-      }
-    }
-    await recorder.checkpoint(1, 1, 'khoi_dong');
-
-    // Email
-    console.log(`[Login] [2] Điền email: ${account.email}`);
-    const emailInputSelector = 'input[name="username"], #username, input[type="email"], #email-input, input[name="email-input"], input[name="email"]';
-    await recorder.before(1, 2, 'before_email');
-    await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: emailInputSelector, text: account.email });
-    await pressKey(tabId, USER_ID, 'Enter');
-    try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
-    await new Promise(r => setTimeout(r, 1000));
-    await recorder.after(1, 2, 'email_filled');
-
-     // Check if we got redirected to the "Check your inbox" email verification screen
-    let state = await getState(tabId, USER_ID);
-    if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
-      console.log(`[Login] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
-      await recorder.before(1, 2, 'before_click_continue_with_password');
-      const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
-      if (cwpResult?.ok) {
-        console.log(`[Login] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
-        await new Promise(r => setTimeout(r, 5000));
-        await recorder.after(1, 2, 'clicked_continue_with_password');
-        state = await getState(tabId, USER_ID);
-      } else {
-        console.warn(`[Login] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
-      }
-    }
-
-    // Password
-    if (state?.hasPasswordInput) {
-      console.log(`[Login] [4] Điền password...`);
-      await recorder.before(1, 3, 'before_password');
-      await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: 'input[type="password"], input[name="password"], #password', text: account.password });
-      await pressKey(tabId, USER_ID, 'Enter');
-      try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button[type="submit"]' }, { timeoutMs: 3000 }); } catch (_) {}
-      await new Promise(r => setTimeout(r, 2000));
-      await recorder.after(1, 3, 'password_filled');
-    } else {
-      console.log(`[Login] [4] Bỏ qua điền mật khẩu (không tìm thấy ô nhập mật khẩu trên trang này).`);
-    }
-
-
-    // 2FA / Phone detection
-    let redirectUrl = null, isAtMFA = false;
-    for (let j = 0; j < 5; j++) {
-      const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-      await checkDeactivatedInSnapshot(tabId, USER_ID, task, snapData);
-      const snap2Url = (snapData.url || '').toLowerCase();
-      const snapText = (snapData.snapshot || '').toLowerCase();
-      const cleanMfaText = snapText.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
-
-      if (isPhoneVerificationScreen(snap2Url, snapText)) {
-        redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
-        if (redirectUrl) break;
-        await recorder.error(1, 6, 'phone_required');
-        await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
-        return;
-      }
-      isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('mfa-challenge') || snap2Url.includes('/verify') || snapText.includes('one-time code') || snapText.includes('authenticator') || snapText.includes('enter the code');
-      if (isAtMFA) break;
-      if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break;
-      await new Promise(r => setTimeout(r, 2000));
-    }
-
-    if (!redirectUrl && isAtMFA) {
-      console.log(`[Login] 🛡️ MFA...`);
-      if (!account.twoFaSecret) {
-        console.log(`[Login] ⚠️ Cần 2FA nhưng không có secret`);
-        await recorder.error(1, 6, 'mfa_no_secret');
-      } else {
-        const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"], input[inputmode="numeric"]';
-        try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch (_) {}
-        await recorder.before(1, 6, 'before_mfa');
-        const { otp, remaining } = await getFreshTOTP(account.twoFaSecret, 5);
-        console.log(`[Login] 🛡️ TOTP remaining=${remaining}s`);
-        await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
-        await pressKey(tabId, USER_ID, 'Enter');
-        await new Promise(r => setTimeout(r, 6000));
-        await recorder.after(1, 6, 'mfa_submitted');
-
-        // Check phone after OTP
-        const afterSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-        await checkDeactivatedInSnapshot(tabId, USER_ID, task, afterSnap);
-        if (isPhoneVerificationScreen(afterSnap.url || '', (afterSnap.snapshot || '').toLowerCase())) {
-          await recorder.error(1, 6, 'phone_after_mfa');
-          const bypassUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
-          if (bypassUrl) redirectUrl = bypassUrl;
-          else { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return; }
+        if (!emailDone && !state?.hasPasswordInput && !state?.looksLoggedIn) {
+          if (state?.hasPhoneScreen) {
+            await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+            runSuccess = true;
+            return;
+          }
+          return sendResult(task, 'error', `Không tìm thấy email input. URL: ${state?.href}`);
         }
 
-        // Retry MFA if still there
-        const afterText = (afterSnap.snapshot || '').toLowerCase();
-        if (afterText.includes('one-time code') || afterText.includes('authenticator') || (afterSnap.url || '').includes('mfa')) {
-          console.log(`[Login] 🛡️ MFA vẫn còn, thử lần 2...`);
-          const { otp: otp2, remaining: r2 } = await getFreshTOTP(account.twoFaSecret, 2);
-          console.log(`[Login] 🛡️ TOTP retry remaining=${r2}s`);
-          try { await tripleClick(tabId, USER_ID, mfaSelector); } catch (_) {}
-          await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
-          await pressKey(tabId, USER_ID, 'Enter');
-          await new Promise(r => setTimeout(r, 4500));
-          await recorder.after(1, 7, 'mfa_retry_submitted');
+         // Email verification screen bypass ("Check your inbox" -> "Continue with password")
+        if (state?.hasEmailInboxScreen || state?.hasContinueWithPassword) {
+          console.log(`[Login] 📬 Phát hiện màn hình xác minh qua Email ("Check your inbox"). Click "Continue with password"...`);
+          await recorder.before(1, 2, 'before_click_continue_with_password');
+          const cwpResult = await clickContinueWithPassword(tabId, USER_ID);
+          if (cwpResult?.ok) {
+            console.log(`[Login] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
+            await new Promise(r => setTimeout(r, 5000));
+            await recorder.after(1, 2, 'clicked_continue_with_password');
+            state = await getState(tabId, USER_ID);
+          } else {
+            console.warn(`[Login] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email.`);
+          }
         }
-      }
-      await recorder.after(1, 8, 'after_2fa');
-    }
 
-    // Wait for redirect
-    for (let i = 0; i < 20 && !redirectUrl; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-      await checkDeactivatedInSnapshot(tabId, USER_ID, task, checkSnap);
-      const curUrl = checkSnap.url || '';
-      const html = (checkSnap.snapshot || '').toLowerCase();
+        // Password loop
+        let passDone = false;
+        for (let attemptLoop = 0; attemptLoop < 5 && !passDone; attemptLoop++) {
+          if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
+          if (state?.hasPasswordInput) {
+            console.log(`[Login] [3] Điền password (attempt ${attemptLoop + 1})...`);
+            if (attemptLoop === 0) await recorder.before(1, 3, 'before_password');
+            const r = await fillPassword(tabId, USER_ID, account.password);
+            await new Promise(r2 => setTimeout(r2, 3500));
+            if (attemptLoop === 0) await recorder.after(1, 3, 'password_filled');
+            state = await getState(tabId, USER_ID);
+            if (r?.ok) passDone = true;
+          } else {
+            await new Promise(r => setTimeout(r, 2500));
+            state = await getState(tabId, USER_ID);
+          }
+        }
 
-      if (isPhoneVerificationScreen(curUrl, html)) {
-        await recorder.error(1, 9, 'phone_screen_wait');
-        redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
-        if (!redirectUrl) { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return; }
-        break;
-      }
-      if (curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey') || html.includes('log in faster next time') || html.includes('set up faster login')) {
-        console.log(`[Login] 🔑 Passkey enrollment screen detected. Dismissing...`);
-        const dismissed = await tryDismissPasskeyEnrollment(tabId, USER_ID);
-        if (dismissed) {
-          console.log(`[Login] ✅ Dismissed passkey enrollment screen successfully.`);
+        // 2FA / Phone detection
+        let redirectUrl = null, isAtMFA = false;
+        for (let j = 0; j < 5; j++) {
+          const snapData = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+          await checkDeactivatedInSnapshot(tabId, USER_ID, task, snapData);
+          const snap2Url = (snapData.url || '').toLowerCase();
+          const snapText = (snapData.snapshot || '').toLowerCase();
+
+          if (isPhoneVerificationScreen(snap2Url, snapText)) {
+            redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
+            if (redirectUrl) break;
+            await recorder.error(1, 6, 'phone_required');
+            await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại');
+            runSuccess = true;
+            return;
+          }
+          isAtMFA = snap2Url.includes('mfa') || snap2Url.includes('mfa-challenge') || snap2Url.includes('/verify') || snapText.includes('one-time code') || snapText.includes('authenticator') || snapText.includes('enter the code');
+          if (isAtMFA) break;
+          if (snap2Url.includes('localhost:1455') || snap2Url.includes('code=')) break;
           await new Promise(r => setTimeout(r, 2000));
+        }
+
+        if (!redirectUrl && isAtMFA) {
+          console.log(`[Login] 🛡️ MFA...`);
+          if (!account.twoFaSecret) {
+            console.log(`[Login] ⚠️ Cần 2FA nhưng không có secret`);
+            await recorder.error(1, 6, 'mfa_no_secret');
+          } else {
+            const mfaSelector = 'input[autocomplete="one-time-code"], input[name="code"], input[type="text"], input[inputmode="numeric"]';
+            try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: mfaSelector }); } catch (_) {}
+            await recorder.before(1, 6, 'before_mfa');
+            const { otp, remaining } = await getFreshTOTP(account.twoFaSecret, 5);
+            console.log(`[Login] 🛡️ TOTP remaining=${remaining}s`);
+            await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp });
+            await pressKey(tabId, USER_ID, 'Enter');
+            await new Promise(r => setTimeout(r, 6000));
+            await recorder.after(1, 6, 'mfa_submitted');
+
+            // Check phone after OTP
+            const afterSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+            await checkDeactivatedInSnapshot(tabId, USER_ID, task, afterSnap);
+            if (isPhoneVerificationScreen(afterSnap.url || '', (afterSnap.snapshot || '').toLowerCase())) {
+              await recorder.error(1, 6, 'phone_after_mfa');
+              const bypassUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
+              if (bypassUrl) redirectUrl = bypassUrl;
+              else { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); runSuccess = true; return; }
+            }
+
+            // Retry MFA if still there
+            const afterText = (afterSnap.snapshot || '').toLowerCase();
+            if (afterText.includes('one-time code') || afterText.includes('authenticator') || (afterSnap.url || '').includes('mfa')) {
+              console.log(`[Login] 🛡️ MFA vẫn còn, thử lần 2...`);
+              const { otp: otp2, remaining: r2 } = await getFreshTOTP(account.twoFaSecret, 2);
+              console.log(`[Login] 🛡️ TOTP retry remaining=${r2}s`);
+              try { await tripleClick(tabId, USER_ID, mfaSelector); } catch (_) {}
+              await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: mfaSelector, text: otp2 });
+              await pressKey(tabId, USER_ID, 'Enter');
+              await new Promise(r => setTimeout(r, 4500));
+              await recorder.after(1, 7, 'mfa_retry_submitted');
+            }
+          }
+          await recorder.after(1, 8, 'after_2fa');
+        }
+
+        // Wait for redirect
+        for (let i = 0; i < 20 && !redirectUrl; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const checkSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+          await checkDeactivatedInSnapshot(tabId, USER_ID, task, checkSnap);
+          const curUrl = checkSnap.url || '';
+          const html = (checkSnap.snapshot || '').toLowerCase();
+
+          if (isPhoneVerificationScreen(curUrl, html)) {
+            await recorder.error(1, 9, 'phone_screen_wait');
+            redirectUrl = await tryBypassPhoneRequirement({ task, userId: USER_ID, tabId, sessionKey: SESSION_KEY, proxyUrl: account.proxyUrl || account.proxy || undefined, recorder });
+            if (!redirectUrl) { await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); runSuccess = true; return; }
+            break;
+          }
+          if (curUrl.includes('login-enroll-passkey') || curUrl.includes('enroll-passkey') || html.includes('log in faster next time') || html.includes('set up faster login')) {
+            console.log(`[Login] 🔑 Passkey enrollment screen detected. Dismissing...`);
+            const dismissed = await tryDismissPasskeyEnrollment(tabId, USER_ID);
+            if (dismissed) {
+              console.log(`[Login] ✅ Dismissed passkey enrollment screen successfully.`);
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
+          }
+          if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
+            console.log(`[Login] 🔐 Consent page detected (wait loop ${i + 1}), clicking Continue...`);
+            await recorder.before(1, 10, 'consent_wait');
+
+            // ── Chọn Personal workspace trước khi click Continue ──
+            const selectResult = await selectPersonalWorkspaceInConsentUI({
+              tabId, userId: USER_ID, timeoutMs: 5000, logPrefix: '[Login]'
+            });
+            if (selectResult?.ok && selectResult?.changed) {
+              console.log(`[Login] ✅ Personal workspace selected successfully`);
+              await new Promise(r => setTimeout(r, 1500));
+            } else {
+              console.log(`[Login] ⚠️ Personal workspace selection: ${selectResult?.reason || 'unknown'}`);
+            }
+
+            try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button:has-text("Continue"), button.btn-primary, [type="submit"]' }); } catch (_) { await pressKey(tabId, USER_ID, 'Enter'); }
+            await new Promise(r => setTimeout(r, 2000));
+            await recorder.after(1, 11, 'consent_clicked');
+          }
+          if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) { redirectUrl = curUrl; break; }
+          if (i > 5 && (curUrl.includes('login') || html.includes('forgot password'))) await pressKey(tabId, USER_ID, 'Enter');
+        }
+        await recorder.checkpoint(1, 10, 'flow_complete');
+
+        if (redirectUrl && redirectUrl.includes('code=')) {
+          const urlObj = new URL(redirectUrl);
+          const code = urlObj.searchParams.get('code');
+          console.log(`[Login] ✅ Code lấy được: ${code.slice(0, 20)}...`);
+          await recorder.after(1, 11, 'code_obtained');
+          let cookies = [];
+          try {
+            const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${USER_ID}`, { timeoutMs: 6000 });
+            cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
+          } catch (_) {}
+          await sendResult(task, 'success', 'Đã lấy được code thành công', {
+            code, codeVerifier: task.codeVerifier || account.codeVerifier,
+            userAgent, proxyUrl: account.proxyUrl || account.proxy || undefined, finalUrl: redirectUrl,
+            cookies,
+          });
+        } else {
+          try {
+            const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
+            await checkDeactivatedInSnapshot(tabId, USER_ID, task, finalSnap);
+            if (isPhoneVerificationScreen(finalSnap.url || '', (finalSnap.snapshot || '').toLowerCase())) {
+              await recorder.error(1, 11, 'phone_final');
+              await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); runSuccess = true; return;
+            }
+          } catch (_) {
+            if (_?.message === 'ACCOUNT_DEACTIVATED' || _?.message === 'PASSWORD_RESET_REQUIRED') throw _;
+          }
+          await recorder.error(1, 11, 'no_code_timeout');
+          await sendResult(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', { finalUrl: redirectUrl || 'unknown' });
+        }
+        runSuccess = true;
+        break;
+      } catch (err) {
+        const msg = String(err.message || err || '').toLowerCase();
+        const isRetriable = (
+          msg.includes('browser_restarted') ||
+          msg.includes('session_expired') ||
+          msg.includes('tab no longer exists') ||
+          msg.includes('browser was restarted') ||
+          msg.includes('browser session expired') ||
+          msg.includes('target page, context or browser has been closed') ||
+          msg.includes('context closed') ||
+          msg.includes('browser closed') ||
+          msg.includes('net_timeout') ||
+          msg.includes('aborted due to timeout')
+        );
+        
+        if (isRetriable && attempt < maxAttempts) {
+          console.warn(`\n⚠️ [Login] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
+          if (tabId) {
+            console.log(`[Login] 🧹 Đóng tab cũ: ${tabId}`);
+            await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+            tabId = null;
+          }
+          await new Promise(r => setTimeout(r, 5000));
           continue;
         }
-      }
-      if (curUrl.includes('consent') || html.includes('authorize') || html.includes('allow')) {
-        console.log(`[Login] 🔐 Consent page detected (wait loop ${i + 1}), clicking Continue...`);
-        await recorder.before(1, 10, 'consent_wait');
-
-        // ── Chọn Personal workspace trước khi click Continue ──
-        const selectResult = await selectPersonalWorkspaceInConsentUI({
-          tabId, userId: USER_ID, timeoutMs: 5000, logPrefix: '[Login]'
-        });
-        if (selectResult?.ok && selectResult?.changed) {
-          console.log(`[Login] ✅ Personal workspace selected successfully`);
-          await new Promise(r => setTimeout(r, 1500));
-        } else {
-          console.log(`[Login] ⚠️ Personal workspace selection: ${selectResult?.reason || 'unknown'}`);
+        throw err;
+      } finally {
+        if (tabId && !runSuccess && attempt < maxAttempts) {
+          console.log(`[Login] 🧹 Đóng tab của lượt thử thất bại...`);
+          await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
+          tabId = null;
         }
-
-        try { await camofoxPost(`/tabs/${tabId}/click`, { userId: USER_ID, selector: 'button:has-text("Continue"), button.btn-primary, [type="submit"]' }); } catch (_) { await pressKey(tabId, USER_ID, 'Enter'); }
-        await new Promise(r => setTimeout(r, 2000));
-        await recorder.after(1, 11, 'consent_clicked');
       }
-      if (curUrl.includes('localhost:1455') || curUrl.includes('code=')) { redirectUrl = curUrl; break; }
-      if (i > 5 && (curUrl.includes('login') || html.includes('forgot password'))) await pressKey(tabId, USER_ID, 'Enter');
-    }
-    await recorder.checkpoint(1, 10, 'flow_complete');
-
-    if (redirectUrl && redirectUrl.includes('code=')) {
-      const urlObj = new URL(redirectUrl);
-      const code = urlObj.searchParams.get('code');
-      console.log(`[Login] ✅ Code lấy được: ${code.slice(0, 20)}...`);
-      await recorder.after(1, 11, 'code_obtained');
-      let cookies = [];
-      try {
-        const ck = await camofoxGet(`/tabs/${tabId}/cookies?userId=${USER_ID}`, { timeoutMs: 6000 });
-        cookies = Array.isArray(ck?.cookies) ? ck.cookies : (Array.isArray(ck) ? ck : []);
-      } catch (_) {}
-      await sendResult(task, 'success', 'Đã lấy được code thành công', {
-        code, codeVerifier: task.codeVerifier || account.codeVerifier,
-        userAgent, proxyUrl: account.proxyUrl || account.proxy || undefined, finalUrl: redirectUrl,
-        cookies,
-      });
-    } else {
-      try {
-        const finalSnap = await camofoxGet(`/tabs/${tabId}/snapshot?userId=${USER_ID}`);
-        await checkDeactivatedInSnapshot(tabId, USER_ID, task, finalSnap);
-        if (isPhoneVerificationScreen(finalSnap.url || '', (finalSnap.snapshot || '').toLowerCase())) {
-          await recorder.error(1, 11, 'phone_final');
-          await sendResult(task, 'error', 'NEED_PHONE: Tài khoản yêu cầu xác minh số điện thoại'); return;
-        }
-      } catch (_) {
-        if (_?.message === 'ACCOUNT_DEACTIVATED' || _?.message === 'PASSWORD_RESET_REQUIRED') throw _;
-      }
-      await recorder.error(1, 11, 'no_code_timeout');
-      await sendResult(task, 'error', 'Hết thời gian chờ hoặc không tìm thấy code trong URL redirect', { finalUrl: redirectUrl || 'unknown' });
     }
   } catch (err) {
     const rawMsg = err?.message || String(err);

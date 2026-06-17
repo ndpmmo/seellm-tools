@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.158] - 2026-06-18 01:38:00
+
+### 🚀 Tối ưu hóa tự phục hồi lỗi trình duyệt cho các tiến trình Worker ngầm (Resiliency Worker Recovery)
+- **scripts/auto-worker.js**:
+  - **Vòng lặp tự phục hồi lỗi trình duyệt**: Tích hợp cơ chế thử lại tối đa 2 lần cho cả `runConnectFlow` và `runLoginFlow`. Khi trình duyệt bị sập, khởi động lại (`browser_restarted`, `session_expired`, `context closed`), tự động giải phóng tab ID cũ, chờ 5 giây và khởi chạy lại phiên làm việc từ đầu một cách tự động và mượt mà.
+  - **Tối ưu hóa các vòng lặp điền credential**: Thiết kế lại phần nhập email và password của `runLoginFlow` (Codex/OAuth) sang dạng vòng lặp tuần tự trạng thái (`getState()`) tương tự như `runConnectFlow`, đảm bảo ổn định tối đa trước proxy chậm và nâng cao khả năng hồi phục.
+- **scripts/auto-register-worker.js**:
+  - **Tự phục hồi lỗi trình duyệt**: Bao bọc toàn bộ phân đoạn chạy đăng ký trên giao diện trình duyệt Camofox trong một vòng lặp thử lại tối đa 2 lần. Khi gặp lỗi kết nối hoặc sập trình duyệt, tự động thu dọn tab ID, thiết lập lại các cờ kiểm tra tạm thời (`phoneBypassAttempted`, `phoneBypassSuccess`, `oauthError`, `isExistingAccount`), nghỉ 5 giây rồi chạy lại.
+
 ## [0.3.157] - 2026-06-18 00:55:00
 
 ### 🚀 Tự động phục hồi lỗi trình duyệt khi Warmup & Hỗ trợ dừng vật lý tiến trình cùng bộ lọc khóa thông minh
