@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.173] - 2026-06-18 15:15:00
+
+### 🚀 Bổ sung cơ chế Tự động xoay Proxy và Chạy lại (Auto-Retry Proxy Rotation) & Chuẩn hóa Parser Proxy URL
+
+- **scripts/lib/proxy-diag.js**:
+  - **Chuẩn hóa hàm `normalizeProxyUrl`**: Tối ưu hóa bộ parse để hỗ trợ cả 2 định dạng: định dạng URL chuẩn (`http://user:pass@host:port`) và định dạng danh sách proxy phổ biến (`host:port:user:pass` hoặc `http://host:port:user:pass`), tự động tách các phần và tạo URL chuẩn để tránh lỗi parse URL (`Invalid URL`) làm hỏng PreFlight check.
+- **server/routes/vault.js**:
+  - **Tự động thử lại luồng Bulk (Auto-Retry on Proxy Block)**: Tích hợp thuộc tính `autoRetryCounts` trong `BulkRegisterRunner`. Khi một tài khoản bị lỗi do Proxy (như `BLOCKED_BY_OPENAI`, `IP Check failed`, `PreFlight Failed`, `Connection timed out`), runner sẽ tự động xoay chuyển sang một proxy khác trong danh sách và đẩy tài khoản đó trở lại hàng đợi để tự động chạy lại tối đa 2 lần.
+  - **Duy trì tiến trình Bulk**: Không tự động dừng (stop) cả tiến trình Bulk khi các lỗi chặn danh tiếng (`BLOCKED_BY_OPENAI`, `IP Check failed`) xảy ra, mà chỉ dừng khi gặp lỗi kết nối hệ thống nghiêm trọng không thể tự phục hồi.
+
 ## [0.3.172] - 2026-06-18 15:00:00
 
 ### 🚀 Đồng bộ và lưu trữ Proxy URL vào Database khi đăng ký thành công (Save Proxy URL in DB on Register Success)

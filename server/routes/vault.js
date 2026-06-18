@@ -2570,6 +2570,7 @@ class BulkRegisterRunner {
     this.concurrency = concurrency;
     this.enableOAuth = enableOAuth;
     this.activeWorkers = new Map(); // email -> procId
+    this.autoRetryCounts = new Map(); // email -> retry count
     this.completed = [];
     this.failed = [];
     this.status = 'running'; // 'running', 'stopped', 'completed'
@@ -2638,17 +2639,37 @@ class BulkRegisterRunner {
           let errMsg = `Exit code ${exitCode} (${status})`;
           let isProxyError = false;
           if (proc && proc.logs) {
-            const errorLog = proc.logs.find(l => l.text?.includes('Lỗi:') || l.text?.includes('Error:') || l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed'));
+            const errorLog = proc.logs.find(l => l.text?.includes('Lỗi:') || l.text?.includes('Error:') || l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed') || l.text?.includes('IP Check failed') || l.text?.includes('BLOCKED_BY_OPENAI'));
             if (errorLog) {
               errMsg = errorLog.text.trim();
             }
-            isProxyError = proc.logs.some(l => l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed'));
+            isProxyError = proc.logs.some(l => l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed') || l.text?.includes('IP Check failed') || l.text?.includes('BLOCKED_BY_OPENAI') || l.text?.includes('Connection timed out'));
           }
+
+          // Check if we can auto-retry this task with a rotated proxy
+          const retryCount = this.autoRetryCounts.get(email) || 0;
+          const maxAutoRetries = 2;
+          if (isProxyError && retryCount < maxAutoRetries && this.proxies && this.proxies.length > 1) {
+            this.autoRetryCounts.set(email, retryCount + 1);
+            const task = this.allTasks.find(t => t.emailRecord.email === email);
+            if (task) {
+              const currentFailedProxy = task.proxy;
+              const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
+              if (otherProxies.length > 0) {
+                task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+                this.queue.push(task);
+                this.log(`🔄 [Tự động thử lại lần ${retryCount + 1}/${maxAutoRetries}] Đưa ${email} trở lại hàng đợi với Proxy mới do lỗi proxy/chặn: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
+                continue; // Skip failed list and single-item-complete notification for now
+              }
+            }
+          }
+
           this.failed.push({ email, error: errMsg });
           this.log(`❌ Đăng ký thất bại: ${email} (${errMsg})`);
 
-          if (isProxyError) {
-            this.log(`🛑 [An toàn] Tự động dừng tiến trình Bulk do lỗi Proxy nghiêm trọng ở account ${email} để tránh chạy trên IP cố định.`);
+          // Only stop the entire bulk run if it's a severe system proxy error (not a simple reputation block)
+          if (isProxyError && !errMsg.includes('BLOCKED_BY_OPENAI') && !errMsg.includes('IP Check failed')) {
+            this.log(`🛑 [An toàn] Tự động dừng tiến trình Bulk do lỗi Proxy hệ thống ở account ${email}.`);
             this.stop();
           }
         }

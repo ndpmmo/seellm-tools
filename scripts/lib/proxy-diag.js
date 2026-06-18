@@ -38,10 +38,29 @@ export function extractIpFromText(raw) {
  * @returns {string|null} Normalized proxy URL or null
  */
 export function normalizeProxyUrl(input) {
-  const s = String(input || '').trim();
+  let s = String(input || '').trim();
   if (!s) return null;
-  if (s.includes('://')) return s;
-  return `http://${s}`;
+
+  let protocol = 'http';
+  const protoMatch = s.match(/^([a-zA-Z0-9+.-]+):\/\//);
+  if (protoMatch) {
+    protocol = protoMatch[1].toLowerCase();
+    s = s.slice(protoMatch[0].length);
+  }
+
+  const parts = s.split(':');
+  if (parts.length === 4) {
+    const [host, port, user, pass] = parts;
+    if (/^\d+$/.test(port)) {
+      return `${protocol}://${user}:${pass}@${host}:${port}`;
+    }
+  }
+
+  if (s.includes('@')) {
+    return `${protocol}://${s}`;
+  }
+
+  return `${protocol}://${s}`;
 }
 
 /**
