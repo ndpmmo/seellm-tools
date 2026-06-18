@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.172] - 2026-06-18 15:00:00
+
+### 🚀 Đồng bộ và lưu trữ Proxy URL vào Database khi đăng ký thành công (Save Proxy URL in DB on Register Success)
+
+- **scripts/auto-register-worker.js**:
+  - **Lưu proxy_url vào cơ sở dữ liệu**: Khắc phục lỗi nghiêm trọng khi tài khoản đăng ký thành công qua worker, proxy dùng để đăng ký (`proxyUrl`) không được lưu vào bản ghi tài khoản (`proxy_url`) trong database. Điều này khiến các kịch bản chạy sau (như warmup.js, check-session.js) tải tài khoản lên bị thiếu proxy và phải kết nối trực tiếp bằng IP gốc, dẫn đến tài khoản lập tức bị OpenAI phát hiện và khóa (`ACCOUNT_DEACTIVATED`). Bổ sung truyền tham số `proxy_url` và `proxyUrl` trong `providerSpecificData` khi POST dữ liệu đăng ký thành công.
+
 ## [0.3.171] - 2026-06-18 05:35:00
 
 ### 🚀 Sửa lỗi race condition của localStorage khi mount component (Fix LocalStorage Overwrite Mismatch)

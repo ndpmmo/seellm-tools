@@ -2752,6 +2752,7 @@ export async function runAutoRegister(taskInput) {
         skipSync: true,
         restore_deleted: true,
         cookies: tokens,
+        proxy_url: proxyUrl || null,
         tags: JSON.stringify([
           'auto-register',
           'vault-register',
@@ -2768,6 +2769,7 @@ export async function runAutoRegister(taskInput) {
         providerSpecificData: {
           sessionData,
           chatgptUserId: sessionData?.user?.id || null,
+          proxyUrl: proxyUrl || null,
         }
       }),
     });
