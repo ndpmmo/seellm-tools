@@ -156,8 +156,8 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
                     const elements = Array.from(document.querySelectorAll('*'));
                     const authTextEl = elements.find(el => {
                         const text = el.textContent || '';
-                        if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                        return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                        if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                        return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                     });
 
                     if (authTextEl) {
@@ -506,8 +506,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 const elements = Array.from(document.querySelectorAll('*'));
                 const authTextEl = elements.find(el => {
                     const text = el.textContent || '';
-                    if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                    return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                    if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                    return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                 });
                 if (authTextEl) {
                     let par = authTextEl;
@@ -542,8 +542,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     const elements = Array.from(document.querySelectorAll('*'));
                     const authTextEl = elements.find(el => {
                         const text = el.textContent || '';
-                        if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                        return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                        if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                        return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                     });
 
                     if (authTextEl) {
@@ -599,8 +599,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     const elements = Array.from(document.querySelectorAll('*'));
                     const authTextEl = elements.find(el => {
                         const text = el.textContent || '';
-                        if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                        return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                        if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                        return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                     });
                     if (authTextEl) {
                         let par = authTextEl;
@@ -646,8 +646,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 const elements = Array.from(document.querySelectorAll('*'));
                 const authTextEl = elements.find(el => {
                     const text = el.textContent || '';
-                    if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                    return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                    if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                    return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                 });
 
                 if (authTextEl) {
@@ -1068,8 +1068,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 const elements = Array.from(dialog.querySelectorAll('*'));
                 const authTextEl = elements.find(el => {
                     const text = el.textContent || '';
-                    if (!/authenticator\\s+app/i.test(text) && !/authenticator/i.test(text)) return false;
-                    return !Array.from(el.children).some(child => /authenticator/i.test(child.textContent || ''));
+                    if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
+                    return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                 });
                 
                 if (authTextEl) {

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.174] - 2026-06-18 15:40:00
+
+### 🚀 Tối ưu hóa phát hiện Switch 2FA/MFA hỗ trợ Đa ngôn ngữ và Giao diện mới (Optimize 2FA Switch Detection)
+
+- **scripts/lib/mfa-setup.js**:
+  - **Mở rộng biểu thức chính quy (Regex) tìm nút 2FA**: Thay thế các kiểm tra cứng nhắc chỉ tìm kiếm `"Authenticator app"` bằng tập hợp biểu thức chính quy rộng hỗ trợ tất cả các thuật ngữ đồng nghĩa và dịch thuật (như `two-factor`, `multi-factor`, `2fa`, `mfa`, `Xác thực 2 yếu tố`, `Ứng dụng xác thực`). Điều này giúp script luôn tìm thấy nút bật/tắt thiết lập 2FA bất kể ngôn ngữ cài đặt của tài khoản hoặc giao diện cập nhật từ OpenAI.
+- **scripts/auto-register-worker.js**:
+  - **Đồng bộ hóa bước Double-Check 2FA**: Cập nhật logic đánh giá DOM tại bước kiểm tra độ ổn định 2FA sau khi bật để khớp với bộ từ khóa đa ngôn ngữ mới, tránh trường hợp cảnh báo sai lệch hoặc cố gắng sửa chữa (Self-Healing) khi 2FA thực tế đã bật.
+
 ## [0.3.173] - 2026-06-18 15:15:00
 
 ### 🚀 Bổ sung cơ chế Tự động xoay Proxy và Chạy lại (Auto-Retry Proxy Rotation) & Chuẩn hóa Parser Proxy URL
