@@ -2,6 +2,27 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.175] - 2026-06-20 00:30:00
+
+### 🚀 Bổ sung bộ lọc chọn tài khoản Warmup Failed, Bàn phím điều hướng Terminal & Đa dạng hóa câu hỏi Warmup
+
+- **src/components/views/TerminalView.tsx**:
+  - **Hỗ trợ điều hướng bằng phím mũi tên Lên/Xuống (Keyboard Navigation)**: Cho phép chuyển đổi nhanh chóng giữa các log tiến trình đang chạy trong danh sách bằng phím mũi tên lên và xuống.
+  - **Tự động cuộn phần tử được chọn vào vùng nhìn thấy (Auto scroll-into-view)**: Tự động giữ cho tiến trình đang được chọn luôn hiển thị trong danh sách sidebar khi sử dụng phím di chuyển, cải thiện trải nghiệm người dùng trên giao diện Terminal.
+  - **Hỗ trợ phím Delete/Backspace xóa tiến trình**: Cho phép ấn phím `Delete` hoặc `Backspace` để kích hoạt hộp thoại xác nhận xóa tiến trình đang chọn khỏi bộ nhớ (chỉ áp dụng với các tiến trình đã dừng).
+- **src/components/views/LogFilesView.tsx**:
+  - **Hỗ trợ điều hướng bằng phím mũi tên & Đánh dấu dòng đang mở**: Áp dụng tính năng chuyển đổi file logs bằng phím mũi tên Lên/Xuống vào danh sách log file tĩnh, đồng thời bổ sung highlight màu nền và đường kẻ trái màu xanh đậm (`border-l-2 border-indigo-500`) giúp dễ nhận diện log file đang mở. Tích hợp tự động cuộn dòng được chọn hiển thị trơn tru trên sidebar.
+  - **Hỗ trợ phím Delete/Backspace xóa file**: Cho phép ấn phím `Delete` hoặc `Backspace` để hiển thị modal xác nhận xóa log file tĩnh đang xem.
+- **server.js**:
+  - **Bổ sung API `DELETE /api/processes/:id`**: Cung cấp endpoint cho phép xóa một tiến trình cụ thể khỏi bộ nhớ trong server khi tiến trình đó không còn chạy, đồng thời đồng bộ trạng thái thời gian thực qua SSE (`processes:sync`).
+- **scripts/lib/warmup-prompts.js**:
+  - **Cải tiến sinh câu hỏi tự nhiên ngẫu nhiên tổ hợp (Natural Combinatorial Prompts)**: Nâng cấp cơ chế tạo câu hỏi khởi tạo warmup cho tài khoản tránh bị phát hiện cấu trúc lặp (footprint detection) bằng cách kết hợp động các thành phần (lời chào, ngữ cảnh, hành động trực tiếp/gián tiếp, phong cách và định dạng) để tạo ra hơn 1.78 triệu câu hỏi tự nhiên duy nhất.
+- **src/components/views/vault/VaultAccountsView.tsx**:
+  - **Bổ sung bộ lọc "Lần warmup gần nhất thất bại" (`failed_only`)**: Thêm tùy chọn lọc cho phép người dùng chỉ warmup lại các tài khoản vừa chạy thất bại ở lần chạy trước.
+  - **Cập nhật logic `getAutoWarmupTargets`**: Tích hợp điều kiện lọc `failed_only` kiểm tra thuộc tính `warmupStatus === 'failed'` từ dữ liệu `provider_specific_data` của tài khoản.
+- **scripts/lib/camofox.js**:
+  - **Tăng mặc định timeout điều hướng từ 65s lên 95s (`camofoxGoto`, `navigate`)**: Khắc phục lỗi bất đồng bộ timeout khiến client abort kết nối sớm hơn 90s timeout của server, dẫn đến chuỗi lỗi kẹt tab và Tab not found 404.
+
 ## [0.3.174] - 2026-06-18 15:40:00
 
 ### 🚀 Tối ưu hóa phát hiện Switch 2FA/MFA hỗ trợ Đa ngôn ngữ và Giao diện mới (Optimize 2FA Switch Detection)

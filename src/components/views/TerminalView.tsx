@@ -1,7 +1,7 @@
 'use client';
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useApp, ProcessInfo } from '../AppContext';
-import { fmtTime } from '../Views';
+import { fmtTime, ConfirmModal } from '../Views';
 import { Card, CardHeader, CardTitle, CardContent, Button } from '../ui';
 import { Terminal as TerminalIcon, ShieldAlert, Info, Lock, Unlock, AlertTriangle, XCircle, CheckCircle, Zap } from 'lucide-react';
 
@@ -131,14 +131,116 @@ function Terminal({ proc }: { proc: ProcessInfo }) {
 }
 
 export function TerminalView() {
-  const { processes, selectedLog, setSelectedLog } = useApp();
+  const { processes, selectedLog, setSelectedLog, addToast } = useApp();
   const procs = Object.values(processes)
     .sort((a, b) => Number(new Date(b.startedAt || 0)) - Number(new Date(a.startedAt || 0)));
   const sel = selectedLog ? processes[selectedLog] : procs[0] || null;
 
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
+
+  // Use refs to keep keyboard navigation handler stable and prevent listener re-registration churn
+  const procsRef = useRef(procs);
+  const selRef = useRef(sel);
+
+  useEffect(() => {
+    procsRef.current = procs;
+    selRef.current = sel;
+  }, [procs, sel]);
+
   useEffect(() => {
     if (!selectedLog && procs.length) setSelectedLog(procs[0].id);
   }, [procs.length]);
+
+  const deleteProcess = useCallback((id: string, name: string, status: string) => {
+    if (status === 'running') {
+      addToast?.('Không thể xóa tiến trình đang chạy. Vui lòng dừng tiến trình trước.', 'error');
+      return;
+    }
+    setConfirmModal({
+      title: 'Xóa tiến trình',
+      message: `Bạn có chắc chắn muốn xóa tiến trình "${name}" khỏi bộ nhớ không? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        try {
+          const r = await fetch(`/api/processes/${id}`, { method: 'DELETE' });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            addToast?.(`Xóa thất bại: ${err.error || `HTTP ${r.status}`}`, 'error');
+            return;
+          }
+          addToast?.('Đã xóa tiến trình thành công', 'success');
+          if (selRef.current?.id === id) {
+            setSelectedLog('');
+          }
+        } catch (e: any) {
+          addToast?.(`Lỗi kết nối: ${e.message}`, 'error');
+        }
+        setConfirmModal(null);
+      }
+    });
+  }, [addToast, setSelectedLog]);
+
+  // Keyboard navigation for Up/Down arrow keys & Delete key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.getAttribute('contenteditable') === 'true'
+      )) {
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        const currentSel = selRef.current;
+        if (currentSel) {
+          deleteProcess(currentSel.id, currentSel.name, currentSel.status);
+        }
+        return;
+      }
+
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+
+      e.preventDefault(); // Prevent default browser scrolling
+
+      const procsList = procsRef.current;
+      const currentSel = selRef.current;
+      if (!procsList.length) return;
+
+      const currentIndex = procsList.findIndex(p => p.id === currentSel?.id);
+      if (currentIndex === -1) {
+        setSelectedLog(procsList[0].id);
+        return;
+      }
+
+      let nextIndex = currentIndex;
+      if (e.key === 'ArrowDown') {
+        nextIndex = Math.min(procsList.length - 1, currentIndex + 1);
+      } else if (e.key === 'ArrowUp') {
+        nextIndex = Math.max(0, currentIndex - 1);
+      }
+
+      if (nextIndex !== currentIndex) {
+        setSelectedLog(procsList[nextIndex].id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [setSelectedLog, deleteProcess]);
+
+  // Automatically scroll the selected process item in the sidebar list into view if off-screen
+  useEffect(() => {
+    if (sel?.id) {
+      const activeItem = document.querySelector(`[data-proc-id="${sel.id}"]`);
+      if (activeItem) {
+        activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [sel?.id]);
 
   const handleClearInactive = async () => {
     try {
@@ -174,6 +276,7 @@ export function TerminalView() {
             )}
             {procs.map(p => (
               <div key={p.id}
+                data-proc-id={p.id}
                 className={`p-3.5 rounded-xl cursor-pointer mb-2 border transition-all duration-200 ${sel?.id === p.id
                   ? 'border-indigo-500/40 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)] ring-1 ring-indigo-500/20'
                   : 'border-white/5 bg-white/[0.02] hover:bg-white/5 hover:border-white/10 hover:-translate-y-[1px]'
@@ -207,6 +310,16 @@ export function TerminalView() {
           }
         </div>
       </div>
+
+      {/* Confirm Modal */}
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
     </div>
   );
 }

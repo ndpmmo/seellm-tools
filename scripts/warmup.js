@@ -63,7 +63,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   console.log(`[Warmup] ⏳ Chờ ChatGPT phản hồi xong...`);
   
   let hasStarted = false;
-  const startTimeout = 8000; // 8 seconds to start generating
+  const startTimeout = 20000; // 20 seconds to start generating (increased from 8s for slow proxies)
   let lastTextLength = 0;
   let textLengthStableSec = 0;
   
@@ -83,7 +83,9 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       if (submitBtn && submitBtn.offsetParent !== null) {
         const ariaLabel = (submitBtn.getAttribute('aria-label') || '').toLowerCase();
         const className = (submitBtn.className || '').toLowerCase();
-        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]') || !!submitBtn.querySelector('svg rect');
+        // Only trust explicit "stop" signals — avoid svg rect which is too broad
+        // and causes false positives on the regular send button
+        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]');
         
         if (ariaLabel.includes('stop') || className.includes('stop') || hasStopSvg) {
           isSubmitStop = true;
@@ -166,13 +168,22 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
         if (state.generatingReason === 'streaming-element') {
           console.log(`[Warmup] ⚠️ Độ dài văn bản không đổi trong 14s ở trạng thái streaming-element. Coi như hoàn tất.`);
           return true;
-        } else if (state.generatingReason === 'submit-stop' && elapsed > 80000) {
-          throw new Error(`session_expired: Phản hồi bị kẹt (thinking/sending quá 80 giây mà không thay đổi)`);
+        } else if (state.generatingReason === 'submit-stop' && elapsed > 120000) {
+          // 120s absolute max — likely a real stall but don't restart tab (avoid RC-1 cascade)
+          // Returning false (not throwing) so caller can handle gracefully
+          console.warn(`[Warmup] ⚠️ submit-stop kẹt > 120s không thay đổi. Bỏ qua câu hỏi này, tiếp tục.`);
+          return false;
         }
       }
     } else {
       // If we haven't seen it start generating yet
       if (elapsed > startTimeout) {
+        // Check if text content actually grew since we sent the question
+        // (fast response may appear before generating indicator updates)
+        if (state.textLength > lastTextLength + 100) {
+          console.log(`[Warmup] ✅ Text tăng ${state.textLength - lastTextLength} ký tự — phản hồi đã xuất hiện mà không có chỉ báo generating.`);
+          return true;
+        }
         console.log(`[Warmup] ⚠️ Không phát hiện trạng thái generating sau ${startTimeout / 1000}s. Coi như phản hồi hoàn tất hoặc lỗi.`);
         return false;
       }
@@ -337,6 +348,9 @@ async function runWarmup() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cookies: account.cookies })
         });
+        // Small delay to ensure browser context picks up the imported cookies
+        // before navigation fires (import is async on camofox side)
+        await delay(1500);
       } catch (err) {
         console.warn(`⚠️ [Warmup] Lỗi khi import cookies: ${err.message}`);
       }
@@ -1079,7 +1093,10 @@ async function runWarmup() {
       await delay(2000);
       
       // Wait for complete response
-      await waitForGenerationComplete(tabId, USER_ID);
+      const genCompleted = await waitForGenerationComplete(tabId, USER_ID);
+      if (!genCompleted) {
+        console.log(`[Warmup] ⚠️ Không xác nhận được phản hồi ChatGPT cho câu hỏi ${idx + 1}. Tiếp tục...`);
+      }
       
       if (WARMUP_SCREENSHOTS && stepRecorder) {
         await stepRecorder.after(3 + idx, 2, `q${idx + 1}_response_complete`);
@@ -1113,7 +1130,7 @@ async function runWarmup() {
         fetch('/api/auth/session')
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
-      `);
+      `, { timeoutMs: 35000 }); // Increased from 8s — fetch goes through proxy, needs more time
       if (sessionRes && typeof sessionRes === 'object') {
         sessionData = sessionRes;
         accessToken = sessionRes.accessToken;

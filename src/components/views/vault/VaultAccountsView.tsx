@@ -293,11 +293,12 @@ export function VaultAccountsView() {
   const [isBulkDeployingAuto, setIsBulkDeployingAuto] = useState(false);
 
   const [isBulkWarmupFormOpen, setIsBulkWarmupFormOpen] = useState(false);
-  const [bulkWarmupFilter, setBulkWarmupFilter] = useState<'all_ready' | 'no_warmup_today' | 'no_warmup_24h' | 'no_warmup_3d' | 'no_warmup_7d' | 'never_warmed'>('no_warmup_today');
+  const [bulkWarmupFilter, setBulkWarmupFilter] = useState<'all_ready' | 'no_warmup_today' | 'no_warmup_24h' | 'no_warmup_3d' | 'no_warmup_7d' | 'never_warmed' | 'failed_only'>('no_warmup_today');
   const [isBulkWarmingAuto, setIsBulkWarmingAuto] = useState(false);
   const [warmupQuestionsCount, setWarmupQuestionsCount] = useState<number>(0);
   const [warmupStaggerSecs, setWarmupStaggerSecs] = useState<number>(0);
   const [maxWarmupAccounts, setMaxWarmupAccounts] = useState<number>(0);
+  const [warmupConcurrency, setWarmupConcurrency] = useState<number>(1);
   const [selectedWarmupAccountIds, setSelectedWarmupAccountIds] = useState<Set<string>>(new Set());
 
   // Custom Advanced Filter States
@@ -840,6 +841,7 @@ export function VaultAccountsView() {
 
       if (filter === 'all_ready') return true;
       if (filter === 'never_warmed') return !lastWarmed;
+      if (filter === 'failed_only') return ps.warmupStatus === 'failed';
 
       if (!lastWarmed) {
         // If it has never been warmed up, it matches any "has not been warmed up in X" criteria
@@ -890,17 +892,20 @@ export function VaultAccountsView() {
       return addToast('Vui lòng chọn ít nhất 1 tài khoản để bắt đầu Warmup', 'warning');
     }
 
+    const concurrency = Math.max(1, warmupConcurrency || 1);
+    const concurrencyLabel = concurrency > 1 ? ` | ${concurrency} luồng song song` : '';
+    const staggerLabel = warmupStaggerSecs > 0 ? ` | Trễ ${warmupStaggerSecs}s/đợt` : '';
+
     if (!await askConfirm(
-      'Tự Động Warmup', 
-      `Kích hoạt Warmup cho ${selectedTargets.length} tài khoản đã chọn? ${warmupStaggerSecs > 0 ? `(Độ trễ giãn cách: ${warmupStaggerSecs}s)` : ''}`, 
+      'Tự Động Warmup',
+      `Kích hoạt Warmup cho ${selectedTargets.length} tài khoản đã chọn?${concurrencyLabel}${staggerLabel}`,
       { variant: 'info', confirmLabel: 'Bắt đầu' }
     )) return;
 
     setIsBulkWarmingAuto(true);
     let success = 0;
 
-    for (let idx = 0; idx < selectedTargets.length; idx++) {
-      const it = selectedTargets[idx];
+    const warmupOne = async (it: typeof selectedTargets[0]) => {
       try {
         const r = await fetch(`/api/vault/accounts/${it.id}/warmup`, {
           method: 'POST',
@@ -911,8 +916,8 @@ export function VaultAccountsView() {
         let d;
         try {
           d = JSON.parse(text);
-        } catch (err) {
-          throw new Error(`⚠️ Backend Server.js cần được khởi động lại.`);
+        } catch {
+          throw new Error('⚠️ Backend Server.js cần được khởi động lại.');
         }
         if (!d.error) {
           success++;
@@ -928,10 +933,16 @@ export function VaultAccountsView() {
         }
       } catch (e: any) {
         addToast(e.message, 'error');
-        break;
       }
+    };
 
-      if (warmupStaggerSecs > 0 && idx < selectedTargets.length - 1) {
+    // Run in batches of `concurrency`
+    for (let i = 0; i < selectedTargets.length; i += concurrency) {
+      const batch = selectedTargets.slice(i, i + concurrency);
+      await Promise.all(batch.map(it => warmupOne(it)));
+
+      // Stagger delay between batches (not after the last batch)
+      if (warmupStaggerSecs > 0 && i + concurrency < selectedTargets.length) {
         await new Promise(resolve => setTimeout(resolve, warmupStaggerSecs * 1000));
       }
     }
@@ -1837,8 +1848,8 @@ export function VaultAccountsView() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Settings Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Settings Grid — row 1: filter + questions + stagger */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-400 mb-1">Tiêu chí lựa chọn tài khoản</label>
                 <select 
@@ -1851,6 +1862,7 @@ export function VaultAccountsView() {
                   <option value="no_warmup_3d" className="bg-[#0f172a]">Chưa warmup &gt; 3 ngày</option>
                   <option value="no_warmup_7d" className="bg-[#0f172a]">Chưa warmup &gt; 7 ngày</option>
                   <option value="never_warmed" className="bg-[#0f172a]">Chưa từng warmup</option>
+                  <option value="failed_only" className="bg-[#0f172a]">Lần warmup gần nhất thất bại</option>
                   <option value="all_ready" className="bg-[#0f172a]">Tất cả tài khoản hoạt động</option>
                 </select>
               </div>
@@ -1872,13 +1884,13 @@ export function VaultAccountsView() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Độ trễ giãn cách (Stagger)</label>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Độ trễ giãn cách giữa đợt</label>
                 <select 
                   className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-orange-500/50" 
                   value={warmupStaggerSecs} 
                   onChange={e => setWarmupStaggerSecs(Number(e.target.value))}
                 >
-                  <option value={0} className="bg-[#0f172a]">Chạy đồng thời (Không trễ)</option>
+                  <option value={0} className="bg-[#0f172a]">Không trễ (liên tục)</option>
                   <option value={10} className="bg-[#0f172a]">Trễ 10 giây</option>
                   <option value={30} className="bg-[#0f172a]">Trễ 30 giây</option>
                   <option value={60} className="bg-[#0f172a]">Trễ 1 phút</option>
@@ -1886,9 +1898,15 @@ export function VaultAccountsView() {
                   <option value={300} className="bg-[#0f172a]">Trễ 5 phút</option>
                 </select>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Giới hạn số acc chạy</label>
+            {/* Settings Grid — row 2: execution limits */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white/[0.02] border border-white/8 rounded-lg p-3 space-y-1">
+                <label className="block text-[11px] font-semibold text-slate-400">
+                  Tổng số acc chạy
+                  <span className="ml-1.5 text-[10px] font-normal text-slate-500">(0 = không giới hạn)</span>
+                </label>
                 <Input 
                   type="number"
                   min={0}
@@ -1897,6 +1915,30 @@ export function VaultAccountsView() {
                   value={maxWarmupAccounts || ''} 
                   onChange={e => setMaxWarmupAccounts(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                 />
+                <p className="text-[10px] text-slate-500">
+                  Ví dụ: có 10 acc khớp tiêu chí, đặt <span className="text-orange-400">5</span> → chỉ chạy 5/10 acc đầu tiên.
+                </p>
+              </div>
+
+              <div className="bg-white/[0.02] border border-white/8 rounded-lg p-3 space-y-1">
+                <label className="block text-[11px] font-semibold text-slate-400">
+                  Số luồng song song
+                  <span className="ml-1.5 text-[10px] font-normal text-slate-500">(Concurrency)</span>
+                </label>
+                <select
+                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-orange-500/50"
+                  value={warmupConcurrency}
+                  onChange={e => setWarmupConcurrency(Number(e.target.value))}
+                >
+                  <option value={1} className="bg-[#0f172a]">1 luồng (tuần tự)</option>
+                  <option value={2} className="bg-[#0f172a]">2 luồng</option>
+                  <option value={3} className="bg-[#0f172a]">3 luồng</option>
+                  <option value={5} className="bg-[#0f172a]">5 luồng</option>
+                  <option value={10} className="bg-[#0f172a]">10 luồng</option>
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  Ví dụ: 5 acc cần chạy, đặt <span className="text-orange-400">3 luồng</span> → mỗi đợt kích 3 acc cùng lúc.
+                </p>
               </div>
             </div>
 
@@ -1995,9 +2037,11 @@ export function VaultAccountsView() {
                 selectedTargets = selectedTargets.slice(0, maxWarmupAccounts);
               }
 
-              // Est total duration (3 min avg per warmup process + stagger)
-              const estTotalMins = selectedTargets.length > 0 
-                ? Math.round((selectedTargets.length * 3 * 60 + (selectedTargets.length - 1) * warmupStaggerSecs) / 60)
+              // Est total duration: batches * (3 min avg * concurrency + stagger)
+              const concurrency = Math.max(1, warmupConcurrency || 1);
+              const batchCount = Math.ceil(selectedTargets.length / concurrency);
+              const estTotalMins = selectedTargets.length > 0
+                ? Math.round((batchCount * 3 * 60 + (batchCount - 1) * warmupStaggerSecs) / 60)
                 : 0;
 
               return (
@@ -2005,9 +2049,10 @@ export function VaultAccountsView() {
                   <div className="text-[11px] text-slate-400">
                     {selectedTargets.length > 0 ? (
                       <div>
-                        Sẽ khởi chạy warmup cho <span className="font-bold text-orange-400">{selectedTargets.length}</span> tài khoản.
-                        {warmupStaggerSecs > 0 && <span> Giãn cách mỗi đợt: <span className="font-semibold text-orange-300">{warmupStaggerSecs}s</span>.</span>}
-                        {estTotalMins > 0 && <span> Ước tính hoàn tất: ~<span className="font-semibold text-orange-300">{estTotalMins} phút</span>.</span>}
+                        Sẽ khởi chạy warmup cho <span className="font-bold text-orange-400">{selectedTargets.length}</span> tài khoản
+                        {concurrency > 1 && <span>, <span className="font-semibold text-orange-300">{concurrency} luồng/đợt</span> ({batchCount} đợt)</span>}.
+                        {warmupStaggerSecs > 0 && <span> Trễ giữa đợt: <span className="font-semibold text-orange-300">{warmupStaggerSecs}s</span>.</span>}
+                        {estTotalMins > 0 && <span> Ước tính: ~<span className="font-semibold text-orange-300">{estTotalMins} phút</span>.</span>}
                       </div>
                     ) : (
                       <span className="text-rose-400">Chưa chọn tài khoản nào để chạy Warmup.</span>

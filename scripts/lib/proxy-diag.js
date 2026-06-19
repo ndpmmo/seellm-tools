@@ -130,22 +130,20 @@ export async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = 
     const opened = await camofoxPost('/tabs', {
       userId,
       sessionKey: `probe_${Date.now()}`,
-      url: ENDPOINTS[0],
+      url: 'about:blank',
       ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
       persistent: false,
       headless: false,
       humanize: true,
-    }, { timeoutMs: 25000 });
+    }, { timeoutMs: 30000 });
     probeTabId = opened.tabId;
-    await new Promise(r => setTimeout(r, 3500));
+    await new Promise(r => setTimeout(r, 1000));
 
     for (let i = 0; i < ENDPOINTS.length; i++) {
       const url = ENDPOINTS[i];
       try {
-        if (i > 0) {
-          await camofoxPost(`/tabs/${probeTabId}/navigate`, { userId, url }, { timeoutMs: 15000 });
-          await new Promise(r => setTimeout(r, 2500));
-        }
+        await camofoxPost(`/tabs/${probeTabId}/navigate`, { userId, url }, { timeoutMs: 20000 });
+        await new Promise(r => setTimeout(r, 2000));
         const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, { timeoutMs: 15000 });
         const ip = extractIpFromText(bodyText);
         if (ip) return { ip, source: url };

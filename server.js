@@ -675,6 +675,21 @@ app.prepare().then(async () => {
     res.json({ ok: true, clearedCount });
   });
 
+  ex.delete('/api/processes/:id', (req, res) => {
+    const { id } = req.params;
+    if (processes[id]) {
+      if (processes[id].status === 'running') {
+        return res.status(400).json({ error: 'Không thể xóa tiến trình đang chạy' });
+      }
+      delete processes[id];
+      const activeProcesses = Object.keys(processes).map(pid => safeProc(pid));
+      broadcastRealtimeEvent('processes:sync', activeProcesses);
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: 'Không tìm thấy tiến trình' });
+    }
+  });
+
   // ── Scripts list ─────────────────────────────────────────────────────────
   ex.get('/api/scripts', async (_, res) => {
     try {

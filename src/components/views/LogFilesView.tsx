@@ -281,8 +281,8 @@ function LogViewer({ filename, content, loading, onClose }: {
 
 /* ─── File Row ───────────────────────────────────────────────────────────── */
 
-function FileRow({ file, selected, onToggleSelect, onOpen, onDelete }: {
-  file: LogFile; selected: boolean; onToggleSelect: () => void;
+function FileRow({ file, selected, isOpened, onToggleSelect, onOpen, onDelete }: {
+  file: LogFile; selected: boolean; isOpened: boolean; onToggleSelect: () => void;
   onOpen: () => void; onDelete: () => void;
 }) {
   const ext = file.filename.split('.').pop()?.toLowerCase() || '';
@@ -291,7 +291,10 @@ function FileRow({ file, selected, onToggleSelect, onOpen, onDelete }: {
   const iconColor = isJson ? 'text-amber-400' : isLog ? 'text-cyan-400' : 'text-slate-400';
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors group ${selected ? 'bg-indigo-500/5' : ''}`}>
+    <div
+      data-filename={file.filename}
+      className={`flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors group ${selected ? 'bg-indigo-500/5' : ''} ${isOpened ? 'bg-indigo-500/10 border-l-2 border-indigo-500 pl-[14px]' : ''}`}
+    >
       <input
         type="checkbox"
         className="w-4 h-4 rounded border-white/20 accent-indigo-500 cursor-pointer shrink-0"
@@ -342,6 +345,10 @@ export function LogFilesView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
 
+  // Use refs to keep keyboard navigation handler stable and prevent listener re-registration churn
+  const filteredRef = useRef<LogFile[]>([]);
+  const viewFileRef = useRef<string | null>(null);
+
   const refresh = useCallback(async () => { setLoading(true); await refreshLogFiles(); setLoading(false); }, [refreshLogFiles]);
 
   const openFile = useCallback(async (filename: string) => {
@@ -361,8 +368,24 @@ export function LogFilesView() {
 
   const close = useCallback(() => { setViewFile(null); setContent(''); }, []);
 
+  const deleteOne = useCallback((filename: string) => {
+    setConfirmModal({
+      title: 'Xóa Log File',
+      message: `Bạn có chắc muốn xóa log file "${filename}"? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        const r = await fetch(`/api/logfiles/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        if (!r.ok) { const err = await r.json().catch(() => ({})); addToast(`Xóa thất bại: ${err.error || `HTTP ${r.status}`}`, 'error'); return; }
+        addToast('Đã xóa log file', 'success');
+        setSelected(prev => { const next = new Set(prev); next.delete(filename); return next; });
+        if (viewFileRef.current === filename) close();
+        await refreshLogFiles();
+        setConfirmModal(null);
+      }
+    });
+  }, [addToast, refreshLogFiles, close]);
+
   const filtered = useMemo(() => {
-    let list = logFiles.filter(f => {
+    const list = logFiles.filter(f => {
       const q = search.trim().toLowerCase();
       const matchSearch = !q || f.filename.toLowerCase().includes(q);
       const matchSize =
@@ -383,6 +406,78 @@ export function LogFilesView() {
     return list;
   }, [logFiles, search, sizeFilter, sortField, sortDir]);
 
+  useEffect(() => {
+    filteredRef.current = filtered;
+    viewFileRef.current = viewFile;
+  }, [filtered, viewFile]);
+
+  // Keyboard navigation for Up/Down arrow keys & Delete key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.getAttribute('contenteditable') === 'true'
+      )) {
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        const currentFile = viewFileRef.current;
+        if (currentFile) {
+          deleteOne(currentFile);
+        }
+        return;
+      }
+
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+
+      e.preventDefault(); // Prevent default browser scrolling
+
+      const fileList = filteredRef.current;
+      const currentFile = viewFileRef.current;
+      if (!fileList.length) return;
+
+      const currentIndex = currentFile ? fileList.findIndex(f => f.filename === currentFile) : -1;
+
+      let nextIndex = currentIndex;
+      if (e.key === 'ArrowDown') {
+        if (currentIndex === -1) {
+          nextIndex = 0;
+        } else {
+          nextIndex = Math.min(fileList.length - 1, currentIndex + 1);
+        }
+      } else if (e.key === 'ArrowUp') {
+        if (currentIndex === -1) {
+          nextIndex = fileList.length - 1;
+        } else {
+          nextIndex = Math.max(0, currentIndex - 1);
+        }
+      }
+
+      if (nextIndex !== currentIndex && nextIndex >= 0 && nextIndex < fileList.length) {
+        openFile(fileList[nextIndex].filename);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openFile, deleteOne]);
+
+  // Automatically scroll the selected file item in the sidebar list into view if off-screen
+  useEffect(() => {
+    if (viewFile) {
+      const activeItem = document.querySelector(`[data-filename="${viewFile}"]`);
+      if (activeItem) {
+        activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [viewFile]);
+
   const totalSize = useMemo(() => logFiles.reduce((s, f) => s + f.size, 0), [logFiles]);
   const filteredSize = useMemo(() => filtered.reduce((s, f) => s + f.size, 0), [filtered]);
 
@@ -397,22 +492,6 @@ export function LogFilesView() {
       if (allSelected) filtered.forEach(f => next.delete(f.filename));
       else filtered.forEach(f => next.add(f.filename));
       return next;
-    });
-  };
-
-  const deleteOne = (filename: string) => {
-    setConfirmModal({
-      title: 'Xóa Log File',
-      message: `Bạn có chắc muốn xóa log file "${filename}"? Hành động này không thể hoàn tác.`,
-      onConfirm: async () => {
-        const r = await fetch(`/api/logfiles/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-        if (!r.ok) { const err = await r.json().catch(() => ({})); addToast(`Xóa thất bại: ${err.error || `HTTP ${r.status}`}`, 'error'); return; }
-        addToast('Đã xóa log file', 'success');
-        setSelected(prev => { const next = new Set(prev); next.delete(filename); return next; });
-        if (viewFile === filename) close();
-        await refreshLogFiles();
-        setConfirmModal(null);
-      }
     });
   };
 
@@ -440,7 +519,7 @@ export function LogFilesView() {
     else { setSortField(field); setSortDir('desc'); }
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
+  const renderSortIcon = (field: SortField) => {
     if (sortField !== field) return <ArrowUpDown size={10} className="text-slate-600" />;
     return sortDir === 'asc'
       ? <ChevronDown size={10} className="text-indigo-400" />
@@ -518,13 +597,13 @@ export function LogFilesView() {
               <span className="w-4" /> {/* checkbox space */}
               <span className="w-8" /> {/* icon space */}
               <button className="flex items-center gap-1 hover:text-slate-300 transition-colors flex-1" onClick={() => handleSort('name')}>
-                Tên file <SortIcon field="name" />
+                Tên file {renderSortIcon('name')}
               </button>
               <button className="flex items-center gap-1 hover:text-slate-300 transition-colors shrink-0 w-[80px]" onClick={() => handleSort('size')}>
-                Kích thước <SortIcon field="size" />
+                Kích thước {renderSortIcon('size')}
               </button>
               <button className="flex items-center gap-1 hover:text-slate-300 transition-colors shrink-0 w-[160px]" onClick={() => handleSort('mtime')}>
-                Thời gian <SortIcon field="mtime" />
+                Thời gian {renderSortIcon('mtime')}
               </button>
               <span className="w-[60px]" /> {/* actions space */}
             </div>
@@ -544,6 +623,7 @@ export function LogFilesView() {
                     key={f.filename}
                     file={f}
                     selected={selected.has(f.filename)}
+                    isOpened={viewFile === f.filename}
                     onToggleSelect={() => toggleSelect(f.filename)}
                     onOpen={() => openFile(f.filename)}
                     onDelete={() => deleteOne(f.filename)}
