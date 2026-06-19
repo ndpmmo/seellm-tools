@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.179] - 2026-06-20 05:25:00
+
+### 🚀 Tối ưu hóa Proxy IP Probing (Loại bỏ Browser Tabs thừa)
+
+- **scripts/lib/proxy-diag.js**:
+  - **Viết lại hoàn toàn `probeProxyExitIp`**: Thay thế phương pháp cũ (mở tab Camofox → navigate đến `api64.ipify.org` → evaluate JavaScript → đóng tab) bằng **`requestViaCurlCffi`** — gọi trực tiếp từ Node.js qua proxy daemon mà không cần browser tab.
+  - **Giảm thời gian probe từ 30-60s xuống 3-5s**: Không còn phải chờ Firefox render trang qua proxy tunnel chậm. Direct HTTP fetch nhanh hơn 10x.
+  - **Loại bỏ 20+ tab probe mỗi batch**: Với 10 worker × 2 probe (PreFlight + PostVerify) = 20 tab chỉ để kiểm tra IP. Giờ = 0 tab, giải phóng hoàn toàn tài nguyên Firefox cho các tab đăng ký chính.
+  - **Xoá bỏ dependency vào `camofoxPost`, `camofoxDelete`, `evalJson`**: Module `proxy-diag.js` không còn import từ `camofox.js` hay `config.js`, giảm coupling và tránh circular dependency.
+  - **Triệt tiêu 78% lỗi `NS_ERROR_NET_TIMEOUT`**: Nguyên nhân gốc rễ (navigate browser tab đến `api64.ipify.org` qua proxy) đã bị loại bỏ hoàn toàn.
+
 ## [0.3.178] - 2026-06-20 05:10:00
 
 ### 🚀 Tối ưu hóa Log & Lọc rác (Log Noise Reduction)

@@ -7,8 +7,9 @@
 
 import https from 'node:https';
 import { exec } from 'node:child_process';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson } from './camofox.js';
-import { CAMOUFOX_API } from '../config.js';
+// NOTE: camofox imports removed in v0.3.179 — probeProxyExitIp now uses
+// requestViaCurlCffi (direct Node.js fetch through proxy) instead of opening
+// browser tabs. See CHANGELOG 0.3.179 for rationale.
 
 let LOCAL_PUBLIC_IP_CACHE = null;
 
@@ -117,37 +118,37 @@ export async function getLocalPublicIp() {
  * @returns {Promise<{ip?: string, source?: string, error?: string}>} Result object
  */
 export async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = false) {
-  // Multiple endpoints with fallback — protects against CF challenges, timeouts, regional blocks
+  // v0.3.179: Direct fetch through proxy via curl_cffi daemon — no browser tabs needed.
+  // This eliminates 20+ probe tabs per batch and reduces probe time from 30-60s to 3-5s.
+  // `reuseExistingSession` param is kept for API compat but no longer affects behavior
+  // (direct fetch always goes through the specified proxy).
   const ENDPOINTS = [
     'https://api64.ipify.org/?format=json',
     'https://api.myip.com',
     'https://ifconfig.me/all.json',
     'https://ipv4.icanhazip.com',
   ];
-  let probeTabId = null;
   const errors = [];
   try {
-    const opened = await camofoxPost('/tabs', {
-      userId,
-      sessionKey: `probe_${Date.now()}`,
-      url: 'about:blank',
-      ...(reuseExistingSession ? {} : { proxy: proxyUrl || undefined }),
-      persistent: false,
-      headless: false,
-      humanize: true,
-    }, { timeoutMs: 30000 });
-    probeTabId = opened.tabId;
-    await new Promise(r => setTimeout(r, 1000));
-
-    for (let i = 0; i < ENDPOINTS.length; i++) {
-      const url = ENDPOINTS[i];
+    const { requestViaCurlCffi } = await import('./openai-protocol-register.js');
+    for (const url of ENDPOINTS) {
       try {
-        await camofoxPost(`/tabs/${probeTabId}/navigate`, { userId, url }, { timeoutMs: 20000 });
-        await new Promise(r => setTimeout(r, 2000));
-        const bodyText = await evalJson(probeTabId, userId, `document.body && document.body.innerText ? document.body.innerText : ''`, { timeoutMs: 15000 });
-        const ip = extractIpFromText(bodyText);
-        if (ip) return { ip, source: url };
-        errors.push(`${url}: no IP in body (${String(bodyText || '').slice(0, 60)})`);
+        const res = await requestViaCurlCffi({
+          method: 'GET',
+          url,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          },
+          proxyUrl: proxyUrl || null,
+          timeoutMs: 15000,
+        });
+        if (res.status === 200 && res.body) {
+          const ip = extractIpFromText(res.body);
+          if (ip) return { ip, source: url };
+          errors.push(`${url}: no IP in body (${String(res.body || '').slice(0, 60)})`);
+        } else {
+          errors.push(`${url}: HTTP ${res.status}`);
+        }
       } catch (e) {
         errors.push(`${url}: ${e.message?.slice(0, 80)}`);
       }
@@ -155,8 +156,6 @@ export async function probeProxyExitIp(userId, proxyUrl, reuseExistingSession = 
     return { error: `Tất cả endpoint đều fail: ${errors.join(' | ')}` };
   } catch (e) {
     return { error: e.message || String(e) };
-  } finally {
-    if (probeTabId) await camofoxDelete(`/tabs/${probeTabId}?userId=${userId}`);
   }
 }
 

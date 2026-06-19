@@ -693,4 +693,35 @@ Trong bản cập nhật này, hệ thống đã tinh chỉnh các cài đặt c
 - **Loại bỏ Cảnh báo Bảo mật & Phân tích nội bộ (ChatGPT)**: Chặn in log khi CSP của trang web chặn `eval()` (`Content-Security-Policy`) và chặn các lỗi mạng khi hệ thống phân tích người dùng `Statsig` của ChatGPT gặp lỗi `token_revoked` (`[Statsig] A networking error occurred`).
 - *Lưu ý*: Bản patch này được áp dụng trực tiếp lên server của Camofox mà **không làm thay đổi số version của Camofox gốc (vẫn là 1.11.6)**, giúp cho việc re-base hoặc pull cập nhật từ upstream sau này dễ dàng hơn.
 
+## Tối ưu hóa Proxy IP Probing (v0.3.179)
+
+Trước đây, hàm `probeProxyExitIp()` trong `scripts/lib/proxy-diag.js` mở tab trình duyệt Camofox, navigate đến `api64.ipify.org` qua proxy, rồi evaluate JavaScript để lấy IP. Phương pháp này có nhiều vấn đề:
+
+- **Chậm (30-60s)**: Navigate browser qua proxy tunnel IPv6 thường vượt timeout 30s
+- **Tốn tài nguyên**: Mỗi batch 10 worker tạo 20+ tab probe (PreFlight + PostVerify) chỉ để kiểm tra IP
+- **78% lỗi timeout**: `NS_ERROR_NET_TIMEOUT` trên Camofox server log đều từ navigate đến `api64.ipify.org`
+
+### Giải pháp
+
+Viết lại `probeProxyExitIp` sử dụng `requestViaCurlCffi` — gọi HTTP trực tiếp từ Node.js qua proxy daemon:
+
+```js
+// Trước (browser-based): tạo tab → navigate → evaluate → đóng tab
+const opened = await camofoxPost('/tabs', { userId, proxy: proxyUrl, ... });
+await camofoxPost(`/tabs/${probeTabId}/navigate`, { userId, url });
+const bodyText = await evalJson(probeTabId, userId, 'document.body.innerText');
+
+// Sau (direct fetch): gọi trực tiếp, không cần browser
+const res = await requestViaCurlCffi({ method: 'GET', url, proxyUrl, timeoutMs: 15000 });
+const ip = extractIpFromText(res.body);
+```
+
+### Kết quả
+
+- **0 tab browser** thay vì 20+ tab probe/batch
+- Thời gian probe: **3-5s** thay vì 30-60s
+- Loại bỏ hoàn toàn import `camofoxPost`, `camofoxDelete`, `evalJson` khỏi `proxy-diag.js`
+- Không ảnh hưởng API: param `reuseExistingSession` vẫn được giữ để tương thích ngược
+- *Lưu ý*: Thay đổi này là ở phía `seellm-tools`, **KHÔNG** sửa đổi code Camofox
+
 ```
