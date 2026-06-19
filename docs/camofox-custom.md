@@ -685,4 +685,12 @@ Trong bản cập nhật này, hệ thống đã tinh chỉnh các cài đặt c
 - Sử dụng biến môi trường mẫu trong `.env.high-concurrency` trên Camofox để tối ưu hóa Firefox content processes (`FIREFOX_PROCESS_COUNT=4`) và cấp phát RAM V8.
 - Triển khai **Staggered Start (Jitter)**: Khởi động các worker đăng ký giãn cách từ 2.5s - 4s để giảm tải CPU spike khi render trang đồng thời.
 
+## Tối ưu hóa Log & Lọc rác (Log Noise Reduction) (v0.3.178)
+
+Để màn hình Console hoặc Log của Camofox không bị ngập tràn bởi các cảnh báo vô hại từ ChatGPT, một bộ lọc đã được vá (patch) trực tiếp vào `server.js` của Camofox:
+- **Loại bỏ Lỗi tải Font chữ / CORS**: Lọc các lỗi `Cross-Origin Request Blocked` và `downloadable font: download failed` liên quan đến `cdn.openai.com/common/fonts`.
+- **Loại bỏ Cảnh báo Trình theo dõi (Trackers)**: Bỏ qua cảnh báo từ ETP của Firefox về `bounce tracker` và `preloaded with link preload was not used`.
+- **Loại bỏ Cảnh báo Bảo mật & Phân tích nội bộ (ChatGPT)**: Chặn in log khi CSP của trang web chặn `eval()` (`Content-Security-Policy`) và chặn các lỗi mạng khi hệ thống phân tích người dùng `Statsig` của ChatGPT gặp lỗi `token_revoked` (`[Statsig] A networking error occurred`).
+- *Lưu ý*: Bản patch này được áp dụng trực tiếp lên server của Camofox mà **không làm thay đổi số version của Camofox gốc (vẫn là 1.11.6)**, giúp cho việc re-base hoặc pull cập nhật từ upstream sau này dễ dàng hơn.
+
 ```

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.178] - 2026-06-20 05:10:00
+
+### 🚀 Tối ưu hóa Log & Lọc rác (Log Noise Reduction)
+
+- **camofox-browser/server.js (Custom Patch)**:
+  - **Lọc cảnh báo vô hại từ trình duyệt**: Các lỗi, cảnh báo do bên thứ 3 hoặc do chính sách của trang đích (ChatGPT) sinh ra không còn làm rác hệ thống log của Camofox. Đã bổ sung bộ lọc tự động bỏ qua các lỗi liên quan đến tải font chữ (CORS), bộ theo dõi (bounce tracker), và cảnh báo thẻ tải trước (preload warning) không liên quan đến luồng hoạt động chính của AI Agent.
+  - **Bỏ qua lỗi bảo mật nội bộ của ChatGPT**: Bỏ qua cảnh báo `Content-Security-Policy (CSP)` khi ChatGPT chặn các hàm `eval` nội bộ của chính họ, cũng như lỗi xác thực hệ thống `Statsig` do token nội bộ của trình duyệt bị thu hồi, giúp giữ sạch sẽ cửa sổ Terminal khi chạy song song lượng lớn tài khoản.
+
 ## [0.3.177] - 2026-06-20 05:05:00
 
 ### 🚀 Tối ưu hóa hiệu năng Đa luồng (High Concurrency) & Khắc phục lỗi kẹt Turnstile / Timeout Client
