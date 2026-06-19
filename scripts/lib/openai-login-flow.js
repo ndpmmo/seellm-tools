@@ -508,8 +508,8 @@ export async function fillPassword(tabId, userId, password) {
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
-      console.log(`[fillPassword] Keyboard type succeeded. Waiting 800ms for validation...`);
-      await new Promise(r => setTimeout(r, 800));
+      console.log(`[fillPassword] Keyboard type succeeded. Waiting 2500ms for validation/Turnstile...`);
+      await new Promise(r => setTimeout(r, 2500));
 
       // Debug: Take a screenshot to verify password value is typed
       try {

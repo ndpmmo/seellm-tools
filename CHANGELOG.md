@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.177] - 2026-06-20 05:05:00
+
+### 🚀 Tối ưu hóa hiệu năng Đa luồng (High Concurrency) & Khắc phục lỗi kẹt Turnstile / Timeout Client
+
+- **scripts/lib/openai-login-flow.js**:
+  - **Tăng thời gian chờ sau khi điền Password**: Tăng độ trễ từ **800ms lên 2500ms** để đảm bảo quá trình xác thực Turnstile của Cloudflare và trạng thái chuyển đổi của nút Submit hoàn tất hoàn toàn trước khi thực hiện click. Khắc phục triệt để lỗi click nút submit quá nhanh gây ra cảnh báo `Native click failed: primary-strategy-failed-to-transition` và bị OpenAI gắn nhãn bot chặn đăng ký (`BLOCKED_BY_OPENAI`).
+- **scripts/lib/camofox.js**:
+  - **Nới lỏng Timeout mặc định trong API Client**: Tăng các giá trị timeout mặc định của các phương thức gọi API sang Camofox server: `camofoxGet` (lên **20s**), `camofoxDelete` (lên **12s**), và `camofoxEval` (lên **12s**). Việc này giúp giảm thiểu hiện tượng Client tự ngắt kết nối sớm (Premature abort) gây lỗi kẹt tab hoặc `Tab not found 404` dưới tải trọng lớn khi chạy song song 10+ luồng.
+
 ## [0.3.176] - 2026-06-20 04:35:00
 
 ### 🚀 Tối ưu hóa Timeout nhập mật khẩu Đăng ký & Sửa lỗi bật 2FA trên giao diện ChatGPT mới

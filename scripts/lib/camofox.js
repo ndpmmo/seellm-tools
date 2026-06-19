@@ -211,7 +211,7 @@ export async function camofoxPost(endpoint, body, { timeoutMs = 45000 } = {}) {
  * @param {object} options - { timeoutMs = 10000 }
  * @returns {Promise<object>} JSON response
  */
-export async function camofoxGet(endpoint, { timeoutMs = 15000 } = {}) {
+export async function camofoxGet(endpoint, { timeoutMs = 20000 } = {}) {
   const res = await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, { timeoutMs }, 3);
   if (!res.ok) throw new Error(`Camofox GET ${endpoint} → ${res.status}`);
   return res.json();
@@ -223,7 +223,7 @@ export async function camofoxGet(endpoint, { timeoutMs = 15000 } = {}) {
  * @param {object} options - { timeoutMs = 8000 }
  * @returns {Promise<void>}
  */
-export async function camofoxDelete(endpoint, { timeoutMs = 8000 } = {}) {
+export async function camofoxDelete(endpoint, { timeoutMs = 12000 } = {}) {
   await fetchWithRetry(`${CAMOUFOX_API}${endpoint}`, { method: 'DELETE', timeoutMs }, 3).catch(() => { });
 }
 
@@ -245,7 +245,7 @@ export async function camofoxGoto(tabId, userId, url, options = {}) {
  * @param {object} options - { timeoutMs = 8000 }
  * @returns {Promise<any>} Result of expression execution
  */
-export async function camofoxEval(tabId, userId, expression, { timeoutMs = 8000 } = {}) {
+export async function camofoxEval(tabId, userId, expression, { timeoutMs = 12000 } = {}) {
   return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
 }
 
