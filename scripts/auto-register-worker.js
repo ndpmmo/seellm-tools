@@ -1530,7 +1530,7 @@ export async function runAutoRegister(taskInput) {
     // Điền password (cả 2 flow đều cần) — retry với tối đa 3 candidates
     console.log(`[3] Đang chờ password input xuất hiện...`);
     const pwdSelector = 'input[type="password"], input[name="password"], input[name="new-password"]';
-    let hasPwdInput = await waitForSelector(tabId, USER_ID, pwdSelector, { timeoutMs: 12000 }).catch(() => false);
+    let hasPwdInput = await waitForSelector(tabId, USER_ID, pwdSelector, { timeoutMs: 30000 }).catch(() => false);
     if (!hasPwdInput) {
       // Fallback check via evalJson in case Playwright selector matching had issues
       hasPwdInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]')`);

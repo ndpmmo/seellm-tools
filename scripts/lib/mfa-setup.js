@@ -444,7 +444,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 log('Settings modal chưa mở. Thử kích hoạt bằng click Profile/Settings menu...');
                 await run(`
                     (async () => {
-                        const profileBtn = document.querySelector('[data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])');
+                        const profileBtn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])');
                         if (profileBtn) {
                             profileBtn.click();
                             await new Promise(r => setTimeout(r, 1000));
@@ -1020,7 +1020,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             if (i === 3) {
                 await run(`
                     (() => {
-                        const profileBtn = document.querySelector('[data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"])');
+                        const profileBtn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"])');
                         if (profileBtn) profileBtn.click();
                     })()
                 `).catch(() => {});

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.176] - 2026-06-20 04:35:00
+
+### 🚀 Tối ưu hóa Timeout nhập mật khẩu Đăng ký & Sửa lỗi bật 2FA trên giao diện ChatGPT mới
+
+- **scripts/auto-register-worker.js**:
+  - **Tăng thời gian chờ Password Input**: Tăng timeout đợi ô nhập password từ **12s lên 30s** (`timeoutMs: 30000`) nhằm đảm bảo kịch bản không bị đứt gãy giữa chừng khi chạy đăng ký qua các proxy có tốc độ kết nối/phản hồi chậm.
+- **scripts/lib/mfa-setup.js**:
+  - **Cập nhật bộ chọn nút Profile**: Bổ sung selector `[data-testid="accounts-profile-button"]` (thanh điều hướng mới của ChatGPT) vào các vị trí click menu người dùng để mở Settings modal. Khắc phục hoàn toàn lỗi không thể bật 2FA (MFA) sau khi đăng ký tài khoản thành công do không click được nút Profile cũ.
+
 ## [0.3.175] - 2026-06-20 00:30:00
 
 ### 🚀 Bổ sung bộ lọc chọn tài khoản Warmup Failed, Bàn phím điều hướng Terminal & Đa dạng hóa câu hỏi Warmup
