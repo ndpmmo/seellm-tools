@@ -599,6 +599,10 @@ export async function fillPassword(tabId, userId, password) {
             }
 
             if (stillOnPwdPage2) {
+              if (submitResult && submitResult.ok) {
+                console.log('[fillPassword] form.requestSubmit() completed but page did not transition. This strongly indicates a Turnstile / IP Reputation block.');
+                return { ok: false, reason: 'BLOCKED_BY_OPENAI_TURNSTILE', isBlock: true };
+              }
               console.log('[fillPassword] Still on password page after requestSubmit — throwing to trigger DOM fallback');
               throw new Error('primary-strategy-failed-to-transition');
             }

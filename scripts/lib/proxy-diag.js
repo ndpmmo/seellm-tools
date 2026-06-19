@@ -304,6 +304,37 @@ export async function checkIpLocation(proxyUrl = null) {
 }
 
 /**
+ * Pre-flight check to see if the proxy can reach chatgpt.com quickly.
+ * Fails fast if the proxy is too slow, avoiding 30-90s timeouts in Firefox.
+ * @param {string|null} proxyUrl - Optional proxy URL
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+export async function checkChatGPTReachability(proxyUrl = null) {
+  try {
+    const { requestViaCurlCffi } = await import('./openai-protocol-register.js');
+    const res = await requestViaCurlCffi({
+      method: 'GET',
+      url: 'https://chatgpt.com/auth/login',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      proxyUrl,
+      timeoutMs: 15000,
+    });
+    
+    // As long as we get a response (even 403), the proxy can reach the host
+    if (res.status >= 200 && res.status < 500) {
+      return { ok: true };
+    }
+    return { ok: false, error: `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/**
  * STRICT PRE-FLIGHT: validate syntax → spawn dedicated probe session with EXPLICIT proxy → verify exit IP
  * Throws on any failure. Only call BEFORE main tab creation.
  * @param {string} proxyUrl - Proxy URL (already normalized)

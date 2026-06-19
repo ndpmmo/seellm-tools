@@ -23,7 +23,7 @@ import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopup, clickContinueWithPassword, tryDismissPasskeyEnrollment } from './lib/openai-login-flow.js';
-import { checkIpLocation } from './lib/proxy-diag.js';
+import { checkIpLocation, checkChatGPTReachability } from './lib/proxy-diag.js';
 import { runProtocolRegistration, requestViaCurlCffi } from './lib/openai-protocol-register.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -832,6 +832,19 @@ export async function runAutoRegister(taskInput) {
     }
     console.log(`✅ [IP Check] Location: ${ipCheck.loc}`);
 
+    // Pre-flight check: Can the proxy reach chatgpt.com quickly?
+    if (proxyUrl) {
+      console.log(`🌍 [Reachability] Kiểm tra kết nối tới chatgpt.com qua proxy...`);
+      const reach = await checkChatGPTReachability(proxyUrl);
+      if (!reach.ok) {
+        const errMsg = `[Reachability Failed] Proxy quá chậm hoặc không thể kết nối tới chatgpt.com: ${reach.error}`;
+        console.log(`🛑 ${errMsg}`);
+        await updatePoolStatus(email, { chatgpt_status: 'failed', notes: errMsg });
+        process.exit(1);
+      }
+      console.log(`✅ [Reachability] Proxy có thể truy cập chatgpt.com.`);
+    }
+
     // Protocol-mode registration attempt (primary when PROTOCOL_FIRST is not false)
     let protocolResult = null;
     let isExistingAccount = false;
@@ -1582,6 +1595,9 @@ export async function runAutoRegister(taskInput) {
         console.log(`[Password-submit] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
         if (!pwdClickInfo || !pwdClickInfo.ok) {
           console.log(`[Password] Attempt ${attempt + 1} UI error: ${pwdClickInfo?.reason || 'Unknown error'}`);
+          if (pwdClickInfo?.isBlock) {
+            throw new Error(`BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Password (Turnstile/Proxy reputation block).`);
+          }
           if (attempt < pwdCandidates.length - 1) {
             await new Promise(r => setTimeout(r, 2000));
             continue;

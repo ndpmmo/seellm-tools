@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.180] - 2026-06-20 05:35:00
+
+### 🚀 Tối ưu hóa Hiệu suất Fail-Fast & Preflight Check (Giảm Timeouts)
+
+- **scripts/lib/proxy-diag.js & scripts/auto-register-worker.js**:
+  - **Thêm `checkChatGPTReachability`**: Trước khi mở tab Firefox (vốn tốn kém tài nguyên và thời gian), hệ thống sẽ mô phỏng ping trực tiếp đến `chatgpt.com/auth/login` qua proxy bằng `curl_cffi` (timeout 15s).
+  - **Triệt tiêu chờ đợi NS_ERROR_NET_TIMEOUT (Tiết kiệm ~80s)**: Loại bỏ các proxy vượt qua bài kiểm tra IP nhưng thực chất lại quá chậm để tải trang lớn như ChatGPT, tránh việc kẹt trong trình duyệt hàng chục giây.
+- **scripts/lib/openai-login-flow.js**:
+  - **Fail-Fast tại màn hình Password**: Nếu thực hiện thao tác click "Continue" thành công nhưng trang không chuyển hướng (bị Turnstile chặn), ném ngay lỗi `BLOCKED_BY_OPENAI_TURNSTILE` để huỷ luồng hiện tại.
+  - **Bỏ qua DOM Fallback vô ích (Tiết kiệm ~20s)**: Tránh việc script cố gắng dùng DOM click và chờ đợi vô vọng khi IP đã bị đánh dấu đen (Proxy Reputation block).
+
 ## [0.3.179] - 2026-06-20 05:25:00
 
 ### 🚀 Tối ưu hóa Proxy IP Probing (Loại bỏ Browser Tabs thừa)
