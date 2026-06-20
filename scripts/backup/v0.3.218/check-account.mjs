@@ -1,0 +1,13 @@
+import Database from 'better-sqlite3';
+const db = new Database('./data/vault.db', { readonly: true });
+const a = db.prepare("SELECT * FROM vault_accounts WHERE email = 'almirachadava9731@outlook.com'").get();
+console.log('status:', a.status);
+console.log('ever_ready:', a.ever_ready);
+console.log('connect_pending:', a.connect_pending);
+console.log('gateway_status:', a.gateway_status);
+console.log('updated_at:', a.updated_at);
+console.log('has_access_token:', !!(a.access_token && a.access_token.length > 10));
+console.log('has_refresh_token:', !!(a.refresh_token && a.refresh_token.length > 10));
+console.log('workspace_id:', a.workspace_id);
+console.log('notes:', (a.notes || '').slice(0, 100));
+db.close();
