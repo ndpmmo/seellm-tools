@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.210] - 2026-06-21 01:38:00
+
+### 🐛 Ngăn chặn Auto-Register gán cứng proxy của quá trình đăng ký (Bug Fix)
+
+- **`scripts/auto-register-worker.js`**:
+  - Khi lưu tài khoản mới được tạo vào Vault, trường `proxy_url` giờ đây được để trống (`null`) thay vì lưu cứng proxy đã được dùng để bypass hệ thống trong lúc đăng ký.
+  - Sửa đổi tên trường backup proxy trong `providerSpecificData` thành `registerProxyUrl` để hệ thống `SyncManager` không nhận nhầm.
+  - **Kết quả**: Tài khoản mới tạo ra sẽ hoàn toàn trống proxy. Nhờ vậy, cơ chế "Smart Proxy Slot" ở `?view=proxies` (tự động cân bằng tải và gán proxy tối ưu theo giới hạn concurrency) có thể nhận diện và tự động cấp proxy chính thức cho tài khoản này trước khi chạy Warmup hay 2FA Regen.
+
 ## [0.3.209] - 2026-06-21 01:25:00
 
 ### 🐛 Ngăn chặn đồng bộ nhầm tài khoản Auto-Register (Bug Fix)

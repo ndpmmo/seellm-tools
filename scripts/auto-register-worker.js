@@ -2943,7 +2943,7 @@ export async function runAutoRegister(taskInput) {
         skipSync: true,
         restore_deleted: true,
         cookies: tokens,
-        proxy_url: proxyUrl || null,
+        proxy_url: null, // Let smart proxy slot logic assign this later
         tags: JSON.stringify([
           'auto-register',
           'vault-register',
@@ -2960,7 +2960,7 @@ export async function runAutoRegister(taskInput) {
         providerSpecificData: {
           sessionData,
           chatgptUserId: sessionData?.user?.id || null,
-          proxyUrl: proxyUrl || null,
+          registerProxyUrl: proxyUrl || null,
         }
       }),
     });
