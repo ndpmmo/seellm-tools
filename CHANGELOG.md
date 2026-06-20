@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.211] - 2026-06-21 01:40:00
+
+### ✨ Tự động gọi Auto-Assign sau khi Bulk Register hoàn tất (Enhancement)
+
+- **`server/routes/vault.js`**:
+  - Bổ sung logic: Ngay khi tiến trình Bulk Registration kết thúc (trạng thái `completed`), hệ thống sẽ tự động gửi request đến `/api/proxy-assign/auto`.
+  - Giúp các tài khoản vừa được tạo (với `proxy_url: null` nhờ bản vá 0.3.210) lập tức được phân bổ proxy tối ưu theo giới hạn concurrency.
+  - Người dùng không còn cần phải click "Auto Assign" thủ công trước khi bấm Warmup hoặc 2FA Regen.
+
 ## [0.3.210] - 2026-06-21 01:38:00
 
 ### 🐛 Ngăn chặn Auto-Register gán cứng proxy của quá trình đăng ký (Bug Fix)

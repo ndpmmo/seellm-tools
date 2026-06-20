@@ -2809,6 +2809,24 @@ class BulkRegisterRunner {
         clearInterval(this.timer);
         this.timer = null;
       }
+      
+      // Tự động trigger phân bổ Proxy thông minh (Smart Proxy Slot) cho các account vừa được tạo ra
+      if (this.completed.length > 0) {
+        this.log(`🔄 Tự động phân bổ Proxy cho các account mới...`);
+        const port = process.env.PORT || 4000;
+        fetch(`http://localhost:${port}/api/proxy-assign/auto`, { method: 'POST' })
+          .then(res => res.json())
+          .then(data => {
+            if (data.ok) {
+              this.log(`✅ Phân bổ Proxy thành công: Đã gán ${data.assigned}/${data.total} account.`);
+            } else {
+              this.log(`⚠️ Lỗi phân bổ Proxy: ${data.error}`);
+            }
+          })
+          .catch(err => {
+            this.log(`⚠️ Không thể kết nối tới /api/proxy-assign/auto: ${err.message}`);
+          });
+      }
     }
   }
 
