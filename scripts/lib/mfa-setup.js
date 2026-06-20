@@ -469,11 +469,25 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     log(`⚠️ Chuyển sang /settings/security qua JS thất bại: ${err.message}`);
                 }
             }
+            // Reload page nếu vẫn không mở được sau lần thứ 8
+            if (i === 8) {
+                log('⚠️ Reload page để reset trạng thái DOM...');
+                try {
+                    await run(`window.location.reload()`);
+                    await wait(4000);
+                    await run(`window.location.hash = '#settings/Security'`);
+                    await wait(2000);
+                } catch (reloadErr) {
+                    log(`⚠️ Reload thất bại: ${reloadErr.message}`);
+                }
+            }
             await wait(1000);
         }
 
         if (!isOpened) {
-            log('⚠️ Cảnh báo: Không thể xác nhận Settings modal đã mở, vẫn tiếp tục...');
+            log('❌ KHÔNG THỂ MỞ SETTINGS MODAL SAU 10 LẦN THỬ. Abort MFA setup.');
+            await saveCheckpoint('settings_modal_not_opened');
+            return { success: false, secret: null, totp: null, error: 'Settings modal could not be opened after 10 attempts' };
         }
 
         // Đảm bảo Security tab active (tìm cả data-testid và text chứa Security/Bảo mật)
@@ -719,35 +733,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                            text.includes('setup key') ||
                            text.includes('manual entry') ||
                            text.includes('enter this key') ||
-                           text.includes('enter the code') ||
-                           text.includes('nhập mã từ ứng dụng') ||
-                           text.includes('ứng dụng xác thực');
-                    if (hasSetupText) return true;
-
-                    // DOM-based detection: look for a new dialog with a QR image or canvas
-                    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-                    for (const d of dialogs) {
-                        const dText = (d.innerText || '').toLowerCase();
-                        // Skip the Settings dialog itself (it has "settings" or "security" but not QR-related content)
-                        if (dText.includes('settings') || dText.includes('cài đặt')) continue;
-                        // Any dialog with a canvas (QR rendered via canvas) or img with qr-related alt
-                        const hasQrCanvas = !!d.querySelector('canvas');
-                        const hasQrImg = !!d.querySelector('img[src*="qr"], img[alt*="qr" i], img[alt*="code" i]');
-                        if (hasQrCanvas || hasQrImg) return true;
-                        // Any non-Settings dialog that appeared after we clicked the toggle
-                        if (d.querySelectorAll('img, canvas').length > 0) return true;
-                    }
-                    return false;
-                })()
-            `);
-            if (mfaSetupScreenAppeared) break;
-            await wait(1000);
-        }
-
         if (!mfaSetupScreenAppeared) {
             log('❌ Hộp thoại thiết lập MFA không hiển thị sau khi click toggle.');
             await saveCheckpoint('mfa_setup_dialog_failed');
-            return { success: false, secret: null, totp: null, error: 'MFA setup dialog did not appear after toggle click.' };
+            // Bug fix (1): Throw error if modal doesn't appear
+            throw new Error('MFA setup dialog did not appear after toggle click.');
         }
         await saveCheckpoint('mfa_setup_dialog_opened');
 
@@ -755,14 +745,19 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Click "Trouble scanning?"...');
         const trouble = await run(`
             (() => {
-                const el = Array.from(document.querySelectorAll('a, button, span, p'))
+                const KEYWORDS = ['trouble scanning', "can't scan", 'cannot scan', 'không thể quét', 'nhập khóa', 'nhập mã', 'enter setup key', 'enter key', 'use setup key', 'manual', 'enter code manually'];
+                // Broad selector first
+                const el = Array.from(document.querySelectorAll('a, button, span, p, div[role="button"], [tabindex], label'))
                     .find(e => {
-                        const t = e.textContent.toLowerCase();
-                        return t.includes('trouble scanning') || 
-                               t.includes('can\\'t scan') || 
-                               t.includes('không thể quét') || 
-                               t.includes('nhập khóa') ||
-                               t.includes('nhập mã');
+                        const t = (e.textContent || '').toLowerCase();
+                        return KEYWORDS.some(kw => t.includes(kw));
+                    }) ||
+                    // Fallback: any element with the keywords
+                    Array.from(document.querySelectorAll('*'))
+                    .find(e => {
+                        if (e.children.length > 3) return false; // skip containers
+                        const t = (e.textContent || '').toLowerCase();
+                        return KEYWORDS.some(kw => t.includes(kw));
                     });
                 if (el) { el.click(); return 'clicked'; }
                 return 'not_found';
@@ -781,7 +776,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 
                 const candidates = elements.map(el => {
                     const raw = el.textContent.trim();
-                    const cleaned = raw.replace(/\\s+/g, '');
+                    const cleaned = raw.replace(/[\\s\\-]/g, '');
                     
                     let score = 0;
                     let par = el;

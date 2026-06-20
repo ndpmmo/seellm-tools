@@ -2,6 +2,31 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.197] - 2026-06-20
+
+### 🛡️ Fix 2FA Missing: Root Cause Analysis + Batch Retry + mfa-setup.js Improvements
+
+**Phân tích gốc rễ**: Query `data/vault.db` xác nhận 17 accounts thiếu `two_fa_secret`, tất cả đều có tag `mfa-pending` — MFA setup thất bại trong quá trình đăng ký do 5 nguyên nhân gốc được xác định và sửa trong phiên bản này.
+
+#### Sửa lỗi `scripts/lib/mfa-setup.js` (4 root causes)
+
+- **Fix 1 — Settings modal không mở → abort rõ ràng**: Trước đây khi loop 10 lần vẫn không detect được Settings modal, code log cảnh báo nhưng **tiếp tục chạy** gây ra lỗi `Toggle/Button not found`. Nay: trả về `{ success: false, error: 'Settings modal could not be opened after 10 attempts' }` ngay lập tức.
+- **Fix 2 — Mở rộng selector "Trouble scanning?"**: Từ `a, button, span, p` → mở rộng thêm `div[role="button"]`, `[tabindex]`, `label`, và fallback toàn DOM (skip container > 3 children). Thêm 10 từ khóa: `enter setup key`, `use setup key`, `manual`, `enter code manually`, v.v.
+- **Fix 3 — Normalize dấu gạch ngang trong secret**: Regex clean từ `/\s+/g` → `/[\s\-]/g`, xử lý được format `ABCD-EFGH-IJKL-MNOP` mà một số UI ChatGPT hiển thị.
+- **Fix 4 — Reload page khi Settings không mở được**: Ở lần retry thứ 8/10 trong loop, thực hiện `window.location.reload()` + 4s wait + navigate lại `#settings/Security` để reset DOM state.
+
+#### Sửa lỗi `scripts/auto-register-worker.js` (2 improvements)
+
+- **Fix 5 — Retry MFA mạnh hơn**: Mở rộng điều kiện retry từ chỉ match `'not found'` → **tất cả failures**. Tăng wait time giữa các retry từ 1000ms → 3000ms. Ở lần retry cuối: thực hiện `full page reload` (navigate về `https://chatgpt.com` + chờ 5s) thay vì chỉ hash navigation.
+- **Fix 6 — Log domain drift rõ hơn**: DriftErr path now logs `"domain_drift: <message>"` trong error field để dễ phân biệt với MFA failures thông thường.
+
+#### Thêm mới `scripts/batch-fix-mfa.js`
+
+- Script batch để tự động retry 2FA setup cho tất cả accounts `mfa_pending` hoặc thiếu `two_fa_secret`.
+- Reuse `setupMFA` library + endpoint `POST /api/vault/accounts/:id/regenerate-2fa-result`.
+- Hỗ trợ `--dry-run`, `--concurrency`, `--account-id`, `--include-dead`.
+- Flow: login browser → dismiss modals → setupMFA (3 attempts) → lưu secret → cập nhật status.
+
 ## [0.3.196] - 2026-06-20 23:41:00
 
 ### 🔧 Sửa Lỗi Warmup Null Crash và Cải Tiến Hàm Sinh Mật Khẩu (Wrong Password Prevention)

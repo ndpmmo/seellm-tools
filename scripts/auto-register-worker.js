@@ -2675,13 +2675,22 @@ export async function runAutoRegister(taskInput) {
       await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
       mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
 
-      // Retry MFA setup if toggle not found (max CONFIG.mfaMaxRetries retries)
-      if (!mfaResult.success && mfaResult.error?.includes('not found')) {
-        console.log(`[7] ⚠️ Toggle not found, retry MFA setup...`);
+      // Retry MFA setup on any failure (max CONFIG.mfaMaxRetries retries)
+      if (!mfaResult.success) {
+        console.log(`[7] ⚠️ MFA setup thất bại (${mfaResult.error}), tiến hành retry...`);
         for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
-          console.log(`[7] MFA retry ${retry}: Navigate về Security page...`);
-          await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
-          await new Promise(r => setTimeout(r, 1000));
+          console.log(`[7] MFA retry ${retry}/${CONFIG.mfaMaxRetries}: Chuẩn bị lại trạng thái trang...`);
+          
+          // Reload page đầy đủ ở lần retry cuối để reset trạng thái DOM
+          if (retry === CONFIG.mfaMaxRetries) {
+            console.log(`[7] MFA retry ${retry}: Thực hiện full page reload để reset DOM...`);
+            await evalJson(tabId, USER_ID, `window.location.href = 'https://chatgpt.com'`).catch(() => {});
+            await new Promise(r => setTimeout(r, 5000));
+          } else {
+            // Các lần retry thường: navigate về Security tab
+            await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
+            await new Promise(r => setTimeout(r, 3000));
+          }
           
           const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
           if (retryResult.success) {
@@ -2695,8 +2704,8 @@ export async function runAutoRegister(taskInput) {
       }
     } catch (driftErr) {
       // Drift đã xảy ra → log rõ ràng và bỏ qua MFA, không hang
-      console.log(`[7] ⚠️ ${driftErr.message} → BỎ QUA setup 2FA, tiếp tục lưu account.`);
-      mfaResult = { success: false, secret: null, totp: null, error: driftErr.message };
+      console.log(`[7] ⚠️ Domain drift khi setup MFA: "${driftErr.message}" → BỎ QUA setup 2FA, account sẽ được lưu với status mfa_pending.`);
+      mfaResult = { success: false, secret: null, totp: null, error: `domain_drift: ${driftErr.message}` };
     }
     let twoFaSecret = null;
 
