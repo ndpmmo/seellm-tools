@@ -87,6 +87,7 @@ export function VaultWorkshopView() {
     // Validation & Check states
     const [validating, setValidating] = useState(false);
     const [checkingProxies, setCheckingProxies] = useState(false);
+    const [checkingEmails, setCheckingEmails] = useState(false);
     const [validationSummary, setValidationSummary] = useState<{
         totalEmails: number;
         validEmails: number;
@@ -232,6 +233,48 @@ export function VaultWorkshopView() {
             addToast(e.message || 'Lỗi kết nối', 'error');
         } finally {
             setCheckingProxies(false);
+        }
+    };
+
+    const handleCheckEmails = async () => {
+        setCheckingEmails(true);
+        try {
+            const lines = bulkEmailsText.split('\n').map(l => l.trim()).filter(Boolean);
+            if (lines.length === 0) {
+                addToast('Danh sách email trống', 'warning');
+                setCheckingEmails(false);
+                return;
+            }
+
+            const emails = lines.map(line => line.split('|')[0].trim());
+
+            const res = await fetch('/api/vault/email-pool/bulk-verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails })
+            });
+            const data = await res.json();
+            if (data.ok && Array.isArray(data.results)) {
+                const activeEmails = new Set(
+                    data.results
+                        .filter((r: any) => r.status === 'active')
+                        .map((r: any) => r.email.toLowerCase())
+                );
+
+                const aliveLines = lines.filter(line => {
+                    const email = line.split('|')[0].trim().toLowerCase();
+                    return activeEmails.has(email);
+                });
+
+                setBulkEmailsText(aliveLines.join('\n'));
+                addToast(`Đã kiểm tra xong: Giữ lại ${aliveLines.length}/${lines.length} email còn sống`, 'success');
+            } else {
+                addToast(data.error || 'Lỗi kiểm tra email', 'error');
+            }
+        } catch (e: any) {
+            addToast(e.message || 'Lỗi kết nối', 'error');
+        } finally {
+            setCheckingEmails(false);
         }
     };
 
@@ -2030,25 +2073,35 @@ export function VaultWorkshopView() {
                                     </div>
 
                                     {/* Verification row */}
-                                    <div className="flex gap-2">
+                                    <div className="grid grid-cols-3 gap-2">
                                         <Button
                                             variant="secondary"
                                             size="sm"
                                             onClick={handleValidateInputs}
                                             disabled={validating}
-                                            className="flex-1"
+                                            className="w-full text-[11.5px] px-1 font-semibold"
                                         >
-                                            {validating ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : <ShieldCheck size={12} className="mr-1.5" />}
+                                            {validating ? <RefreshCw size={12} className="animate-spin mr-1" /> : <ShieldCheck size={12} className="mr-1" />}
                                             Xác thực định dạng
+                                        </Button>
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={handleCheckEmails}
+                                            disabled={checkingEmails}
+                                            className="w-full text-[11.5px] px-1 font-semibold"
+                                        >
+                                            {checkingEmails ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Mail size={12} className="mr-1" />}
+                                            Kiểm tra Email Sống
                                         </Button>
                                         <Button
                                             variant="secondary"
                                             size="sm"
                                             onClick={handleCheckProxies}
                                             disabled={checkingProxies}
-                                            className="flex-1"
+                                            className="w-full text-[11.5px] px-1 font-semibold"
                                         >
-                                            {checkingProxies ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : <Activity size={12} className="mr-1.5" />}
+                                            {checkingProxies ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Activity size={12} className="mr-1" />}
                                             Kiểm tra Proxy Sống
                                         </Button>
                                     </div>

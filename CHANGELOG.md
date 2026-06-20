@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.185] - 2026-06-20 18:01:00
+
+### 🚀 Bổ sung Chức năng Kiểm tra Live Email Trong Đăng Ký Hàng Loạt
+
+- **src/components/views/vault/VaultWorkshopView.tsx**:
+  - **Thêm nút "Kiểm tra Email Sống"**: Thiết lập nút bấm mới trong thanh công cụ Xác thực tại màn hình Bulk Register.
+  - **Tự động lọc Email Dead**: Thực hiện gọi API `POST /api/vault/email-pool/bulk-verify` để kiểm tra độ tin cậy/sự sống của danh sách email đang nhập. Chỉ giữ lại những email có trạng thái `active` và tự động loại bỏ các email lỗi/hết hạn khỏi khung nhập liệu (`bulkEmailsText`).
+  - **Tối ưu hóa Layout**: Chuyển đổi thanh nút kiểm tra sang dạng Grid 3 cột (`Xác thực định dạng`, `Kiểm tra Email Sống`, `Kiểm tra Proxy Sống`) gọn gàng và cân đối.
+
 ## [0.3.184] - 2026-06-20 17:53:00
 
 ### ⚡ Khắc phục Lỗi Lag và Đơ UI (Freeze) Trên Trang Vault Workshop
