@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.206] - 2026-06-21 00:40:00
+
+### 🦊 Tích hợp Camoufox Native Click cho "Trouble scanning?" trong MFA Setup
+
+- **`scripts/lib/mfa-setup.js`**:
+  - **Chuyển sang sử dụng Camoufox Native Click**: Mặc dù đã định vị đúng leaf element của nút "Trouble scanning?" và truyền synthetic MouseEvents cùng gọi `.click()`, React app của ChatGPT vẫn chỉ nhận focus (viền xanh bao quanh phần tử) mà không thực thi hành động chuyển đổi giao diện do yêu cầu tính bảo mật cao (ngăn chặn các click giả lập thuần JS).
+  - **Giải pháp**:
+    1. Tag phần tử "Trouble scanning?" đã tìm được với thuộc tính định danh tạm thời `data-mfa-target="trouble-btn"`.
+    2. Gọi API Camoufox Native Click (`/tabs/:tabId/click`) để mô phỏng tương tác vật lý (physical mouse click) thông qua giao thức trình duyệt (CDP/Playwright level).
+    3. Giữ lại phần fallback click bằng JS và MouseEvents phòng trường hợp native click gặp sự cố.
+
 ## [0.3.205] - 2026-06-21 00:35:00
 
 ### 🛡️ Sửa triệt để lỗi click "Trouble scanning?" trong hộp thoại MFA Setup

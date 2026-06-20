@@ -766,8 +766,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await saveCheckpoint('mfa_setup_dialog_opened');
 
         // ── 4. Click "Trouble scanning?" để hiển thị text secret ──
-        log('Click "Trouble scanning?"...');
-        const trouble = await run(`
+        log('Tìm và tag nút "Trouble scanning?"...');
+        const troubleTagged = await run(`
             (() => {
                 const KEYWORDS = ['trouble scanning', "can't scan", 'cannot scan', 'không thể quét', 'nhập khóa', 'nhập mã', 'enter setup key', 'enter key', 'use setup key', 'manual', 'enter code manually'];
                 
@@ -799,34 +799,52 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 const interactive = leaf.closest('a, button, div[role="button"], [tabindex], [onclick]');
                 const el = interactive || leaf;
                 
-                // 4. Click robustly
-                try {
-                    el.focus();
-                } catch (e) {}
-                
-                // Trigger mouse events first
-                const events = ['mousedown', 'mouseup', 'click'];
-                for (const name of events) {
-                    try {
-                        const ev = new MouseEvent(name, {
-                            bubbles: true,
-                            cancelable: true,
-                            view: window,
-                            buttons: 1
-                        });
-                        el.dispatchEvent(ev);
-                    } catch (e) {}
-                }
-                
-                // Also trigger standard click just in case
-                if (typeof el.click === 'function') {
-                    el.click();
-                }
-                
-                return 'clicked_' + el.tagName.toLowerCase() + '_text_' + el.textContent.trim().substring(0, 30);
+                el.setAttribute('data-mfa-target', 'trouble-btn');
+                return 'tagged_' + el.tagName.toLowerCase();
             })()
         `);
-        log(`  Trouble scanning: ${trouble}`);
+        log(`  Trouble scanning tagging: ${troubleTagged}`);
+
+        if (troubleTagged.startsWith('tagged_')) {
+            log('Click "Trouble scanning?" bằng Camofox native click...');
+            try {
+                await apiHelper(`/tabs/${tabId}/click`, {
+                    userId,
+                    selector: '[data-mfa-target="trouble-btn"]'
+                }, 5000); // 5s timeout to fail fast and fallback to JS
+            } catch (clickErr) {
+                log('Native click "Trouble scanning?" lỗi, fallback sang JS click:', clickErr.message);
+                await run(`
+                    (() => {
+                        const el = document.querySelector('[data-mfa-target="trouble-btn"]');
+                        if (el) {
+                            try { el.focus(); } catch (e) {}
+                            
+                            // Trigger mouse events first
+                            const events = ['mousedown', 'mouseup', 'click'];
+                            for (const name of events) {
+                                try {
+                                    const ev = new MouseEvent(name, {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window,
+                                        buttons: 1
+                                    });
+                                    el.dispatchEvent(ev);
+                                } catch (e) {}
+                            }
+                            
+                            // Also trigger standard click just in case
+                            if (typeof el.click === 'function') {
+                                el.click();
+                            }
+                        }
+                    })()
+                `);
+            }
+        } else {
+            log('⚠️ Không thể tag nút "Trouble scanning?", bỏ qua click.');
+        }
         await wait(2500);
         await saveCheckpoint('trouble_scanning_clicked');
 
