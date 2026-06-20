@@ -840,11 +840,13 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     });
 
                     let filtered = candidates.filter(item => {
-                        // 1. Phải là Base32 hợp lệ (chỉ chứa A-Z, 2-7)
-                        if (!/^[A-Z2-7]{16,72}$/i.test(item.cleaned)) return false;
+                        // 1. Phải là Base32 hợp lệ và có độ dài chính xác 32 ký tự (chuẩn ChatGPT MFA)
+                        // Bất kỳ chuỗi tiếng Anh viết hoa nào không có số 0,1,8,9 (VD: PARENTALCONTROLS) 
+                        // đều là Base32 hợp lệ. Do đó phải giới hạn khắt khe độ dài là 32.
+                        if (item.cleaned.length !== 32) return false;
+                        if (!/^[A-Z2-7]{32}$/i.test(item.cleaned)) return false;
                         
                         // 2. Không chấp nhận chữ lẫn lộn hoa/thường (Mixed case)
-                        // Secret Key thường toàn chữ HOA hoặc toàn chữ thường.
                         const lettersOnly = item.raw.replace(/[^a-zA-Z]/g, '');
                         if (lettersOnly.length > 0) {
                             const isAllUpper = lettersOnly === lettersOnly.toUpperCase();
@@ -852,7 +854,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             if (!isAllUpper && !isAllLower) return false;
                         }
 
-                        // 3. Nếu có khoảng trắng, nó phải được chia theo cụm đều đặn (VD: 4 chữ cái 1 cụm)
+                        // 3. Nếu có khoảng trắng, nó phải được chia theo cụm đều đặn (chuẩn là 4 ký tự 1 cụm)
                         if (item.raw.includes(' ')) {
                             const words = item.raw.split(' ').filter(w => w.length > 0);
                             if (words.length > 1) {
