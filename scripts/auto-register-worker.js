@@ -2232,7 +2232,7 @@ export async function runAutoRegister(taskInput) {
                    filled.bday = 'dob-segmented';
                } else {
                    const ageEl = getVisibleInput('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
-                   const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+                   const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[name*="birth" i], input[id*="birth" i], input[autocomplete="bday"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday" i], input[placeholder*="Date of birth" i]');
 
                    if (ageEl && ageEl.type !== 'date') {
                        fillFieldReact(ageEl, '${userInfo.age.toString()}');
@@ -2254,38 +2254,69 @@ export async function runAutoRegister(taskInput) {
                            fillFieldReact(dobEl, dobStr);
                            filled.bday = 'dob-text';
                        }
+                   } else {
+                       // Fallback: Tìm input thứ 2 (khác name) để điền ngày sinh
+                       const allInputs = Array.from(document.querySelectorAll('input')).filter(isVisible);
+                       const bdayCandidate = allInputs.find(i => i !== nameEl && i.type !== 'checkbox' && i.type !== 'radio' && i.type !== 'submit' && i.type !== 'hidden');
+                       if (bdayCandidate) {
+                           fillFieldReact(bdayCandidate, '${userInfo.birthdate.slice(8, 10)}/${userInfo.birthdate.slice(5, 7)}/${userInfo.birthdate.slice(0, 4)}');
+                           filled.bday = 'fallback-unnamed-input';
+                           filled.fallbackInputInfo = { id: bdayCandidate.id, name: bdayCandidate.name, placeholder: bdayCandidate.placeholder, class: bdayCandidate.className };
+                       }
                    }
                }
-
-               // Click nút Agree / Continue / Finish creating account
-               const btn = Array.from(document.querySelectorAll('button')).find(b => {
-                   const txt = b.textContent.toLowerCase().trim();
-                   return txt === 'agree' || txt === 'i agree' || txt === 'continue' || 
-                          txt === 'finish' || txt.includes('creating account') ||
-                          txt.includes('create account') || txt.includes('finish creating') ||
-                          txt.includes('ti\u1ebfp t\u1ee5c') || txt.includes('\u0111\u1ed3ng \u00fd');
-               });
-               if (btn) { btn.click(); filled.btn = btn.textContent.trim(); }
-               else { filled.btn = 'NOT_FOUND: ' + Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).join(' | '); }
 
                return filled;
             })()
           `);
       console.log(`[5.1] Kết quả điền About: ${JSON.stringify(aboutFillInfo || {})}`);
 
-      // Validate birthday input - check if value was actually filled
+      // Chờ React cập nhật state trước khi click button
+      await new Promise(r => setTimeout(r, 1000));
+
+      const clickResult = await evalJson(tabId, USER_ID, `
+        (() => {
+            const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                const txt = b.textContent.toLowerCase().trim();
+                return txt === 'agree' || txt === 'i agree' || txt === 'continue' || 
+                       txt === 'finish' || txt.includes('creating account') ||
+                       txt.includes('create account') || txt.includes('finish creating') ||
+                       txt.includes('ti\u1ebfp t\u1ee5c') || txt.includes('\u0111\u1ed3ng \u00fd');
+            });
+            if (btn) { btn.click(); return btn.textContent.trim(); }
+            return 'NOT_FOUND';
+        })()
+      `);
+      console.log(`[5.1] Click Continue result: ${clickResult}`);
+      if (aboutFillInfo) aboutFillInfo.btn = clickResult;
+
+      // Validate input - dump all inputs for debugging if bday was not found
+      const inputsDump = await evalJson(tabId, USER_ID, `
+        (() => {
+          return Array.from(document.querySelectorAll('input')).map(i => ({
+            name: i.name, id: i.id, type: i.type, placeholder: i.placeholder, value: i.value, visible: i.type !== 'hidden' && i.style.display !== 'none'
+          }));
+        })()
+      `);
+      console.log(`[5.1] Input fields dump: ${JSON.stringify(inputsDump)}`);
+
       if (aboutFillInfo?.bday) {
         const birthdayValidation = await evalJson(tabId, USER_ID, `
           (() => {
             const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
             const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
-            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
+            const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[name*="birth" i], input[id*="birth" i], input[type="date"]') ||
                           document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
             
             if (birthMonthEl && birthYearEl) {
               return { found: true, value: (birthMonthEl.value && birthYearEl.value) ? 'segmented-filled' : '', type: 'segmented' };
             }
-            if (!dobEl) return { found: false, value: null };
+            if (!dobEl) {
+               // Fallback check
+               const allInputs = Array.from(document.querySelectorAll('input')).filter(i => i.type !== 'hidden' && i.style.display !== 'none' && i.name !== 'name' && i.name !== 'fullname');
+               if (allInputs.length > 0) return { found: true, value: allInputs[0].value, type: 'fallback' };
+               return { found: false, value: null };
+            }
             return { found: true, value: dobEl.value, type: dobEl.type };
           })()
         `);
@@ -2525,12 +2556,25 @@ export async function runAutoRegister(taskInput) {
 
     // Verify success home reached
     console.log(`[5] Kiểm tra trang chủ ChatGPT...`);
-    const homeCheck = await evalJson(tabId, USER_ID, `(() => {
+    let homeCheck = await evalJson(tabId, USER_ID, `(() => {
       const url = location.href;
       const isChatgpt = url.includes('chatgpt.com') && !url.includes('auth/login') && !url.includes('accounts.google');
       const hasNav = !!document.querySelector('nav, [data-testid="navigation"], [data-testid="profile-button"], main');
       return { ok: isChatgpt && hasNav, url };
     })()`).catch(() => ({ ok: false, url: '' }));
+
+    if (!homeCheck || !homeCheck.ok) {
+       console.log(`[5] Home check lần 1 chưa pass (URL: ${homeCheck?.url}), đợi thêm 5s xem có đang redirect không...`);
+       await new Promise(r => setTimeout(r, 5000));
+       homeCheck = await evalJson(tabId, USER_ID, `(() => {
+         const url = location.href.toLowerCase();
+         // Nới lỏng check: Mặc dù ở auth.openai.com nhưng không có form login, có thể là do redirect chậm, 
+         // hoặc pass nếu đang ở bước add-phone/onboarding
+         const isChatgpt = (url.includes('chatgpt.com') || url.includes('auth.openai.com/onboarding') || url.includes('auth.openai.com/about-you')) && !url.includes('auth/login') && !url.includes('accounts.google');
+         const hasNav = !!document.querySelector('nav, [data-testid="navigation"], [data-testid="profile-button"], main, input[name="phone"]');
+         return { ok: isChatgpt || hasNav, url };
+       })()`).catch(() => ({ ok: false, url: '' }));
+    }
 
     console.log(`[5] Home check result:`, JSON.stringify(homeCheck));
     if (!homeCheck || !homeCheck.ok) {
