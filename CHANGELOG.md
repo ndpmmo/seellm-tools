@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.209] - 2026-06-21 01:25:00
+
+### 🐛 Ngăn chặn đồng bộ nhầm tài khoản Auto-Register (Bug Fix)
+
+- **`server/services/syncManager.js`**:
+  - Bổ sung trạng thái `mfa_pending` vào Rule 3 (xử lý tương tự `idle`). Tránh việc tài khoản vừa được tạo qua Auto-Register (chưa cài 2FA, chưa từng deploy `ever_ready=0`) bị rớt vào Rule 6 catch-all và đồng bộ nhầm lên bảng `managedAccounts` của Gateway.
+  - Fix triệt để lỗi tài khoản chưa deploy nhưng lại hiện trên UI `Managed Services` ở trạng thái "Error (UPSTREAM ERROR)" do Gateway tự động check account chưa setup xong.
+
 ## [0.3.208] - 2026-06-21 01:08:00
 
 ### 🐛 Ngăn chặn đồng bộ dữ liệu tài khoản chưa deploy lên Gateway (Bug Fix)

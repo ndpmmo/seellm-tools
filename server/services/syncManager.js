@@ -249,8 +249,8 @@ export const SyncManager = {
         payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: data.deleted_at, version }];
         payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: data.deleted_at, is_active: 0, version }];
       }
-      // ✅ Rule 3: Account idle (chưa/chưa cần deploy) → soft-delete khỏi Gateway (chỉ gửi tombstone nếu đã từng ready)
-      else if (data.status === 'idle') {
+      // ✅ Rule 3: Account idle/mfa_pending (chưa/chưa cần deploy) → soft-delete khỏi Gateway (chỉ gửi tombstone nếu đã từng ready)
+      else if (data.status === 'idle' || data.status === 'mfa_pending') {
         if (data.ever_ready) {
           payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, version }];
           payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, is_active: 0, version }];
