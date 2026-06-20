@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.194] - 2026-06-20 23:31:00
+
+### 🚀 Khắc phục Lỗi Bị Chuyển Hướng Ngược Về Login Sau Khi Nhập OTP (Premature Blank Page Check)
+
+- **`scripts/auto-register-worker.js`**:
+  - Sửa lỗi hệ thống vội vàng phán đoán trang bị đơ/trắng (blank page check) và tự động chuyển hướng ngược về `/auth/login` trong lúc trình duyệt đang xử lý request POST mã OTP.
+  - Tăng thời gian chờ chuyển hướng URL sau khi submit OTP từ 4 giây lên tối đa 15 giây sử dụng helper `waitForCondition` để phù hợp với độ trễ của các proxy mạng chậm.
+  - Cải tiến logic phát hiện trang đơ thực sự: Chỉ kích hoạt cơ chế khôi phục và chuyển hướng về trang đăng nhập khi trang web bị trống DOM *đồng thời* ô nhập mã OTP (`hasOtpInput`) vẫn còn hiển thị (tức là form chưa được gửi đi). Nếu ô nhập OTP đã biến mất, trang rỗng là do trình duyệt đang tải, hệ thống sẽ bỏ qua việc can thiệp thô bạo.
+  - Giúp loại bỏ lỗi phổ biến làm tụt tỷ lệ đăng ký: `Xác minh OTP thất bại hoặc bị điều hướng sai URL. URL hiện tại: https://chatgpt.com/auth/login`.
+
 ## [0.3.193] - 2026-06-20 23:20:00
 
 ### 🚀 Khắc phục Nút thắt Cổ chai Thời gian Chờ (Timeout) Khâu 2FA

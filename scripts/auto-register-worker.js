@@ -2087,23 +2087,33 @@ export async function runAutoRegister(taskInput) {
       // Check if URL successfully transitioned away from email-verification page
       let finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
       if (finalUrlCheck.includes('email-verification')) {
-        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Chờ xem trang có chuyển hướng không...`);
-        const newUrl = await waitForUrlChange(tabId, USER_ID, finalUrlCheck, { timeoutMs: 4000, intervalMs: 500 });
-        if (newUrl) finalUrlCheck = newUrl.toLowerCase();
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Chờ tối đa 15s xem trang có chuyển hướng không...`);
+        const urlChanged = await waitForCondition(tabId, USER_ID, `
+          (() => {
+            const url = location.href.toLowerCase();
+            return !url.includes('email-verification') ? url : null;
+          })()
+        `, { timeoutMs: 15000, intervalMs: 1000 });
+        if (urlChanged) {
+          finalUrlCheck = urlChanged.toLowerCase();
+        }
       }
       
       if (finalUrlCheck.includes('email-verification')) {
-        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau 3s. Kiểm tra xem trang có bị đơ/trắng không...`);
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau 15s. Kiểm tra xem trang có bị đơ/trắng không...`);
         const pageStatus = await evalJson(tabId, USER_ID, `
           (() => {
             const body = document.body?.innerText || '';
             const inputs = document.querySelectorAll('input').length;
-            return { bodyLength: body.length, inputs };
+            const hasOtpInput = !!document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]');
+            return { bodyLength: body.length, inputs, hasOtpInput };
           })()
         `);
         
-        if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0) {
-          console.log(`[OTP] 🔄 Xác nhận trang bị trống hoặc đơ thực sự (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Quay lại login page để khôi phục...`);
+        // Chỉ coi là đơ thực sự khi trang trống hoác (bodyLength < 100 hoặc inputs === 0) VÀ đồng thời ô nhập OTP vẫn còn (chưa gửi đi)
+        // hoặc nếu đã gửi đi mà sau 15s vẫn kẹt cứng ở email-verification với màn hình trống
+        if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0 || pageStatus.hasOtpInput) {
+          console.log(`[OTP] 🔄 Xác nhận trang bị trống hoặc đơ thực sự (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}, Has OTP input: ${pageStatus.hasOtpInput}). Quay lại login page để khôi phục...`);
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
           await new Promise(r => setTimeout(r, 6000));
           finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
