@@ -470,7 +470,7 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
   const ex = express();
-  ex.use(express.json({ limit: '50mb' }));        // ← PHẢI đứng trước để parse body cho vault router
+  ex.use(express.json({ limit: '200mb' }));        // ← PHẢI đứng trước để parse body cho vault router
   // Set SSE emitter for vault router
   setSSEEmitter(emitSSE);
   registerProcessManager({

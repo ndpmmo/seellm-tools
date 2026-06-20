@@ -5,7 +5,7 @@ import express from 'express';
 import { getAuditLogs, getAuditStats, purgeAuditLogs, purgeAuditLogsToday, clearAuditLogs } from '../db/auditLog.js';
 
 const router = express.Router();
-router.use(express.json({ limit: '50mb' }));
+router.use(express.json({ limit: '200mb' }));
 
 // SSE emitter — set from server.js
 let emitSSE = null;

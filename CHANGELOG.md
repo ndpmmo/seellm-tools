@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.223] - 2026-06-21 03:49:00
+
+### ⚙️ Tăng giới hạn Payload lên 200MB cho Express JSON Body Parser (Bug Fix)
+
+- **`server.js`**:
+  - Tăng tiếp giới hạn tải lên JSON body từ `50mb` lên `200mb` thông qua `express.json({ limit: '200mb' })` để đáp ứng hoàn toàn khi người dùng paste danh sách lớn (200+ accounts) kèm thông tin Cookies/Session Token/Refresh Token cực kỳ dài.
+- **`server/routes/vault.js`**:
+  - Cập nhật `router.use(express.json({ limit: '200mb' }))` để thống nhất.
+- **`server/routes/profiles.js`**:
+  - Cập nhật `router.use(express.json({ limit: '200mb' }))` để thống nhất.
+- **`server/routes/auditLog.js`**:
+  - Cập nhật `router.use(express.json({ limit: '200mb' }))` để thống nhất.
+
 ## [0.3.222] - 2026-06-21 03:47:00
 
 ### ⚙️ Xử lý lỗi Unauthorized (401) và Cải thiện Xác thực khi chạy Hàng loạt (Bug Fix / UX)

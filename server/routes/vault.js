@@ -18,7 +18,7 @@ import { auditLog } from '../db/auditLog.js';
 import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
-router.use(express.json({ limit: '50mb' })); // Bắt buộc: parse JSON body cho mọi route trong router này
+router.use(express.json({ limit: '200mb' })); // Bắt buộc: parse JSON body cho mọi route trong router này
 
 // Throttle cho connect-task debug log (tránh spam mỗi 10s)
 let connectTaskLogThrottle = false;
