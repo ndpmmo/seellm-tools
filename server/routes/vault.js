@@ -3586,6 +3586,19 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       // tránh tự động đưa account lên Ready khi chỉ chạy warmup.
       // Các trạng thái khác (ready, pending, error, relogin) được đưa về 'ready' vì login thành công.
       updateData.status = (account.status === 'idle') ? 'idle' : 'ready';
+      
+      // Xoá các nhãn lỗi nếu đăng nhập thành công
+      let tags = safeParseTags(account.tags);
+      let tagsChanged = false;
+      ['wrong_password', 'account_deactivated', 'need_phone'].forEach(t => {
+        if (tags.includes(t)) {
+          tags = tags.filter(x => x !== t);
+          tagsChanged = true;
+        }
+      });
+      if (tagsChanged) {
+        updateData.tags = tags;
+      }
     }
     
     const isDeactivated = isDeactivatedMsg(error);

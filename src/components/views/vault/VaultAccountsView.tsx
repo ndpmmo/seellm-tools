@@ -47,6 +47,16 @@ function StatusBadge({ status, notes, tags = [] }: { status: string; notes?: str
     );
   }
 
+  // 3. Trường hợp đặc biệt tiếp theo: sai mật khẩu (Wrong Password)
+  if (tags.includes('wrong_password')) {
+    return (
+      <span title={notes} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-500 font-bold border border-rose-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+        🔑 Sai mật khẩu
+      </span>
+    );
+  }
+
   const m: Record<string, { color: string; bg: string; border: string; label: string }> = {
     ready: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Ready' },
     idle: { color: 'text-slate-400', bg: 'bg-white/5', border: 'border-white/5', label: 'Idle' },

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.187] - 2026-06-20 19:49:00
+
+### 🔧 Khắc phục Hiển thị Nhãn Trạng thái Tài khoản Sai Mật Khẩu
+
+- **Vault Accounts (Giao diện hiển thị)**:
+  - Khắc phục lỗi hiển thị nhãn "Re-login" trong cột Trạng thái đối với các tài khoản bị sai mật khẩu (có gắn tag `wrong_password`).
+  - Cập nhật `StatusBadge` để hiển thị nhãn trạng thái trực quan màu đỏ: **"🔑 Sai mật khẩu"** thay vì "Re-login", giúp dễ dàng nhận biết nguyên nhân lỗi.
+  - Tự động xóa bỏ các nhãn lỗi (`wrong_password`, `account_deactivated`, `need_phone`) khi chạy Warmup thành công và nhận được session/cookies mới.
+
 ## [0.3.186] - 2026-06-20 18:28:00
 
 ### 🚀 Cải thiện Tính năng Kiểm tra Email và Bộ lọc Warmup
