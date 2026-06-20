@@ -175,7 +175,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const flushProcessesUpdate = useCallback(() => {
     if (Object.keys(processesUpdateRef.current).length === 0) return;
-    setProcesses(p => ({ ...p, ...processesUpdateRef.current }));
+    const updates = processesUpdateRef.current;
+    setProcesses(p => {
+      const next = { ...p };
+      for (const [id, procUpdate] of Object.entries(updates)) {
+        if (next[id]) {
+          // Merge updates but ALWAYS preserve the latest logs from current state
+          next[id] = { ...procUpdate, logs: next[id].logs };
+        } else {
+          next[id] = procUpdate;
+        }
+      }
+      return next;
+    });
     processesUpdateRef.current = {};
     processesUpdateTimer.current = null;
   }, []);
