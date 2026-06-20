@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.201] - 2026-06-21 00:18:00
+
+### 🛡️ Vá lỗi trích xuất PARENTALCONTROLS & Nâng cấp Clicker "Trouble scanning"
+
+- **`scripts/lib/mfa-setup.js`**:
+  - **Khắc phục lỗi trích xuất PARENTALCONTROLS**:
+    - Thiết lập cơ chế lọc **bắt buộc độ dài 32 ký tự** trong 12 giây đầu tiên (first 12 attempts). Vì mã Secret Key của ChatGPT luôn dài đúng 32 ký tự, điều này chặn đứng hoàn toàn việc lấy nhầm các cụm từ UI 16 ký tự như `"PARENTALCONTROLS"` hoặc `"SECURITYANDLOGIN"`.
+    - Tăng yêu cầu Entropy tối thiểu từ 6 lên **8 ký tự duy nhất** đối với Base32 string để loại bỏ rác/lặp từ.
+    - Mở rộng Blacklist loại trừ thêm các từ: `parental`, `controls`, `parent`, `control`, `family`, `child`.
+  - **Nâng cấp Clicker "Trouble scanning?"**:
+    - Ưu tiên tìm và click các phần tử có khả năng tương tác cao (`a`, `button`, `[role="button"]`, `[tabindex]`) chứa từ khóa trước.
+    - Nếu từ khóa nằm ở phần tử text thông thường (như `span`, `p`, `label`), sử dụng phương thức `.closest()` để tự động truy vết ngược lên tổ tiên tương tác gần nhất và click vào đó, tránh click trượt hoặc click vào thẻ text tĩnh không có hiệu lực.
+
 ## [0.3.200] - 2026-06-21 00:15:00
 
 ### 🛡️ Vá lỗi quét thẻ không hiển thị và chạy đua DOM khi trích xuất 2FA Secret Key

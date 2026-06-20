@@ -770,20 +770,31 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         const trouble = await run(`
             (() => {
                 const KEYWORDS = ['trouble scanning', "can't scan", 'cannot scan', 'không thể quét', 'nhập khóa', 'nhập mã', 'enter setup key', 'enter key', 'use setup key', 'manual', 'enter code manually'];
-                // Broad selector first
-                const el = Array.from(document.querySelectorAll('a, button, span, p, div[role="button"], [tabindex], label'))
-                    .find(e => {
-                        const t = (e.textContent || '').toLowerCase();
-                        return KEYWORDS.some(kw => t.includes(kw));
-                    }) ||
-                    // Fallback: any element with the keywords
-                    Array.from(document.querySelectorAll('*'))
-                    .find(e => {
-                        if (e.children.length > 3) return false; // skip containers
+                
+                // 1. Search in interactive elements first (a, button, div[role=button], etc.)
+                const interactiveElements = Array.from(document.querySelectorAll('a, button, div[role="button"], [tabindex]'));
+                let el = interactiveElements.find(e => {
+                    const t = (e.textContent || '').toLowerCase();
+                    return KEYWORDS.some(kw => t.includes(kw));
+                });
+                
+                // 2. If not found, look at spans/p/labels that might be children of an interactive element or themselves clickable
+                if (!el) {
+                    const textElements = Array.from(document.querySelectorAll('span, p, label, div'));
+                    const match = textElements.find(e => {
                         const t = (e.textContent || '').toLowerCase();
                         return KEYWORDS.some(kw => t.includes(kw));
                     });
-                if (el) { el.click(); return 'clicked'; }
+                    if (match) {
+                        // Try to find the closest interactive ancestor
+                        el = match.closest('a, button, div[role="button"], [tabindex]') || match;
+                    }
+                }
+                
+                if (el) {
+                    el.click();
+                    return 'clicked_' + el.tagName.toLowerCase();
+                }
                 return 'not_found';
             })()
         `);
@@ -834,12 +845,13 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         return { el, raw, cleaned, score };
                     });
 
-                    // Filter for base32 syntax
-                    let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
+                    // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN, PARENTALCONTROLS)
+                    const uiWords = [
+                        'security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator', 'device', 'authorization', 'codex', 'enable',
+                        'parental', 'controls', 'parent', 'control', 'family', 'child'
+                    ];
 
-                    // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN)
-                    const uiWords = ['security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator', 'device', 'authorization', 'codex', 'enable'];
-                    filtered = filtered.filter(item => {
+                    let filtered = candidates.filter(item => {
                         const lower = item.cleaned.toLowerCase();
                         return !uiWords.some(w => lower.includes(w));
                     });
@@ -856,16 +868,19 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     // Filter out low entropy (real base32 has high character variety)
                     filtered = filtered.filter(item => {
                         const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
-                        return uniqueChars >= 6;
+                        return uniqueChars >= 8; // Real base32 secrets have high variety (at least 8 unique characters)
                     });
 
-                    // Prioritize 32-character strings (ChatGPT standard length)
-                    const exact32 = filtered.filter(item => item.cleaned.length === 32);
-                    if (exact32.length > 0) {
-                        filtered = exact32;
-                    } else if (${attempt < 10}) {
-                        // Trả về null để loop ngoài chờ load key 32 ký tự
-                        return null;
+                    // In early attempts (first 12s), strictly require exactly 32 characters
+                    // Since ChatGPT standard secret keys are always 32 characters
+                    if (${attempt < 12}) {
+                        filtered = filtered.filter(item => item.cleaned.length === 32 && /^[A-Z2-7]{32}$/i.test(item.cleaned));
+                        if (filtered.length === 0) {
+                            return null; // Return null to wait for it to load
+                        }
+                    } else {
+                        // Fallback on final attempts to allow 16 to 72 characters
+                        filtered = filtered.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
                     }
 
                     // Sort: highest score first, then longer length first
