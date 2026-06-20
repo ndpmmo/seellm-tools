@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.195] - 2026-06-20 23:39:00
+
+### 🐛 Fix Null Crash và Cải tiến Phát hiện Hộp thoại MFA
+
+- **`scripts/auto-register-worker.js`**:
+  - Fix lỗi `TypeError: Cannot read properties of null (reading 'includes')` tại bước chờ redirect về dashboard sau khi điền form "About you". Nguyên nhân: `evalJson` trả về `null` khi tab bị crash/đóng, `.catch(() => 'unknown')` không bắt được giá trị `null` trả về từ promise thành công. Fix bằng cách thêm nullish coalescing `?? 'unknown'` sau lệnh `.catch(() => null)` ở 2 vị trí (dòng 2492 và 3019).
+
+- **`scripts/lib/mfa-setup.js`**:
+  - Mở rộng danh sách từ khóa phát hiện hộp thoại thiết lập MFA (QR Code) từ 7 cụm từ lên 15+ cụm từ để hỗ trợ các biến thể UI mới của ChatGPT (bao gồm: `secret key`, `setup key`, `scan the qr`, `manual entry`, `set up authenticator`...).
+  - Bổ sung fallback phát hiện dựa trên DOM cấu trúc: phát hiện các `[role="dialog"]` xuất hiện mới (không phải dialog Settings) có chứa `<canvas>` (QR code render) hoặc `<img>` chứa QR — bỏ qua hoàn toàn việc phụ thuộc vào text content.
+  - Tăng số vòng lặp chờ từ 15 lên 20 giây để tăng độ chịu đựng cho các kết nối proxy chậm.
+
 ## [0.3.194] - 2026-06-20 23:31:00
 
 ### 🚀 Khắc phục Lỗi Bị Chuyển Hướng Ngược Về Login Sau Khi Nhập OTP (Premature Blank Page Check)

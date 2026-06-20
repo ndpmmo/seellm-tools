@@ -698,17 +698,46 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // Đảm bảo hộp thoại thiết lập MFA hiển thị thực tế
         log('Kiểm tra hộp thoại thiết lập MFA (QR Code)...');
         let mfaSetupScreenAppeared = false;
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 20; i++) {
             mfaSetupScreenAppeared = await run(`
                 (() => {
                     const text = (document.body.innerText || '').toLowerCase();
-                    return text.includes('trouble scanning') || 
-                           text.includes('can\\'t scan') || 
+                    // Text-based detection (broad set of keywords from various UI variants)
+                    const hasSetupText = text.includes('trouble scanning') || 
+                           text.includes("can't scan") ||
+                           text.includes('cannot scan') ||
                            text.includes('không thể quét') || 
                            text.includes('nhập khóa') ||
                            text.includes('qr code') ||
                            text.includes('mã qr') ||
-                           text.includes('authenticator app setup');
+                           text.includes('authenticator app setup') ||
+                           text.includes('scan the qr') ||
+                           text.includes('scan this code') ||
+                           text.includes('set up authenticator') ||
+                           text.includes('use an authenticator') ||
+                           text.includes('secret key') ||
+                           text.includes('setup key') ||
+                           text.includes('manual entry') ||
+                           text.includes('enter this key') ||
+                           text.includes('enter the code') ||
+                           text.includes('nhập mã từ ứng dụng') ||
+                           text.includes('ứng dụng xác thực');
+                    if (hasSetupText) return true;
+
+                    // DOM-based detection: look for a new dialog with a QR image or canvas
+                    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+                    for (const d of dialogs) {
+                        const dText = (d.innerText || '').toLowerCase();
+                        // Skip the Settings dialog itself (it has "settings" or "security" but not QR-related content)
+                        if (dText.includes('settings') || dText.includes('cài đặt')) continue;
+                        // Any dialog with a canvas (QR rendered via canvas) or img with qr-related alt
+                        const hasQrCanvas = !!d.querySelector('canvas');
+                        const hasQrImg = !!d.querySelector('img[src*="qr"], img[alt*="qr" i], img[alt*="code" i]');
+                        if (hasQrCanvas || hasQrImg) return true;
+                        // Any non-Settings dialog that appeared after we clicked the toggle
+                        if (d.querySelectorAll('img, canvas').length > 0) return true;
+                    }
+                    return false;
                 })()
             `);
             if (mfaSetupScreenAppeared) break;

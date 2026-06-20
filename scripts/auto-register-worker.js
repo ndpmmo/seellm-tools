@@ -2489,7 +2489,7 @@ export async function runAutoRegister(taskInput) {
       console.log(`[5.2] Đang chờ trình duyệt hoàn tất callback và chuyển hướng vào dashboard...`);
       let redirectOk = false;
       for (let attempt = 1; attempt <= 20; attempt++) {
-        const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => 'unknown');
+        const currentUrl = (await evalJson(tabId, USER_ID, `location.href`).catch(() => null)) ?? 'unknown';
         const hasNav = await evalJson(tabId, USER_ID, `!!document.querySelector('nav, [data-testid="navigation"], [data-testid="profile-button"], main, input[name="phone"]')`).catch(() => false);
         
         console.log(`[5.2] [Chờ redirect] Lần thử ${attempt}/20 | URL: ${currentUrl} | HasNav: ${hasNav}`);
@@ -3016,7 +3016,7 @@ export async function runAutoRegister(taskInput) {
         if (recorder) {
           await recorder.after(9, 9, 'error_occurred').catch(() => {});
         }
-        const currentUrl = await evalJson(tabId, USER_ID, `location.href`).catch(() => 'unknown');
+        const currentUrl = (await evalJson(tabId, USER_ID, `location.href`).catch(() => null)) ?? 'unknown';
         console.log(`[Error] Current URL: ${currentUrl}`);
         
         const pageState = await evalJson(tabId, USER_ID, `
