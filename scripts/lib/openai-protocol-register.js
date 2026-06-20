@@ -48,18 +48,26 @@ const BLOCKED_IP_LOCATIONS = ['CN', 'HK', 'MO', 'TW'];
 // PASSWORD & USER INFO GENERATORS
 // ============================================
 const PASSWORD_CHARSET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const SPECIALS = ',._!@#';
+const SPECIALS = '!@#_-';
 
 export function generatePassword(length = 16) {
-  if (length < 10) length = 10;
-  const core = Array.from({ length: length - 3 }, () =>
-    PASSWORD_CHARSET[crypto.randomInt(PASSWORD_CHARSET.length)]
-  ).join('');
+  if (length < 12) length = 12; // OpenAI requires at least 12 characters now
   const lower = 'abcdefghijklmnopqrstuvwxyz'[crypto.randomInt(26)];
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[crypto.randomInt(26)];
   const digit = '0123456789'[crypto.randomInt(10)];
   const special = SPECIALS[crypto.randomInt(SPECIALS.length)];
-  const pwd = lower + digit + special + core;
-  return pwd.slice(0, length);
+  const core = Array.from({ length: length - 4 }, () =>
+    PASSWORD_CHARSET[crypto.randomInt(PASSWORD_CHARSET.length)]
+  ).join('');
+  const pwd = lower + upper + digit + special + core;
+  
+  // Fisher-Yates Shuffle using crypto.randomInt to guarantee randomness and avoid predictable prefix
+  const arr = pwd.split('');
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.join('');
 }
 
 const FIRST_NAMES = ['James','Emma','Liam','Olivia','Noah','Ava','Oliver','Sophia','Elijah','Isabella','Lucas','Mia','Mason','Charlotte','Ethan','Amelia'];

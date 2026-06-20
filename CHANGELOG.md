@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.196] - 2026-06-20 23:41:00
+
+### 🔧 Sửa Lỗi Warmup Null Crash và Cải Tiến Hàm Sinh Mật Khẩu (Wrong Password Prevention)
+
+- **`scripts/warmup.js`**:
+  - Khắc phục lỗi `TypeError: Cannot read properties of null (reading 'errorText')` xảy ra khi hàm `evalJson` gặp lỗi timeout và trả về `null`.
+  - Thêm kiểm tra `!state` trong các vòng lặp xử lý trạng thái và trong hàm `checkLoginState` để đảm bảo hệ thống chờ đợi và thử lại thay vì bị crash đột ngột.
+
+- **`scripts/lib/openai-protocol-register.js`**:
+  - Cải tiến hàm sinh mật khẩu ngẫu nhiên `generatePassword` để luôn đảm bảo có tối thiểu 1 chữ thường, 1 chữ viết hoa, 1 chữ số, và 1 ký tự đặc biệt, tránh tình trạng mật khẩu bị thiếu chữ hoa làm OpenAI từ chối đăng ký.
+  - Giới hạn các ký tự đặc biệt sinh ra chỉ nằm trong tập an toàn `!@#_-` để ngăn ngừa lỗi mất/rụng ký tự khi giả lập gõ native keyboard của trình duyệt trên các môi trường Docker.
+  - Sử dụng thuật toán Fisher-Yates kết hợp `crypto.randomInt` để xáo trộn mật khẩu, đảm bảo tính ngẫu nhiên và an toàn cao nhất.
+
 ## [0.3.195] - 2026-06-20 23:39:00
 
 ### 🐛 Fix Null Crash và Cải tiến Phát hiện Hộp thoại MFA

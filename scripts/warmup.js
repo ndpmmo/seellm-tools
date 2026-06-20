@@ -138,6 +138,12 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
     
     const elapsed = Date.now() - startTime;
     
+    if (!state) {
+      console.log(`[Warmup] ⚠️ Không thể truy xuất trạng thái trang (state is null). Đang thử lại...`);
+      await delay(2000);
+      continue;
+    }
+    
     if (state.errorText) {
       console.log(`[Warmup] ❌ Phát hiện lỗi trên trang ChatGPT: "${state.errorText}"`);
       throw new Error(`session_expired: Lỗi trên trang ChatGPT: ${state.errorText}`);
@@ -368,7 +374,7 @@ async function runWarmup() {
     // 6. Check login state
     const checkLoginState = async () => {
       const state = await getState(tabId, USER_ID);
-      return state.looksLoggedIn;
+      return state?.looksLoggedIn ?? false;
     };
 
     let isLoggedIn = await checkLoginState();
@@ -393,6 +399,11 @@ async function runWarmup() {
         
         // 1. Get current state
         const state = await getState(tabId, USER_ID);
+        if (!state) {
+          console.warn(`[Warmup] ⚠️ Không thể lấy trạng thái trang (state is null) ở loop đăng nhập. Đang thử lại...`);
+          await delay(2000);
+          continue;
+        }
         console.log(`[Warmup] ℹ️ Lượt ${attempt} trạng thái trang:`);
         console.log(`   - URL: ${state.href}`);
         console.log(`   - onAuthDomain: ${state.onAuthDomain}`);
