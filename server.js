@@ -1939,6 +1939,7 @@ app.prepare().then(async () => {
         if (!ranked.length) break;
 
         const chosen = ranked[0].proxy;
+        console.log(`[Auto-Assign] Đang gán proxy cho ${account.id} (${assigned + 1}/${localAccounts.length})...`);
         const patchBody = { proxyUrl: normalizeProxyUrl(chosen.url), proxyId: chosen.id };
         const patchR = await d1Request(cfg, `accounts/${account.id}`, { method: 'PATCH', body: patchBody });
         if (!patchR.ok && patchR.status !== 404) continue;

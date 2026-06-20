@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.212] - 2026-06-21 01:56:00
+
+### 🔧 Bổ sung công cụ và log tự động gán Proxy (Maintenance)
+
+- **`server.js`**:
+  - Bổ sung console log tiến trình cho route `/api/proxy-assign/auto` giúp theo dõi trực quan quá trình gán proxy hàng loạt.
+- **`scripts/reassign-proxies.js`** [NEW]:
+  - Script bulk-unassign và tự động phân bổ lại toàn bộ proxy cho các tài khoản bị gán sai về đúng proxy pool theo giới hạn concurrency.
+- **`scripts/check-proxy-status.js`** [NEW]:
+  - Script kiểm tra, giám sát trạng thái phân bổ và in ra báo cáo thống kê chi tiết cho toàn bộ tài khoản.
+
 ## [0.3.211] - 2026-06-21 01:40:00
 
 ### ✨ Tự động gọi Auto-Assign sau khi Bulk Register hoàn tất (Enhancement)
