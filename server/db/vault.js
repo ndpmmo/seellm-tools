@@ -450,7 +450,7 @@ export const vault = {
     // cho phép update — vì đây là legitimate status change, không phải cloud overwrite.
     if (skipSync && existing && existing.status) {
       const isLegitimateStatusChange = data.status !== undefined && data.status !== null && 
-        ['ready', 'idle', 'error'].includes(String(data.status).toLowerCase());
+        ['ready', 'idle', 'error', 'dead', 'relogin', 'mfa_pending', 'need_phone'].includes(String(data.status).toLowerCase());
       if (!isLegitimateStatusChange) {
         finalStatus = existing.status; // Giữ local status khi pull từ cloud
       }

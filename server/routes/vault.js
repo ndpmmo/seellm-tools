@@ -3563,13 +3563,16 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     if (workspaceId) updateData.workspace_id = workspaceId;
     if (deviceId) updateData.device_id = deviceId;
     
-    vault.upsertAccount(updateData);
+    vault.upsertAccount(updateData, true);
     
-    // Push sync to cloud D1
+    // Push sync to cloud D1 ONLY IF previously deployed
     const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (fullRecord && fullRecord.email) {
-      console.log(`[Server] Syncing warmed account ${fullRecord.email} to D1`);
-      await SyncManager.pushVault('account', fullRecord).catch(() => {});
+      const isDeployed = account.status !== 'idle' || account.ever_ready === 1;
+      if (isDeployed) {
+        console.log(`[Server] Syncing warmed account ${fullRecord.email} to D1`);
+        await SyncManager.pushVault('account', fullRecord).catch(() => {});
+      }
 
       if (emitSSE) {
         emitSSE('vault:update', { reason: 'warmup-result', id, email: fullRecord.email });
@@ -3714,13 +3717,16 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
       updateData.cookies = cookies;
     }
     
-    vault.upsertAccount(updateData);
+    vault.upsertAccount(updateData, true);
     
-    // Push sync to cloud D1
+    // Push sync to cloud D1 ONLY IF previously deployed
     const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (fullRecord && fullRecord.email) {
-      console.log(`[Server] Syncing regenerated 2FA account ${fullRecord.email} to D1`);
-      await SyncManager.pushVault('account', fullRecord).catch(() => {});
+      const isDeployed = account.status !== 'idle' || account.ever_ready === 1;
+      if (isDeployed) {
+        console.log(`[Server] Syncing regenerated 2FA account ${fullRecord.email} to D1`);
+        await SyncManager.pushVault('account', fullRecord).catch(() => {});
+      }
       
       // Emit vault:update event to refresh UI
       if (emitSSE) {
