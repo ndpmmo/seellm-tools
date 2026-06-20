@@ -145,6 +145,24 @@ function maybeAddAccountDeactivatedTag(id, message) {
   }
 }
 
+function isWrongPasswordMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('wrong_password') || msg.includes('incorrect password') || msg.includes('mật khẩu không đúng') || msg.includes('sai mật khẩu');
+}
+
+function maybeAddWrongPasswordTag(id, message) {
+  if (isWrongPasswordMsg(message)) {
+    const account = vault.getAccountFull(id);
+    if (!account) return;
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('wrong_password')) {
+      tags.push('wrong_password');
+      vault.upsertAccount({ id, tags });
+    }
+  }
+}
+
 function removeNeedPhoneTag(id) {
   const account = vault.getAccountFull(id);
   if (!account) return;
@@ -3576,6 +3594,7 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       updateData.status = 'dead';
       updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong Warmup: ${error})`;
     } else if (isReloginMsg(error)) {
+      maybeAddWrongPasswordTag(id, error);
       updateData.status = 'relogin';
       updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong Warmup: ${error})`;
     } else {
