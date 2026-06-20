@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.186] - 2026-06-20 18:28:00
+
+### 🚀 Cải thiện Tính năng Kiểm tra Email và Bộ lọc Warmup
+
+- **Vault Workshop (Bulk Register)**:
+  - Khắc phục lỗi phân biệt hoa/thường (case sensitivity) khi kiểm tra danh sách email đã có trong Email Pool, giúp tính năng "Kiểm tra Email Sống" hoạt động chính xác.
+  - Hỗ trợ tự động bóc tách token (nếu có) từ danh sách dán vào (format `email|password|refresh_token|client_id` hoặc `email|refresh_token|client_id`). Server sẽ lập tức sử dụng token này để gọi Graph API kiểm tra trực tiếp tình trạng sống/chết của email mà không cần email đó phải được import vào DB từ trước.
+
+- **Vault Accounts (Bộ lọc và Tagging)**:
+  - Thêm logic tự động bắt và gán nhãn `wrong_password` cho các tài khoản gặp lỗi sai mật khẩu trong quá trình chạy Warmup.
+  - Hiển thị trực quan nhãn `wrong_password` (Biểu tượng Chìa khoá màu đỏ) trên giao diện `VaultAccountsView`.
+  - Bổ sung tuỳ chọn **"Sai mật khẩu"** vào danh sách thả xuống "Nhãn đặc biệt" trong Bộ lọc nâng cao, giúp dễ dàng rà soát và cô lập các tài khoản lỗi mật khẩu.
+
 ## [0.3.185] - 2026-06-20 18:01:00
 
 ### 🚀 Bổ sung Chức năng Kiểm tra Live Email Trong Đăng Ký Hàng Loạt
