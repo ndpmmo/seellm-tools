@@ -495,22 +495,10 @@ export function VaultAccountsView() {
   });
 
   const sortedFiltered = [...filtered].sort((a, b) => {
-    // 1. Prioritize active pending/processing actions (running warmup, 2fa, check-session, deploy)
-    const aPending = a.status === 'pending' || a.status === 'processing' || a.provider_specific_data?.warmupStatus === 'pending' || a.provider_specific_data?.twoFaRegenStatus === 'pending';
-    const bPending = b.status === 'pending' || b.status === 'processing' || b.provider_specific_data?.warmupStatus === 'pending' || b.provider_specific_data?.twoFaRegenStatus === 'pending';
-    
-    if (aPending && !bPending) return -1;
-    if (!aPending && bPending) return 1;
-    
-    // 2. Sort by time from newest to oldest
-    const aTime = Math.max(
-      a.updated_at ? Date.parse(a.updated_at) : 0,
-      a.created_at ? Date.parse(a.created_at) : 0
-    );
-    const bTime = Math.max(
-      b.updated_at ? Date.parse(b.updated_at) : 0,
-      b.created_at ? Date.parse(b.created_at) : 0
-    );
+    // Sắp xếp cố định theo thời gian tạo (created_at) hoặc cập nhật (updated_at) từ mới nhất đến cũ nhất
+    // để đảm bảo thứ tự danh sách luôn ổn định, tránh tài khoản tự động nhảy dòng lên đầu khi bắt đầu xử lý (pending/warmup).
+    const aTime = a.created_at ? Date.parse(a.created_at) : (a.updated_at ? Date.parse(a.updated_at) : 0);
+    const bTime = b.created_at ? Date.parse(b.created_at) : (b.updated_at ? Date.parse(b.updated_at) : 0);
     
     return bTime - aTime;
   });

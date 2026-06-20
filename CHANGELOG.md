@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.217] - 2026-06-21 02:35:00
+
+### ⚙️ Ổn định hóa thứ tự sắp xếp danh sách tài khoản Vault, tránh nhảy dòng khi xử lý tác vụ (UX Fix)
+
+- **`src/components/views/vault/VaultAccountsView.tsx`**:
+  - Loại bỏ cơ chế ưu tiên đưa các tài khoản ở trạng thái `pending`/`processing`/`warmup` lên đầu bảng.
+  - Sắp xếp cố định và ổn định theo thời gian tạo (`created_at`) để giữ nguyên vị trí hiển thị của tài khoản khi người dùng thao tác. Điều này ngăn chặn việc trình duyệt tự động cuộn trang lên đầu để giữ tiêu điểm (focus) cho nút bấm vừa click, cũng như tránh xáo trộn giao diện khi chạy hàng loạt.
+
 ## [0.3.216] - 2026-06-21 02:32:00
 
 ### 🐛 Loại bỏ fallback DOM submit phá vỡ trạng thái SPA và tối ưu hóa thời gian đợi phản hồi nút Continue (Bug Fix)
