@@ -246,12 +246,40 @@ export function VaultWorkshopView() {
                 return;
             }
 
-            const emails = lines.map(line => line.split('|')[0].trim());
+            const emailsPayload = lines.map(line => {
+                const parts = line.split('|');
+                const email = parts[0]?.trim();
+                let refresh_token, client_id;
+
+                // Support parsing tokens from raw text if available
+                if (parts.length >= 3) {
+                    if (parts[1] && parts[1].length > 50) {
+                        // email|refresh_token|client_id
+                        refresh_token = parts[1].trim();
+                        client_id = parts[2]?.trim();
+                    } else if (parts.length >= 4) {
+                        if (parts[2] && parts[2].length > 50) {
+                            // email|password|refresh_token|client_id
+                            refresh_token = parts[2].trim();
+                            client_id = parts[3]?.trim();
+                        } else if (parts[3] && parts[3].length > 50) {
+                            // email|password|auth_method|refresh_token|client_id
+                            refresh_token = parts[3].trim();
+                            client_id = parts[4]?.trim();
+                        }
+                    }
+                }
+                return { email, refresh_token, client_id };
+            });
+
+            // Nếu không có token nào, fallback gửi dạng chuỗi để server tự lấy từ DB
+            const hasAnyToken = emailsPayload.some(e => e.refresh_token);
+            const payload = hasAnyToken ? emailsPayload : emailsPayload.map(e => e.email);
 
             const res = await fetch('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ emails })
+                body: JSON.stringify({ emails: payload })
             });
             const data = await res.json();
             if (data.ok && Array.isArray(data.results)) {

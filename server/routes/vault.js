@@ -807,8 +807,14 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
     let targets;
     
     if (Array.isArray(req.body.emails) && req.body.emails.length > 0) {
-      // Verify specific emails
-      targets = pool.filter(e => req.body.emails.includes(e.email));
+      if (typeof req.body.emails[0] === 'string') {
+        // Verify specific emails from pool (case insensitive)
+        const reqEmailsLower = req.body.emails.map(e => e.toLowerCase());
+        targets = pool.filter(e => reqEmailsLower.includes(e.email.toLowerCase()));
+      } else if (typeof req.body.emails[0] === 'object') {
+        // Verify raw objects directly (must contain email, refresh_token, client_id)
+        targets = req.body.emails;
+      }
     } else {
       // Verify all unknown/dead
       targets = pool.filter(e => e.mail_status === 'unknown' || e.mail_status === 'dead');
