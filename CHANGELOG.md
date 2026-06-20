@@ -10,6 +10,12 @@
   - Viết thêm hàm `isNeed2faMsg(message)` và `maybeAddNeed2faTag(id, message)` để định danh và theo dõi các lỗi tài khoản yêu cầu 2FA nhưng trong hệ thống không cung cấp thông tin Secret Key.
   - Tích hợp hàm bắt lỗi này vào các endpoint nhận kết quả từ worker như `warmup-result`, `connect-result`, và `regenerate-2fa-result`. Nhờ vậy, khi gặp lỗi 2FA (tài khoản báo lỗi thiếu Secret Key), account sẽ được gắn tag `need_2fa` và giữ lại trạng thái lỗi `error` (thay vì tự động gán nhầm hoặc ẩn lỗi).
 
+### 🐛 Sửa lỗi tự động Deploy lên Gateway sai trạng thái (Bug Fix)
+- **`server/routes/vault.js`**:
+  - Sửa lỗi nghiêm trọng: Tài khoản khi đang ở các trạng thái lỗi (như `mfa_pending`, `error`) hoặc chưa từng được deploy (chưa bao giờ đạt trạng thái `ready` trước đó), nếu chạy thành công script `Regenerate 2FA` hoặc `Warmup`, hệ thống đã tự động gán trạng thái thành `ready` và vô tình đẩy luôn (sync/deploy) lên Gateway. 
+  - Điều chỉnh logic gán `updateData.status`: Hệ thống kiểm tra biến `account.ever_ready`. Nếu tài khoản chưa từng được deploy lên Gateway (`ever_ready !== 1`) thì khi xử lý thành công, tài khoản sẽ được trả về trạng thái `idle` một cách an toàn. Ngược lại, nếu tài khoản đã từng được deploy trước đó, trạng thái sẽ được khôi phục về `ready` và tiếp tục đồng bộ như bình thường.
+  - Sửa lại biến điều kiện `isDeployed` từ `account.status !== 'idle'` thành việc đánh giá cẩn thận `fullRecord.status` và cờ `ever_ready === 1` để đảm bảo không sync nhầm các account đang có cờ lỗi sang Gateway.
+
 - **`src/components/views/vault/VaultAccountsView.tsx`**:
   - Thêm config tag màu cam `need_2fa` với icon `ShieldAlert` để hiển thị trên UI ở danh sách Vault Accounts.
   - Bổ sung tùy chọn `Thiếu Secret Key 2FA` trong Dropdown bộ lọc filter để người dùng có thể nhanh chóng tra cứu và sửa các tài khoản bị thiếu mã 2FA.

@@ -3602,10 +3602,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     
     if (cookies && Array.isArray(cookies) && cookies.length > 0) {
       updateData.cookies = cookies;
-      // Giữ nguyên trạng thái 'idle' nếu account chưa được deploy lên Gateway,
-      // tránh tự động đưa account lên Ready khi chỉ chạy warmup.
-      // Các trạng thái khác (ready, pending, error, relogin) được đưa về 'ready' vì login thành công.
-      updateData.status = (account.status === 'idle') ? 'idle' : 'ready';
+      // Giữ nguyên trạng thái 'idle' nếu account chưa từng được deploy (ever_ready !== 1)
+      // Các trạng thái từng deploy hoặc đã ready thì chuyển về 'ready'.
+      const isNeverDeployed = account.ever_ready !== 1 && account.status !== 'ready';
+      updateData.status = isNeverDeployed ? 'idle' : 'ready';
       
       // Xoá các nhãn lỗi nếu đăng nhập thành công
       let tags = safeParseTags(account.tags);
@@ -3654,8 +3654,8 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     // Push sync to cloud D1 ONLY IF previously deployed
     const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (fullRecord && fullRecord.email) {
-      const isDeployed = account.status !== 'idle' || account.ever_ready === 1;
-      if (isDeployed) {
+      const isDeployed = fullRecord.status !== 'idle' && fullRecord.status !== 'mfa_pending' && fullRecord.status !== 'error' && fullRecord.status !== 'dead';
+      if (isDeployed || fullRecord.ever_ready === 1) {
         console.log(`[Server] Syncing warmed account ${fullRecord.email} to D1`);
         await SyncManager.pushVault('account', fullRecord).catch(() => {});
       }
@@ -3791,10 +3791,11 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
       updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong 2FA Regen: ${error})`;
     } else if (status === 'success' && secret) {
       updateData.two_fa_secret = secret;
-      // Trạng thái: nếu trước đó là 'idle' thì giữ nguyên 'idle' để tránh tự động đẩy active lên gateway.
-      // Các trạng thái khác (ready, error, relogin, need_phone) được chuyển thành 'ready' vì đã login thành công.
-      updateData.status = account.status === 'idle' ? 'idle' : 'ready';
-      updateData.notes = account.status === 'idle' ? '2FA regenerated successfully (idle)' : '2FA regenerated successfully';
+      // Trạng thái: nếu account chưa từng được deploy (ever_ready !== 1) thì đưa về 'idle' để tránh tự động đẩy lên gateway.
+      // Nếu đã từng deploy thì khôi phục lại 'ready'.
+      const isNeverDeployed = account.ever_ready !== 1 && account.status !== 'ready';
+      updateData.status = isNeverDeployed ? 'idle' : 'ready';
+      updateData.notes = isNeverDeployed ? '2FA regenerated successfully (idle)' : '2FA regenerated successfully';
     } else if (status === 'failed') {
       updateData.notes = `2FA regeneration failed: ${error}`;
     }
@@ -3808,8 +3809,8 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
     // Push sync to cloud D1 ONLY IF previously deployed
     const fullRecord = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(id);
     if (fullRecord && fullRecord.email) {
-      const isDeployed = account.status !== 'idle' || account.ever_ready === 1;
-      if (isDeployed) {
+      const isDeployed = fullRecord.status !== 'idle' && fullRecord.status !== 'mfa_pending' && fullRecord.status !== 'error' && fullRecord.status !== 'dead';
+      if (isDeployed || fullRecord.ever_ready === 1) {
         console.log(`[Server] Syncing regenerated 2FA account ${fullRecord.email} to D1`);
         await SyncManager.pushVault('account', fullRecord).catch(() => {});
       }
