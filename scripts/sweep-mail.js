@@ -18,4 +18,9 @@ async function sweepEmails() {
     console.log("[Sweep] ✅ Đã dọn dẹp sạch sẽ!");
 }
 
-sweepEmails().catch(console.error);
+sweepEmails().then(() => {
+  process.exit(0);
+}).catch(err => {
+  console.error(err);
+  process.exit(1);
+});
