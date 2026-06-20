@@ -2110,13 +2110,31 @@ export async function runAutoRegister(taskInput) {
           })()
         `);
         
-        // Chỉ coi là đơ thực sự khi trang trống hoác (bodyLength < 100 hoặc inputs === 0) VÀ đồng thời ô nhập OTP vẫn còn (chưa gửi đi)
-        // hoặc nếu đã gửi đi mà sau 15s vẫn kẹt cứng ở email-verification với màn hình trống
-        if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0 || pageStatus.hasOtpInput) {
-          console.log(`[OTP] 🔄 Xác nhận trang bị trống hoặc đơ thực sự (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}, Has OTP input: ${pageStatus.hasOtpInput}). Quay lại login page để khôi phục...`);
+        if (pageStatus.hasOtpInput) {
+          // Ô nhập mã OTP vẫn còn -> Gửi không thành công, khôi phục ngay
+          console.log(`[OTP] 🔄 Phát hiện ô nhập OTP vẫn còn trên màn hình (chưa gửi đi thành công). Quay lại login page để khôi phục...`);
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
           await new Promise(r => setTimeout(r, 6000));
           finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+        } else if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0) {
+          // Trang trống hoác -> Khả năng cao đang load redirect (đặc biệt khi dùng proxy chậm)
+          console.log(`[OTP] ⏳ Phát hiện trang đang trống/loading (body: ${pageStatus.bodyLength}, inputs: ${pageStatus.inputs}). Đợi thêm 20s cho redirect hoàn tất...`);
+          const urlChanged2 = await waitForCondition(tabId, USER_ID, `
+            (() => {
+              const url = location.href.toLowerCase();
+              return !url.includes('email-verification') ? url : null;
+            })()
+          `, { timeoutMs: 20000, intervalMs: 1500 });
+          
+          if (urlChanged2) {
+            finalUrlCheck = urlChanged2.toLowerCase();
+          } else {
+            // Vẫn trống sau 35s tổng cộng -> Coi như đơ thực sự
+            console.log(`[OTP] 🔄 Vẫn kẹt ở trang trống sau 35s tổng cộng. Quay lại login page để khôi phục...`);
+            await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
+            await new Promise(r => setTimeout(r, 6000));
+            finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+          }
         }
       }
 

@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.215] - 2026-06-21 02:27:00
+
+### 🐛 Khắc phục lỗi worker tự động đăng ký bị ngắt dòng tải do trang trống khi redirect sau OTP (Bug Fix)
+
+- **`scripts/auto-register-worker.js`**:
+  - Tối ưu hóa điều kiện phát hiện trang bị đơ/trống sau khi gửi mã OTP.
+  - Phân biệt giữa trang bị đơ thực sự (vẫn còn ô nhập OTP) và trang đang tải chuyển hướng (trang trống, không còn ô nhập OTP).
+  - Tăng thời gian chờ đợi redirect lên thêm 20 giây (tổng cộng 35 giây) khi phát hiện trang đang chuyển hướng, ngăn chặn việc script tự động chuyển hướng về trang Login quá sớm làm phá hỏng tiến trình đăng ký thành công trên OpenAI.
+
 ## [0.3.214] - 2026-06-21 02:24:00
 
 ### 🔧 Đảm bảo cập nhật flag ever_ready tự động khi lưu trạng thái ready (Refactor)
