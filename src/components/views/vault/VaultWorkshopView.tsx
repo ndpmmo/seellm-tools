@@ -411,6 +411,12 @@ export function VaultWorkshopView() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('active');
+    const [poolPage, setPoolPage] = useState(1);
+    const POOL_PAGE_SIZE = 100;
+
+    useEffect(() => {
+        setPoolPage(1);
+    }, [searchTerm, statusFilter]);
     const [showImport, setShowImport] = useState(false);
     const [inputText, setInputText] = useState('');
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -696,6 +702,8 @@ export function VaultWorkshopView() {
                         statusFilter === 'done' ? (Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done') : true;
         return matchSearch && matchStatus;
     });
+
+    const paginatedPool = filteredPool.slice((poolPage - 1) * POOL_PAGE_SIZE, poolPage * POOL_PAGE_SIZE);
 
     const handleImport = async () => {
         const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -1300,7 +1308,7 @@ export function VaultWorkshopView() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-white/[0.04]">
-                                        {filteredPool.map(it => (
+                                        {paginatedPool.map(it => (
                                             <tr key={it.email} className={`hover:bg-white/[0.025] transition-colors group ${selected.has(it.email) ? 'bg-indigo-500/5' : ''} ${editingEmail === it.email ? 'bg-amber-500/5 ring-1 ring-amber-500/20' : ''}`}>
                                                 <td className="px-4 py-3.5">
                                                     <button onClick={() => toggleOne(it.email)} className="text-slate-500 hover:text-slate-200 transition-colors">
@@ -1409,6 +1417,23 @@ export function VaultWorkshopView() {
                                     </tbody>
                                 </table>
                             </div>
+
+                            {filteredPool.length > POOL_PAGE_SIZE && (
+                                <div className="flex items-center justify-between px-6 py-4 border-t border-white/5 bg-black/20 shrink-0">
+                                    <div className="text-xs text-slate-400">
+                                        Hiển thị <span className="font-semibold text-white">{(poolPage - 1) * POOL_PAGE_SIZE + 1}</span> - <span className="font-semibold text-white">{Math.min(filteredPool.length, poolPage * POOL_PAGE_SIZE)}</span> trong tổng số <span className="font-semibold text-white">{filteredPool.length}</span> email
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button variant="ghost" size="sm" onClick={() => setPoolPage(p => Math.max(1, p - 1))} disabled={poolPage === 1}>
+                                            Trang trước
+                                        </Button>
+                                        <span className="text-xs text-slate-400">Trang {poolPage} / {Math.ceil(filteredPool.length / POOL_PAGE_SIZE) || 1}</span>
+                                        <Button variant="ghost" size="sm" onClick={() => setPoolPage(p => Math.min(Math.ceil(filteredPool.length / POOL_PAGE_SIZE), p + 1))} disabled={poolPage >= Math.ceil(filteredPool.length / POOL_PAGE_SIZE)}>
+                                            Trang sau
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                         </Card>
                     </div>
                 )}
@@ -1545,36 +1570,46 @@ export function VaultWorkshopView() {
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-                                {items
-                                    .filter(e => 
+                                {(() => {
+                                    const filteredInbox = items.filter(e => 
                                         e.email.toLowerCase().includes(inboxSearch.toLowerCase()) &&
-                                        e.mail_status !== 'dead' // Filter out dead emails from inbox list
-                                    )
-                                    .map(it => (
-                                        <div
-                                            key={it.email}
-                                            onClick={() => { openInbox(it); setComposing(false); }}
-                                            className={`px-3 py-2.5 cursor-pointer border-b border-white/[0.04] transition-colors ${
-                                                inboxSelectedEmail === it.email
-                                                    ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
-                                                    : 'hover:bg-white/[0.025]'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Mail size={13} className={inboxSelectedEmail === it.email ? 'text-indigo-400 shrink-0' : 'text-slate-600 shrink-0'} />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-[12px] font-medium text-slate-200 truncate">{it.email.split('@')[0]}</div>
-                                                    <div className="text-[10px] text-slate-500 truncate">@{it.email.split('@')[1]}</div>
+                                        e.mail_status !== 'dead'
+                                    );
+                                    const displayedInbox = filteredInbox.slice(0, 100);
+                                    return (
+                                        <>
+                                            {displayedInbox.map(it => (
+                                                <div
+                                                    key={it.email}
+                                                    onClick={() => { openInbox(it); setComposing(false); }}
+                                                    className={`px-3 py-2.5 cursor-pointer border-b border-white/[0.04] transition-colors ${
+                                                        inboxSelectedEmail === it.email
+                                                            ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
+                                                            : 'hover:bg-white/[0.025]'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Mail size={13} className={inboxSelectedEmail === it.email ? 'text-indigo-400 shrink-0' : 'text-slate-600 shrink-0'} />
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="text-[12px] font-medium text-slate-200 truncate">{it.email.split('@')[0]}</div>
+                                                            <div className="text-[10px] text-slate-500 truncate">@{it.email.split('@')[1]}</div>
+                                                        </div>
+                                                        <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                                            it.mail_status === 'active' ? 'bg-emerald-500'
+                                                            : it.mail_status === 'dead' ? 'bg-rose-500'
+                                                            : 'bg-amber-400'
+                                                        }`} />
+                                                    </div>
                                                 </div>
-                                                <div className={`w-2 h-2 rounded-full shrink-0 ${
-                                                    it.mail_status === 'active' ? 'bg-emerald-500'
-                                                    : it.mail_status === 'dead' ? 'bg-rose-500'
-                                                    : 'bg-amber-400'
-                                                }`} />
-                                            </div>
-                                        </div>
-                                    ))
-                                }
+                                            ))}
+                                            {filteredInbox.length > 100 && (
+                                                <div className="px-3 py-2 text-[10px] text-slate-500 text-center italic border-b border-white/[0.04] bg-white/[0.01]">
+                                                    Hiển thị 100/{filteredInbox.length} email. Hãy tìm kiếm để lọc thêm.
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
 

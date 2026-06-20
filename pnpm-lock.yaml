@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       better-sqlite3:
-        specifier: ^12.8.0
+        specifier: ^12.10.0
         version: 12.10.0
       chokidar:
         specifier: ^5.0.0

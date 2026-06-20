@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.184] - 2026-06-20 17:53:00
+
+### ⚡ Khắc phục Lỗi Lag và Đơ UI (Freeze) Trên Trang Vault Workshop
+
+- **src/components/views/vault/VaultWorkshopView.tsx**:
+  - **Tích hợp phân trang (Pagination) cho Email Pool**: Giới hạn số lượng hiển thị tối đa 100 email mỗi trang (`POOL_PAGE_SIZE = 100`) thay vì kết xuất toàn bộ danh sách lên DOM. Giảm tải tối đa số lượng thẻ HTML và danh sách dropdown lựa chọn proxy trùng lặp.
+  - **Tối ưu hóa Inbox Sidebar**: Giới hạn danh sách email ở sidebar Inbox hiển thị tối đa 100 phần tử đầu tiên khớp với bộ lọc tìm kiếm. Hiển thị thông báo nhỏ khuyên dùng ô tìm kiếm khi tổng số kết quả vượt quá giới hạn hiển thị, tránh quá tải khi render.
+  - **Cải thiện UX**: Tự động reset số trang hiện tại về trang 1 khi người dùng thực hiện gõ từ khóa tìm kiếm (`searchTerm`) hoặc thay đổi bộ lọc trạng thái (`statusFilter`).
+
 ## [0.3.183] - 2026-06-20 17:45:00
 
 ### 🚀 Tối ưu hóa & Nâng cao Tỷ lệ Đăng ký Thành công (Fix Lỗi OTP Timeout & About You Form)
