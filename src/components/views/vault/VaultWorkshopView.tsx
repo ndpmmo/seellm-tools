@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useApp } from '../../AppContext';
 import {
     Mail, Search, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
@@ -481,13 +481,21 @@ export function VaultWorkshopView() {
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dead' | 'done'>('active');
     const [poolPage, setPoolPage] = useState(1);
     const POOL_PAGE_SIZE = 100;
 
     useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+        }, 150);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
+
+    useEffect(() => {
         setPoolPage(1);
-    }, [searchTerm, statusFilter]);
+    }, [debouncedSearchTerm, statusFilter]);
     const [showImport, setShowImport] = useState(false);
     const [inputText, setInputText] = useState('');
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -764,17 +772,21 @@ export function VaultWorkshopView() {
     };
 
     // Filtered Pool
-    const filteredPool = items.filter(e => {
-        const matchSearch = e.email.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchStatus =
-            statusFilter === 'all' ? true :
-                statusFilter === 'active' ? e.mail_status === 'active' :
-                    statusFilter === 'dead' ? e.mail_status === 'dead' :
-                        statusFilter === 'done' ? (Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done') : true;
-        return matchSearch && matchStatus;
-    });
+    const filteredPool = useMemo(() => {
+        return items.filter(e => {
+            const matchSearch = e.email.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
+            const matchStatus =
+                statusFilter === 'all' ? true :
+                    statusFilter === 'active' ? e.mail_status === 'active' :
+                        statusFilter === 'dead' ? e.mail_status === 'dead' :
+                            statusFilter === 'done' ? (Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done') : true;
+            return matchSearch && matchStatus;
+        });
+    }, [items, debouncedSearchTerm, statusFilter]);
 
-    const paginatedPool = filteredPool.slice((poolPage - 1) * POOL_PAGE_SIZE, poolPage * POOL_PAGE_SIZE);
+    const paginatedPool = useMemo(() => {
+        return filteredPool.slice((poolPage - 1) * POOL_PAGE_SIZE, poolPage * POOL_PAGE_SIZE);
+    }, [filteredPool, poolPage]);
 
     const handleImport = async () => {
         const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean);

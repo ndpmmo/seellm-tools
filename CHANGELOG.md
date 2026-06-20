@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.218] - 2026-06-21 02:40:00
+
+### 🚀 Tối ưu hóa hiệu năng giao diện và giảm thiểu re-render (Performance Optimization)
+
+- **`src/components/views/vault/VaultAccountsView.tsx`**:
+  - Memoize việc tìm kiếm và lọc danh sách tài khoản (`filtered`) bằng `useMemo` kết hợp với Debouncing (`debouncedSearch`) để không tính toán lại khi component render.
+  - Phân trang cục bộ (Local Client-Side Pagination) hiển thị danh sách tài khoản (50, 100, 200, 500 trang) giúp cải thiện đáng kể tốc độ phản hồi giao diện khi số lượng tài khoản trong Vault lên tới hàng trăm hoặc hàng nghìn.
+  - Di chuyển các state filter lên trên hook `useEffect` để tránh lỗi TS compilation do temporal dead zone.
+- **`src/components/views/vault/VaultWorkshopView.tsx`**:
+  - Áp dụng cơ chế debouncing 150ms cho ô tìm kiếm (`debouncedSearchTerm`).
+  - Sử dụng `useMemo` để tính toán danh sách tài khoản đã lọc (`filteredPool`) và phân trang (`paginatedPool`), cải thiện tốc độ mượt mà khi lọc và thao tác.
+- **`src/components/views/MultiProfileView.tsx`**:
+  - Áp dụng debouncing 150ms cho tìm kiếm profile (`debouncedSearchTerm`).
+  - Memoize danh sách profile đã lọc (`filteredProfiles`) và các bộ đếm trạng thái (`activeCount`, `idleCount`, `proxyCount`) thông qua `useMemo` để tránh tính toán lặp lại.
+
 ## [0.3.217] - 2026-06-21 02:35:00
 
 ### ⚙️ Ổn định hóa thứ tự sắp xếp danh sách tài khoản Vault, tránh nhảy dòng khi xử lý tác vụ (UX Fix)

@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag, Filter,
@@ -260,10 +260,35 @@ export function VaultAccountsView() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Custom Advanced Filter States
+  const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'workspace' | 'personal'>('all');
+  const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterTag, setFilterTag] = useState<string>('all');
+  const [filterTime, setFilterTime] = useState<'all' | 'recent' | 'today' | 'yesterday' | '3days' | '7days' | '30days'>('all');
+  const [activePreset, setActivePreset] = useState<string>('all');
+  const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 150);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, filterWorkspace, filterPlan, filterStatus, filterTag, filterTime, activePreset]);
+
   const [providerFilter, _setProviderFilter] = useState('all');
 
   const setProviderFilter = useCallback((p: string) => {
     _setProviderFilter(p);
+    setCurrentPage(1); // Reset page on provider filter change
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.set('tab', p);
@@ -313,14 +338,7 @@ export function VaultAccountsView() {
   const [warmupConcurrency, setWarmupConcurrency] = useState<number>(1);
   const [selectedWarmupAccountIds, setSelectedWarmupAccountIds] = useState<Set<string>>(new Set());
 
-  // Custom Advanced Filter States
-  const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'workspace' | 'personal'>('all');
-  const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'plus' | 'pro' | 'team'>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterTag, setFilterTag] = useState<string>('all');
-  const [filterTime, setFilterTime] = useState<'all' | 'recent' | 'today' | 'yesterday' | '3days' | '7days' | '30days'>('all');
-  const [activePreset, setActivePreset] = useState<string>('all');
-  const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+
 
   const [uiState, setUiState] = useState({
     isAdding: false,
@@ -404,104 +422,121 @@ export function VaultAccountsView() {
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patchData } : it)));
   }, []);
 
-  const filtered = items.filter(it => {
-    const providerMatch =
-      providerFilter === 'all'
-        ? true
-        : providerFilter === 'openai'
-          ? isOpenAI(it.provider)  // nhóm openai + codex cùng bucket
-          : it.provider === providerFilter;
-          
-    const searchMatch = !search || 
-      it.email.toLowerCase().includes(search.toLowerCase()) || 
-      (it.label && it.label.toLowerCase().includes(search.toLowerCase())) ||
-      (it.proxy_url && it.proxy_url.toLowerCase().includes(search.toLowerCase())) ||
-      (it.notes && it.notes.toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => {
+    return items.filter(it => {
+      const providerMatch =
+        providerFilter === 'all'
+          ? true
+          : providerFilter === 'openai'
+            ? isOpenAI(it.provider)  // nhóm openai + codex cùng bucket
+            : it.provider === providerFilter;
+            
+      const searchMatch = !debouncedSearch || 
+        it.email.toLowerCase().includes(debouncedSearch.toLowerCase()) || 
+        (it.label && it.label.toLowerCase().includes(debouncedSearch.toLowerCase())) ||
+        (it.proxy_url && it.proxy_url.toLowerCase().includes(debouncedSearch.toLowerCase())) ||
+        (it.notes && it.notes.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
-    // Custom advanced filter matching
-    const tags = safeParseTags(it.tags);
-    const hasWorkspaceTag = tags.includes('workspace');
-    const workspaceMatch = 
-      filterWorkspace === 'all' ? true :
-      filterWorkspace === 'workspace' ? hasWorkspaceTag : !hasWorkspaceTag;
+      // Custom advanced filter matching
+      const tags = safeParseTags(it.tags);
+      const hasWorkspaceTag = tags.includes('workspace');
+      const workspaceMatch = 
+        filterWorkspace === 'all' ? true :
+        filterWorkspace === 'workspace' ? hasWorkspaceTag : !hasWorkspaceTag;
 
-    const planLower = (it.plan || '').toLowerCase();
-    const planMatch =
-      filterPlan === 'all' ? true :
-      filterPlan === 'free' ? (!planLower || planLower.includes('free')) :
-      filterPlan === 'plus' ? planLower.includes('plus') :
-      filterPlan === 'pro' ? planLower.includes('pro') :
-      filterPlan === 'team' ? (planLower.includes('team') || planLower.includes('business')) : true;
+      const planLower = (it.plan || '').toLowerCase();
+      const planMatch =
+        filterPlan === 'all' ? true :
+        filterPlan === 'free' ? (!planLower || planLower.includes('free')) :
+        filterPlan === 'plus' ? planLower.includes('plus') :
+        filterPlan === 'pro' ? planLower.includes('pro') :
+        filterPlan === 'team' ? (planLower.includes('team') || planLower.includes('business')) : true;
 
-    const statusMatch = filterStatus === 'all' ? true : it.status === filterStatus;
+      const statusMatch = filterStatus === 'all' ? true : it.status === filterStatus;
 
-    const tagMatch =
-      filterTag === 'all' ? true :
-      filterTag === 'has_2fa' ? !!it.two_fa_secret :
-      filterTag === 'no_2fa' ? !it.two_fa_secret :
-      tags.includes(filterTag);
+      const tagMatch =
+        filterTag === 'all' ? true :
+        filterTag === 'has_2fa' ? !!it.two_fa_secret :
+        filterTag === 'no_2fa' ? !it.two_fa_secret :
+        tags.includes(filterTag);
 
-    const timeMatch = (() => {
-      if (filterTime === 'all') return true;
-      if (!it.created_at) return false;
-      const createdDate = new Date(it.created_at);
-      const diffMs = new Date().getTime() - createdDate.getTime();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-      if (filterTime === 'recent') {
-        return diffMs <= 4 * 60 * 60 * 1000;
-      }
-      if (filterTime === 'today') {
-        return new Date().toDateString() === createdDate.toDateString();
-      }
-      if (filterTime === 'yesterday') {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        return yesterday.toDateString() === createdDate.toDateString();
-      }
-      if (filterTime === '3days') return diffDays <= 3;
-      if (filterTime === '7days') return diffDays <= 7;
-      if (filterTime === '30days') return diffDays <= 30;
-      return true;
-    })();
-
-    // Custom Preset logic matching
-    let presetMatch = true;
-    if (activePreset === 'created_today') {
-      if (!it.created_at) presetMatch = false;
-      else {
+      const timeMatch = (() => {
+        if (filterTime === 'all') return true;
+        if (!it.created_at) return false;
         const createdDate = new Date(it.created_at);
-        presetMatch = new Date().toDateString() === createdDate.toDateString();
+        const diffMs = new Date().getTime() - createdDate.getTime();
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        if (filterTime === 'recent') {
+          return diffMs <= 4 * 60 * 60 * 1000;
+        }
+        if (filterTime === 'today') {
+          return new Date().toDateString() === createdDate.toDateString();
+        }
+        if (filterTime === 'yesterday') {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          return yesterday.toDateString() === createdDate.toDateString();
+        }
+        if (filterTime === '3days') return diffDays <= 3;
+        if (filterTime === '7days') return diffDays <= 7;
+        if (filterTime === '30days') return diffDays <= 30;
+        return true;
+      })();
+
+      // Custom Preset logic matching
+      let presetMatch = true;
+      if (activePreset === 'created_today') {
+        if (!it.created_at) presetMatch = false;
+        else {
+          const createdDate = new Date(it.created_at);
+          presetMatch = new Date().toDateString() === createdDate.toDateString();
+        }
+      } else if (activePreset === 'created_week') {
+        if (!it.created_at) presetMatch = false;
+        else {
+          const createdDate = new Date(it.created_at);
+          const diffDays = (new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
+          presetMatch = diffDays <= 7;
+        }
+      } else if (activePreset === 'no_proxy') {
+        presetMatch = !it.proxy_url;
+      } else if (activePreset === 'has_proxy') {
+        presetMatch = !!it.proxy_url;
+      } else if (activePreset === 'action_required') {
+        presetMatch = ['error', 'relogin'].includes(it.status) || tags.includes('need_phone');
+      } else if (activePreset === 'no_2fa') {
+        presetMatch = !it.two_fa_secret;
+      } else if (activePreset === 'premium') {
+        presetMatch = !!planLower && !planLower.includes('free');
       }
-    } else if (activePreset === 'created_week') {
-      if (!it.created_at) presetMatch = false;
-      else {
-        const createdDate = new Date(it.created_at);
-        const diffDays = (new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
-        presetMatch = diffDays <= 7;
-      }
-    } else if (activePreset === 'no_proxy') {
-      presetMatch = !it.proxy_url;
-    } else if (activePreset === 'has_proxy') {
-      presetMatch = !!it.proxy_url;
-    } else if (activePreset === 'action_required') {
-      presetMatch = ['error', 'relogin'].includes(it.status) || tags.includes('need_phone');
-    } else if (activePreset === 'no_2fa') {
-      presetMatch = !it.two_fa_secret;
-    } else if (activePreset === 'premium') {
-      presetMatch = !!planLower && !planLower.includes('free');
+
+      return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch && timeMatch && presetMatch;
+    });
+  }, [items, debouncedSearch, providerFilter, filterWorkspace, filterPlan, filterStatus, filterTag, filterTime, activePreset]);
+
+  const sortedFiltered = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const aTime = a.created_at ? Date.parse(a.created_at) : (a.updated_at ? Date.parse(a.updated_at) : 0);
+      const bTime = b.created_at ? Date.parse(b.created_at) : (b.updated_at ? Date.parse(b.updated_at) : 0);
+      
+      return bTime - aTime;
+    });
+  }, [filtered]);
+
+  const paginatedSortedFiltered = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedFiltered.slice(start, start + pageSize);
+  }, [sortedFiltered, currentPage, pageSize]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  }, [sortedFiltered, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
     }
-
-    return providerMatch && searchMatch && workspaceMatch && planMatch && statusMatch && tagMatch && timeMatch && presetMatch;
-  });
-
-  const sortedFiltered = [...filtered].sort((a, b) => {
-    // Sắp xếp cố định theo thời gian tạo (created_at) hoặc cập nhật (updated_at) từ mới nhất đến cũ nhất
-    // để đảm bảo thứ tự danh sách luôn ổn định, tránh tài khoản tự động nhảy dòng lên đầu khi bắt đầu xử lý (pending/warmup).
-    const aTime = a.created_at ? Date.parse(a.created_at) : (a.updated_at ? Date.parse(a.updated_at) : 0);
-    const bTime = b.created_at ? Date.parse(b.created_at) : (b.updated_at ? Date.parse(b.updated_at) : 0);
-    
-    return bTime - aTime;
-  });
+  }, [currentPage, totalPages]);
 
   /* ── CRUD ── */
   const save = async () => {
@@ -2137,7 +2172,7 @@ export function VaultAccountsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {sortedFiltered.map(it => {
+              {paginatedSortedFiltered.map(it => {
                 const tags = safeParseTags(it.tags);
                 const allowDeploy = isOpenAI(it.provider) && (it.status === 'idle' || it.status === 'stopped') && !tags.includes('account_deactivated');
                 const isExpanded = expandedId === it.id;
@@ -2444,6 +2479,38 @@ export function VaultAccountsView() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {filtered.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between px-6 py-4 border-t border-white/5 shrink-0 bg-white/[0.01]">
+            <div className="flex items-center gap-3 text-[12px] text-slate-400">
+              <span>
+                Hiển thị <span className="font-semibold text-slate-200">{((currentPage - 1) * pageSize) + 1}</span> -{' '}
+                <span className="font-semibold text-slate-200">{Math.min(currentPage * pageSize, filtered.length)}</span> trên{' '}
+                <span className="font-semibold text-indigo-400">{filtered.length}</span> tài khoản
+              </span>
+              <select
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+              >
+                <option value={50} className="bg-[#0d111c] text-slate-300">50 / trang</option>
+                <option value={100} className="bg-[#0d111c] text-slate-300">100 / trang</option>
+                <option value={200} className="bg-[#0d111c] text-slate-300">200 / trang</option>
+                <option value={500} className="bg-[#0d111c] text-slate-300">500 / trang</option>
+              </select>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="h-8 px-2.5">Trang đầu</Button>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 px-2.5">Trước</Button>
+                <div className="text-[12px] px-3 font-semibold text-slate-300">Trang {currentPage} / {totalPages}</div>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 px-2.5">Sau</Button>
+                <Button variant="secondary" size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="h-8 px-2.5">Trang cuối</Button>
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* ═══ INBOX MODAL ═══ */}

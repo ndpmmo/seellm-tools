@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp, BrowserProfile } from '../AppContext';
 import {
   Plus, Play, Square, Monitor, Copy, Trash2, Edit3, Search,
@@ -327,24 +327,35 @@ export function MultiProfileView() {
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editProfile, setEditProfile] = useState<BrowserProfile | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => Promise<void> } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 150);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  useEffect(() => {
     refreshProfiles().then(() => setLoading(false));
     refreshProfileOptions();
   }, []);
 
-  const filteredProfiles = profiles.filter(p =>
-    !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.group_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.proxy_url?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProfiles = useMemo(() => {
+    return profiles.filter(p =>
+      !debouncedSearchTerm || p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+      p.group_name?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+      p.proxy_url?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+    );
+  }, [profiles, debouncedSearchTerm]);
 
-  const activeCount = profiles.filter(p => p.status === 'active').length;
-  const idleCount = profiles.filter(p => p.status !== 'active').length;
+  const activeCount = useMemo(() => profiles.filter(p => p.status === 'active').length, [profiles]);
+  const idleCount = useMemo(() => profiles.filter(p => p.status !== 'active').length, [profiles]);
+  const proxyCount = useMemo(() => profiles.filter(p => p.proxy_url).length, [profiles]);
 
   const handleCreate = async (data: any) => {
     setShowCreate(false);
@@ -401,7 +412,7 @@ export function MultiProfileView() {
         <StatBox label="Total Profiles" value={profiles.length} icon={Monitor} colorClass="text-indigo-400" borderClass="border-indigo-500/20" bgClass="bg-indigo-500/10" />
         <StatBox label="Active" value={activeCount} icon={Play} colorClass="text-emerald-400" borderClass="border-emerald-500/20" bgClass="bg-emerald-500/10" />
         <StatBox label="Idle" value={idleCount} icon={Square} colorClass="text-slate-400" borderClass="border-slate-500/20" bgClass="bg-slate-500/10" />
-        <StatBox label="With Proxy" value={profiles.filter(p => p.proxy_url).length} icon={Globe} colorClass="text-blue-400" borderClass="border-blue-500/20" bgClass="bg-blue-500/10" />
+        <StatBox label="With Proxy" value={proxyCount} icon={Globe} colorClass="text-blue-400" borderClass="border-blue-500/20" bgClass="bg-blue-500/10" />
       </div>
 
       {/* Toolbar */}
