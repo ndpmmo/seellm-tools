@@ -2571,6 +2571,7 @@ class BulkRegisterRunner {
     this.enableOAuth = enableOAuth;
     this.activeWorkers = new Map(); // email -> procId
     this.autoRetryCounts = new Map(); // email -> retry count
+    this.proxyHealth = new Map(); // proxy -> 'good' | 'bad'
     this.completed = [];
     this.failed = [];
     this.status = 'running'; // 'running', 'stopped', 'completed'
@@ -2634,6 +2635,10 @@ class BulkRegisterRunner {
         if (status === 'stopped' && exitCode === 0) {
           this.completed.push(email);
           this.log(`✅ Đăng ký thành công: ${email}`);
+          const task = this.allTasks.find(t => t.emailRecord.email === email);
+          if (task && task.proxy) {
+            this.proxyHealth.set(task.proxy, 'good');
+          }
         } else {
           // Find error message from logs
           let errMsg = `Exit code ${exitCode} (${status})`;
@@ -2646,19 +2651,38 @@ class BulkRegisterRunner {
             isProxyError = proc.logs.some(l => l.text?.includes('Proxy validation failed') || l.text?.includes('Proxy bypassed') || l.text?.includes('PreFlight Failed') || l.text?.includes('PostVerify Failed') || l.text?.includes('IP Check failed') || l.text?.includes('BLOCKED_BY_OPENAI') || l.text?.includes('Connection timed out'));
           }
 
+          const task = this.allTasks.find(t => t.emailRecord.email === email);
+          if (isProxyError && task && task.proxy) {
+            this.proxyHealth.set(task.proxy, 'bad');
+          }
+
           // Check if we can auto-retry this task with a rotated proxy
           const retryCount = this.autoRetryCounts.get(email) || 0;
           const maxAutoRetries = 2;
           if (isProxyError && retryCount < maxAutoRetries && this.proxies && this.proxies.length > 1) {
             this.autoRetryCounts.set(email, retryCount + 1);
-            const task = this.allTasks.find(t => t.emailRecord.email === email);
             if (task) {
               const currentFailedProxy = task.proxy;
+              let nextProxy = null;
+              
+              const goodProxies = this.proxies.filter(p => this.proxyHealth.get(p) === 'good' && p !== currentFailedProxy);
+              const unknownProxies = this.proxies.filter(p => !this.proxyHealth.has(p) && p !== currentFailedProxy);
               const otherProxies = this.proxies.filter(p => p !== currentFailedProxy);
-              if (otherProxies.length > 0) {
-                task.proxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+
+              if (goodProxies.length > 0) {
+                nextProxy = goodProxies[Math.floor(Math.random() * goodProxies.length)];
+                this.log(`🔄 [Tự động thử lại lần ${retryCount + 1}/${maxAutoRetries}] Ưu tiên dùng Proxy SỐNG cho ${email}.`);
+              } else if (unknownProxies.length > 0) {
+                nextProxy = unknownProxies[Math.floor(Math.random() * unknownProxies.length)];
+                this.log(`🔄 [Tự động thử lại lần ${retryCount + 1}/${maxAutoRetries}] Dùng Proxy chưa test cho ${email}.`);
+              } else if (otherProxies.length > 0) {
+                nextProxy = otherProxies[Math.floor(Math.random() * otherProxies.length)];
+                this.log(`🔄 [Tự động thử lại lần ${retryCount + 1}/${maxAutoRetries}] Dùng đại Proxy khác cho ${email}.`);
+              }
+
+              if (nextProxy) {
+                task.proxy = nextProxy;
                 this.queue.push(task);
-                this.log(`🔄 [Tự động thử lại lần ${retryCount + 1}/${maxAutoRetries}] Đưa ${email} trở lại hàng đợi với Proxy mới do lỗi proxy/chặn: ${currentFailedProxy || 'None'} ➔ ${task.proxy}`);
                 continue; // Skip failed list and single-item-complete notification for now
               }
             }
@@ -2696,7 +2720,7 @@ class BulkRegisterRunner {
         break;
       }
 
-      const delayMs = spawnIndex * 6000;
+      const delayMs = spawnIndex * 10000;
       const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}`;
       spawnIndex++;
       

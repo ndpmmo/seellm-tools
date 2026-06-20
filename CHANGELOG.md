@@ -2,6 +2,20 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.183] - 2026-06-20 17:45:00
+
+### 🚀 Tối ưu hóa & Nâng cao Tỷ lệ Đăng ký Thành công (Fix Lỗi OTP Timeout & About You Form)
+
+- **scripts/auto-register-worker.js**:
+  - **Tăng timeout nhập OTP**: Nâng thời gian timeout của `actClick` và `actPress` khi nhập OTP lên 15 giây (`timeoutMs: 15000`) nhằm thích ứng với mạng proxy có độ trễ cao, giảm thiểu triệt để lỗi timeout (6000ms).
+  - **Khắc phục lỗi form "About You" (DOB/Birthday)**: Bổ sung bộ lọc `isVisible` (bỏ qua `type="hidden"` và `display: none`) khi truy vấn các trường Ngày/Tháng/Năm sinh. Tránh trường hợp chọn nhầm các input ẩn của hệ thống dẫn đến đăng ký thất bại hoặc bị OpenAI từ chối vì không hợp lệ (tuổi bằng 0).
+- **scripts/lib/proxy-diag.js**:
+  - **Đo lường độ trễ (Latency)**: Tính toán latency khi thực hiện ping ChatGPT (`checkChatGPTReachability`). Nếu proxy có latency > 5000ms, tự động phân loại proxy là chậm/không đạt yêu cầu (`bad`).
+- **server/routes/vault.js**:
+  - **Quản lý trạng thái Proxy thông minh**: Tự động theo dõi chất lượng proxy (`good` / `bad`). Khi proxy lỗi hoặc bị chặn, đánh dấu là `bad`. Khi đăng ký thành công, đánh dấu là `good`.
+  - **Định tuyến Proxy tự động khi retry**: Ưu tiên sử dụng proxy sống (`good`) đã được chứng minh hiệu quả trước, sau đó là proxy chưa test, tránh thử lại các proxy bị lỗi/chậm giúp tối ưu tỷ lệ thành công.
+  - **Giãn cách stagger thông minh**: Tăng thời gian giãn cách khởi tạo (`stagger`) từ 6 giây lên 10 giây để giảm tải cho hệ thống và tránh bị quét hàng loạt.
+
 ## [0.3.182] - 2026-06-20 15:19:00
 
 ### 🚀 Tối ưu hóa Toàn diện Cơ chế "Đợi" (Dynamic Waiting) Tăng Tốc Độ Đăng Ký

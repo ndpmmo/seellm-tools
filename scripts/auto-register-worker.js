@@ -919,6 +919,8 @@ export async function runAutoRegister(taskInput) {
       headless: false,
       humanize: true,
       persistent: usePersistent,
+      blockResources: !!proxyUrl,
+      timeoutMs: proxyUrl ? 60000 : 30000,
       ...(proxyUrl ? { proxy: proxyUrl } : {})
     });
     console.log(proxyUrl ? `🔌 Dùng proxy: ${proxyUrl}` : '🌐 Không dùng proxy');
@@ -929,7 +931,7 @@ export async function runAutoRegister(taskInput) {
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
 
     console.log(`🌐 Mở trang chatgpt.com/auth/login...`);
-    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
+    await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login', timeoutMs: proxyUrl ? 60000 : 30000 });
     await new Promise(r => setTimeout(r, 5000));
 
 
@@ -1026,7 +1028,7 @@ export async function runAutoRegister(taskInput) {
       `).catch(() => false);
       if (isCfChallenge) {
         console.log(`[Cloudflare] ⚠️ Phát hiện Cloudflare challenge/interstitial page. Chờ Camoufox tự động bypass tối đa 25s...`);
-        const cfBypassed = await pollUntil(async () => {
+        let cfBypassed = await pollUntil(async () => {
           const cfState = await evalJson(tabId, USER_ID, `
             (() => {
               const body = document.body?.innerText?.toLowerCase() || '';
@@ -1037,8 +1039,25 @@ export async function runAutoRegister(taskInput) {
             })()
           `).catch(() => null);
           return cfState && !cfState.hasCf && (cfState.hasEmailInput || cfState.hasPasswordInput);
-        }, 'CloudflareBypass', { intervalMs: 2000, maxWaitMs: 25000 }).catch(() => false);
+        }, 'CloudflareBypass-Phase1', { intervalMs: 2000, maxWaitMs: 15000 }).catch(() => false);
         
+        if (!cfBypassed) {
+          console.log(`[Cloudflare] 🔄 Kẹt ở CF quá 15s. Đang tiến hành reload trang để lấy challenge ticket mới...`);
+          await evalJson(tabId, USER_ID, `(() => { location.reload(); return true; })()`).catch(() => {});
+          cfBypassed = await pollUntil(async () => {
+            const cfState = await evalJson(tabId, USER_ID, `
+              (() => {
+                const body = document.body?.innerText?.toLowerCase() || '';
+                const hasEmailInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+                const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"]');
+                const hasCf = body.includes('checking your browser') || body.includes('just a moment') || !!document.querySelector('#cf-challenge-running, #cf-spinner');
+                return { hasEmailInput, hasPasswordInput, hasCf };
+              })()
+            `).catch(() => null);
+            return cfState && !cfState.hasCf && (cfState.hasEmailInput || cfState.hasPasswordInput);
+          }, 'CloudflareBypass-Phase2', { intervalMs: 2000, maxWaitMs: 15000 }).catch(() => false);
+        }
+
         if (cfBypassed) {
           console.log(`[Cloudflare] ✅ Đã vượt qua Cloudflare challenge thành công!`);
         } else {
@@ -1861,10 +1880,10 @@ export async function runAutoRegister(taskInput) {
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await recorder.before(4, 2, 'otp_entry');
       const otpInputSelector = 'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]';
-      await actClick(tabId, USER_ID, { selector: otpInputSelector }).catch(() => {});
+      await actClick(tabId, USER_ID, { selector: otpInputSelector }, { timeoutMs: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 600));
       for (const char of otpCode) {
-        await actPress(tabId, USER_ID, { key: char });
+        await actPress(tabId, USER_ID, { key: char }, { timeoutMs: 15000 }).catch(e => console.warn(`actPress warn: ${e.message}`));
         await new Promise(r => setTimeout(r, 100));
       }
       await new Promise(r => setTimeout(r, 800));
@@ -2196,9 +2215,13 @@ export async function runAutoRegister(taskInput) {
                }
 
                // Điền ngày sinh / tuổi
-               const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
-               const birthDayEl = document.querySelector('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
-               const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
+               const isVisible = (el) => el && el.type !== 'hidden' && el.style.display !== 'none';
+               
+               const getVisibleInput = (selectors) => Array.from(document.querySelectorAll(selectors)).find(isVisible);
+
+               const birthMonthEl = getVisibleInput('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+               const birthDayEl = getVisibleInput('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
+               const birthYearEl = getVisibleInput('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
 
                if ((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl)) {
                    if (birthMonthEl) fillFieldReact(birthMonthEl, '${userInfo.birthdate.slice(5, 7)}');
@@ -2208,10 +2231,8 @@ export async function runAutoRegister(taskInput) {
                    if (hiddenDobEl) fillFieldReact(hiddenDobEl, '${userInfo.birthdate}');
                    filled.bday = 'dob-segmented';
                } else {
-                   const ageEl = document.querySelector('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
-                   const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                                 document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]') ||
-                                 document.querySelector('input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
+                   const ageEl = getVisibleInput('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
+                   const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
 
                    if (ageEl && ageEl.type !== 'date') {
                        fillFieldReact(ageEl, '${userInfo.age.toString()}');
@@ -2289,9 +2310,12 @@ export async function runAutoRegister(taskInput) {
                  return true;
                };
 
-              const birthMonthEl = document.querySelector('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
-              const birthDayEl = document.querySelector('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
-              const birthYearEl = document.querySelector('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
+              const isVisible = (el) => el && el.type !== 'hidden' && el.style.display !== 'none';
+              const getVisibleInput = (selectors) => Array.from(document.querySelectorAll(selectors)).find(isVisible);
+
+              const birthMonthEl = getVisibleInput('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+              const birthDayEl = getVisibleInput('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
+              const birthYearEl = getVisibleInput('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
 
               if (birthMonthEl && birthYearEl) {
                 if (birthMonthEl) fillFieldReact(birthMonthEl, '${userInfo.birthdate.slice(5, 7)}');
@@ -2300,8 +2324,7 @@ export async function runAutoRegister(taskInput) {
                 const hiddenDobEl = document.querySelector('input[type="date"]');
                 if (hiddenDobEl) fillFieldReact(hiddenDobEl, '${userInfo.birthdate}');
               } else {
-                const dobEl = document.querySelector('input[name="birthday"], input[name="dob"], input[type="date"]') ||
-                              document.querySelector('input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"]');
+                const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday"], input[placeholder*="Date of birth"]');
                 if (dobEl && dobEl.type === 'date') {
                   fillFieldReact(dobEl, '${userInfo.birthdate}');
                 } else if (dobEl) {

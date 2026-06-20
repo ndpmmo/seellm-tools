@@ -312,6 +312,7 @@ export async function checkIpLocation(proxyUrl = null) {
 export async function checkChatGPTReachability(proxyUrl = null) {
   try {
     const { requestViaCurlCffi } = await import('./openai-protocol-register.js');
+    const startTime = Date.now();
     const res = await requestViaCurlCffi({
       method: 'GET',
       url: 'https://chatgpt.com/auth/login',
@@ -324,9 +325,14 @@ export async function checkChatGPTReachability(proxyUrl = null) {
       timeoutMs: 15000,
     });
     
+    const latencyMs = Date.now() - startTime;
+    if (latencyMs > 5000) {
+      return { ok: false, error: `Proxy quá chậm (Latency: ${latencyMs}ms > 5000ms)` };
+    }
+
     // As long as we get a response (even 403), the proxy can reach the host
     if (res.status >= 200 && res.status < 500) {
-      return { ok: true };
+      return { ok: true, latency: latencyMs };
     }
     return { ok: false, error: `HTTP ${res.status}` };
   } catch (e) {
