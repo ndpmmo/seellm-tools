@@ -2,7 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.208] - 2026-06-21 01:08:00
+
+### 🐛 Ngăn chặn đồng bộ dữ liệu tài khoản chưa deploy lên Gateway (Bug Fix)
+
+- **`server/routes/vault.js`**:
+  - **Connect Result**: Chỉ đẩy thông tin cập nhật lỗi kết nối về Gateway (`SyncManager.pushVault`) khi tài khoản đã từng được deploy thành công trước đó (`ever_ready === 1`). Điều này tránh việc tạo các bản ghi rác lỗi trên Gateway đối với tài khoản chưa bao giờ active trên đó.
+  - **Stop Account**: Chỉ gửi tín hiệu dừng/revocation trạng thái `idle` về Gateway khi tài khoản đó có `ever_ready === 1` (đã deploy). Ngăn ngừa việc tự động kích hoạt hoặc lưu vết các tài khoản undeployed trên database D1.
+
 ## [0.3.207] - 2026-06-21 00:52:00
+
 
 ### 🛡️ Thêm theo dõi trạng thái lỗi "Yêu cầu 2FA nhưng thiếu Secret Key"
 

@@ -1437,7 +1437,7 @@ router.post('/accounts/result', async (req, res) => {
       });
 
       const fullRecord = vault.getAccountFull(id);
-      if (fullRecord) {
+      if (fullRecord && fullRecord.ever_ready === 1) {
         SyncManager.pushVault('account', fullRecord).catch(() => {});
       }
 
@@ -1534,7 +1534,7 @@ router.post('/accounts/:id/stop', async (req, res) => {
     }
 
     const updated = vault.db.prepare('SELECT * FROM vault_accounts WHERE id = ?').get(req.params.id);
-    if (updated) {
+    if (updated && updated.ever_ready === 1) {
       await SyncManager.pushVault('account', updated);
     }
     res.json({ ok: true, gateway_status: updated?.gateway_status ?? null });
