@@ -370,6 +370,54 @@ export async function getState(tabId, userId) {
  * @returns {Promise<object>} Result object
  */
 export async function fillEmail(tabId, userId, email) {
+  // --- PRIMARY: Camoufox native keyboard type ---
+  console.log(`[fillEmail] Trying Camoufox keyboard type (primary)...`);
+
+  // Step 0: Clear the email field first (important on retries)
+  try {
+    await evalJson(tabId, userId, `
+      (() => {
+        const inp = document.querySelector('input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"]');
+        if (!inp) return false;
+        inp.focus();
+        const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+        if (nativeInput) nativeInput.set.call(inp, '');
+        else inp.value = '';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        // Đóng Google One Tap / FedCM popup nếu xuất hiện
+        try {
+          const oneTapContainer = document.querySelector('#credential_picker_container, #credential_picker_iframe, [data-credential_picker_id]');
+          if (oneTapContainer) {
+            const closeBtn = oneTapContainer.querySelector('[aria-label="Close"], button[jsname="VCKitc"], button[jsname="tJiF1b"]');
+            if (closeBtn) closeBtn.click();
+            else oneTapContainer.remove();
+          }
+        } catch (_) {}
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+        return true;
+      })()
+    `, 3000).catch(() => {});
+    await new Promise(r => setTimeout(r, 200));
+  } catch (_) {}
+
+  try {
+    const typeRes = await actType(tabId, userId, {
+      selector: 'input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"]',
+      text: email,
+      mode: 'keyboard',
+      submit: true
+    }, { timeoutMs: 10000 });
+    
+    if (typeRes && typeRes.ok) {
+      return { ok: true, strategy: 'camofox-type', value: email };
+    }
+  } catch (typeErr) {
+    console.log(`⚠️ [fillEmail] Camoufox Type thất bại: ${typeErr.message}. Fallback to DOM...`);
+  }
+
+  // --- FALLBACK: DOM JS ---
   const escaped = JSON.stringify(email);
   let res = await evalJson(tabId, userId, `
     (() => {
@@ -407,25 +455,11 @@ export async function fillEmail(tabId, userId, email) {
         return { ok: false, reason: 'value-mismatch-after-set', currentVal: input.value };
       }
 
-      // Đóng Google One Tap / FedCM popup nếu xuất hiện (tránh click nhầm nút "Continue" của popup)
-      try {
-        const oneTapContainer = document.querySelector('#credential_picker_container, #credential_picker_iframe, [data-credential_picker_id]');
-        if (oneTapContainer) {
-          const closeBtn = oneTapContainer.querySelector('[aria-label="Close"], button[jsname="VCKitc"], button[jsname="tJiF1b"]');
-          if (closeBtn) closeBtn.click();
-          else oneTapContainer.remove();
-        }
-      } catch (_) {}
-      // Gửi Escape để dismiss FedCM nếu đang hiển thị
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-
-      // Tìm nút Continue / Next — ưu tiên trong form chứa email input, không tìm trong Google overlay
       const form = input.closest('form');
       const searchRoot = form || document;
       const btn = Array.from(searchRoot.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .filter(isVisible)
         .filter(el => {
-          // Loại bỏ các nút nằm trong Google One Tap / overlay popup
           const inPopup = el.closest('[id*="credential_picker"], [id*="g_id_"], [class*="nsm7Bb"], [data-credential_picker_id]');
           return !inPopup;
         })
@@ -437,27 +471,9 @@ export async function fillEmail(tabId, userId, email) {
       else {
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
       }
-      return { ok: true, clicked: !!btn, value: input.value };
+      return { ok: true, clicked: !!btn, value: input.value, strategy: 'dom' };
     })()
   `, 6000);
-
-  // --- FALLBACK: Sử dụng API Camoufox Type nếu DOM JS thất bại ---
-  if (!res || !res.ok) {
-    console.log(`⚠️ [fillEmail] JS DOM fill thất bại (${res?.reason || 'null'}). Thử bằng Camoufox keyboard/type...`);
-    try {
-      const typeRes = await actType(tabId, userId, {
-        selector: 'input[autocomplete="email"], input[name="email"], input[type="email"], input[name="username"], input[id="username"]',
-        text: email,
-        mode: 'keyboard',
-        submit: true
-      }, { timeoutMs: 10000 });
-      if (typeRes && typeRes.ok) {
-        return { ok: true, fallback: 'camofox-type', value: email };
-      }
-    } catch (typeErr) {
-      console.log(`❌ [fillEmail] Fallback Camoufox Type thất bại: ${typeErr.message}`);
-    }
-  }
 
   return res;
 }

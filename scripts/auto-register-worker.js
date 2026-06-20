@@ -1206,6 +1206,14 @@ export async function runAutoRegister(taskInput) {
         break;
       }
 
+      if (!newUrl && !hasPasswordInputAlready && !hasVerify) {
+        const stillHasEmailInput = await evalJson(tabId, USER_ID, `!!document.querySelector('input[type="email"], input[name="email"], input[name="username"]')`);
+        if (stillHasEmailInput) {
+          console.log(`[Email-submit] ⚠️ Thao tác submit email hoàn tất nhưng trang không chuyển hướng. Khả năng IP bị Turnstile chặn ngay từ màn hình email.`);
+          throw new Error(`BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Email (Turnstile/Proxy reputation block).`);
+        }
+      }
+
       console.log(`[Email-submit] ⚠️ Thao tác submit email chưa chuyển trang (Thử lại ${attempt}/2). Điều hướng lại về auth/login để nhận session mới...`);
       await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
 
@@ -1296,38 +1304,49 @@ export async function runAutoRegister(taskInput) {
       isExistingAccount = true;
     }
 
-    // If flow detection returns unknown, retry with pollUntil
+    // If flow detection returns unknown, check for home redirect before polling
     if (flowDetection?.flow === 'unknown') {
-      console.log(`[Flow Detection] ⚠️ Flow unknown, waiting via pollUntil...`);
-      const pollSuccess = await pollUntil(async () => {
-        const detection = await evalJson(tabId, USER_ID, `
-          (() => {
-            const url = location.href.toLowerCase();
-            const body = document.body?.innerText?.toLowerCase() || '';
-            const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
-            const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
-            const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
-            const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
-            const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
-            const isBlocked = url.includes('auth/login?email=') || url.includes('auth/login/?email=');
-            const isAlreadyRegistered = body.includes('user already exists') || 
-                                        body.includes('already registered') || 
-                                        body.includes('already have an account') ||
-                                        body.includes('email is registered') ||
-                                        body.includes('tài khoản đã tồn tại') ||
-                                        body.includes('đã đăng ký');
-            return { flow, isBlocked, isAlreadyRegistered };
-          })()
-        `);
-        if (detection?.isAlreadyRegistered) {
-          throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI.`);
-        }
-        if (detection?.isBlocked) {
-          throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block) trong FlowDetectionPoll.`);
-        }
-        return detection?.flow !== 'unknown';
-      }, 'FlowDetectionPoll', { intervalMs: 2000, maxWaitMs: 20000 });
+      const stuckUrl = flowDetection?.url || '';
+      const isRedirectedToHome = stuckUrl.includes('chatgpt.com/?slm=') || 
+                                 (stuckUrl.includes('chatgpt.com') && !stuckUrl.includes('auth') && !stuckUrl.includes('openai.com'));
       
+      let pollSuccess = false;
+      
+      if (isRedirectedToHome) {
+        console.log(`[Flow Detection] 🔄 Tab đang ở trang chủ ChatGPT (${stuckUrl.slice(0, 60)}) — bỏ qua poll và tiến hành khôi phục session...`);
+        // pollSuccess remains false to trigger recovery block below
+      } else {
+        console.log(`[Flow Detection] ⚠️ Flow unknown, waiting via pollUntil...`);
+        pollSuccess = await pollUntil(async () => {
+          const detection = await evalJson(tabId, USER_ID, `
+            (() => {
+              const url = location.href.toLowerCase();
+              const body = document.body?.innerText?.toLowerCase() || '';
+              const hasPasswordInput = !!document.querySelector('input[type="password"], input[name="password"], input[name="new-password"]');
+              const hasEmailVerificationLink = !!document.querySelector('a[href*="create-account/password"]');
+              const hasCodeInput = !!document.querySelector('input[name="code"], input[autocomplete="one-time-code"]');
+              const isEmailVerification = url.includes('email-verification') || body.includes('check your inbox') || body.includes('verification code');
+              const flow = hasEmailVerificationLink || isEmailVerification ? 'new' : (hasPasswordInput ? 'old' : 'unknown');
+              const isBlocked = url.includes('auth/login?email=') || url.includes('auth/login/?email=');
+              const isAlreadyRegistered = body.includes('user already exists') || 
+                                          body.includes('already registered') || 
+                                          body.includes('already have an account') ||
+                                          body.includes('email is registered') ||
+                                          body.includes('tài khoản đã tồn tại') ||
+                                          body.includes('đã đăng ký');
+              return { flow, isBlocked, isAlreadyRegistered };
+            })()
+          `);
+          if (detection?.isAlreadyRegistered) {
+            throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI.`);
+          }
+          if (detection?.isBlocked) {
+            throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page (Proxy/Reputation block) trong FlowDetectionPoll.`);
+          }
+          return detection?.flow !== 'unknown';
+        }, 'FlowDetectionPoll', { intervalMs: 2000, maxWaitMs: 20000 });
+      }
+
       if (pollSuccess) {
         // Re-run flow detection after successful poll
         await new Promise(r => setTimeout(r, 1000));

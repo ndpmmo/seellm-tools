@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.181] - 2026-06-20 14:51:45
+
+### 🚀 Tối ưu hóa Đăng ký ChatGPT & Tránh Lỗi Timeout (Turnstile Block & Home Redirect)
+
+- **scripts/auto-register-worker.js**:
+  - **Fail-fast khi nhập Email**: Thêm bước kiểm tra tức thời (Fail-fast check) ngay sau khi submit Email. Nếu trang không chuyển hướng và bị Turnstile chặn nút submit, ném lỗi `BLOCKED_BY_OPENAI` ngay lập tức thay vì tốn 30-40 giây chờ đợi các lần thử vô ích.
+  - **Bypass 20s FlowDetectionPoll**: Bổ sung cơ chế phát hiện chuyển hướng về trang chủ (`chatgpt.com/?slm=1`) sớm để kết thúc tiến trình ngay mà không phải chờ đợi vòng lặp FlowDetection kéo dài vô nghĩa.
+- **scripts/lib/openai-login-flow.js**:
+  - **Đảo ngược chiến lược nhập Email (`fillEmail`)**: Chuyển sang sử dụng cơ chế gõ phím và Enter tự nhiên thông qua API Camofox (`actType`) làm lựa chọn ưu tiên (Primary strategy) thay vì kích hoạt sự kiện click giả lập trên DOM. Giúp vượt qua rào cản Turnstile/bot detection của OpenAI hiệu quả hơn ở giai đoạn điền email.
+
 ## [0.3.180] - 2026-06-20 05:35:00
 
 ### 🚀 Tối ưu hóa Hiệu suất Fail-Fast & Preflight Check (Giảm Timeouts)
