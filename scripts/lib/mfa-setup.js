@@ -820,8 +820,6 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         const cleaned = raw.replace(/[\\s\\-]/g, '');
                         
                         let score = 0;
-                        
-                        // Check if style is monospace (typical for secrets/codes)
                         try {
                             const style = window.getComputedStyle(el);
                             const ff = (style.fontFamily || '').toLowerCase();
@@ -834,56 +832,54 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         for (let d = 0; d < 5; d++) {
                             if (!par) break;
                             const classAndId = String(par.className || '') + ' ' + String(par.id || '');
-                            if (/copy|secret|key|code|authenticator/i.test(classAndId)) {
-                                score += 10;
-                            }
-                            if (d < 2 && par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
-                                score += 5;
-                            }
+                            if (/copy|secret|key|code|authenticator/i.test(classAndId)) score += 10;
+                            if (d < 2 && par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) score += 5;
                             par = par.parentElement;
                         }
                         return { el, raw, cleaned, score };
                     });
 
-                    // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN, PARENTALCONTROLS)
-                    const uiWords = [
-                        'security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator', 'device', 'authorization', 'codex', 'enable',
-                        'parental', 'controls', 'parent', 'control', 'family', 'child'
-                    ];
-
                     let filtered = candidates.filter(item => {
-                        const lower = item.cleaned.toLowerCase();
-                        return !uiWords.some(w => lower.includes(w));
-                    });
-
-                    // Exclude email or test names
-                    const emailParam = ${JSON.stringify(options.email ? options.email.split('@')[0].replace(/[^a-zA-Z]/g, '').toLowerCase() : '')};
-                    if (emailParam) {
-                        filtered = filtered.filter(item => {
-                            const val = item.cleaned.toLowerCase();
-                            return !val.includes(emailParam) && !val.includes('smith') && !val.includes('albert');
-                        });
-                    }
-
-                    // Filter out low entropy (real base32 has high character variety)
-                    filtered = filtered.filter(item => {
-                        const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
-                        return uniqueChars >= 8; // Real base32 secrets have high variety (at least 8 unique characters)
-                    });
-
-                    // In early attempts (first 12s), strictly require exactly 32 characters
-                    // Since ChatGPT standard secret keys are always 32 characters
-                    if (${attempt < 12}) {
-                        filtered = filtered.filter(item => item.cleaned.length === 32 && /^[A-Z2-7]{32}$/i.test(item.cleaned));
-                        if (filtered.length === 0) {
-                            return null; // Return null to wait for it to load
+                        // 1. Phải là Base32 hợp lệ (chỉ chứa A-Z, 2-7)
+                        if (!/^[A-Z2-7]{16,72}$/i.test(item.cleaned)) return false;
+                        
+                        // 2. Không chấp nhận chữ lẫn lộn hoa/thường (Mixed case)
+                        // Secret Key thường toàn chữ HOA hoặc toàn chữ thường.
+                        const lettersOnly = item.raw.replace(/[^a-zA-Z]/g, '');
+                        if (lettersOnly.length > 0) {
+                            const isAllUpper = lettersOnly === lettersOnly.toUpperCase();
+                            const isAllLower = lettersOnly === lettersOnly.toLowerCase();
+                            if (!isAllUpper && !isAllLower) return false;
                         }
-                    } else {
-                        // Fallback on final attempts to allow 16 to 72 characters
-                        filtered = filtered.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
+
+                        // 3. Nếu có khoảng trắng, nó phải được chia theo cụm đều đặn (VD: 4 chữ cái 1 cụm)
+                        if (item.raw.includes(' ')) {
+                            const words = item.raw.split(' ').filter(w => w.length > 0);
+                            if (words.length > 1) {
+                                const expectedLen = words[0].length;
+                                if (expectedLen < 3) return false; // Thường secret key không chia cụm 1-2 ký tự
+                                for (let w = 0; w < words.length - 1; w++) {
+                                    if (words[w].length !== expectedLen) return false;
+                                }
+                            }
+                        }
+
+                        // 4. Entropy (tính đa dạng ký tự)
+                        const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
+                        if (uniqueChars < 8) return false;
+
+                        return true;
+                    });
+
+                    if (${attempt < 12}) {
+                        const strict32 = filtered.filter(item => item.cleaned.length === 32 || item.cleaned.length === 33);
+                        if (strict32.length > 0) {
+                            filtered = strict32;
+                        } else {
+                            return null;
+                        }
                     }
 
-                    // Sort: highest score first, then longer length first
                     filtered.sort((a, b) => {
                         if (b.score !== a.score) return b.score - a.score;
                         return b.cleaned.length - a.cleaned.length;
