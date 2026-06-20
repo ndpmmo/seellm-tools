@@ -1404,7 +1404,7 @@ export async function runAutoRegister(taskInput) {
             console.log(`[Flow Detection] ✅ Email input xuất hiện sau khi re-navigate — thử fillEmail lại...`);
             const recoveryFill = await fillEmail(tabId, USER_ID, email);
             console.log(`[Flow Detection] Recovery fillEmail →`, JSON.stringify(recoveryFill || {}));
-            await new Promise(r => setTimeout(r, 8000));
+            await waitForUrlChange(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 10000 });
             // Re-evaluate flow
             flowDetection = await evalJson(tabId, USER_ID, `
               (() => {
@@ -1432,7 +1432,7 @@ export async function runAutoRegister(taskInput) {
             if (recoveryPoll) {
               const recoveryFill = await fillEmail(tabId, USER_ID, email);
               console.log(`[Flow Detection] Recovery (delayed) fillEmail →`, JSON.stringify(recoveryFill || {}));
-              await new Promise(r => setTimeout(r, 8000));
+              await waitForUrlChange(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 10000 });
               flowDetection = await evalJson(tabId, USER_ID, `
                 (() => {
                   const url = location.href;
@@ -1486,7 +1486,7 @@ export async function runAutoRegister(taskInput) {
               // Re-submit email sau reload — sử dụng helper fillEmail
               const emailClickInfo = await fillEmail(tabId, USER_ID, email);
               console.log(`[Flow Detection] Reload fillEmail →`, JSON.stringify(emailClickInfo || {}));
-              await new Promise(r => setTimeout(r, 8000));
+              await waitForUrlChange(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 10000 });
               // Re-evaluate flow after reload+resubmit
               flowDetection = await evalJson(tabId, USER_ID, `
                 (() => {
@@ -1514,7 +1514,7 @@ export async function runAutoRegister(taskInput) {
               if (postReloadPoll) {
                 const emailClickInfo = await fillEmail(tabId, USER_ID, email);
                 console.log(`[Flow Detection] App-Error delayed fillEmail →`, JSON.stringify(emailClickInfo || {}));
-                await new Promise(r => setTimeout(r, 8000));
+                await waitForUrlChange(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 10000 });
                 flowDetection = await evalJson(tabId, USER_ID, `
                   (() => {
                     const url = location.href;
@@ -1876,13 +1876,12 @@ export async function runAutoRegister(taskInput) {
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await recorder.before(4, 2, 'otp_entry');
       const otpInputSelector = 'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]';
-      await actClick(tabId, USER_ID, { selector: otpInputSelector }, { timeoutMs: 15000 }).catch(() => {});
-      await new Promise(r => setTimeout(r, 600));
-      for (const char of otpCode) {
-        await actPress(tabId, USER_ID, { key: char }, { timeoutMs: 15000 }).catch(e => console.warn(`actPress warn: ${e.message}`));
-        await new Promise(r => setTimeout(r, 100));
-      }
-      await new Promise(r => setTimeout(r, 800));
+      await actType(tabId, USER_ID, {
+        selector: otpInputSelector,
+        text: otpCode,
+        mode: 'keyboard',
+        delay: 50
+      }, { timeoutMs: 10000 }).catch(e => console.warn(`actType warn: ${e.message}`));
 
       let submitted = false;
       try {
@@ -2076,7 +2075,13 @@ export async function runAutoRegister(taskInput) {
       // Check if URL successfully transitioned away from email-verification page
       let finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
       if (finalUrlCheck.includes('email-verification')) {
-        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Kiểm tra xem trang có bị đơ/trắng không...`);
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Chờ 3s xem trang có chuyển hướng hoặc hiển thị lại không...`);
+        await new Promise(r => setTimeout(r, 3000));
+        finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+      }
+      
+      if (finalUrlCheck.includes('email-verification')) {
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau 3s. Kiểm tra xem trang có bị đơ/trắng không...`);
         const pageStatus = await evalJson(tabId, USER_ID, `
           (() => {
             const body = document.body?.innerText || '';
@@ -2086,7 +2091,7 @@ export async function runAutoRegister(taskInput) {
         `);
         
         if (pageStatus.bodyLength < 100 || pageStatus.inputs === 0) {
-          console.log(`[OTP] 🔄 Trang bị trống hoặc đơ (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Quay lại login page để khôi phục...`);
+          console.log(`[OTP] 🔄 Xác nhận trang bị trống hoặc đơ thực sự (Độ dài body: ${pageStatus.bodyLength}, Số input: ${pageStatus.inputs}). Quay lại login page để khôi phục...`);
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login' });
           await new Promise(r => setTimeout(r, 6000));
           finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);

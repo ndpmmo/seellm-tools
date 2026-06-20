@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.191] - 2026-06-20 23:06:00
+
+### 🚀 Tối ưu Tốc độ Đăng ký và Sửa lỗi Race-Condition Sau Khi OTP Thành Công
+
+- **Tự động đăng ký (`scripts/auto-register-worker.js`)**:
+  - Khắc phục lỗi race-condition dọn dẹp trang trống: Thêm khoảng trễ an toàn `3000ms` trước khi đánh giá trang bị đơ/trắng để tránh việc ngộ nhận trong quá trình tải trang và điều hướng ngược lại `/auth/login` vô tội vạ.
+  - Tối ưu hóa tốc độ nhập mã OTP: Sử dụng 1 lệnh `actType` duy nhất gõ toàn bộ chuỗi mã PIN OTP bằng chế độ giả lập keyboard thay vì lặp gõ phím character-by-character qua 6 request `actPress` riêng lẻ, giảm thời gian gõ từ 15s xuống còn dưới 2s.
+  - Loại bỏ các thời gian chờ tĩnh 8s tại luồng phục hồi trang chủ và Application Error, thay thế bằng cơ chế đợi đổi URL thông minh `waitForUrlChange` giúp đẩy nhanh tốc độ xử lý khi proxy hoạt động mượt mà.
+
 ## [0.3.190] - 2026-06-20 22:04:00
 
 ### 🔧 Khắc phục Lỗi Kết nối Camoufox Timeout và Né Chuyển hướng Google OAuth khi Nhập OTP
