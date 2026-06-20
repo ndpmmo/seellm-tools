@@ -793,81 +793,95 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
         // ── 5. Đọc secret key từ DOM ──────────────────────────────
         log('Đọc Secret Key từ DOM...');
-        const secret = await run(`
-            (() => {
-                const elements = Array.from(document.querySelectorAll('*'))
-                    .filter(el => el.childElementCount === 0);
-                
-                const candidates = elements.map(el => {
-                    const raw = el.textContent.trim();
-                    const cleaned = raw.replace(/[\\s\\-]/g, '');
+        let secret = null;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            secret = await run(`
+                (() => {
+                    const elements = Array.from(document.querySelectorAll('*'))
+                        .filter(el => {
+                            const tag = el.tagName.toLowerCase();
+                            return tag !== 'script' && tag !== 'style' && tag !== 'noscript' && tag !== 'iframe' && tag !== 'link' && tag !== 'meta' && tag !== 'head';
+                        })
+                        .filter(el => el.childElementCount === 0);
                     
-                    let score = 0;
-                    
-                    // Check if style is monospace (typical for secrets/codes)
-                    try {
-                        const style = window.getComputedStyle(el);
-                        const ff = (style.fontFamily || '').toLowerCase();
-                        if (ff.includes('mono') || ff.includes('courier') || ff.includes('consolas') || ff.includes('code')) {
-                            score += 20;
+                    const candidates = elements.map(el => {
+                        const raw = el.textContent.trim();
+                        const cleaned = raw.replace(/[\\s\\-]/g, '');
+                        
+                        let score = 0;
+                        
+                        // Check if style is monospace (typical for secrets/codes)
+                        try {
+                            const style = window.getComputedStyle(el);
+                            const ff = (style.fontFamily || '').toLowerCase();
+                            if (ff.includes('mono') || ff.includes('courier') || ff.includes('consolas') || ff.includes('code')) {
+                                score += 20;
+                            }
+                        } catch (e) {}
+
+                        let par = el;
+                        for (let d = 0; d < 5; d++) {
+                            if (!par) break;
+                            const classAndId = String(par.className || '') + ' ' + String(par.id || '');
+                            if (/copy|secret|key|code|authenticator/i.test(classAndId)) {
+                                score += 10;
+                            }
+                            if (d < 2 && par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
+                                score += 5;
+                            }
+                            par = par.parentElement;
                         }
-                    } catch (e) {}
-
-                    let par = el;
-                    for (let d = 0; d < 5; d++) {
-                        if (!par) break;
-                        const classAndId = String(par.className || '') + ' ' + String(par.id || '');
-                        if (/copy|secret|key|code|authenticator/i.test(classAndId)) {
-                            score += 10;
-                        }
-                        if (d < 2 && par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
-                            score += 5;
-                        }
-                        par = par.parentElement;
-                    }
-                    return { el, raw, cleaned, score };
-                });
-
-                // Filter for base32 syntax
-                let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
-
-                // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN)
-                const uiWords = ['security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator'];
-                filtered = filtered.filter(item => {
-                    const lower = item.cleaned.toLowerCase();
-                    return !uiWords.some(w => lower.includes(w));
-                });
-
-                // Exclude email or test names
-                const emailParam = ${JSON.stringify(options.email ? options.email.split('@')[0].replace(/[^a-zA-Z]/g, '').toLowerCase() : '')};
-                if (emailParam) {
-                    filtered = filtered.filter(item => {
-                        const val = item.cleaned.toLowerCase();
-                        return !val.includes(emailParam) && !val.includes('smith') && !val.includes('albert');
+                        return { el, raw, cleaned, score };
                     });
-                }
 
-                // Filter out low entropy (real base32 has high character variety)
-                filtered = filtered.filter(item => {
-                    const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
-                    return uniqueChars >= 6;
-                });
+                    // Filter for base32 syntax
+                    let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
 
-                // Prioritize 32-character strings (ChatGPT standard length)
-                const exact32 = filtered.filter(item => item.cleaned.length === 32);
-                if (exact32.length > 0) {
-                    filtered = exact32;
-                }
+                    // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN)
+                    const uiWords = ['security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator', 'device', 'authorization', 'codex', 'enable'];
+                    filtered = filtered.filter(item => {
+                        const lower = item.cleaned.toLowerCase();
+                        return !uiWords.some(w => lower.includes(w));
+                    });
 
-                // Sort: highest score first, then longer length first
-                filtered.sort((a, b) => {
-                    if (b.score !== a.score) return b.score - a.score;
-                    return b.cleaned.length - a.cleaned.length;
-                });
+                    // Exclude email or test names
+                    const emailParam = ${JSON.stringify(options.email ? options.email.split('@')[0].replace(/[^a-zA-Z]/g, '').toLowerCase() : '')};
+                    if (emailParam) {
+                        filtered = filtered.filter(item => {
+                            const val = item.cleaned.toLowerCase();
+                            return !val.includes(emailParam) && !val.includes('smith') && !val.includes('albert');
+                        });
+                    }
 
-                return filtered[0]?.cleaned || null;
-            })()
-        `);
+                    // Filter out low entropy (real base32 has high character variety)
+                    filtered = filtered.filter(item => {
+                        const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
+                        return uniqueChars >= 6;
+                    });
+
+                    // Prioritize 32-character strings (ChatGPT standard length)
+                    const exact32 = filtered.filter(item => item.cleaned.length === 32);
+                    if (exact32.length > 0) {
+                        filtered = exact32;
+                    } else if (${attempt < 10}) {
+                        // Trả về null để loop ngoài chờ load key 32 ký tự
+                        return null;
+                    }
+
+                    // Sort: highest score first, then longer length first
+                    filtered.sort((a, b) => {
+                        if (b.score !== a.score) return b.score - a.score;
+                        return b.cleaned.length - a.cleaned.length;
+                    });
+
+                    return filtered[0]?.cleaned || null;
+                })()
+            `);
+
+            if (secret) break;
+            log(`  Chờ Secret Key xuất hiện (lần thử ${attempt + 1}/15)...`);
+            await wait(1000);
+        }
 
         if (!secret) {
             const dialogText = await run(`(() => {

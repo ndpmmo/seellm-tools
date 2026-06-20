@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.200] - 2026-06-21 00:15:00
+
+### 🛡️ Vá lỗi quét thẻ không hiển thị và chạy đua DOM khi trích xuất 2FA Secret Key
+
+- **`scripts/lib/mfa-setup.js`**:
+  - **Loại bỏ hoàn toàn các thẻ không hiển thị**: Loại trừ các thẻ `script`, `style`, `noscript`, `iframe`, `link`, `meta`, `head` khỏi danh sách quét DOM để ngăn việc trích xuất các tên biến/hàm JS (như `ENABLEDEVICECODEAUTHORIZATIONFORCODEX`) hoặc stylesheet classes.
+  - **Khắc phục lỗi chạy đua DOM (Race Condition)**: Thêm vòng lặp thử lại và chờ đợi (polling loop) tối đa 15 giây cho quá trình lấy Secret Key. Nếu ở 10 lần thử đầu tiên không tìm thấy chuỗi key có độ dài chính xác 32 ký tự, hệ thống sẽ chờ thêm thay vì trả về ngay các key sai độ dài.
+  - Mở rộng thêm danh sách từ khóa UI loại trừ: `device`, `authorization`, `codex`, `enable`.
+
 ## [0.3.199] - 2026-06-21 00:05:00
 
 ### 🛡️ Fix 2FA Secret Key Wrong Extraction (SECURITYANDLOGIN)
