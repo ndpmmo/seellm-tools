@@ -1895,6 +1895,9 @@ export async function runAutoRegister(taskInput) {
         delay: 50
       }, { timeoutMs: 10000 }).catch(e => console.warn(`actType warn: ${e.message}`));
 
+      // Đợi 1.5 giây để giao diện cập nhật trạng thái sau khi gõ xong
+      await new Promise(r => setTimeout(r, 1500));
+
       let submitted = false;
       try {
         const clickResult = await evalJson(tabId, USER_ID, `
@@ -1934,6 +1937,10 @@ export async function runAutoRegister(taskInput) {
                       buttons[0];
                       
             if (btn) {
+              if (btn.disabled) {
+                btn.removeAttribute('disabled');
+                btn.disabled = false;
+              }
               btn.focus?.();
               btn.click();
               return { ok: true, clicked: true, text: (btn.innerText || btn.textContent || '').trim() };
@@ -1943,8 +1950,8 @@ export async function runAutoRegister(taskInput) {
         `);
         console.log(`[4.2] Click Continue result:`, JSON.stringify(clickResult));
 
-        console.log(`[4.2] Đợi xem page có chuyển hướng không (tối đa 5s)...`);
-        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 5000 }));
+        console.log(`[4.2] Đợi xem page có chuyển hướng không (tối đa 15s)...`);
+        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 15000 }));
         if (!stillOnOtp) {
           submitted = true;
           console.log(`[4.2] Page đã chuyển hướng hoặc đang load (code input biến mất).`);
@@ -1954,9 +1961,9 @@ export async function runAutoRegister(taskInput) {
       }
 
       if (!submitted) {
-        console.log(`[4.2] Vẫn ở trang OTP, thử bấm phím Enter...`);
+        console.log(`[4.2] Vẫn ở trang OTP sau 15s, thử bấm phím Enter...`);
         await actPress(tabId, USER_ID, { key: 'Enter' }).catch(() => {});
-        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 4000 }));
+        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 10000 }));
         if (!stillOnOtp) {
           submitted = true;
           console.log(`[4.2] Page chuyển hướng sau khi bấm Enter.`);
@@ -1964,29 +1971,34 @@ export async function runAutoRegister(taskInput) {
       }
 
       if (!submitted) {
-        // Force submit using DOM submit as fallback
-        console.log(`[4.2] Vẫn ở trang OTP, thực hiện fallback DOM submit...`);
-        await evalJson(tabId, USER_ID, `
-          (() => {
-            const input = document.querySelector('input[name="code"]');
-            if (input && input.form) {
-              let intentInput = input.form.querySelector('input[name="intent"]');
-              if (!intentInput) {
-                intentInput = document.createElement('input');
-                intentInput.type = 'hidden';
-                intentInput.name = 'intent';
-                intentInput.value = 'validate';
-                input.form.appendChild(intentInput);
+        console.log(`[4.2] Vẫn ở trang OTP sau khi bấm Enter. Thử click nút Continue lần nữa...`);
+        try {
+          await evalJson(tabId, USER_ID, `
+            (() => {
+              const input = document.querySelector('input[name="code"]');
+              if (input && input.form) {
+                const btn = input.form.querySelector('button[type="submit"], input[type="submit"]');
+                if (btn) {
+                  btn.removeAttribute('disabled');
+                  btn.disabled = false;
+                  btn.click();
+                  return 'clicked_again';
+                }
               }
-              input.form.submit();
-              return { ok: true, msg: 'form-submitted' };
-            }
-            return { ok: false, error: 'form-not-found' };
-          })()
-        `).catch(e => console.log(`[4.2] Lỗi DOM submit: ${e.message}`));
+              return 'not_found';
+            })()
+          `);
+          const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 10000 }));
+          if (!stillOnOtp) {
+            submitted = true;
+            console.log(`[4.2] Page chuyển hướng sau khi click nút lần 2.`);
+          }
+        } catch (err) {
+          console.log(`[4.2] Lỗi click lần 2: ${err.message}`);
+        }
       }
 
-      await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 6000 });
+      await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 10000 });
       
       // Verify OTP entry success - check if still on OTP screen
       const otpVerifyCheck = await evalJson(tabId, USER_ID, `

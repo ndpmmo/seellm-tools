@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.216] - 2026-06-21 02:32:00
+
+### 🐛 Loại bỏ fallback DOM submit phá vỡ trạng thái SPA và tối ưu hóa thời gian đợi phản hồi nút Continue (Bug Fix)
+
+- **`scripts/auto-register-worker.js`**:
+  - Loại bỏ hoàn toàn phương thức `input.form.submit()` gốc (DOM submit) vì nó phá vỡ trạng thái và bỏ qua các CSRF tokens / router handlers của Next.js/React SPA ở trang OpenAI Auth, gây ra hiện tượng kẹt ở trang trống vĩnh viễn.
+  - Thêm khoảng nghỉ `1500ms` sau khi nhập xong mã OTP để đảm bảo các JS event listeners hoàn tất xử lý và kích hoạt nút `Continue`.
+  - Tự động xóa thuộc tính `disabled` và đặt `btn.disabled = false` trước khi click để bảo đảm lệnh click luôn được gửi đi.
+  - Tăng thời gian đợi phản hồi sau khi click nút `Continue` lần đầu lên `15 giây` (thay vì `5 giây`) và sau khi ấn phím `Enter` lên `10 giây` (thay vì `4 giây`).
+  - Thêm cơ chế click lại lần thứ 2 an toàn thay vì submit DOM trực tiếp nếu sau 25 giây trang vẫn kẹt tại giao diện OTP.
+
 ## [0.3.215] - 2026-06-21 02:27:00
 
 ### 🐛 Khắc phục lỗi worker tự động đăng ký bị ngắt dòng tải do trang trống khi redirect sau OTP (Bug Fix)
