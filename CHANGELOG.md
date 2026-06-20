@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.207] - 2026-06-21 00:52:00
+
+### 🛡️ Thêm theo dõi trạng thái lỗi "Yêu cầu 2FA nhưng thiếu Secret Key"
+
+- **`server/routes/vault.js`**:
+  - Viết thêm hàm `isNeed2faMsg(message)` và `maybeAddNeed2faTag(id, message)` để định danh và theo dõi các lỗi tài khoản yêu cầu 2FA nhưng trong hệ thống không cung cấp thông tin Secret Key.
+  - Tích hợp hàm bắt lỗi này vào các endpoint nhận kết quả từ worker như `warmup-result`, `connect-result`, và `regenerate-2fa-result`. Nhờ vậy, khi gặp lỗi 2FA (tài khoản báo lỗi thiếu Secret Key), account sẽ được gắn tag `need_2fa` và giữ lại trạng thái lỗi `error` (thay vì tự động gán nhầm hoặc ẩn lỗi).
+
+- **`src/components/views/vault/VaultAccountsView.tsx`**:
+  - Thêm config tag màu cam `need_2fa` với icon `ShieldAlert` để hiển thị trên UI ở danh sách Vault Accounts.
+  - Bổ sung tùy chọn `Thiếu Secret Key 2FA` trong Dropdown bộ lọc filter để người dùng có thể nhanh chóng tra cứu và sửa các tài khoản bị thiếu mã 2FA.
+
 ## [0.3.206] - 2026-06-21 00:40:00
 
 ### 🦊 Tích hợp Camoufox Native Click cho "Trouble scanning?" trong MFA Setup

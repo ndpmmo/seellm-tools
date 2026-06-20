@@ -163,6 +163,24 @@ function maybeAddWrongPasswordTag(id, message) {
   }
 }
 
+function isNeed2faMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('yêu cầu 2fa') || msg.includes('need 2fa') || msg.includes('missing 2fa') || msg.includes('missing secret key');
+}
+
+function maybeAddNeed2faTag(id, message) {
+  if (isNeed2faMsg(message)) {
+    const account = vault.getAccountFull(id);
+    if (!account) return;
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('need_2fa')) {
+      tags.push('need_2fa');
+      vault.upsertAccount({ id, tags });
+    }
+  }
+}
+
 function removeNeedPhoneTag(id) {
   const account = vault.getAccountFull(id);
   if (!account) return;
@@ -1404,6 +1422,7 @@ router.post('/accounts/result', async (req, res) => {
       console.log(`[Result] ⚠️ Account ${id}: ${errorMsg}`);
       maybeAddNeedPhoneTag(id, errorMsg);
       maybeAddAccountDeactivatedTag(id, errorMsg);
+      maybeAddNeed2faTag(id, errorMsg);
       const finalStatus = isDeactivatedMsg(errorMsg) ? 'dead' : (isReloginMsg(errorMsg) ? 'relogin' : (status || 'error'));
       vault.upsertAccount({ id, status: finalStatus, notes: errorMsg });
 
@@ -1807,6 +1826,7 @@ router.post('/accounts/connect-result', async (req, res) => {
       const isDeactivated = isDeactivatedMsg(errorMsg);
       maybeAddNeedPhoneTag(id, errorMsg);
       maybeAddAccountDeactivatedTag(id, errorMsg);
+      maybeAddNeed2faTag(id, errorMsg);
 
       // NEED_PHONE: set idle + tag — account chỉ hiển thị ở Vault local, không push Services
       // Deactivated: set dead
@@ -3606,6 +3626,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       maybeAddAccountDeactivatedTag(id, error);
       updateData.status = 'dead';
       updateData.notes = `Tài khoản đã bị vô hiệu hóa (phát hiện trong Warmup: ${error})`;
+    } else if (isNeed2faMsg(error)) {
+      maybeAddNeed2faTag(id, error);
+      updateData.status = 'error';
+      updateData.notes = `Tài khoản yêu cầu 2FA nhưng thiếu Secret Key (phát hiện trong Warmup: ${error})`;
     } else if (isReloginMsg(error)) {
       maybeAddWrongPasswordTag(id, error);
       updateData.status = 'relogin';

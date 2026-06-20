@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, Pencil, Trash2, Save, X,
   ChevronRight, Users, Tag, Filter,
   Database, Shield, Globe, Key, KeyRound, CopyPlus, FileUp, RotateCcw, Copy, Check, Square, CheckSquare,
-  Bot, PhoneOff, Skull, Lock, Unlock, HelpCircle, Mail, XCircle, Briefcase, Flame, AlertTriangle, Clock
+  Bot, PhoneOff, Skull, Lock, Unlock, HelpCircle, Mail, XCircle, Briefcase, Flame, AlertTriangle, Clock, ShieldAlert
 } from 'lucide-react';
 import { useApp } from '../../AppContext';
 import { fmtDateTimeVN, useConfirm } from '../../Views';
@@ -136,6 +136,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'workspace':     { icon: Briefcase, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', tip: 'Tài khoản có Workspace — thuộc tổ chức/doanh nghiệp' },
   'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
   'wrong_password': { icon: KeyRound, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Sai mật khẩu — phát hiện trong quá trình đăng nhập hoặc warmup' },
+  'need_2fa': { icon: ShieldAlert, color: 'text-amber-500 font-bold', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Thiếu Secret Key 2FA — phát hiện trong quá trình đăng nhập/warmup' },
   'email_pool_deleted': { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Email liên kết đã bị xóa khỏi Email Pool của Workshop' },
 };
 
@@ -1574,6 +1575,7 @@ export function VaultAccountsView() {
                   <option value="need_phone" className="bg-[#0f172a]">Cần Số điện thoại</option>
                   <option value="email_dead" className="bg-[#0f172a]">Email đã chết</option>
                   <option value="wrong_password" className="bg-[#0f172a]">Sai mật khẩu</option>
+                  <option value="need_2fa" className="bg-[#0f172a]">Thiếu Secret Key 2FA</option>
                   <option value="has_2fa" className="bg-[#0f172a]">Có bảo mật 2FA</option>
                   <option value="no_2fa" className="bg-[#0f172a]">Không có 2FA</option>
                 </select>
