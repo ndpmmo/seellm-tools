@@ -336,6 +336,42 @@ export async function waitForUrl(tabId, userId, url, options = {}) {
 }
 
 /**
+ * Wait for element to disappear
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} selector - CSS selector
+ * @param {object} options - { timeoutMs = 15000, intervalMs = 500 }
+ * @returns {Promise<boolean>} true if element disappeared, false on timeout
+ */
+export async function waitForElementGone(tabId, userId, selector, { timeoutMs = 15000, intervalMs = 500 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const exists = await evalJson(tabId, userId, `!!document.querySelector('${selector}')`).catch(() => false);
+    if (!exists) return true;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
+/**
+ * Wait for a JS condition to return a truthy value
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} conditionEvalString - JS string to evaluate
+ * @param {object} options - { timeoutMs = 15000, intervalMs = 500 }
+ * @returns {Promise<any>} result of the condition or null on timeout
+ */
+export async function waitForCondition(tabId, userId, conditionEvalString, { timeoutMs = 15000, intervalMs = 500 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await evalJson(tabId, userId, conditionEvalString).catch(() => null);
+    if (result) return result;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
+/**
  * Press keyboard key
  * @param {string} tabId - Tab ID
  * @param {string} userId - User ID

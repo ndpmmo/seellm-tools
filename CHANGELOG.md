@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.182] - 2026-06-20 15:19:00
+
+### 🚀 Tối ưu hóa Toàn diện Cơ chế "Đợi" (Dynamic Waiting) Tăng Tốc Độ Đăng Ký
+
+- **scripts/lib/camofox.js**:
+  - **Bổ sung hàm hỗ trợ mới**: `waitForElementGone` và `waitForCondition` để có thể nhận biết và tiến hành các bước ngay lập tức khi trình duyệt hoàn thành tác vụ (dựa vào DOM/Eval), thay vì phải mù mờ ngủ đông (`sleep`).
+- **scripts/auto-register-worker.js**:
+  - **Triệt tiêu các hàm `setTimeout` cứng ngắc**: Thay thế khoảng 15+ hàm chờ mù `await new Promise(r => setTimeout(r, X000))` bằng `waitForElementGone`, `waitForCondition`, `waitForUrlChange` và `waitForSelector`.
+  - **Các Phase hưởng lợi chính**: Nhập OTP nhanh hơn (bỏ 15s chờ mù), Xác nhận thông tin Form About nhanh hơn (bỏ 3s), Bỏ qua Phone/Passkey/Workspace nhanh hơn (bỏ hơn 10s chờ mù), và tự động tiếp tục ngay lập tức khi hoàn thành MFA thay vì sleep tĩnh.
+
 ## [0.3.181] - 2026-06-20 14:51:45
 
 ### 🚀 Tối ưu hóa Đăng ký ChatGPT & Tránh Lỗi Timeout (Turnstile Block & Home Redirect)

@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, pressKey, checkProfileExists, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, waitForElementGone, waitForCondition, pressKey, checkProfileExists, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -1554,7 +1554,7 @@ export async function runAutoRegister(taskInput) {
         })()
       `, 5000);
       console.log(`[3.1] Click "Continue with password" →`, JSON.stringify(pwdLinkResult));
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 500));
       // Phase 2, Step 2: Continue with password clicked
       await recorder.after(2, 2, 'continue_with_password');
     }
@@ -1896,9 +1896,8 @@ export async function runAutoRegister(taskInput) {
         `);
         console.log(`[4.2] Click Continue result:`, JSON.stringify(clickResult));
 
-        console.log(`[4.2] Đợi 5s xem page có chuyển hướng không...`);
-        await new Promise(r => setTimeout(r, 5000));
-        const stillOnOtp = await evalJson(tabId, USER_ID, `!!document.querySelector('input[name="code"]')`);
+        console.log(`[4.2] Đợi xem page có chuyển hướng không (tối đa 5s)...`);
+        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 5000 }));
         if (!stillOnOtp) {
           submitted = true;
           console.log(`[4.2] Page đã chuyển hướng hoặc đang load (code input biến mất).`);
@@ -1910,8 +1909,7 @@ export async function runAutoRegister(taskInput) {
       if (!submitted) {
         console.log(`[4.2] Vẫn ở trang OTP, thử bấm phím Enter...`);
         await actPress(tabId, USER_ID, { key: 'Enter' }).catch(() => {});
-        await new Promise(r => setTimeout(r, 4000));
-        const stillOnOtp = await evalJson(tabId, USER_ID, `!!document.querySelector('input[name="code"]')`);
+        const stillOnOtp = !(await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 4000 }));
         if (!stillOnOtp) {
           submitted = true;
           console.log(`[4.2] Page chuyển hướng sau khi bấm Enter.`);
@@ -1941,7 +1939,7 @@ export async function runAutoRegister(taskInput) {
         `).catch(e => console.log(`[4.2] Lỗi DOM submit: ${e.message}`));
       }
 
-      await new Promise(r => setTimeout(r, 6000));
+      await waitForElementGone(tabId, USER_ID, 'input[name="code"]', { timeoutMs: 6000 });
       
       // Verify OTP entry success - check if still on OTP screen
       const otpVerifyCheck = await evalJson(tabId, USER_ID, `
@@ -2149,7 +2147,7 @@ export async function runAutoRegister(taskInput) {
       console.log(`[5] Bypass thông tin Form About...`);
       await assertPageContext(tabId, USER_ID, 'before-about-form', ['chatgpt.com', 'openai.com']);
       const userInfo = generateRandomUserInfo();
-      await new Promise(r => setTimeout(r, 3000)); // đợi form render xong
+      await waitForSelector(tabId, USER_ID, 'input[name="name"], input[placeholder*="name" i]', { timeoutMs: 15000 }).catch(() => {});
       // Phase 3, Step 1: Before about form
       await recorder.before(3, 1, 'about_form');
 
@@ -2410,12 +2408,14 @@ export async function runAutoRegister(taskInput) {
         // Retry phone bypass (max CONFIG.phoneBypassMaxRetries times)
         for (let retry = 1; retry <= CONFIG.phoneBypassMaxRetries; retry++) {
           console.log(`[6.1] Phone bypass retry ${retry}: Navigate về trang trước...`);
+          const urlBefore1 = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
-          await new Promise(r => setTimeout(r, 2000));
+          await waitForUrlChange(tabId, USER_ID, urlBefore1, { timeoutMs: 5000 });
           
           // Navigate back to add-phone
+          const urlBefore2 = await evalJson(tabId, USER_ID, `location.href`).catch(() => '');
           await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: pageUrl });
-          await new Promise(r => setTimeout(r, 3000));
+          await waitForUrlChange(tabId, USER_ID, urlBefore2, { timeoutMs: 5000 });
           
           const retryResult = await performWorkspaceConsentBypass(evalJson, tabId, USER_ID);
           if (retryResult.ok && retryResult.code) {
@@ -2466,7 +2466,7 @@ export async function runAutoRegister(taskInput) {
         }
       })()
     `);
-    await new Promise(r => setTimeout(r, 6000));
+    await waitForCondition(tabId, USER_ID, "!!document.querySelector('nav, [data-testid=\"navigation\"], [data-testid=\"profile-button\"], main')", { timeoutMs: 8000 });
     // Phase 4, Step 2: Survey skipped
     await recorder.after(4, 2, 'survey_skipped');
 
@@ -2498,7 +2498,7 @@ export async function runAutoRegister(taskInput) {
         return { attempts: retryCount, found: retryCount <= maxRetries };
       })()
     `);
-    await new Promise(r => setTimeout(r, 4000));
+    await waitForCondition(tabId, USER_ID, "!!document.querySelector('nav, [data-testid=\"navigation\"], [data-testid=\"profile-button\"], main')", { timeoutMs: 6000 });
 
     // Verify success home reached
     console.log(`[5] Kiểm tra trang chủ ChatGPT...`);
@@ -2534,7 +2534,7 @@ export async function runAutoRegister(taskInput) {
         for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
           console.log(`[7] MFA retry ${retry}: Navigate về Security page...`);
           await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 1000));
           
           const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
           if (retryResult.success) {
@@ -2565,7 +2565,7 @@ export async function runAutoRegister(taskInput) {
     try {
       // Navigate về trang Security để check DOM ổn định
       await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 2000));
 
       const is2FaEnabledActual = await evalJson(tabId, USER_ID, `
         (() => {
@@ -2676,7 +2676,7 @@ export async function runAutoRegister(taskInput) {
     try {
       console.log(`[Capture] 🔄 Đưa trình duyệt về trang chủ https://chatgpt.com để ổn định session...`);
       await evalJson(tabId, USER_ID, `window.location.hash = ''`).catch(() => {});
-      await new Promise(r => setTimeout(r, 4000));
+      await waitForCondition(tabId, USER_ID, "location.hash === ''", { timeoutMs: 4000 });
     } catch (navErr) {
       console.log(`[Capture] ⚠️ Không thể điều hướng về trang chủ: ${navErr.message}`);
     }
