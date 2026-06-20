@@ -777,7 +777,7 @@ export function VaultWorkshopView() {
             const matchSearch = e.email.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
             const matchStatus =
                 statusFilter === 'all' ? true :
-                    statusFilter === 'active' ? e.mail_status === 'active' :
+                    statusFilter === 'active' ? (e.mail_status === 'active' && !(Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done')) :
                         statusFilter === 'dead' ? e.mail_status === 'dead' :
                             statusFilter === 'done' ? (Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done') : true;
             return matchSearch && matchStatus;
@@ -1281,8 +1281,8 @@ export function VaultWorkshopView() {
                     <div className="flex flex-col gap-5 flex-1 min-h-0">
                         <div className="grid grid-cols-4 gap-4">
                             <StatBox label="Tổng Pool" value={items.length} icon={Mail} colorClass="text-indigo-400" bgClass="bg-indigo-500/10" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
-                            <StatBox label="Mail Ready" value={items.filter(e => e.mail_status === 'active').length} icon={ShieldCheck} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
-                            <StatBox label="Đã Dập" value={items.filter(e => e.chatgpt_status === 'done').length} icon={CheckCircle2} colorClass="text-blue-400" bgClass="bg-blue-500/10" active={statusFilter === 'done'} onClick={() => setStatusFilter('done')} />
+                            <StatBox label="Mail Ready" value={items.filter(e => e.mail_status === 'active' && !(Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done')).length} icon={ShieldCheck} colorClass="text-emerald-400" bgClass="bg-emerald-500/10" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
+                            <StatBox label="Đã Dập" value={items.filter(e => Object.keys(e.services || {}).length > 0 || e.chatgpt_status === 'done').length} icon={CheckCircle2} colorClass="text-blue-400" bgClass="bg-blue-500/10" active={statusFilter === 'done'} onClick={() => setStatusFilter('done')} />
                             <StatBox label="Lỗi / Dead" value={items.filter(e => e.mail_status === 'dead').length} icon={XCircle} colorClass="text-rose-400" bgClass="bg-rose-500/10" active={statusFilter === 'dead'} onClick={() => setStatusFilter('dead')} />
                         </div>
 

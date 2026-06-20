@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.220] - 2026-06-21 02:50:00
+
+### 🔧 Sửa lỗi lọc trùng lặp giữa Mail Ready và Đã Dập trong Workshop (Bug Fix)
+
+- **`src/components/views/vault/VaultWorkshopView.tsx`**:
+  - Cập nhật điều kiện lọc `statusFilter === 'active'` (Mail Ready) để loại trừ các tài khoản đã được dập thành công (`chatgpt_status === 'done'` hoặc đã có trong danh sách dịch vụ).
+  - Cập nhật công thức tính của `StatBox` "Mail Ready" và "Đã Dập" để đồng bộ chính xác với logic lọc của bảng, giúp hai danh sách hiển thị phân biệt rõ ràng (Mail Ready chỉ hiển thị mail hoạt động chưa dập, Đã Dập hiển thị mail đã dập thành công).
+
 ## [0.3.219] - 2026-06-21 02:47:00
 
 ### 📈 Bổ sung hiển thị số lần Warmup thành công cho tài khoản Vault (Feature)
