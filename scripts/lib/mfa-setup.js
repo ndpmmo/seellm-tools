@@ -863,6 +863,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                 for (let w = 0; w < words.length - 1; w++) {
                                     if (words[w].length !== expectedLen) return false;
                                 }
+                                // Thưởng điểm nếu đúng format 4 ký tự mỗi cụm (VD: xxxx xxxx xxxx ...)
+                                if (expectedLen === 4 && words.length === 8) {
+                                    item.score += 50;
+                                }
                             }
                         }
 
@@ -873,13 +877,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         return true;
                     });
 
-                    if (${attempt < 12}) {
-                        const strict32 = filtered.filter(item => item.cleaned.length === 32 || item.cleaned.length === 33);
-                        if (strict32.length > 0) {
-                            filtered = strict32;
-                        } else {
-                            return null;
-                        }
+                    // Nếu chưa tìm thấy key hợp lệ 32 ký tự, trả về null để đợi DOM load thêm
+                    if (filtered.length === 0) {
+                        return null;
                     }
 
                     filtered.sort((a, b) => {
