@@ -903,7 +903,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 userId,
                 selector: typeSelector,
                 text: totp
-            });
+            }, 5000); // 5s timeout to fail fast
             log('Đã gõ TOTP bằng Camofox native keyboard.');
         } catch (typeErr) {
             log('Native type lỗi, fallback sang JS injection:', typeErr.message);
@@ -948,7 +948,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 await apiHelper(`/tabs/${tabId}/click`, {
                     userId,
                     selector: '[data-mfa-target="verify-btn"]'
-                });
+                }, 5000); // 5s timeout to fail fast and fallback to JS
             } catch (clickErr) {
                 log('Native click nút Verify lỗi, fallback sang JS click:', clickErr.message);
                 await run(`(() => {

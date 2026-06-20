@@ -930,7 +930,19 @@ export async function runAutoRegister(taskInput) {
 
     console.log(`🌐 Mở trang chatgpt.com/auth/login...`);
     await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/auth/login', timeoutMs: proxyUrl ? 60000 : 30000 });
-    await new Promise(r => setTimeout(r, 5000));
+    // Đợi động tối đa 5s cho trang tải xong và sẵn sàng (CF challenge hoặc Input xuất hiện)
+    await pollUntil(async () => {
+      const state = await evalJson(tabId, USER_ID, `
+        (() => {
+          const body = document.body?.innerText?.toLowerCase() || '';
+          const hasInput = !!document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+          const hasCf = body.includes('checking your browser') || body.includes('just a moment') || !!document.querySelector('#cf-challenge-running, #cf-spinner, .cf-error-code');
+          const hasWelcome = body.includes('welcome') || body.includes('get started') || !!document.querySelector('button');
+          return hasInput || hasCf || hasWelcome;
+        })()
+      `).catch(() => false);
+      return state;
+    }, 'InitialPageLoad', { intervalMs: 500, maxWaitMs: 5000 });
 
 
     // If protocol succeeded, seed the browser session and skip registration UI steps
@@ -2075,9 +2087,9 @@ export async function runAutoRegister(taskInput) {
       // Check if URL successfully transitioned away from email-verification page
       let finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
       if (finalUrlCheck.includes('email-verification')) {
-        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Chờ 3s xem trang có chuyển hướng hoặc hiển thị lại không...`);
-        await new Promise(r => setTimeout(r, 3000));
-        finalUrlCheck = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`);
+        console.log(`[OTP] ⚠️ Vẫn ở trang email-verification sau khi submit. Chờ xem trang có chuyển hướng không...`);
+        const newUrl = await waitForUrlChange(tabId, USER_ID, finalUrlCheck, { timeoutMs: 4000, intervalMs: 500 });
+        if (newUrl) finalUrlCheck = newUrl.toLowerCase();
       }
       
       if (finalUrlCheck.includes('email-verification')) {

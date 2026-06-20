@@ -2,7 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
-## [0.3.191] - 2026-06-20 23:06:00
+## [0.3.193] - 2026-06-20 23:20:00
+
+### 🚀 Khắc phục Nút thắt Cổ chai Thời gian Chờ (Timeout) Khâu 2FA
+
+- **`scripts/lib/mfa-setup.js`**:
+  - Phát hiện và xử lý lỗi treo `camofox native click` lên tới 90 giây khi bấm nút "Verify" và gõ mã OTP ở màn hình bảo mật 2FA.
+  - Bổ sung tham số `timeoutMs: 5000` (5 giây) cứng vào các API `apiHelper('/tabs/.../click')` và `apiHelper('/tabs/.../type')` trong luồng xác thực 2FA.
+  - **Tối ưu tốc độ cực lớn**: Giúp kịch bản thất bại nhanh (Fail Fast) trong 5 giây và lập tức kích hoạt JS click fallback (JavaScript fallback injection) để tiếp tục luồng ngay lập tức mà không phải chờ timeout 90 giây vô ích. Tiết kiệm ~85s - 170s cho mỗi lần gặp sự cố che khuất DOM.
+
+## [0.3.192] - 2026-06-20 23:06:00
 
 ### 🚀 Tối ưu Tốc độ Đăng ký và Sửa lỗi Race-Condition Sau Khi OTP Thành Công
 
