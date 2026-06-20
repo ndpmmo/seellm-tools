@@ -66,9 +66,7 @@ function isTransientConnectionError(err) {
   if (msg.includes('fetch failed')) return true;          // ECONNREFUSED / ECONNRESET
   if (msg.includes('econnrefused')) return true;
   if (msg.includes('econnreset')) return true;
-  if (msg.includes('timeout') || msg.includes('timed out')) return true;
   if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')) return true;
-  if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return true;
   return false;
 }
 
@@ -246,7 +244,7 @@ export async function camofoxGoto(tabId, userId, url, options = {}) {
  * @returns {Promise<any>} Result of expression execution
  */
 export async function camofoxEval(tabId, userId, expression, { timeoutMs = 12000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression }, { timeoutMs });
+  return camofoxPost(`/tabs/${tabId}/evaluate`, { userId, expression, timeoutMs }, { timeoutMs: timeoutMs + 2000 });
 }
 
 /**
@@ -411,7 +409,7 @@ export async function getSnapshot(tabId, userId, { includeScreenshot = false, of
  * @returns {Promise<object>} Click response
  */
 export async function clickRef(tabId, userId, ref, { timeoutMs = 5000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/click`, { userId, ref }, { timeoutMs });
+  return camofoxPost(`/tabs/${tabId}/click`, { userId, ref, timeoutMs }, { timeoutMs: timeoutMs + 2000 });
 }
 
 /**
@@ -424,7 +422,7 @@ export async function clickRef(tabId, userId, ref, { timeoutMs = 5000 } = {}) {
  * @returns {Promise<object>} Type response
  */
 export async function typeByRef(tabId, userId, ref, text, { pressEnter = false, timeoutMs = 8000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/type`, { userId, ref, text, pressEnter }, { timeoutMs });
+  return camofoxPost(`/tabs/${tabId}/type`, { userId, ref, text, pressEnter, timeoutMs }, { timeoutMs: timeoutMs + 2000 });
 }
 
 /**
@@ -436,7 +434,7 @@ export async function typeByRef(tabId, userId, ref, text, { pressEnter = false, 
  * @returns {Promise<object>} Click response
  */
 export async function tripleClick(tabId, userId, selector, { timeoutMs = 5000 } = {}) {
-  return camofoxPost(`/tabs/${tabId}/click`, { userId, selector, clickCount: 3 }, { timeoutMs });
+  return camofoxPost(`/tabs/${tabId}/click`, { userId, selector, clickCount: 3, timeoutMs }, { timeoutMs: timeoutMs + 2000 });
 }
 
 // ============================================================================
@@ -626,7 +624,9 @@ export async function act(tabId, userId, kind, params, { timeoutMs = 30000 } = {
   if (!validKinds.includes(kind)) {
     throw new Error(`Invalid kind: ${kind}. Valid: ${validKinds.join(', ')}`);
   }
-  return camofoxPost(`/act`, { kind, targetId: tabId, userId, ...params }, { timeoutMs });
+  // Pass timeoutMs into body so server can use it for Playwright timeout
+  // Add 2000ms grace period to HTTP fetch to prevent premature AbortError
+  return camofoxPost(`/act`, { kind, targetId: tabId, userId, timeoutMs, ...params }, { timeoutMs: timeoutMs + 2000 });
 }
 
 /**

@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.190] - 2026-06-20 22:04:00
+
+### 🔧 Khắc phục Lỗi Kết nối Camoufox Timeout và Né Chuyển hướng Google OAuth khi Nhập OTP
+
+- **Cấu hình Client Camoufox (`scripts/lib/camofox.js`)**:
+  - Tăng thời gian timeout phía HTTP client thêm **2000ms** (grace period) so với timeout thực tế của Playwright để Playwright có thể phản hồi lỗi timeout chính xác trước khi kết nối HTTP bị huỷ.
+  - Loại bỏ `TimeoutError` và `AbortError` khỏi danh sách các lỗi mạng tạm thời được tự động thử lại trong `isTransientConnectionError` để dừng việc tự động retry vô hạn khi hết thời gian chờ, tránh nghẽn hàng đợi trên server.
+
+- **Tự động đăng ký (`scripts/auto-register-worker.js`)**:
+  - Thêm logic tự động dọn dẹp và đóng popup/iframe Google FedCM (ví dụ: `accounts.google.com`) ngay khi màn hình OTP xuất hiện.
+  - Cập nhật bộ lọc các nút Submit của form OTP để bỏ qua các nút đăng nhập bằng Google (chứa chữ `"with "` hoặc `"google"`), tránh việc kích hoạt nhầm Google OAuth khi click fallback.
+
 ## [0.3.189] - 2026-06-20 21:26:00
 
 ### 🔧 Khắc phục Lỗi Mật Khẩu Yếu Khi Tạo Tài Khoản

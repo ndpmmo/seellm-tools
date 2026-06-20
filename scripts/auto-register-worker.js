@@ -1888,12 +1888,33 @@ export async function runAutoRegister(taskInput) {
       try {
         const clickResult = await evalJson(tabId, USER_ID, `
           (() => {
+            // Đóng Google One Tap / FedCM popup nếu xuất hiện
+            try {
+              const oneTapContainer = document.querySelector('#credential_picker_container, #credential_picker_iframe, [data-credential_picker_id]');
+              if (oneTapContainer) {
+                const closeBtn = oneTapContainer.querySelector('[aria-label="Close"], button[jsname="VCKitc"], button[jsname="tJiF1b"]');
+                if (closeBtn) closeBtn.click();
+                else oneTapContainer.remove();
+              }
+            } catch (_) {}
+            
+            // Xóa Google iframes (FedCM popup là iframe accounts.google.com)
+            const googleIframes = document.querySelectorAll('iframe[src*="accounts.google.com"], iframe[src*="gsi/iframe"], iframe[src*="oauth/iframe"]');
+            googleIframes.forEach(iframe => {
+              try { iframe.remove(); } catch (_) {}
+            });
+
             const input = document.querySelector('input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name="code"], input[maxlength="6"]');
             if (!input) return { ok: false, reason: 'code-input-not-found' };
             const form = input.closest('form');
             if (!form) return { ok: false, reason: 'form-not-found' };
             
-            const buttons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
+            const buttons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'))
+                                 .filter(b => {
+                                   const t = (b.innerText || b.textContent || b.value || '').trim().toLowerCase();
+                                   return !t.includes('with ') && !t.includes('google');
+                                 });
+            
             let btn = buttons.find(b => b.getAttribute('value') === 'validate') ||
                       buttons.find(b => {
                         const t = (b.innerText || b.textContent || '').trim().toLowerCase();
