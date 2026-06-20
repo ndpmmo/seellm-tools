@@ -762,9 +762,8 @@ export async function runAutoRegister(taskInput) {
 
   // Update pool status to processing
   await updatePoolStatus(email, { chatgpt_status: 'processing' });
-
   // Tạo mật khẩu ngẫu nhiên đủ mạnh (CONFIG.passwordLength ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
-  const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
   let chatGptPassword = Array.from({ length: CONFIG.passwordLength }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
 
   console.log(`==========================================`);
@@ -1609,9 +1608,10 @@ export async function runAutoRegister(taskInput) {
         // Nếu là account đã tồn tại, dùng mật khẩu cũ đã được cấu hình trong Vault
         pwdCandidates = [chatGptPassword];
         console.log(`[3] Luồng Account đã tồn tại: Sử dụng mật khẩu hiện tại...`);
+
       } else {
         // Sinh tối đa 3 password candidates cho account mới
-        const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+        const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
         while (pwdCandidates.length < 3) {
           const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
             PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
@@ -2095,7 +2095,7 @@ export async function runAutoRegister(taskInput) {
     if (hasPwdInputAfterOtp) {
       console.log(`[4.3] Phát hiện màn hình tạo mật khẩu sau khi giải OTP. Tiến hành điền mật khẩu...`);
       let pwdCandidates = [];
-      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
       while (pwdCandidates.length < 3) {
         const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
           PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
@@ -2125,9 +2125,48 @@ export async function runAutoRegister(taskInput) {
         await waitForUrlChange(tabId, USER_ID, urlBeforePwd, { timeoutMs: 8000 });
         await assertOnExpectedDomain(tabId, USER_ID, 'after-password-submit');
 
-        const stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+        let stillOnPasswordPage = await evalJson(tabId, USER_ID, `
           !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
         `);
+
+        // --- KIỂM TRA MÀN HÌNH PASSWORD SAU KHI SUBMIT ---
+        if (stillOnPasswordPage) {
+          const pageError = await evalJson(tabId, USER_ID, `
+            (() => {
+              const errEl = document.querySelector('[class*="error"], [class*="alert"], [role="alert"], [aria-live], .error-message');
+              return errEl ? (errEl.innerText || '').trim() : null;
+            })()
+          `).catch(() => null);
+
+          if (pageError) {
+            console.log(`[Password-after-otp] Mật khẩu bị từ chối với lỗi hiển thị trên trang: "${pageError}"`);
+            if (pageError.toLowerCase().includes('already') || pageError.toLowerCase().includes('exists') || pageError.toLowerCase().includes('user_exists')) {
+              throw new Error(`ACCOUNT_EXISTS: Email ${email} đã được đăng ký trước đó trên OpenAI. (Phát hiện lỗi: ${pageError})`);
+            }
+          } else {
+            // Không có lỗi hiển thị nhưng vẫn ở màn hình password -> Có thể do tải chậm hoặc Turnstile bị block
+            const currentUrl = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+            if (currentUrl.includes('auth/login?email=') || currentUrl.includes('auth/login/?email=')) {
+              throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page sau khi submit password (Proxy/Reputation block). URL: ${currentUrl}`);
+            }
+
+            console.log(`[Password-after-otp] Vẫn ở màn hình Password và không có lỗi hiển thị. Chờ thêm 5 giây kiểm tra tải trang...`);
+            await new Promise(r => setTimeout(r, 5000));
+
+            stillOnPasswordPage = await evalJson(tabId, USER_ID, `
+              !!document.querySelector('input[name="new-password"], input[name="password"], input[type="password"], input[autocomplete="new-password"]')
+            `).catch(() => false);
+
+            if (stillOnPasswordPage) {
+              const finalUrl = await evalJson(tabId, USER_ID, `location.href.toLowerCase()`).catch(() => '');
+              if (finalUrl.includes('auth/login?email=') || finalUrl.includes('auth/login/?email=')) {
+                throw new Error(`BLOCKED_BY_OPENAI: Bị redirect ngược lại về login landing page sau khi submit password (Proxy/Reputation block). URL: ${finalUrl}`);
+              }
+              // Thực sự bị chặn submit (Turnstile/IP reputation block)
+              throw new Error(`BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Password sau OTP (Turnstile/Proxy reputation block). URL: ${finalUrl}`);
+            }
+          }
+        }
 
         if (!stillOnPasswordPage) {
           passwordSuccess = true;

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.188] - 2026-06-20 19:57:00
+
+### 🔧 Khắc phục Lỗi Sai Mật Khẩu Khi Tạo Tài Khoản
+
+- **Tự động đăng ký (`scripts/auto-register-worker.js`)**:
+  - Khắc phục lỗi bất đồng bộ/race condition tại màn hình thiết lập mật khẩu sau khi giải mã OTP (`hasPwdInputAfterOtp`). Khi proxy phản hồi chậm hơn 8 giây, worker sẽ không còn nhảy vội sang password tiếp theo làm lệch mật khẩu thực tế đăng ký so với DB; thay vào đó sẽ thực hiện kiểm tra lỗi UI và chờ đợi phản hồi trang giống với luồng password ban đầu.
+  - Tối ưu hóa ký tự đặc biệt khi tạo mật khẩu ngẫu nhiên: Rút gọn tập ký tự đặc biệt về `!@#_-` thay vì `!@#$%^&*` để loại bỏ các lỗi mất ký tự do hệ thống mô phỏng bàn phím (native keyboard typing simulation) của headless browser trên một số môi trường ảo hóa/Docker.
+
 ## [0.3.187] - 2026-06-20 19:49:00
 
 ### 🔧 Khắc phục Hiển thị Nhãn Trạng thái Tài khoản Sai Mật Khẩu
