@@ -49,6 +49,22 @@ function ServiceTag({ name, status }: { name: string; status: string }) {
     );
 }
 
+async function safeFetchJson(url: string, init?: RequestInit) {
+    const res = await fetch(url, init);
+    if (res.status === 401) {
+        if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+        }
+        throw new Error('Unauthorized');
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server returned status ${res.status}: ${text.slice(0, 150) || res.statusText}`);
+    }
+    return res.json();
+}
+
 // ───────────────────────────────────────────────────────────────
 // Main View
 // ───────────────────────────────────────────────────────────────
@@ -183,12 +199,11 @@ export function VaultWorkshopView() {
             const emails = bulkEmailsText.split('\n').map(l => l.trim()).filter(Boolean);
             const proxies = bulkProxiesText.split('\n').map(l => l.trim()).filter(Boolean);
 
-            const res = await fetch('/api/vault/accounts/bulk-register/validate-inputs', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/validate-inputs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ emails, proxies })
             });
-            const data = await res.json();
             if (data.ok) {
                 setValidationSummary(data.summary);
                 addToast('Xác thực dữ liệu đầu vào thành công', 'success');
@@ -213,12 +228,11 @@ export function VaultWorkshopView() {
                 return;
             }
 
-            const res = await fetch('/api/vault/accounts/bulk-register/check-proxies', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/check-proxies', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ proxies })
             });
-            const data = await res.json();
             if (data.ok && Array.isArray(data.results)) {
                 const mapped: Record<string, any> = {};
                 data.results.forEach((r: any) => {
@@ -276,12 +290,11 @@ export function VaultWorkshopView() {
             const hasAnyToken = emailsPayload.some(e => e.refresh_token);
             const payload = hasAnyToken ? emailsPayload : emailsPayload.map(e => e.email);
 
-            const res = await fetch('/api/vault/email-pool/bulk-verify', {
+            const data = await safeFetchJson('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ emails: payload })
             });
-            const data = await res.json();
             if (data.ok && Array.isArray(data.results)) {
                 const activeEmails = new Set(
                     data.results
@@ -318,7 +331,7 @@ export function VaultWorkshopView() {
                 return;
             }
 
-            const res = await fetch('/api/vault/accounts/bulk-register', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -329,7 +342,6 @@ export function VaultWorkshopView() {
                     enableOAuth: bulkEnableOAuth
                 })
             });
-            const data = await res.json();
             if (data.ok) {
                 addToast('Đã bắt đầu tiến trình đăng ký hàng loạt', 'success');
                 fetchBulkStatus();
@@ -345,10 +357,9 @@ export function VaultWorkshopView() {
 
     const handleStopBulkRegister = async () => {
         try {
-            const res = await fetch('/api/vault/accounts/bulk-register/stop', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/stop', {
                 method: 'POST'
             });
-            const data = await res.json();
             if (data.ok) {
                 addToast('Đã phát lệnh dừng tiến trình', 'success');
                 fetchBulkStatus();
@@ -362,10 +373,9 @@ export function VaultWorkshopView() {
 
     const handleClearBulkStatus = async () => {
         try {
-            const res = await fetch('/api/vault/accounts/bulk-register/clear', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/clear', {
                 method: 'POST'
             });
-            const data = await res.json();
             if (data.ok) {
                 setBulkStatus(null);
                 addToast('Đã dọn dẹp trạng thái tiến trình', 'success');
@@ -390,7 +400,7 @@ export function VaultWorkshopView() {
 
     const handleRetryFailed = async () => {
         try {
-            const res = await fetch('/api/vault/accounts/bulk-register/retry-failed', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/retry-failed', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -400,7 +410,6 @@ export function VaultWorkshopView() {
                     ratio: bulkRatio
                 })
             });
-            const data = await res.json();
             if (data.ok) {
                 addToast('Đã bắt đầu chạy lại các tài khoản lỗi', 'success');
                 fetchBulkStatus();
@@ -414,7 +423,7 @@ export function VaultWorkshopView() {
 
     const handleRetryItem = async (email: string) => {
         try {
-            const res = await fetch('/api/vault/accounts/bulk-register/retry-item', {
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/retry-item', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -425,7 +434,6 @@ export function VaultWorkshopView() {
                     ratio: bulkRatio
                 })
             });
-            const data = await res.json();
             if (data.ok) {
                 addToast(`Đã yêu cầu chạy lại cho ${email}`, 'success');
                 fetchBulkStatus();
@@ -439,8 +447,7 @@ export function VaultWorkshopView() {
 
     const fetchBulkStatus = useCallback(async () => {
         try {
-            const res = await fetch('/api/vault/accounts/bulk-register/status');
-            const data = await res.json();
+            const data = await safeFetchJson('/api/vault/accounts/bulk-register/status');
             setBulkStatus(data);
 
             if (data && Array.isArray(data.completed) && data.completed.length > 0) {

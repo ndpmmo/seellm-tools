@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.222] - 2026-06-21 03:47:00
+
+### ⚙️ Xử lý lỗi Unauthorized (401) và Cải thiện Xác thực khi chạy Hàng loạt (Bug Fix / UX)
+
+- **`src/components/views/vault/VaultWorkshopView.tsx`**:
+  - Bổ sung kiểm tra trạng thái HTTP `401 Unauthorized` trong hàm `safeFetchJson` để tự động điều hướng người dùng quay lại trang đăng nhập (`/login`) nếu phiên làm việc hết hạn hoặc không hợp lệ.
+  - Chuyển đổi các hàm gọi `fetch` trong `VaultWorkshopView` (như kiểm tra trạng thái, kích hoạt đăng ký hàng loạt, kiểm tra proxy, dừng/tiếp tục/xóa trạng thái tiến trình) sang sử dụng `safeFetchJson` để tận dụng khả năng tự động xử lý lỗi 401 tập trung và chuẩn hóa định dạng JSON.
+
 ## [0.3.221] - 2026-06-21 03:45:00
 
 ### ⚙️ Tăng giới hạn Payload cho Express JSON Body Parser (Bug Fix)
