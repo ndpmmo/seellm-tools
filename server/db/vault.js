@@ -617,7 +617,7 @@ export const vault = {
       plan: data.plan !== undefined ? data.plan : (existing ? existing.plan : null),
       is_active: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : (existing ? existing.is_active : 1)),
       quota_json: data.quota_json !== undefined ? (typeof data.quota_json === 'object' ? JSON.stringify(data.quota_json) : data.quota_json) : (data.quotaJson !== undefined ? (typeof data.quotaJson === 'object' ? JSON.stringify(data.quotaJson) : data.quotaJson) : (existing ? existing.quota_json : null)),
-      ever_ready: data.ever_ready !== undefined ? data.ever_ready : (existing ? existing.ever_ready : 0),
+      ever_ready: finalStatus === 'ready' ? 1 : (data.ever_ready !== undefined ? data.ever_ready : (existing ? existing.ever_ready : 0)),
       connect_pending: data.connect_pending !== undefined ? data.connect_pending : (existing ? existing.connect_pending : 0),
       exported_to: data.exported_to || null, exported_at: data.exported_at || null,
       created_at: existing ? existing.created_at : now, updated_at: now,

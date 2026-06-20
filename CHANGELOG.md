@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.214] - 2026-06-21 02:24:00
+
+### 🔧 Đảm bảo cập nhật flag ever_ready tự động khi lưu trạng thái ready (Refactor)
+
+- **`server/db/vault.js`**:
+  - Cập nhật hàm `upsertAccount`: Tự động ép giá trị `ever_ready = 1` bất cứ khi nào tài khoản được lưu với trạng thái `status = 'ready'`.
+  - Tránh các trường hợp ngoại lệ ghi nhận dữ liệu thiếu trường `ever_ready` làm ảnh hưởng đến cơ chế đồng bộ lên Cloud.
+
 ## [0.3.213] - 2026-06-21 02:03:00
 
 ### 🐛 Khắc phục lỗi tự động đồng bộ tài khoản chưa từng ready lên Managed Services (Bug Fix)
