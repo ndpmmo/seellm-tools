@@ -733,6 +733,30 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                            text.includes('setup key') ||
                            text.includes('manual entry') ||
                            text.includes('enter this key') ||
+                           text.includes('enter the code') ||
+                           text.includes('nhập mã từ ứng dụng') ||
+                           text.includes('ứng dụng xác thực');
+                    if (hasSetupText) return true;
+
+                    // DOM-based detection: look for a new dialog with a QR image or canvas
+                    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+                    for (const d of dialogs) {
+                        const dText = (d.innerText || '').toLowerCase();
+                        // Skip the Settings dialog itself (it has "settings" or "security" but not QR-related content)
+                        if (dText.includes('settings') || dText.includes('cài đặt')) continue;
+                        // Any dialog with a canvas (QR rendered via canvas) or img with qr-related alt
+                        const hasQrCanvas = !!d.querySelector('canvas');
+                        const hasQrImg = !!d.querySelector('img[src*="qr"], img[alt*="qr" i], img[alt*="code" i]');
+                        if (hasQrCanvas || hasQrImg) return true;
+                        // Any non-Settings dialog that appeared after we clicked the toggle
+                        if (d.querySelectorAll('img, canvas').length > 0) return true;
+                    }
+                    return false;
+                })()
+            `);
+            if (mfaSetupScreenAppeared) break;
+            await wait(1000);
+        }
         if (!mfaSetupScreenAppeared) {
             log('❌ Hộp thoại thiết lập MFA không hiển thị sau khi click toggle.');
             await saveCheckpoint('mfa_setup_dialog_failed');

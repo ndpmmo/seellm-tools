@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.198] - 2026-06-20 23:58:00
+
+### 🐛 Fix SyntaxError in mfa-setup.js
+
+- **`scripts/lib/mfa-setup.js`**:
+  - Khắc phục lỗi `SyntaxError: missing ) after argument list` tại dòng 765 do template literal cho `mfaSetupScreenAppeared` bị cắt ngắn/mất dấu đóng ngoặc và backtick trong lần cập nhật trước.
+  - Khôi phục đầy đủ logic kiểm tra `mfaSetupScreenAppeared` và vòng lặp `for (let i = 0; i < 20; i++)` với fallback check DOM-based detection (canvas/img QR) và check từ khóa.
+
 ## [0.3.197] - 2026-06-20
 
 ### 🛡️ Fix 2FA Missing: Root Cause Analysis + Batch Retry + mfa-setup.js Improvements
