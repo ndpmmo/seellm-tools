@@ -2447,6 +2447,20 @@ export function VaultAccountsView() {
                                   </div>
                                   {(() => {
                                     const ps = it.provider_specific_data || {};
+                                    const successCount = ps.warmupSuccessCount !== undefined 
+                                      ? ps.warmupSuccessCount 
+                                      : (ps.warmupStatus === 'success' ? ps.warmupCount || 0 : 0);
+                                    return (
+                                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                        <span>Thành công:</span>
+                                        <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1 py-0.2 rounded">
+                                          {successCount} lần
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const ps = it.provider_specific_data || {};
                                     if (ps.warmupStatus && ps.warmupStatus !== 'idle') {
                                       return (
                                         <button

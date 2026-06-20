@@ -3605,6 +3605,9 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     existingProviderData.warmupError = error;
     existingProviderData.warmupQuestionsAsked = questionsAsked;
     existingProviderData.warmupCount = (existingProviderData.warmupCount || 0) + 1;
+    if (status === 'success') {
+      existingProviderData.warmupSuccessCount = (existingProviderData.warmupSuccessCount || 0) + 1;
+    }
     
     if (sessionData) {
       existingProviderData.sessionData = sessionData;

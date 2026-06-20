@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.219] - 2026-06-21 02:47:00
+
+### 📈 Bổ sung hiển thị số lần Warmup thành công cho tài khoản Vault (Feature)
+
+- **`server/routes/vault.js`**:
+  - Cập nhật API route `/accounts/:id/warmup-result` để tăng giá trị đếm `warmupSuccessCount` trong `provider_specific_data` khi trạng thái warmup trả về là `success`.
+- **`src/components/views/vault/VaultAccountsView.tsx`**:
+  - Hiển thị thêm thông tin `Thành công: X lần` bên dưới phần Trạng thái Warmup của chi tiết tài khoản khi được mở rộng.
+  - Sử dụng cơ chế fallback thông minh: nếu chưa có `warmupSuccessCount` (cho dữ liệu cũ) mà trạng thái hiện tại là `success`, hệ thống sẽ sử dụng tổng số lần `warmupCount` hoặc mặc định là `0` lần.
+
 ## [0.3.218] - 2026-06-21 02:40:00
 
 ### 🚀 Tối ưu hóa hiệu năng giao diện và giảm thiểu re-render (Performance Optimization)
