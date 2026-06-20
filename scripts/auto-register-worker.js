@@ -24,7 +24,7 @@ import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
 import { getState, fillEmail, fillPassword, fillMfa, tryAcceptCookies, dismissGooglePopup, clickContinueWithPassword, tryDismissPasskeyEnrollment } from './lib/openai-login-flow.js';
 import { checkIpLocation, checkChatGPTReachability } from './lib/proxy-diag.js';
-import { runProtocolRegistration, requestViaCurlCffi } from './lib/openai-protocol-register.js';
+import { runProtocolRegistration, requestViaCurlCffi, generatePassword } from './lib/openai-protocol-register.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
@@ -763,8 +763,7 @@ export async function runAutoRegister(taskInput) {
   // Update pool status to processing
   await updatePoolStatus(email, { chatgpt_status: 'processing' });
   // Tạo mật khẩu ngẫu nhiên đủ mạnh (CONFIG.passwordLength ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
-  const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
-  let chatGptPassword = Array.from({ length: CONFIG.passwordLength }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('');
+  let chatGptPassword = generatePassword(CONFIG.passwordLength);
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -1611,11 +1610,8 @@ export async function runAutoRegister(taskInput) {
 
       } else {
         // Sinh tối đa 3 password candidates cho account mới
-        const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
         while (pwdCandidates.length < 3) {
-          const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
-            PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
-          ).join('');
+          const candidate = generatePassword(CONFIG.passwordLength);
           if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
         }
       }
@@ -2095,11 +2091,8 @@ export async function runAutoRegister(taskInput) {
     if (hasPwdInputAfterOtp) {
       console.log(`[4.3] Phát hiện màn hình tạo mật khẩu sau khi giải OTP. Tiến hành điền mật khẩu...`);
       let pwdCandidates = [];
-      const PWD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#_-';
       while (pwdCandidates.length < 3) {
-        const candidate = Array.from({ length: CONFIG.passwordLength }, () =>
-          PWD_CHARS[Math.floor(Math.random() * PWD_CHARS.length)]
-        ).join('');
+        const candidate = generatePassword(CONFIG.passwordLength);
         if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
       }
 

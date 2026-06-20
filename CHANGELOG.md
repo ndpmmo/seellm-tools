@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.189] - 2026-06-20 21:26:00
+
+### 🔧 Khắc phục Lỗi Mật Khẩu Yếu Khi Tạo Tài Khoản
+
+- **Tự động đăng ký (`scripts/auto-register-worker.js`)**:
+  - Sửa lỗi thuật toán sinh ngẫu nhiên password làm mật khẩu đôi khi thiếu số, chữ hoa hoặc ký tự đặc biệt, gây ra lỗi "sai mật khẩu" / "wrong password" hoặc bị hệ thống từ chối do không đạt độ mạnh bảo mật của OpenAI.
+  - Tích hợp hàm `generatePassword` từ `lib/openai-protocol-register.js` vào luồng đăng ký tự động thay cho cơ chế tạo random ký tự cũ, nhằm đảm bảo mỗi password luôn tuân thủ cấu trúc bảo mật (chứa chữ thường, số, chữ hoa, và ký tự đặc biệt hợp lệ).
+
 ## [0.3.188] - 2026-06-20 19:57:00
 
 ### 🔧 Khắc phục Lỗi Sai Mật Khẩu Khi Tạo Tài Khoản
