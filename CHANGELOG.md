@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.221] - 2026-06-21 03:45:00
+
+### ⚙️ Tăng giới hạn Payload cho Express JSON Body Parser (Bug Fix)
+
+- **`server.js`**:
+  - Tăng giới hạn tải lên JSON body lên `50mb` thông qua `express.json({ limit: '50mb' })` để tránh lỗi `PayloadTooLargeError: request entity too large` khi gửi lượng lớn accounts/payloads.
+- **`server/routes/vault.js`**:
+  - Cập nhật `router.use(express.json({ limit: '50mb' }))` để thống nhất cấu hình giới hạn payload.
+- **`server/routes/profiles.js`**:
+  - Cập nhật `router.use(express.json({ limit: '50mb' }))` để thống nhất cấu hình giới hạn payload.
+- **`server/routes/auditLog.js`**:
+  - Cập nhật `router.use(express.json({ limit: '50mb' }))` để thống nhất cấu hình giới hạn payload.
+
 ## [0.3.220] - 2026-06-21 02:50:00
 
 ### 🔧 Sửa lỗi lọc trùng lặp giữa Mail Ready và Đã Dập trong Workshop (Bug Fix)

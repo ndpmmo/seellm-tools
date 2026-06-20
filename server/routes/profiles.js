@@ -18,7 +18,7 @@ import { auditLog } from '../db/auditLog.js';
 import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
-router.use(express.json());
+router.use(express.json({ limit: '50mb' }));
 
 // SSE emitter — set from server.js
 let emitSSE = null;
