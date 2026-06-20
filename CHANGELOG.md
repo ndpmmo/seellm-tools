@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.213] - 2026-06-21 02:03:00
+
+### 🐛 Khắc phục lỗi tự động đồng bộ tài khoản chưa từng ready lên Managed Services (Bug Fix)
+
+- **`server/services/syncManager.js`**:
+  - Cập nhật **Rule 5**: Với các tài khoản gặp lỗi (`error`, `need_phone`, `relogin`, `dead`) nhưng chưa từng ready/deploy thành công (`ever_ready = 0`), hệ thống sẽ gửi tombstone để xóa bỏ hoàn toàn tài khoản đó khỏi bảng `managedAccounts` trên D1.
+  - Ngăn chặn việc các tài khoản lỗi chưa bao giờ hoạt động bị đồng bộ nhầm lên D1 và hiển thị tại view `Managed Services`.
+
 ## [0.3.212] - 2026-06-21 01:56:00
 
 ### 🔧 Bổ sung công cụ và log tự động gán Proxy (Maintenance)

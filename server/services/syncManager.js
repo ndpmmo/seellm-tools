@@ -318,67 +318,72 @@ export const SyncManager = {
       }
       // ✅ Rule 5: Account lỗi (error/need_phone/relogin/dead)
       //   → Nếu đã từng ready (ever_ready=1): giữ connection để Gateway hiển thị lỗi trên account đang dùng
-      //   → Nếu chưa từng ready: chỉ push managedAccounts, connection tombstone để xóa khỏi Gateway
+      //   → Nếu chưa từng ready: xóa cả managedAccounts và connection khỏi Gateway (tombstone)
       else if (['error', 'need_phone', 'relogin', 'dead'].includes(data.status)) {
-        payload.managedAccounts = [{
-          id: data.id,
-          provider: data.provider || 'openai',
-          email: data.email,
-          password: data.password,
-          two_fa_secret: data.two_fa_secret,
-          proxy_url: data.proxy_url,
-          proxy_id: null,
-          status: data.status,
-          is_active: data.is_active ?? 1,
-          quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
-          last_error: data.notes,
-          last_sync_at: now,
-          created_at: createdAt,
-          updated_at: updatedAt,
-          deleted_at: null,
-          version,
-        }];
-
-        const tags = safeParseTags(data.tags);
-        const isDeactivated = tags.includes('account_deactivated') || 
-                              tags.includes('email_dead') || 
-                              data.status === 'dead' || 
-                              data.status === 'relogin' || 
-                              data.status === 'need_phone';
-        if (data.ever_ready && !isDeactivated) {
-          const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
-          const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
-          const mergedProviderData = {
-            ...providerSpecificData,
-            workspaceId: workspaceId || null,
-            deviceId: data.device_id || providerSpecificData.deviceId || null,
-            machineId: data.machine_id || providerSpecificData.machineId || null,
-            proxyUrl: data.proxy_url || providerSpecificData.proxyUrl || null,
-          };
-          Object.keys(mergedProviderData).forEach((key) => {
-            if (mergedProviderData[key] === null || mergedProviderData[key] === undefined) delete mergedProviderData[key];
-          });
-          const connectionIsActive = (data.is_active !== undefined && data.is_active !== null) ? (data.is_active === 0 ? 0 : 1) : 1;
-
-          payload.connections = [{
+        if (data.ever_ready) {
+          payload.managedAccounts = [{
             id: data.id,
             provider: data.provider || 'openai',
             email: data.email,
-            name: data.email ? data.email.split('@')[0] : data.id,
-            access_token: data.access_token || null,
-            refresh_token: data.refresh_token || null,
-            proxy_url: data.proxy_url || null,
-            workspace_id: workspaceId,
-            is_active: connectionIsActive,
-            rate_limit_protection: 0,
-            provider_specific_data: Object.keys(mergedProviderData).length ? mergedProviderData : null,
+            password: data.password,
+            two_fa_secret: data.two_fa_secret,
+            proxy_url: data.proxy_url,
+            proxy_id: null,
+            status: data.status,
+            is_active: data.is_active ?? 1,
+            quota_json: typeof data.quota_json === 'string' ? data.quota_json : (data.quota_json ? JSON.stringify(data.quota_json) : null),
+            last_error: data.notes,
+            last_sync_at: now,
             created_at: createdAt,
             updated_at: updatedAt,
             deleted_at: null,
             version,
           }];
+
+          const tags = safeParseTags(data.tags);
+          const isDeactivated = tags.includes('account_deactivated') || 
+                                tags.includes('email_dead') || 
+                                data.status === 'dead' || 
+                                data.status === 'relogin' || 
+                                data.status === 'need_phone';
+          if (!isDeactivated) {
+            const providerSpecificData = normalizeProviderSpecificData(data.provider_specific_data || data.providerSpecificData) || {};
+            const workspaceId = data.workspace_id || providerSpecificData.workspaceId || null;
+            const mergedProviderData = {
+              ...providerSpecificData,
+              workspaceId: workspaceId || null,
+              deviceId: data.device_id || providerSpecificData.deviceId || null,
+              machineId: data.machine_id || providerSpecificData.machineId || null,
+              proxyUrl: data.proxy_url || providerSpecificData.proxyUrl || null,
+            };
+            Object.keys(mergedProviderData).forEach((key) => {
+              if (mergedProviderData[key] === null || mergedProviderData[key] === undefined) delete mergedProviderData[key];
+            });
+            const connectionIsActive = (data.is_active !== undefined && data.is_active !== null) ? (data.is_active === 0 ? 0 : 1) : 1;
+
+            payload.connections = [{
+              id: data.id,
+              provider: data.provider || 'openai',
+              email: data.email,
+              name: data.email ? data.email.split('@')[0] : data.id,
+              access_token: data.access_token || null,
+              refresh_token: data.refresh_token || null,
+              proxy_url: data.proxy_url || null,
+              workspace_id: workspaceId,
+              is_active: connectionIsActive,
+              rate_limit_protection: 0,
+              provider_specific_data: Object.keys(mergedProviderData).length ? mergedProviderData : null,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              deleted_at: null,
+              version,
+            }];
+          } else {
+            payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, is_active: 0, version }];
+          }
         } else {
-          // Chưa từng ready → xóa connection khỏi Gateway nếu từng tồn tại
+          // Chưa từng ready → xóa cả managedAccounts và connections khỏi Gateway (tombstones)
+          payload.managedAccounts = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, version }];
           payload.connections = [{ id: data.id, email: data.email, updated_at: now, deleted_at: now, is_active: 0, version }];
         }
       }
