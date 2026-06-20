@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.199] - 2026-06-21 00:05:00
+
+### 🛡️ Fix 2FA Secret Key Wrong Extraction (SECURITYANDLOGIN)
+
+- **`scripts/lib/mfa-setup.js`**:
+  - Khắc phục lỗi trích xuất sai Secret Key thành `"SECURITYANDLOGIN"` (hoặc các tiêu đề UI/metadata khác tương tự). Nguyên nhân do hàm clean chuỗi `raw.replace(/[\s\-]/g, '')` loại bỏ khoảng trắng và dấu gạch ngang của các cụm từ UI dài hơn 16 ký tự, khiến chúng vô tình khớp định dạng Base32 và đạt điểm cao.
+  - Cải tiến bộ lọc candidates:
+    - Loại bỏ hoàn toàn các chuỗi chứa từ khóa UI phổ biến (`security`, `login`, `signin`, `signup`, `terms`, `privacy`, v.v.).
+    - Ưu tiên cao nhất cho chuỗi có độ dài đúng bằng **32 ký tự** (chuẩn độ dài 2FA secret của ChatGPT).
+    - Thêm kiểm tra entropy (số ký tự duy nhất phải từ 6 trở lên) để loại trừ các chuỗi lặp/rác.
+    - Cộng điểm thưởng lớn (+20) nếu phần tử có font style là monospace (`Courier`, `mono`, `Consolas`, `code`).
+
 ## [0.3.198] - 2026-06-20 23:58:00
 
 ### 🐛 Fix SyntaxError in mfa-setup.js

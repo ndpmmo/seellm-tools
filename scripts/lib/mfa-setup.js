@@ -803,6 +803,16 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     const cleaned = raw.replace(/[\\s\\-]/g, '');
                     
                     let score = 0;
+                    
+                    // Check if style is monospace (typical for secrets/codes)
+                    try {
+                        const style = window.getComputedStyle(el);
+                        const ff = (style.fontFamily || '').toLowerCase();
+                        if (ff.includes('mono') || ff.includes('courier') || ff.includes('consolas') || ff.includes('code')) {
+                            score += 20;
+                        }
+                    } catch (e) {}
+
                     let par = el;
                     for (let d = 0; d < 5; d++) {
                         if (!par) break;
@@ -810,7 +820,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         if (/copy|secret|key|code|authenticator/i.test(classAndId)) {
                             score += 10;
                         }
-                        if (par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
+                        if (d < 2 && par.querySelector('button[aria-label*="copy" i], button[title*="copy" i]')) {
                             score += 5;
                         }
                         par = par.parentElement;
@@ -818,32 +828,42 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     return { el, raw, cleaned, score };
                 });
 
-                let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/.test(item.cleaned));
-                
-                if (filtered.length === 0) {
-                    filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
-                    const emailParam = ${JSON.stringify(options.email ? options.email.split('@')[0].replace(/[^a-zA-Z]/g, '').toLowerCase() : '')};
-                    if (emailParam) {
-                        filtered = filtered.filter(item => {
-                            const val = item.cleaned.toLowerCase();
-                            return !val.includes(emailParam) && !val.includes('smith') && !val.includes('albert');
-                        });
-                    }
+                // Filter for base32 syntax
+                let filtered = candidates.filter(item => /^[A-Z2-7]{16,72}$/i.test(item.cleaned));
+
+                // Exclude common UI words/phrases to prevent wrong extraction (e.g. SECURITYANDLOGIN)
+                const uiWords = ['security', 'login', 'signin', 'signup', 'register', 'cancel', 'continue', 'verify', 'submit', 'terms', 'privacy', 'about', 'help', 'support', 'welcome', 'home', 'authenticator'];
+                filtered = filtered.filter(item => {
+                    const lower = item.cleaned.toLowerCase();
+                    return !uiWords.some(w => lower.includes(w));
+                });
+
+                // Exclude email or test names
+                const emailParam = ${JSON.stringify(options.email ? options.email.split('@')[0].replace(/[^a-zA-Z]/g, '').toLowerCase() : '')};
+                if (emailParam) {
+                    filtered = filtered.filter(item => {
+                        const val = item.cleaned.toLowerCase();
+                        return !val.includes(emailParam) && !val.includes('smith') && !val.includes('albert');
+                    });
                 }
 
-                const excludes = [
-                    'funandentertainment', 
-                    'termsofservice', 
-                    'privacypolicy', 
-                    'aboutyou', 
-                    'whatwilluse', 
-                    'chatgptplus',
-                    'personaluse',
-                    'educationuse',
-                    'workuse'
-                ];
-                filtered = filtered.filter(item => !excludes.includes(item.cleaned.toLowerCase()));
-                filtered.sort((a, b) => b.score - a.score);
+                // Filter out low entropy (real base32 has high character variety)
+                filtered = filtered.filter(item => {
+                    const uniqueChars = new Set(item.cleaned.toLowerCase()).size;
+                    return uniqueChars >= 6;
+                });
+
+                // Prioritize 32-character strings (ChatGPT standard length)
+                const exact32 = filtered.filter(item => item.cleaned.length === 32);
+                if (exact32.length > 0) {
+                    filtered = exact32;
+                }
+
+                // Sort: highest score first, then longer length first
+                filtered.sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    return b.cleaned.length - a.cleaned.length;
+                });
 
                 return filtered[0]?.cleaned || null;
             })()
