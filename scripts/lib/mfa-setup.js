@@ -771,31 +771,59 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             (() => {
                 const KEYWORDS = ['trouble scanning', "can't scan", 'cannot scan', 'không thể quét', 'nhập khóa', 'nhập mã', 'enter setup key', 'enter key', 'use setup key', 'manual', 'enter code manually'];
                 
-                // 1. Search in interactive elements first (a, button, div[role=button], etc.)
-                const interactiveElements = Array.from(document.querySelectorAll('a, button, div[role="button"], [tabindex]'));
-                let el = interactiveElements.find(e => {
-                    const t = (e.textContent || '').toLowerCase();
-                    return KEYWORDS.some(kw => t.includes(kw));
+                // 1. Find all elements containing any of the keywords in their text
+                const all = Array.from(document.querySelectorAll('*'));
+                const candidates = all.filter(e => {
+                    const tag = e.tagName.toLowerCase();
+                    if (['html', 'body', 'script', 'style', 'head', 'meta', 'link', 'iframe', 'noscript'].includes(tag)) {
+                        return false;
+                    }
+                    const text = (e.textContent || '').toLowerCase();
+                    return KEYWORDS.some(kw => text.includes(kw));
                 });
                 
-                // 2. If not found, look at spans/p/labels that might be children of an interactive element or themselves clickable
-                if (!el) {
-                    const textElements = Array.from(document.querySelectorAll('span, p, label, div'));
-                    const match = textElements.find(e => {
-                        const t = (e.textContent || '').toLowerCase();
-                        return KEYWORDS.some(kw => t.includes(kw));
-                    });
-                    if (match) {
-                        // Try to find the closest interactive ancestor
-                        el = match.closest('a, button, div[role="button"], [tabindex]') || match;
-                    }
+                if (candidates.length === 0) {
+                    return 'not_found';
                 }
                 
-                if (el) {
-                    el.click();
-                    return 'clicked_' + el.tagName.toLowerCase();
+                // 2. Find the leaf candidate (the candidate that doesn't contain any other candidate)
+                const leaf = candidates.find(c => {
+                    return !candidates.some(other => other !== c && c.contains(other));
+                });
+                
+                if (!leaf) {
+                    return 'candidate_found_but_no_leaf';
                 }
-                return 'not_found';
+                
+                // 3. Find closest interactive ancestor of the leaf, or default to the leaf itself
+                const interactive = leaf.closest('a, button, div[role="button"], [tabindex], [onclick]');
+                const el = interactive || leaf;
+                
+                // 4. Click robustly
+                try {
+                    el.focus();
+                } catch (e) {}
+                
+                // Trigger mouse events first
+                const events = ['mousedown', 'mouseup', 'click'];
+                for (const name of events) {
+                    try {
+                        const ev = new MouseEvent(name, {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            buttons: 1
+                        });
+                        el.dispatchEvent(ev);
+                    } catch (e) {}
+                }
+                
+                // Also trigger standard click just in case
+                if (typeof el.click === 'function') {
+                    el.click();
+                }
+                
+                return 'clicked_' + el.tagName.toLowerCase() + '_text_' + el.textContent.trim().substring(0, 30);
             })()
         `);
         log(`  Trouble scanning: ${trouble}`);

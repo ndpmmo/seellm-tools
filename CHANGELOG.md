@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.205] - 2026-06-21 00:35:00
+
+### 🛡️ Sửa triệt để lỗi click "Trouble scanning?" trong hộp thoại MFA Setup
+
+- **`scripts/lib/mfa-setup.js`**:
+  - **Khắc phục lỗi click trượt/không hoạt động**: Thay vì tìm kiếm chung chung trong danh sách elements được trả về bởi `querySelectorAll` (dẫn tới việc khớp nhầm và click vào các wrapper/container `div` lớn bao quanh text), ta triển khai cơ chế định vị nút dạng **phần tử lá (leaf element)**.
+  - **Cơ chế hoạt động**:
+    1. Lọc tất cả các tags hợp lệ (bỏ qua script, style, head, iframe, v.v.) chứa từ khóa liên quan đến setup key/trouble scanning.
+    2. Tìm phần tử sâu nhất trong cây DOM (phần tử con lá - leaf node) bằng cách loại trừ bất kỳ phần tử nào chứa một phần tử match khác.
+    3. Tìm kiếm tổ tiên tương tác gần nhất (`a`, `button`, `div[role="button"]`, `[tabindex]`, `[onclick]`), nếu không có sẽ click trực tiếp vào chính leaf node đó.
+    4. Kích hoạt sự kiện click một cách an toàn và cực kỳ mạnh mẽ (robust clicking) bằng cách tuần tự phát các `MouseEvent` (`mousedown` -> `mouseup` -> `click`) có `bubbles: true` và `cancelable: true` rồi gọi `.click()`, giả lập chính xác hành động click chuột của người dùng thực tế trên React.
+
 ## [0.3.201] - 2026-06-21 00:18:00
 
 ### 🛡️ Vá lỗi trích xuất PARENTALCONTROLS & Nâng cấp Clicker "Trouble scanning"
