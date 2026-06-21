@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.225] - 2026-06-21 15:50:00
+
+### ⚙️ Hỗ trợ vượt trang "Your session has ended" khi đăng ký (Bug Fix / Stability)
+
+- **`scripts/auto-register-worker.js`**:
+  - Tự động bổ sung chiến lược click nút **"Log in"** dự phòng khi hệ thống rơi vào trạng thái trang trống/hết hạn phiên (`login_only` variant - ví dụ màn hình *"Your session has ended"* của OpenAI) trong quá trình đăng ký tài khoản mới.
+  - **Lý do**: Khi trình duyệt lưu giữ trạng thái profile cũ hoặc gặp cơ chế chuyển hướng ngẫu nhiên của OpenAI, trang đầu tiên sẽ bị chuyển hướng sang `https://auth.openai.com/log-in-or-create-account` hiển thị cảnh báo *"Your session has ended"* và chỉ có duy nhất nút **"Log in"** (không có nút "Sign up" hay ô nhập email). Việc bổ sung chiến lược click "Log in" giúp trình duyệt đi tiếp qua trang này, chuyển hướng sang đúng trang đăng nhập/đăng ký chuẩn (`/log-in`) nơi có ô nhập email và liên kết tạo tài khoản, giải quyết triệt để lỗi `no-email-input`.
+
 ## [0.3.224] - 2026-06-21 15:35:00
 
 ### ⚙️ Tránh nghẽn hàng đợi (Tab lock queue timeout) trong tiến trình Đăng ký hàng loạt (Bug Fix / Stability)

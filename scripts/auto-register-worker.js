@@ -1111,7 +1111,12 @@ export async function runAutoRegister(taskInput) {
       }
     }
     if (!signupStrategies.length) {
-      signupStrategies.push({ name: 'direct_log_in_or_create_account', directNavigate: 'https://auth.openai.com/log-in-or-create-account' });
+      if (signupVariant.actions.login) {
+        console.log(`[Sign-up step] No standard signup buttons found, but "Log in" button is present. Pushing log_in strategy to bypass landing page.`);
+        signupStrategies.push({ name: 'log_in', labels: ['Log in', 'Login', 'Đăng nhập'] });
+      } else {
+        signupStrategies.push({ name: 'direct_log_in_or_create_account', directNavigate: 'https://auth.openai.com/log-in-or-create-account' });
+      }
     }
 
     let signupResolved = false;
