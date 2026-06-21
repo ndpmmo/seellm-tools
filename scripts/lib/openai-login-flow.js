@@ -175,7 +175,7 @@ export async function getState(tabId, userId) {
       
       const hasEmailInput = (() => {
         const selectors = [
-          'input[type="email"]', 'input[name="username"]', 'input[id="username"]', 'input[name="email"]', 'input[autocomplete="email"]'
+          'input[type="email"]', 'input[name="username"]', 'input[id="username"]', 'input[name="email"]', 'input[autocomplete="email"]', 'input[name="identifier"]'
         ];
         return selectors.some(s => isVisible(document.querySelector(s)));
       })();
@@ -377,7 +377,7 @@ export async function fillEmail(tabId, userId, email) {
   try {
     await evalJson(tabId, userId, `
       (() => {
-        const inp = document.querySelector('input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"]');
+        const inp = document.querySelector('input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"], input[name="identifier"]');
         if (!inp) return false;
         inp.focus();
         const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
@@ -404,7 +404,7 @@ export async function fillEmail(tabId, userId, email) {
 
   try {
     const typeRes = await actType(tabId, userId, {
-      selector: 'input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"]',
+      selector: 'input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"], input[name="identifier"]',
       text: email,
       mode: 'keyboard',
       submit: true
@@ -441,6 +441,7 @@ export async function fillEmail(tabId, userId, email) {
         'input[type="email"]',
         'input[id="username"]',
         'input[name="email"]',
+        'input[name="identifier"]',
       ];
       let input = null;
       for (const s of selectors) {
