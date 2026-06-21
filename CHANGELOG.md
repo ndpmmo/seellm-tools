@@ -2,7 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.224] - 2026-06-21 15:35:00
+
+### ⚙️ Tránh nghẽn hàng đợi (Tab lock queue timeout) trong tiến trình Đăng ký hàng loạt (Bug Fix / Stability)
+
+- **`scripts/lib/mfa-setup.js`**:
+  - Chuyển đổi phương thức click nút **"Trouble scanning?"** khi thiết lập 2FA từ **Camofox native click** (`apiHelper('/tabs/.../click')`) sang **JS Click trực tiếp** trên DOM.
+  - **Lý do**: Đầu cuối `/tabs/:tabId/click` trên máy chủ `camofox-browser` không nhận cấu hình `timeoutMs` từ request body và luôn chạy với timeout mặc định là 120 giây. Khi nút bị che hoặc phản hồi chậm, Playwright click sẽ treo và giữ Tab Lock trong 120 giây (dù client đã hủy request sau 5s do cơ chế abort/retry). Việc giữ lock này làm nghẽn toàn bộ hàng đợi thao tác trên Tab (gây lỗi `Tab lock queue timeout` và làm sập tab - `Tab destroyed`), khiến tiến trình đăng ký không thể lấy được session token (Cookies: 0). Sử dụng JS Click trực tiếp giúp thực hiện click lập tức mà không cần khóa luồng lâu.
+
 ## [0.3.223] - 2026-06-21 03:49:00
+
 
 ### ⚙️ Tăng giới hạn Payload lên 200MB cho Express JSON Body Parser (Bug Fix)
 

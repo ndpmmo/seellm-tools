@@ -2303,6 +2303,22 @@ app.prepare().then(async () => {
     }
   });
 
+  // ── Error Handling Middleware ───────────────────────────────────────────
+  ex.use((err, req, res, next) => {
+    console.error(`[Error Handler] Error on ${req.method} ${req.url}:`, err);
+    if (err.status === 413 || err.statusCode === 413) {
+      console.error(`[Error Handler] Content-Length: ${req.headers['content-length']}, limit: ${err.limit}`);
+      return res.status(413).json({
+        ok: false,
+        error: `Payload quá lớn: ${req.headers['content-length']} bytes (Giới hạn cho phép: ${err.limit} bytes).`
+      });
+    }
+    res.status(err.status || err.statusCode || 500).json({
+      ok: false,
+      error: err.message || 'Internal Server Error'
+    });
+  });
+
   // ── Next.js fallback ─────────────────────────────────────────────────────
   ex.all(/(.*)/, (req, res) => handle(req, res));
 

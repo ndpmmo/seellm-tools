@@ -806,42 +806,34 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log(`  Trouble scanning tagging: ${troubleTagged}`);
 
         if (troubleTagged.startsWith('tagged_')) {
-            log('Click "Trouble scanning?" bằng Camofox native click...');
-            try {
-                await apiHelper(`/tabs/${tabId}/click`, {
-                    userId,
-                    selector: '[data-mfa-target="trouble-btn"]'
-                }, 5000); // 5s timeout to fail fast and fallback to JS
-            } catch (clickErr) {
-                log('Native click "Trouble scanning?" lỗi, fallback sang JS click:', clickErr.message);
-                await run(`
-                    (() => {
-                        const el = document.querySelector('[data-mfa-target="trouble-btn"]');
-                        if (el) {
-                            try { el.focus(); } catch (e) {}
-                            
-                            // Trigger mouse events first
-                            const events = ['mousedown', 'mouseup', 'click'];
-                            for (const name of events) {
-                                try {
-                                    const ev = new MouseEvent(name, {
-                                        bubbles: true,
-                                        cancelable: true,
-                                        view: window,
-                                        buttons: 1
-                                    });
-                                    el.dispatchEvent(ev);
-                                } catch (e) {}
-                            }
-                            
-                            // Also trigger standard click just in case
-                            if (typeof el.click === 'function') {
-                                el.click();
-                            }
+            log('Click "Trouble scanning?" bằng JS click trực tiếp...');
+            await run(`
+                (() => {
+                    const el = document.querySelector('[data-mfa-target="trouble-btn"]');
+                    if (el) {
+                        try { el.focus(); } catch (e) {}
+                        
+                        // Trigger mouse events first
+                        const events = ['mousedown', 'mouseup', 'click'];
+                        for (const name of events) {
+                            try {
+                                const ev = new MouseEvent(name, {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window,
+                                    buttons: 1
+                                });
+                                el.dispatchEvent(ev);
+                            } catch (e) {}
                         }
-                    })()
-                `);
-            }
+                        
+                        // Also trigger standard click just in case
+                        if (typeof el.click === 'function') {
+                            el.click();
+                        }
+                    }
+                })()
+            `);
         } else {
             log('⚠️ Không thể tag nút "Trouble scanning?", bỏ qua click.');
         }
