@@ -1046,7 +1046,11 @@ app.prepare().then(async () => {
     if (!cfg.d1WorkerUrl || !cfg.d1SyncSecret) return;
     try {
       const res = await fetch(`${cfg.d1WorkerUrl.replace(/\/+$/, '')}/sync/events?since=${encodeURIComponent(lastEventCheck)}&ack=1`, {
-        headers: { 'x-sync-secret': cfg.d1SyncSecret },
+        headers: { 
+          'x-sync-secret': cfg.d1SyncSecret,
+          'User-Agent': 'SeeLLM-Tools/1.0',
+          'Accept': 'application/json'
+        },
         signal: AbortSignal.timeout(30000)
       });
       const data = await res.json();
@@ -1189,6 +1193,8 @@ app.prepare().then(async () => {
     const method = options.method || 'GET';
     const headers = {
       'x-sync-secret': cfg.d1SyncSecret,
+      'User-Agent': 'SeeLLM-Tools/1.0',
+      'Accept': 'application/json'
     };
     if (method !== 'GET' && method !== 'HEAD') headers['Content-Type'] = 'application/json';
 
@@ -2263,6 +2269,8 @@ app.prepare().then(async () => {
     try {
       const headers = {
         'x-sync-secret': cfg.d1SyncSecret,
+        'User-Agent': 'SeeLLM-Tools/1.0',
+        'Accept': 'application/json'
       };
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         headers['Content-Type'] = 'application/json';

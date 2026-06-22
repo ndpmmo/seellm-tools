@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.227] - 2026-06-22 22:19:37
+
+### ⚙️ Vượt lỗi Cloudflare 500 khi gọi D1 proxy (Bug Fix)
+
+- **`server.js`**:
+  - Thêm `User-Agent: SeeLLM-Tools/1.0` và `Accept: application/json` vào hàm `d1Request` (dòng ~1194).
+  - **Lý do**: Khi `seellm-tools` gửi request fetch nội bộ tới Cloudflare D1 Worker (`/inspect/accounts`) mà không có header `User-Agent`, Cloudflare WAF / Bot Fight Mode tự động nhận diện đó là bot độc hại và trả về mã lỗi 500 HTML Edge Error Page thay vì dữ liệu JSON. Bổ sung `User-Agent` giúp request vượt qua hàng rào chặn bot của Cloudflare, sửa lỗi `SyncManager` báo HTTP 500.
+
+## [0.3.226] - 2026-06-21 16:15:00
+
+### ⚙️ Cập nhật selector điền Email cho luồng đăng ký OpenAI (Bug Fix)
+
+- **`scripts/lib/openai-login-flow.js`**:
+  - Thêm `input[name="identifier"]` vào danh sách các selector hợp lệ trong hàm `fillEmail()`.
+  - **Lý do**: Trong thay đổi trước đó, cơ chế bắt diện (`hasEmailInput`) đã hỗ trợ `input[name="identifier"]` nên nhận diện đúng trang nhập Email. Tuy nhiên hàm thao tác thực tế `fillEmail` chưa được đồng bộ các selector mới, dẫn đến tình trạng đợi 10s (`page.focus: Timeout 10000ms exceeded`) rồi thất bại (`no-email-input`). Việc bổ sung giúp trình duyệt xác định và gõ đúng email.
+
 ## [0.3.225] - 2026-06-21 15:50:00
 
 ### ⚙️ Hỗ trợ vượt trang "Your session has ended" khi đăng ký (Bug Fix / Stability)

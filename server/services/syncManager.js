@@ -99,7 +99,7 @@ async function triggerGatewaySync(reason = 'manual') {
       const url = `${target.replace(/\/+$/, '')}/api/sync/trigger`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' },
+        headers: { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json', 'User-Agent': 'SeeLLM-Tools/1.0' },
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
@@ -428,6 +428,7 @@ export const SyncManager = {
         headers: {
           'Content-Type': 'application/json',
           'x-sync-secret': cfg.d1SyncSecret,
+          'User-Agent': 'SeeLLM-Tools/1.0'
         },
         body: JSON.stringify(payload),
       });
@@ -562,7 +563,7 @@ export const SyncManager = {
       // Note: preflight check must compare against original cursor `since` (not querySince)
       if (sinceStr && sinceStr !== '0' && sinceStr !== '1970-01-01T00:00:00.000Z') {
         const cursorRes = await fetch(`${cfg.d1WorkerUrl}/sync/cursor`, {
-          headers: { 'x-sync-secret': cfg.d1SyncSecret }
+          headers: { 'x-sync-secret': cfg.d1SyncSecret, 'User-Agent': 'SeeLLM-Tools/1.0' }
         }).catch(() => null);
         if (cursorRes?.ok) {
           const cursorData = await cursorRes.json().catch(() => ({}));
@@ -575,7 +576,10 @@ export const SyncManager = {
       console.log(`[SyncManager] Pulling vault changes since ${querySince} (original cursor: ${since})...`);
       const tables = encodeURIComponent('vaultAccounts,vaultProxies,vaultKeys,managedAccounts,connections,vaultEmailPool');
       const res = await fetch(`${cfg.d1WorkerUrl}/sync/pull?since=${encodeURIComponent(querySince)}&tables=${tables}`, {
-        headers: { 'x-sync-secret': cfg.d1SyncSecret }
+        headers: {
+          'x-sync-secret': cfg.d1SyncSecret,
+          'User-Agent': 'SeeLLM-Tools/1.0'
+        }
       });
     
     let data;

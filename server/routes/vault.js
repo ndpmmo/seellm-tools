@@ -2117,7 +2117,7 @@ router.post('/sync/cleanup-stale', async (req, res) => {
     }
     
     const baseUrl = cfg.d1WorkerUrl.replace(/\/+$/, '');
-    const headers = { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json' };
+    const headers = { 'x-sync-secret': cfg.d1SyncSecret, 'Content-Type': 'application/json', 'User-Agent': 'SeeLLM-Tools/1.0' };
 
     // 1. Lấy tất cả active connections trên D1
     const connRes = await fetch(`${baseUrl}/inspect/connections`, { headers });
