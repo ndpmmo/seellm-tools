@@ -226,13 +226,13 @@ export async function camofoxDelete(endpoint, { timeoutMs = 12000 } = {}) {
 }
 
 export async function camofoxGoto(tabId, userId, url, options = {}) {
-  let timeoutMs = 95000; // Increased to 95s to exceed server's 90s navigateTimeoutMs and prevent client-side premature timeout
+  let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
   if (typeof options === 'number') {
     timeoutMs = options;
   } else if (options && typeof options === 'object' && options.timeoutMs !== undefined) {
     timeoutMs = options.timeoutMs;
   }
-  return camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs: timeoutMs + 2000 });
+  return camofoxPost(`/tabs/${tabId}/navigate`, { userId, url, timeoutMs }, { timeoutMs: timeoutMs + 5000 });
 }
 
 /**
@@ -269,14 +269,14 @@ export async function evalJson(tabId, userId, expression, { timeoutMs = 8000, ma
  * @returns {Promise<void>}
  */
 export async function navigate(tabId, userId, url, options = {}) {
-  let timeoutMs = 95000; // Increased to 95s to exceed server's 90s navigateTimeoutMs and prevent client-side premature timeout
+  let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
   if (typeof options === 'number') {
     timeoutMs = options;
   } else if (options && typeof options === 'object' && options.timeoutMs !== undefined) {
     timeoutMs = options.timeoutMs;
   }
   try {
-    await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url }, { timeoutMs: timeoutMs + 2000 });
+    await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url, timeoutMs }, { timeoutMs: timeoutMs + 5000 });
   } catch (e) {
     console.log(`[camofox] navigate failed: ${e.message}`);
     throw e;

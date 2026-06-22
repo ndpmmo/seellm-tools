@@ -19,7 +19,13 @@ Mục tiêu của bản custom:
 ## Trạng thái bản Camofox đã kiểm tra
 
 Phiên bản hiện tại:
-- `@askjo/camofox-browser@1.8.15` (upgraded từ v1.5.2)
+- `@askjo/camofox-browser@1.11.7` (local custom branch `custom/v1.11.2-seellm`, package version đã bump lên `1.11.7`)
+
+Ghi chú điều tra ngày 2026-06-22:
+- Repo Camofox local có commit `3253a2c feat(optimize): blockResources option and custom timeoutMs support (v1.11.7)`.
+- Route `POST /tabs/:tabId/navigate` dùng `page.goto(... waitUntil: "domcontentloaded")` và mặc định `NAVIGATE_TIMEOUT_MS=90000`.
+- Nếu client không truyền `timeoutMs` trong body, server vẫn timeout sau 90s dù `seellm-tools` có chờ client lâu hơn.
+- Warmup nên truyền `timeoutMs` server-side và bật `blockResources` khi tạo tab để giảm tải ảnh/media/font/tracker trên ChatGPT qua proxy chậm.
 
 ### Upstream routes đã có sẵn (không cần custom)
 

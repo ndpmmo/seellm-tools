@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.230] - 2026-06-22 23:30:58
+
+### ⚙️ Đồng bộ warmup với Camofox v1.11.7 để giảm navigate timeout (Bug Fix / Stability)
+
+- **`scripts/lib/camofox.js`**:
+  - Cập nhật `navigate()` và `camofoxGoto()` để truyền `timeoutMs` vào body của `POST /tabs/:tabId/navigate`, không chỉ tăng timeout phía client fetch.
+  - **Lý do**: Camofox local hiện đang ở `@askjo/camofox-browser@1.11.7`, bản này mới hỗ trợ custom `timeoutMs` server-side. Trước đó `seellm-tools` chỉ chờ lâu hơn ở client nhưng Camofox server vẫn dùng mặc định `page.goto(... waitUntil: "domcontentloaded", timeout: 90000)`, nên warmup vẫn nhận 500 sau đúng 90s khi proxy/ChatGPT chậm.
+- **`scripts/warmup.js`**:
+  - Bật `blockResources: true` khi tạo warmup tab để Camofox chặn ảnh/media/font/tracker nặng trên ChatGPT, giảm khả năng kẹt `domcontentloaded` qua proxy.
+  - Truyền timeout navigate rõ ràng `105000ms` khi mở `https://chatgpt.com/`, vượt mốc timeout 90s hiện tại nhưng vẫn chừa headroom cho bước `buildRefs()` dưới handler budget mặc định 120s của Camofox v1.11.x.
+- **`docs/camofox-custom.md`**:
+  - Cập nhật ghi chú điều tra: môi trường local thực tế đã lên Camofox `1.11.7`, có `blockResources` và custom navigate `timeoutMs`; tài liệu cũ vẫn ghi `1.8.15` nên dễ chẩn đoán nhầm.
+
 ## [0.3.229] - 2026-06-22 23:15:19
 
 ### 🐛 Sửa lỗi ReferenceError trong warmup state detection qua Camofox (Bug Fix)
