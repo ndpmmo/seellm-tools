@@ -724,7 +724,7 @@ async function runConnectFlow(task) {
         recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
         
         console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
-        await navigate(tabId, USER_ID, LOGIN_URL, { timeoutMs: 45000, waitUntil: 'commit' });
+        await navigate(tabId, USER_ID, LOGIN_URL, { timeoutMs: 30000, waitUntil: 'commit' });
         await new Promise(r => setTimeout(r, 3000));
 
         if (effectiveProxy && preFlightResult) {
@@ -2489,7 +2489,7 @@ async function runLoginFlow(task) {
         recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
         
         console.log(`[Login] 🌐 Mở trang ChatGPT login...`);
-        await navigate(tabId, USER_ID, loginUrl, { timeoutMs: 45000, waitUntil: 'commit' });
+        await navigate(tabId, USER_ID, loginUrl, { timeoutMs: 30000, waitUntil: 'commit' });
         await new Promise(r => setTimeout(r, 2000));
 
         if (effectiveProxy && preFlightResult) {

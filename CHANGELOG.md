@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.232] - 2026-06-23 00:15:28
+
+### 🔁 Khôi phục hành vi navigate fail-fast từ backup v0.3.218 (Bug Fix / Regression Recovery)
+
+- **Đối chiếu backup `scripts/backup/v0.3.218`**:
+  - Bản `v0.3.218` dùng Camofox nhánh `custom/v1.8.15-seellm`, trong đó `/tabs/:tabId/navigate` hardcode `page.goto(... timeout: 30000)` và handler mặc định ngắn hơn.
+  - Các helper `navigate()` / `camofoxGoto()` của SeeLLM khi đó không truyền `timeoutMs` vào body Camofox, nên server fail nhanh nếu ChatGPT/proxy kẹt thay vì giữ tab lock rất lâu.
+- **Nguyên nhân regression**:
+  - Các bản Camofox mới `v1.11.x` đã nâng `NAVIGATE_TIMEOUT_MS` lên 90s và `HANDLER_TIMEOUT_MS` lên 120s để hỗ trợ proxy chậm.
+  - Sau đó SeeLLM `0.3.230` truyền thêm `timeoutMs: 105000` vào body navigate, làm Camofox chờ lâu ở `domcontentloaded`; khi ChatGPT SPA/proxy kẹt, lock bị giữ 90-105s và ảnh hưởng dây chuyền tới warmup, 2FA Regen, check-session, connect/login.
+- **`scripts/lib/camofox.js`**:
+  - Đưa default timeout của `navigate()` và `camofoxGoto()` về `30000ms`, khớp hành vi ổn định của `v0.3.218`.
+  - Vẫn giữ khả năng truyền `waitUntil` và custom `timeoutMs` cho những flow thực sự cần override.
+- **`scripts/warmup.js`, `scripts/regenerate-2fa.js`, `scripts/auto-worker.js`**:
+  - Đưa các override mở ChatGPT/login từ `45000ms` về `30000ms`, vẫn giữ `waitUntil: "commit"` để tránh chờ `domcontentloaded` nhưng không kéo dài tab lock.
+- **Yêu cầu kèm theo ở Camofox**:
+  - Camofox local được nâng lên `1.11.9` để default server-side cũng quay lại fail-fast: `NAVIGATE_TIMEOUT_MS=30000`, `HANDLER_TIMEOUT_MS=60000`.
+
 ## [0.3.231] - 2026-06-22 23:49:02
 
 ### 🦊 Khắc phục navigate timeout diện rộng do Camofox chờ `domcontentloaded` trên ChatGPT (Bug Fix / Stability)

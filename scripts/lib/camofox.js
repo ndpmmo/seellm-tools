@@ -226,7 +226,7 @@ export async function camofoxDelete(endpoint, { timeoutMs = 12000 } = {}) {
 }
 
 export async function camofoxGoto(tabId, userId, url, options = {}) {
-  let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
+  let timeoutMs = 30000; // Match the stable v0.3.218/Camofox v1.8.15 fail-fast navigation behavior.
   let waitUntil;
   if (typeof options === 'number') {
     timeoutMs = options;
@@ -272,7 +272,7 @@ export async function evalJson(tabId, userId, expression, { timeoutMs = 8000, ma
  * @returns {Promise<void>}
  */
 export async function navigate(tabId, userId, url, options = {}) {
-  let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
+  let timeoutMs = 30000; // Match the stable v0.3.218/Camofox v1.8.15 fail-fast navigation behavior.
   let waitUntil;
   if (typeof options === 'number') {
     timeoutMs = options;
