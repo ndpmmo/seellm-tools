@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.231] - 2026-06-22 23:49:02
+
+### 🦊 Khắc phục navigate timeout diện rộng do Camofox chờ `domcontentloaded` trên ChatGPT (Bug Fix / Stability)
+
+- **Nguyên nhân xác nhận**:
+  - Log mới của warmup và 2FA Regen đều timeout ở `page.goto(... waiting until "domcontentloaded")` dù đã truyền `timeoutMs: 105000`, chứng tỏ lỗi không còn là client abort sớm mà là mốc chờ load của Camofox quá nặng với `chatgpt.com` qua proxy chậm.
+  - Camofox local `@askjo/camofox-browser@1.11.7` trước bản vá này chỉ hardcode `waitUntil: "domcontentloaded"` cho `/tabs/:tabId/navigate`, nên mọi script mở ChatGPT bằng API navigate đều có thể bị ảnh hưởng.
+- **`scripts/lib/camofox.js`**:
+  - Mở rộng `navigate()` và `camofoxGoto()` để truyền thêm `waitUntil` vào body của `POST /tabs/:tabId/navigate` khi caller yêu cầu.
+  - Giữ tương thích ngược với call dạng số cũ như `navigate(tabId, userId, url, 25000)`.
+- **`scripts/warmup.js`**:
+  - Chuyển bước mở `https://chatgpt.com/` ban đầu sang `{ waitUntil: "commit", timeoutMs: 45000 }`, để chỉ cần xác nhận navigation bắt đầu thành công rồi để flow DOM/state tự chờ UI.
+- **`scripts/regenerate-2fa.js`**:
+  - Bật `blockResources: true` khi tạo tab 2FA Regen.
+  - Chuyển bước mở `https://chatgpt.com/` sang `{ waitUntil: "commit", timeoutMs: 45000 }` để tránh chết ở `domcontentloaded`.
+- **`scripts/check-session.js` và `scripts/auto-worker.js`**:
+  - Áp dụng cùng cơ chế `waitUntil: "commit"` cho các bước mở ChatGPT/login chính, đồng thời bật `blockResources` cho tab browser mode quan trọng.
+- **Yêu cầu kèm theo ở Camofox**:
+  - Cần chạy Camofox local đã cập nhật bản vá hỗ trợ `waitUntil` trong `/tabs` và `/tabs/:tabId/navigate`; nếu server Camofox chưa restart, log vẫn có thể tiếp tục hiện timeout theo kiểu cũ.
+
 ## [0.3.230] - 2026-06-22 23:30:58
 
 ### ⚙️ Đồng bộ warmup với Camofox v1.11.7 để giảm navigate timeout (Bug Fix / Stability)

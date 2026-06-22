@@ -227,12 +227,15 @@ export async function camofoxDelete(endpoint, { timeoutMs = 12000 } = {}) {
 
 export async function camofoxGoto(tabId, userId, url, options = {}) {
   let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
+  let waitUntil;
   if (typeof options === 'number') {
     timeoutMs = options;
-  } else if (options && typeof options === 'object' && options.timeoutMs !== undefined) {
-    timeoutMs = options.timeoutMs;
+  } else if (options && typeof options === 'object') {
+    if (options.timeoutMs !== undefined) timeoutMs = options.timeoutMs;
+    if (options.waitUntil !== undefined) waitUntil = options.waitUntil;
   }
-  return camofoxPost(`/tabs/${tabId}/navigate`, { userId, url, timeoutMs }, { timeoutMs: timeoutMs + 5000 });
+  const body = waitUntil ? { userId, url, timeoutMs, waitUntil } : { userId, url, timeoutMs };
+  return camofoxPost(`/tabs/${tabId}/navigate`, body, { timeoutMs: timeoutMs + 5000 });
 }
 
 /**
@@ -270,13 +273,16 @@ export async function evalJson(tabId, userId, expression, { timeoutMs = 8000, ma
  */
 export async function navigate(tabId, userId, url, options = {}) {
   let timeoutMs = 105000; // Camofox v1.11.7 accepts body timeoutMs; leave buildRefs headroom under the 120s handler budget.
+  let waitUntil;
   if (typeof options === 'number') {
     timeoutMs = options;
-  } else if (options && typeof options === 'object' && options.timeoutMs !== undefined) {
-    timeoutMs = options.timeoutMs;
+  } else if (options && typeof options === 'object') {
+    if (options.timeoutMs !== undefined) timeoutMs = options.timeoutMs;
+    if (options.waitUntil !== undefined) waitUntil = options.waitUntil;
   }
   try {
-    await camofoxPost(`/tabs/${tabId}/navigate`, { userId, url, timeoutMs }, { timeoutMs: timeoutMs + 5000 });
+    const body = waitUntil ? { userId, url, timeoutMs, waitUntil } : { userId, url, timeoutMs };
+    await camofoxPost(`/tabs/${tabId}/navigate`, body, { timeoutMs: timeoutMs + 5000 });
   } catch (e) {
     console.log(`[camofox] navigate failed: ${e.message}`);
     throw e;

@@ -190,6 +190,7 @@ async function run2faRegen() {
       screen: { width: 1440, height: 900 },
       humanize: true,
       headless: false,
+      blockResources: true,
     }, { timeoutMs: 35000 });
 
     tabId = opened.tabId;
@@ -220,7 +221,7 @@ async function run2faRegen() {
 
     // 6. Navigate to ChatGPT
     console.log(`[2FA Regen] 🌐 Mở trang ChatGPT...`);
-    await navigate(tabId, USER_ID, 'https://chatgpt.com/');
+    await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 45000, waitUntil: 'commit' });
     await delay(5000);
 
     if (WARMUP_SCREENSHOTS && stepRecorder) {

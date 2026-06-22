@@ -181,7 +181,8 @@ async function runCheck() {
     const launchData = {
       userId: USER_ID,
       url: 'about:blank',
-      proxy: proxyConfig || undefined
+      proxy: proxyConfig || undefined,
+      blockResources: true
     };
 
     const tabRes = await camofoxPost('/tabs', launchData);
@@ -201,7 +202,7 @@ async function runCheck() {
 
     // 3. Navigate to ChatGPT
     console.log(`[CheckSession] 🌐 Mở trang ChatGPT...`);
-    await navigate(tabId, USER_ID, 'https://chatgpt.com/', 25000);
+    await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 25000, waitUntil: 'commit' });
     await delay(3000);
 
     // 4. Check state

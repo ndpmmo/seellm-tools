@@ -717,13 +717,14 @@ async function runConnectFlow(task) {
           userId: USER_ID, sessionKey: `cg_connect_${task.id}`, url: 'about:blank',
           proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
           screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
+          blockResources: true,
         }, { timeoutMs: 25000 });
         tabId = opened.tabId;
         const userAgent = opened.userAgent || null;
         recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
         
         console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);
-        await navigate(tabId, USER_ID, LOGIN_URL);
+        await navigate(tabId, USER_ID, LOGIN_URL, { timeoutMs: 45000, waitUntil: 'commit' });
         await new Promise(r => setTimeout(r, 3000));
 
         if (effectiveProxy && preFlightResult) {
@@ -2482,12 +2483,13 @@ async function runLoginFlow(task) {
           userId: USER_ID, sessionKey: SESSION_KEY, url: 'about:blank',
           proxy: effectiveProxy || undefined, persistent: usePersistent, os: 'macos',
           screen: { width: 1440, height: 900 }, humanize: true, headless: false, randomFonts: true, canvas: 'random',
+          blockResources: true,
         });
         tabId = tid;
         recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
         
         console.log(`[Login] 🌐 Mở trang ChatGPT login...`);
-        await navigate(tabId, USER_ID, loginUrl);
+        await navigate(tabId, USER_ID, loginUrl, { timeoutMs: 45000, waitUntil: 'commit' });
         await new Promise(r => setTimeout(r, 2000));
 
         if (effectiveProxy && preFlightResult) {

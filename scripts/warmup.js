@@ -371,7 +371,7 @@ async function runWarmup() {
     
     // 5. Navigate to ChatGPT Chat interface
     console.log(`[Warmup] 🌐 Mở trang ChatGPT...`);
-    await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 105000 });
+    await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 45000, waitUntil: 'commit' });
     await delay(5000);
     
     if (WARMUP_SCREENSHOTS && stepRecorder) {
