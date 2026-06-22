@@ -398,7 +398,8 @@ export async function fillEmail(tabId, userId, email) {
         inp.dispatchEvent(new Event('input', { bubbles: true }));
         inp.dispatchEvent(new Event('change', { bubbles: true }));
         
-        // Đóng Google One Tap / FedCM popup nếu xuất hiện
+        // Only close the actual Google One Tap container. A global Escape closes
+        // ChatGPT's login modal, making the email input disappear before typing.
         try {
           const oneTapContainer = document.querySelector('#credential_picker_container, #credential_picker_iframe, [data-credential_picker_id]');
           if (oneTapContainer) {
@@ -407,8 +408,7 @@ export async function fillEmail(tabId, userId, email) {
             else oneTapContainer.remove();
           }
         } catch (_) {}
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-        return true;
+        return isVisible(inp);
       })()
     `, 3000).catch(() => {});
     await new Promise(r => setTimeout(r, 200));

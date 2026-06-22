@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.233] - 2026-06-23 00:39:16
+
+### 🐛 Sửa lỗi warmup đóng modal login email của ChatGPT khi fill email (Bug Fix)
+
+- **Đối chiếu log/screenshot warmup mới**:
+  - Camofox navigate đã trả `200` trong khoảng 4 giây, evaluate/screenshot chạy nhanh; vì vậy lỗi hiện tại không còn là Camofox navigate.
+  - Screenshot `warmup_acc_6c4c17de` cho thấy vòng login bị lặp: trang home chưa login -> modal `Log in or sign up` mở với input `Email address` -> ngay sau `fillEmail()` modal biến mất -> script quay lại trang home và retry.
+  - Log khớp với hiện tượng: `hasEmailInput: true` rồi `page.focus: Timeout 10000ms exceeded`, fallback DOM báo `no-email-input`.
+- **Nguyên nhân**:
+  - `fillEmail()` focus input xong phát `Escape` toàn trang để đóng Google One Tap/FedCM. Với UI ChatGPT mới, phím `Escape` đóng luôn modal `Log in or sign up`, nên input biến mất trước khi Camofox `/act type` focus được.
+  - Backup `v0.3.218` cũng có dòng Escape này, nhưng UI ChatGPT hiện tại đã đổi sang modal login trên `chatgpt.com/`, làm hành vi cũ trở thành regression.
+- **`scripts/lib/openai-login-flow.js`**:
+  - Loại bỏ global `document.dispatchEvent(Escape)` trong `fillEmail()`.
+  - Chỉ đóng container Google One Tap thật sự nếu tìm thấy, rồi kiểm tra input email vẫn visible trước khi chuyển sang Camofox keyboard typing.
+
 ## [0.3.232] - 2026-06-23 00:15:28
 
 ### 🔁 Khôi phục hành vi navigate fail-fast từ backup v0.3.218 (Bug Fix / Regression Recovery)
