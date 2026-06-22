@@ -187,7 +187,8 @@ export async function getState(tabId, userId) {
       const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
       
       const hasEmailInput = (() => {
-        return EMAIL_INPUT_SELECTORS.some(s => isVisible(document.querySelector(s)));
+        const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
+        return selectors.some(s => isVisible(document.querySelector(s)));
       })();
 
       const hasPasswordInput = (() => {

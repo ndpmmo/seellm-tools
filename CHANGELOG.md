@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.229] - 2026-06-22 23:15:19
+
+### 🐛 Sửa lỗi ReferenceError trong warmup state detection qua Camofox (Bug Fix)
+
+- **`scripts/lib/openai-login-flow.js`**:
+  - Sửa `getState()` để nhúng danh sách selector email trực tiếp vào đoạn JavaScript chạy trong browser context thay vì tham chiếu biến module-scope `EMAIL_INPUT_SELECTORS`.
+  - **Lý do**: Hai log warmup mới cho thấy Camofox server vẫn khởi động, mở session/tab, import cookie và navigate bình thường; lỗi thật sự nằm ở request `/tabs/:tabId/evaluate` trả 500 do `page.evaluate: EMAIL_INPUT_SELECTORS is not defined`. Biến này chỉ tồn tại trong Node.js module, không tồn tại trong DOM/browser context, khiến warmup liên tục nhận `state is null` và retry cho tới khi thất bại.
+  - Bản này giữ nguyên các cải tiến selector/recovery của `0.3.228`, chỉ sửa regression do truyền sai scope vào eval string.
+
 ## [0.3.228] - 2026-06-22 22:55:00
 
 ### ⚙️ Ổn định hóa warmup login và giảm false positive lỗi phiên trên ChatGPT (Bug Fix / Stability)
