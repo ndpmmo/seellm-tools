@@ -13,6 +13,19 @@ import fs from 'node:fs/promises';
 import { CAMOUFOX_API } from '../config.js';
 import { evalJson, getSnapshot, clickRef, camofoxPost, actType, actClick, actPress } from './camofox.js';
 
+const EMAIL_INPUT_SELECTORS = [
+  'input[type="email"]',
+  'input[name="username"]',
+  'input[id="username"]',
+  'input[name="email"]',
+  'input[autocomplete="email"]',
+  'input[name="identifier"]',
+];
+
+function getEmailInputSelector() {
+  return EMAIL_INPUT_SELECTORS.join(', ');
+}
+
 /**
  * Multi-language keyword sets used by login-flow detectors.
  * Always include English first (chatgpt.com mostly serves English even via foreign IPs;
@@ -174,10 +187,7 @@ export async function getState(tabId, userId) {
       const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
       
       const hasEmailInput = (() => {
-        const selectors = [
-          'input[type="email"]', 'input[name="username"]', 'input[id="username"]', 'input[name="email"]', 'input[autocomplete="email"]', 'input[name="identifier"]'
-        ];
-        return selectors.some(s => isVisible(document.querySelector(s)));
+        return EMAIL_INPUT_SELECTORS.some(s => isVisible(document.querySelector(s)));
       })();
 
       const hasPasswordInput = (() => {
@@ -372,12 +382,13 @@ export async function getState(tabId, userId) {
 export async function fillEmail(tabId, userId, email) {
   // --- PRIMARY: Camoufox native keyboard type ---
   console.log(`[fillEmail] Trying Camoufox keyboard type (primary)...`);
+  const selector = getEmailInputSelector();
 
   // Step 0: Clear the email field first (important on retries)
   try {
     await evalJson(tabId, userId, `
       (() => {
-        const inp = document.querySelector('input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"], input[name="identifier"]');
+        const inp = document.querySelector(${JSON.stringify(selector)});
         if (!inp) return false;
         inp.focus();
         const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
@@ -404,7 +415,7 @@ export async function fillEmail(tabId, userId, email) {
 
   try {
     const typeRes = await actType(tabId, userId, {
-      selector: 'input[autocomplete="email"], input[name="username"], input[type="email"], input[id="username"], input[name="email"], input[name="identifier"]',
+      selector,
       text: email,
       mode: 'keyboard',
       submit: true
@@ -435,14 +446,7 @@ export async function fillEmail(tabId, userId, email) {
         el.dispatchEvent(new Event('input',  { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
-      const selectors = [
-        'input[autocomplete="email"]',
-        'input[name="username"]',
-        'input[type="email"]',
-        'input[id="username"]',
-        'input[name="email"]',
-        'input[name="identifier"]',
-      ];
+      const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
       let input = null;
       for (const s of selectors) {
         const el = document.querySelector(s);
@@ -475,6 +479,34 @@ export async function fillEmail(tabId, userId, email) {
       return { ok: true, clicked: !!btn, value: input.value, strategy: 'dom' };
     })()
   `, 6000);
+
+  if (!res?.ok) {
+    const recovery = await evalJson(tabId, userId, `
+      (() => {
+        const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
+        const isVisible = el => {
+          if (!el) return false;
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+        };
+        const input = selectors.map(s => document.querySelector(s)).find(isVisible);
+        if (!input) return { ok: false, reason: 'no-email-input-after-dom' };
+        const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+          .filter(isVisible)
+          .find(el => {
+            const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+            return t === 'continue' || t === 'next' || t === 'tiếp tục';
+          });
+        if (btn) {
+          btn.click();
+          btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        return { ok: true, clicked: !!btn, strategy: 'dom-retry', value: input.value };
+      })()
+    `, 6000).catch(() => null);
+    if (recovery?.ok) return recovery;
+  }
 
   return res;
 }

@@ -115,15 +115,21 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       if (!errorText) {
         const bodyText = (document.body?.innerText || '');
         const lowerBody = bodyText.toLowerCase();
-        if (lowerBody.includes('something went wrong') ||
-            lowerBody.includes('error generating a response') ||
-            lowerBody.includes('try signing in again') ||
-            lowerBody.includes('token has been invalidated') ||
-            lowerBody.includes('unusual activity') ||
-            lowerBody.includes('session has expired') ||
-            lowerBody.includes('session expired') ||
-            lowerBody.includes('please log in again') ||
-            lowerBody.includes('please sign in again')) {
+        const errorKeywords = [
+          'something went wrong',
+          'error generating a response',
+          'try signing in again',
+          'token has been invalidated',
+          'unusual activity',
+          'session has expired',
+          'session expired',
+          'please log in again',
+          'please sign in again',
+        ];
+        const hasDirectErrorKeyword = errorKeywords.some(k => lowerBody.includes(k));
+        const hasErrorContext = !!document.querySelector('[role="alert"], [data-testid*="error"], [aria-live="assertive"], [aria-live="polite"]');
+        const looksLikeSidebarNoise = lowerBody.includes('new chat') && lowerBody.includes('search chats') && lowerBody.includes('history');
+        if ((hasDirectErrorKeyword && !looksLikeSidebarNoise) || (hasErrorContext && hasDirectErrorKeyword)) {
           errorText = bodyText.slice(0, 150).replace(/\\n/g, ' ');
         }
       }
@@ -461,6 +467,35 @@ async function runWarmup() {
           await delay(6000);
           continue;
         }
+
+        if (!state.onAuthDomain && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && !state.hasEmailOtpInput) {
+          if (emailFilled && emailWaitCount < 3) {
+            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền email...`);
+            await delay(3000);
+            continue;
+          }
+          if (passwordFilled && passwordWaitCount < 3) {
+            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền password...`);
+            await delay(3000);
+            continue;
+          }
+
+          if (emailFilled || passwordFilled) {
+            console.log(`[Warmup] 🔄 Trang đã rời khỏi input nhưng chưa login xong -> reset trạng thái và quay lại login flow...`);
+            emailFilled = false;
+            emailWaitCount = 0;
+            passwordFilled = false;
+            passwordWaitCount = 0;
+            await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+            await delay(4000);
+            continue;
+          }
+
+          console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
+          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+          await delay(4000);
+          continue;
+        }
         
         // 2. Handle Welcome Back dialog (Diane Mitchell dialog in Image 1)
         const chooseResult = await evalJson(tabId, USER_ID, `(() => {
@@ -652,7 +687,14 @@ async function runWarmup() {
           }
           if (!emailFilled) {
             console.log(`[Warmup] 📧 Điền email: ${account.email}`);
-            await fillEmail(tabId, USER_ID, account.email);
+            const fillResult = await fillEmail(tabId, USER_ID, account.email);
+            if (!fillResult?.ok) {
+              console.warn(`[Warmup] ⚠️ fillEmail failed: ${fillResult?.reason || 'unknown'} — sẽ thử lại ở vòng sau`);
+              emailFilled = false;
+              emailWaitCount = 0;
+              await delay(3000);
+              continue;
+            }
             emailFilled = true;
             emailWaitCount = 0;
             await delay(5000);
@@ -722,26 +764,6 @@ async function runWarmup() {
             await delay(3000);
             continue;
           }
-        }
-        
-        // 8. If stuck on chatgpt.com landing/homepage but not logged in and not on auth domain
-        if (!state.onAuthDomain && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && !state.hasEmailOtpInput) {
-          // Guard: Nếu vừa điền email hoặc password và đang đợi transition thì không chuyển hướng lại
-          if (emailFilled && emailWaitCount < 3) {
-            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền email...`);
-            await delay(3000);
-            continue;
-          }
-          if (passwordFilled && passwordWaitCount < 3) {
-            console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền password...`);
-            await delay(3000);
-            continue;
-          }
-
-          console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
-          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
-          await delay(4000);
-          continue;
         }
         
         // Fallback sleep

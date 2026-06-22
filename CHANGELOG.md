@@ -2,6 +2,19 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.228] - 2026-06-22 22:55:00
+
+### ⚙️ Ổn định hóa warmup login và giảm false positive lỗi phiên trên ChatGPT (Bug Fix / Stability)
+
+- **`scripts/warmup.js`**:
+  - Tinh chỉnh `waitForGenerationComplete()` để chỉ xem là lỗi khi có context lỗi rõ ràng, tránh nhầm text sidebar/khung điều hướng của ChatGPT thành `session_expired`.
+  - Thêm nhánh hồi phục sớm hơn khi trang đã rời khỏi input nhưng chưa xác nhận đăng nhập, thay vì chờ cứng tới 40 vòng rồi mới tự quay lại login flow.
+  - Khi `fillEmail()` thất bại, warmup giờ giữ trạng thái có thể retry thay vì đánh dấu email đã điền thành công nhầm.
+- **`scripts/lib/openai-login-flow.js`**:
+  - Gom selector email thành một danh sách dùng chung cho `getState()` và `fillEmail()` để tránh lệch giữa nhận diện và thao tác.
+  - Thêm recovery pass thứ hai nếu DOM fallback chưa chuyển trang sau khi điền email, giúp xử lý tốt hơn các biến thể DOM mới của ChatGPT/OpenAI.
+- **Lý do**: Hai log warmup mới nhất cho thấy Camofox vẫn hoạt động, nhưng warmup bị kẹt ở luồng login do selector email và bộ phát hiện lỗi trang quá nhạy. Bản này tập trung sửa lỗi logic của luồng warmup để giảm timeout, false positive `session_expired`, và vòng lặp login dài khi proxy chậm.
+
 ## [0.3.227] - 2026-06-22 22:19:37
 
 ### ⚙️ Vượt lỗi Cloudflare 500 khi gọi D1 proxy (Bug Fix)
