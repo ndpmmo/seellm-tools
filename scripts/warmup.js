@@ -239,17 +239,42 @@ async function getLatestAssistantMessage(tabId, userId) {
     var selectors = [
       '.markdown',
       '.prose',
+      'article:not([data-message-author-role="user"])',
       '[data-message-author-role="assistant"]',
-      '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
-      'article [data-message-author-role="assistant"]'
+      '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]'
     ];
     var els = Array.from(document.querySelectorAll(selectors.join(',')))
-      .filter(function(el) { return el && el.offsetParent !== null; });
+      .filter(Boolean);
     if (els.length === 0) return null;
-    var lastEl = els[els.length - 1];
+    
+    var validEls = els.filter(function(el) {
+      if (el.closest('form') || el.closest('#prompt-textarea') || el.closest('[contenteditable="true"]')) {
+        return false;
+      }
+      var text = (el.innerText || el.textContent || '').trim();
+      return text.length > 0;
+    });
+    
+    if (validEls.length === 0) return null;
+    var lastEl = validEls[validEls.length - 1];
     return (lastEl.innerText || lastEl.textContent || '').trim();
   })()`).catch(() => null);
 }
+
+async function getLatestAssistantMessageWithRetry(tabId, userId, retries = 3) {
+  for (var i = 0; i < retries; i++) {
+    var msg = await getLatestAssistantMessage(tabId, userId);
+    if (msg && msg.length > 0) {
+      return msg;
+    }
+    if (i < retries - 1) {
+      console.log(`[Warmup] ⏳ Chưa đọc được câu trả lời từ DOM, đang thử lại sau 2 giây (lần ${i + 1}/${retries})...`);
+      await delay(2000);
+    }
+  }
+  return null;
+}
+
 
 async function getComposerState(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
@@ -1393,7 +1418,7 @@ async function runWarmup() {
       }
       
       // In Câu trả lời của ChatGPT
-      const aiResponse = await getLatestAssistantMessage(tabId, USER_ID);
+      const aiResponse = await getLatestAssistantMessageWithRetry(tabId, USER_ID);
       if (aiResponse) {
         console.log(`[Warmup] 💬 ChatGPT trả lời:\n--------------------------------------------------\n${aiResponse}\n--------------------------------------------------`);
       } else {

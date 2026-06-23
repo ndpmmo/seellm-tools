@@ -53,9 +53,9 @@ export function createStepRecorder(runDir, {
     const filename = `${phaseNum}_phase${phaseNum}_step${stepNum}_${slug}_${moment}.png`;
     
     try {
-      // Changed to fullPage=false and timeout to 20000ms to prevent Playwright screenshot hangs on slow proxies
+      // Changed to fullPage=false and timeout to 35000ms to prevent Playwright screenshot hangs on slow proxies
       const res = await fetch(`${camofoxApi}/tabs/${tabId}/screenshot?userId=${userId}&fullPage=false`, {
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(35000),
       });
       if (res.ok) {
         const buffer = Buffer.from(await res.arrayBuffer());

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.246] - 2026-06-23 23:55:00
+
+### 🚀 Bổ sung Cơ chế Thử lại Đọc DOM & Nâng Timeout Chụp ảnh (Feature & Bug Fix)
+
+- **Cơ chế Thử lại đọc DOM**: Bổ sung hàm `getLatestAssistantMessageWithRetry` (thử lại 3 lần, mỗi lần cách nhau 2 giây) để khắc phục tình huống ChatGPT tạm thời xuất hiện spinner đen làm trống DOM ngay khi vừa tạo xong câu trả lời.
+- **Tối ưu hóa Selector**: Loại bỏ bộ lọc `offsetParent !== null` để tránh bỏ sót các phần tử `.markdown` nằm trong các flex/grid hoặc fixed container (vốn có offsetParent là null trong Firefox headless).
+- **Khắc phục hoàn toàn Timeout Chụp ảnh**: Nâng giới hạn timeout client từ `20000ms` lên `35000ms` trong `scripts/lib/screenshot.js` nhằm triệt tiêu các lỗi timeout khi tải trang ban đầu.
+
 ## [0.3.245] - 2026-06-23 23:40:00
 
 ### 🐛 Cải tiến Selector Đọc Câu trả lời của ChatGPT (Bug Fix)
