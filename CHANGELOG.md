@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.237] - 2026-06-23 11:41:41
+
+### 🔎 Thêm diagnostic script để bắt DOM/nút gửi ChatGPT khi warmup không submit được (Tooling)
+
+- **Đối chiếu log/screenshot mới**:
+  - Run `2026-06-23T04-28-28____Warmup_makarimcintyreioto_hotmail_com.log` xác nhận prompt vào composer (`len=158`) nhưng `Enter`, DOM click, `Meta+Enter`, `Control+Enter` đều không tạo user message.
+  - Camofox log cùng run có browser console error `Failed to fetch sources dropdown backend catalog`, `Error undefined`; run trước đó còn có nhiều `[next-auth][error][CLIENT_FETCH_ERROR] NetworkError when attempting to fetch resource`.
+  - Backup `v0.3.218` cũng gửi bằng `#prompt-textarea` + DOM click `sendBtn.click()`, nên chưa có bằng chứng script cũ có selector gửi đặc biệt bị mất; vấn đề nghiêng về UI/session/network hiện tại cần bắt DOM thật để kết luận.
+- **`scripts/diagnose-chatgpt-submit.js`**:
+  - Thêm script test độc lập, không cập nhật database.
+  - Mở account/proxy/cookies giống warmup, nhập prompt test, rồi dump DOM/snapshot/screenshot trước và sau từng chiến lược submit.
+  - Các chiến lược hiện có: `Enter`, Camofox real click vào selector send, DOM click best candidate, `/type` với `pressEnter`.
+  - Output nằm trong `data/diagnostics/chatgpt-submit-<account>-<timestamp>/` gồm `.dom.json`, `.snapshot.json`, `.png`, action result.
+  - Có fallback đọc account trực tiếp từ `data/vault.db` khi local API chưa bật, và tuỳ chọn `--skipPreflight` để bỏ qua proxy preflight khi chỉ cần bắt DOM.
+- **Cách chạy khi Camofox server đang bật**:
+  - `node scripts/diagnose-chatgpt-submit.js --accountId acc_6b9a5599 --skipPreflight --prompt "Diagnostic submit test. Please reply with one short sentence."`
+
 ## [0.3.236] - 2026-06-23 11:23:29
 
 ### 🐛 Sửa warmup xác nhận gửi prompt sai và tiếp tục chờ ảo khi ChatGPT không tạo user message (Bug Fix)
