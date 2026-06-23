@@ -2,7 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.242] - 2026-06-23 20:46:00
+
+### 🐛 Fix Firefox eval syntax error: `const` → `var` trong IIFE (Critical Bug Fix)
+
+- **Nguyên nhân**: Camoufox/Firefox `page.evaluate(string)` xử lý `const`/`let` trong IIFE body như là top-level statement → SpiderMonkey throw `expected expression, got keyword 'const'`.
+- **Fix `scripts/warmup.js`**: Đổi toàn bộ `const`/`let` → `var` và arrow function → `function(){}` trong IIFE string của `waitForPromptSubmitted`. Sửa regex double-escape lỗi `\\/c\\/` → `\/c\/`.
+- **Lưu ý**: Code JavaScript bên ngoài IIFE string (host Node.js code) vẫn dùng `const`/`let` bình thường — chỉ code **bên trong string gửi lên browser** mới cần `var`.
+
 ## [0.3.241] - 2026-06-23 20:42:00
+
 
 ### 🐛 Sửa lỗi detect user message sau khi submit prompt (Bug Fix)
 

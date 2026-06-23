@@ -381,35 +381,33 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 150
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const state = await evalJson(tabId, userId, `(() => {
-      const promptHead = ${JSON.stringify(promptHead)};
-      const editor = document.querySelector('#prompt-textarea');
-      const composerText = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
-      const bodyText = (document.body?.innerText || '').toLowerCase();
-      const sessionExpired = bodyText.includes('your session has expired') || bodyText.includes('please log in again to continue using the app');
-      const userMessageSelectors = [
+      var promptHead = ${JSON.stringify(promptHead)};
+      var editor = document.querySelector('#prompt-textarea');
+      var composerText = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
+      var bodyText = (document.body ? document.body.innerText || '' : '').toLowerCase();
+      var sessionExpired = bodyText.indexOf('your session has expired') !== -1 || bodyText.indexOf('please log in again to continue using the app') !== -1;
+      var userMessageSelectors = [
         '[data-message-author-role="user"]',
         '[data-testid*="conversation-turn"] [data-message-author-role="user"]',
         'article [data-message-author-role="user"]',
         'main article',
-        '.group\\/conversation-turn',
       ];
-      const userMessageTexts = Array.from(document.querySelectorAll(userMessageSelectors.join(',')))
-        .filter(el => el && el.offsetParent !== null && !el.closest('form') && !el.closest('[contenteditable="true"]') && !el.closest('#prompt-textarea'))
-        .map(el => (el.innerText || el.textContent || '').trim())
+      var userMessageTexts = Array.from(document.querySelectorAll(userMessageSelectors.join(',')))
+        .filter(function(el) { return el && el.offsetParent !== null && !el.closest('form') && !el.closest('[contenteditable="true"]') && !el.closest('#prompt-textarea'); })
+        .map(function(el) { return (el.innerText || el.textContent || '').trim(); })
         .filter(Boolean);
-      const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"], button[data-testid="composer-stop-button"]');
-      const hasUserMessage = userMessageTexts.some(text => text.includes(promptHead));
-      // Also treat as submitted if composer is empty AND we're on a chat URL (not homepage)
-      const onChatUrl = /\/c\/[a-z0-9-]+/.test(window.location.pathname);
-      const stopVisible = !!(stopBtn && stopBtn.offsetParent !== null);
+      var stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"], button[data-testid="composer-stop-button"]');
+      var hasUserMessage = userMessageTexts.some(function(text) { return text.indexOf(promptHead) !== -1; });
+      var onChatUrl = /\/c\/[a-z0-9-]+/.test(window.location.pathname);
+      var stopVisible = !!(stopBtn && stopBtn.offsetParent !== null);
       return {
-        sessionExpired,
+        sessionExpired: sessionExpired,
         composerTextLength: composerText.length,
-        composerStillHasPrompt: composerText.includes(promptHead),
-        hasUserMessage,
+        composerStillHasPrompt: composerText.indexOf(promptHead) !== -1,
+        hasUserMessage: hasUserMessage,
         userMessageCount: userMessageTexts.length,
-        stopVisible,
-        onChatUrl,
+        stopVisible: stopVisible,
+        onChatUrl: onChatUrl,
       };
     })()`).catch(() => null);
 
