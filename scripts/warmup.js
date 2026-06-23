@@ -113,8 +113,6 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
         }
       }
       if (!errorText) {
-        const bodyText = (document.body?.innerText || '');
-        const lowerBody = bodyText.toLowerCase();
         const errorKeywords = [
           'something went wrong',
           'error generating a response',
@@ -126,11 +124,16 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
           'please log in again',
           'please sign in again',
         ];
-        const hasDirectErrorKeyword = errorKeywords.some(k => lowerBody.includes(k));
-        const hasErrorContext = !!document.querySelector('[role="alert"], [data-testid*="error"], [aria-live="assertive"], [aria-live="polite"]');
-        const looksLikeSidebarNoise = lowerBody.includes('new chat') && lowerBody.includes('search chats') && lowerBody.includes('history');
-        if ((hasDirectErrorKeyword && !looksLikeSidebarNoise) || (hasErrorContext && hasDirectErrorKeyword)) {
-          errorText = bodyText.slice(0, 150).replace(/\\n/g, ' ');
+        const contextualErrors = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="error"], [class*="error"]'))
+          .filter(el => el && el.offsetParent !== null)
+          .map(el => (el.innerText || el.textContent || '').trim())
+          .filter(Boolean);
+        const matchedError = contextualErrors.find(text => {
+          const lower = text.toLowerCase();
+          return errorKeywords.some(k => lower.includes(k));
+        });
+        if (matchedError) {
+          errorText = matchedError.slice(0, 150).replace(/\\n/g, ' ');
         }
       }
       

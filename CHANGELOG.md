@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.234] - 2026-06-23 10:46:07
+
+### 🐛 Sửa false positive `session_expired` khi warmup đang chờ ChatGPT trả lời (Bug Fix)
+
+- **Đối chiếu log/screenshot warmup mới**:
+  - Warmup đã vào được session hợp lệ, gửi câu hỏi Q&A đầu tiên, Camofox `/type` trả `200`, các poll `/evaluate` đều trả `200`.
+  - Screenshot `warmup_acc_c44568d3/03_phase03_step01_q1_sending_before.png` cho thấy UI ChatGPT bình thường, không có error banner.
+  - Script vẫn dừng sau ~10 giây với `session_expired` vì detector lấy snippet toàn trang gồm sidebar/footer (`New chat`, `Free`, `ChatGPT can make...`) và nhầm là lỗi.
+- **Nguyên nhân**:
+  - `waitForGenerationComplete()` quét `document.body.innerText` toàn trang và coi `[aria-live]` bất kỳ là error context. UI ChatGPT hiện có nhiều vùng status/aria-live bình thường, nên điều kiện này quá rộng.
+- **`scripts/warmup.js`**:
+  - Bỏ scan toàn bộ body để detect lỗi session/generation.
+  - Chỉ tin các element lỗi visible thật sự như `[role="alert"]`, `[data-testid*="error"]`, `[class*="error"]` và chỉ khi text của chính element đó chứa keyword lỗi.
+  - Giữ nguyên cơ chế poll generation (`stop-button`, `streaming-element`, `submit-stop`) để warmup không bị ngắt sai khi ChatGPT đang phản hồi.
+
 ## [0.3.233] - 2026-06-23 00:39:16
 
 ### 🐛 Sửa lỗi warmup đóng modal login email của ChatGPT khi fill email (Bug Fix)
