@@ -2,6 +2,26 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.236] - 2026-06-23 11:23:29
+
+### 🐛 Sửa warmup xác nhận gửi prompt sai và tiếp tục chờ ảo khi ChatGPT không tạo user message (Bug Fix)
+
+- **Đối chiếu log/screenshot warmup mới**:
+  - Run `2026-06-23T04-02-12____Warmup_makarimcintyreioto_hotmail_com.log` cho thấy prompt đã vào composer, nhưng warmup vẫn kẹt `Generation status: generating (submit-stop)` tới 120s.
+  - Screenshot `warmup_acc_6b9a5599/03_phase03_step02_q1_after_type_checkpoint.png` cho thấy composer bị nối prompt câu 2 vào prompt câu 1, nghĩa là câu trước chưa submit thật và nội dung cũ vẫn còn trong khung chat.
+  - Screenshot `warmup_acc_6b9a5599/03_phase03_step03_q1_after_send_checkpoint.png` không có user message bubble trong conversation.
+  - Screenshot `warmup_acc_6b9a5599/03_phase03_step04_q1_response_complete_after.png` hiển thị modal `Your session has expired`, nhưng detector chưa bắt được ngay nên script tiếp tục chờ trạng thái generate ảo.
+- **Nguyên nhân**:
+  - `waitForPromptSubmitted()` trước đó coi composer rỗng hoặc có stop button là submit thành công. Với UI ChatGPT mới, composer có thể clear/ẩn hoặc trang đổi trạng thái mà chưa tạo user message thật.
+  - Kiểm tra `main.innerText` quá rộng, có thể trúng chính nội dung composer nên tạo false positive.
+  - Không clear composer trước mỗi câu khiến prompt mới nối vào prompt cũ khi lần gửi trước thất bại.
+- **`scripts/warmup.js`**:
+  - Thêm `clearComposerPrompt()` trước mỗi câu để đảm bảo không append prompt mới vào prompt cũ.
+  - Thêm `submitComposerWithRetry()` để thử submit bằng `Enter`, DOM click, `Meta+Enter`, `Control+Enter`; sau mỗi lần chỉ coi thành công nếu thấy user message thật trong thread.
+  - Siết `waitForPromptSubmitted()` chỉ xác nhận bằng selector user message (`[data-message-author-role="user"]`, conversation turn/article), không còn coi composer rỗng hoặc stop button là thành công.
+  - Bắt modal `Your session has expired` / `Please log in again...` trong cả bước submit và wait generation để fail nhanh bằng `session_expired`, tránh chờ 120s vô vọng.
+  - Khi không thấy user message sau mọi cách submit, throw `warmup_prompt_submit_failed` với reason rõ ràng để log/screenshot chỉ đúng điểm lỗi.
+
 ## [0.3.235] - 2026-06-23 10:59:39
 
 ### 🐛 Sửa warmup treo khi prompt không vào khung chat nhưng vẫn chờ phản hồi (Bug Fix)

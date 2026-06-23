@@ -126,6 +126,18 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
           errorText = matchedError.slice(0, 150).replace(/\\n/g, ' ');
         }
       }
+      if (!errorText) {
+        const bodyText = (document.body?.innerText || '').toLowerCase();
+        const exactSessionErrors = [
+          'your session has expired',
+          'please log in again to continue using the app',
+          'try signing in again',
+          'please sign in again',
+        ];
+        if (exactSessionErrors.some(k => bodyText.includes(k))) {
+          errorText = 'Your session has expired. Please log in again to continue using the app.';
+        }
+      }
       
       return {
         isGenerating: isStopVisible || isStreaming || isSubmitStop,
@@ -221,6 +233,30 @@ async function getComposerState(tabId, userId) {
   })()`);
 }
 
+async function clearComposerPrompt(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    const editor = document.querySelector('#prompt-textarea');
+    if (!editor || editor.offsetParent === null) {
+      return { ok: true, reason: 'composer-not-visible' };
+    }
+
+    editor.focus();
+    if ('value' in editor) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+        || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      if (setter) setter.call(editor, '');
+      else editor.value = '';
+    } else {
+      editor.replaceChildren();
+    }
+
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null }));
+    editor.dispatchEvent(new Event('change', { bubbles: true }));
+    const text = (editor.value || editor.innerText || editor.textContent || '').trim();
+    return { ok: text.length === 0, textLength: text.length };
+  })()`).catch(err => ({ ok: false, reason: err.message }));
+}
+
 async function injectComposerPrompt(tabId, userId, promptText) {
   const promptJson = JSON.stringify(promptText);
   return await evalJson(tabId, userId, `(() => {
@@ -285,6 +321,42 @@ async function sendComposerPrompt(tabId, userId) {
   })()`).catch(err => ({ ok: false, reason: err.message }));
 }
 
+async function submitComposerWithRetry(tabId, userId, promptText) {
+  const attempts = [
+    async () => {
+      await pressKey(tabId, userId, 'Enter');
+      return { method: 'enter' };
+    },
+    async () => {
+      const sent = await sendComposerPrompt(tabId, userId);
+      return { method: 'dom-click', sent };
+    },
+    async () => {
+      await pressKey(tabId, userId, 'Meta+Enter');
+      return { method: 'meta-enter' };
+    },
+    async () => {
+      await pressKey(tabId, userId, 'Control+Enter');
+      return { method: 'ctrl-enter' };
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const result = await attempt().catch(err => ({ method: 'unknown', error: err.message }));
+    await delay(1500);
+    const submitted = await waitForPromptSubmitted(tabId, userId, promptText, 5000);
+    if (submitted.ok) {
+      return { ok: true, method: result.method, submitted, result };
+    }
+    if (submitted.reason === 'session_expired') {
+      return { ok: false, method: result.method, reason: 'session_expired', submitted, result };
+    }
+    console.log(`[Warmup] ⚠️ Submit bằng ${result.method} chưa tạo user message (composerLen=${submitted.state?.textLength ?? submitted.state?.composerTextLength ?? 0}). Thử cách khác...`);
+  }
+
+  return { ok: false, reason: 'no-user-message', state: await getComposerState(tabId, userId).catch(() => null) };
+}
+
 async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 12000) {
   const promptHead = promptText.slice(0, 40);
   const start = Date.now();
@@ -293,17 +365,34 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 120
       const promptHead = ${JSON.stringify(promptHead)};
       const editor = document.querySelector('#prompt-textarea');
       const composerText = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
-      const mainText = (document.querySelector('main')?.innerText || document.body?.innerText || '');
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const sessionExpired = bodyText.includes('your session has expired') || bodyText.includes('please log in again to continue using the app');
+      const userMessageSelectors = [
+        '[data-message-author-role="user"]',
+        '[data-testid*="conversation-turn"] [data-message-author-role="user"]',
+        'article [data-message-author-role="user"]',
+        'main article',
+      ];
+      const userMessageTexts = Array.from(document.querySelectorAll(userMessageSelectors.join(',')))
+        .filter(el => el && el.offsetParent !== null && !el.closest('form') && !el.closest('[contenteditable="true"]') && !el.closest('#prompt-textarea'))
+        .map(el => (el.innerText || el.textContent || '').trim())
+        .filter(Boolean);
       const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"]');
+      const hasUserMessage = userMessageTexts.some(text => text.includes(promptHead));
       return {
+        sessionExpired,
         composerTextLength: composerText.length,
         composerStillHasPrompt: composerText.includes(promptHead),
-        mainHasPrompt: mainText.includes(promptHead),
+        hasUserMessage,
+        userMessageCount: userMessageTexts.length,
         stopVisible: !!(stopBtn && stopBtn.offsetParent !== null),
       };
     })()`).catch(() => null);
 
-    if (state?.mainHasPrompt || state?.stopVisible || (state && !state.composerStillHasPrompt && state.composerTextLength === 0)) {
+    if (state?.sessionExpired) {
+      return { ok: false, reason: 'session_expired', state };
+    }
+    if (state?.hasUserMessage) {
       return { ok: true, state };
     }
     await delay(1000);
@@ -1209,6 +1298,10 @@ async function runWarmup() {
       if (WARMUP_SCREENSHOTS && stepRecorder) {
         await stepRecorder.before(3 + idx, 1, `q${idx + 1}_before_type`);
       }
+      const cleared = await clearComposerPrompt(tabId, USER_ID);
+      if (!cleared.ok) {
+        console.log(`[Warmup] ⚠️ Không clear được composer trước khi nhập prompt mới (reason=${cleared.reason || 'unknown'}, len=${cleared.textLength ?? 'n/a'}).`);
+      }
       await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: '#prompt-textarea', text: promptText, mode: 'keyboard', delay: 10 });
       await delay(1000);
       const composerResult = await ensureComposerPrompt(tabId, USER_ID, promptText);
@@ -1220,19 +1313,15 @@ async function runWarmup() {
         await stepRecorder.checkpoint(3 + idx, 2, `q${idx + 1}_after_type`);
       }
       
-      // Send message (try clicking Send button first, fallback to pressing Enter key)
-      const sent = await sendComposerPrompt(tabId, USER_ID);
-      
-      if (!sent?.ok) {
-        console.log(`[Warmup] ⚠️ Không tìm thấy nút gửi khả dụng hoặc nút bị vô hiệu hóa (${sent?.reason || 'unknown'}), tiến hành nhấn phím Enter...`);
-        await pressKey(tabId, USER_ID, 'Enter');
-      }
-      await delay(2000);
-      const submitted = await waitForPromptSubmitted(tabId, USER_ID, promptText);
+      // Submit message and only continue when a real user message appears.
+      const submitted = await submitComposerWithRetry(tabId, USER_ID, promptText);
       if (!submitted.ok) {
-        throw new Error(`warmup_prompt_submit_failed: Prompt chưa rời composer sau khi gửi (len=${submitted.state?.textLength ?? 0}, sendVisible=${submitted.state?.sendVisible ?? false}, sendDisabled=${submitted.state?.sendDisabled ?? false})`);
+        if (submitted.reason === 'session_expired') {
+          throw new Error('session_expired: ChatGPT báo session expired ngay sau khi gửi prompt');
+        }
+        throw new Error(`warmup_prompt_submit_failed: Không thấy user message sau khi gửi prompt (reason=${submitted.reason || 'unknown'}, len=${submitted.state?.textLength ?? 0}, sendVisible=${submitted.state?.sendVisible ?? false}, sendDisabled=${submitted.state?.sendDisabled ?? false})`);
       }
-      console.log(`[Warmup] ✅ Prompt đã được gửi vào conversation.`);
+      console.log(`[Warmup] ✅ Prompt đã được gửi vào conversation (${submitted.method}).`);
       if (WARMUP_SCREENSHOTS && stepRecorder) {
         await stepRecorder.checkpoint(3 + idx, 3, `q${idx + 1}_after_send`);
       }
