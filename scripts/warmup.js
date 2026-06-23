@@ -237,6 +237,8 @@ async function getLatestAssistantMessage(tabId, userId) {
   return await evalJson(tabId, userId, `
   (function() {
     var selectors = [
+      '.markdown',
+      '.prose',
       '[data-message-author-role="assistant"]',
       '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
       'article [data-message-author-role="assistant"]'

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.245] - 2026-06-23 23:40:00
+
+### 🐛 Cải tiến Selector Đọc Câu trả lời của ChatGPT (Bug Fix)
+
+- **Nguyên nhân**: Trên layout mới của ChatGPT (đặc biệt ở gói Free), thuộc tính `data-message-author-role="assistant"` đôi khi không được render trực tiếp trên thẻ hoặc bị thay thế.
+- **Fix**: Bổ sung selector `.markdown` và `.prose` vào tập hợp các class/selector để định vị chính xác nội dung câu trả lời của AI và trích xuất nội dung văn bản một cách tin cậy hơn.
+
 ## [0.3.244] - 2026-06-23 23:33:00
 
 ### 🚀 Bổ sung Log Câu trả lời AI & Sửa lỗi Timeout Chụp ảnh (Feature & Bug Fix)
