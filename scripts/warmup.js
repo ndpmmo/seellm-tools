@@ -380,7 +380,8 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 150
   const promptHead = promptText.slice(0, 40);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const state = await evalJson(tabId, userId, `(() => {
+    const state = await evalJson(tabId, userId, `
+    (function() {
       var promptHead = ${JSON.stringify(promptHead)};
       var editor = document.querySelector('#prompt-textarea');
       var composerText = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
@@ -398,7 +399,7 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 150
         .filter(Boolean);
       var stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"], button[data-testid="composer-stop-button"]');
       var hasUserMessage = userMessageTexts.some(function(text) { return text.indexOf(promptHead) !== -1; });
-      var onChatUrl = /\/c\/[a-z0-9-]+/.test(window.location.pathname);
+      var onChatUrl = /\\/c\\/[a-z0-9-]+/.test(window.location.pathname);
       var stopVisible = !!(stopBtn && stopBtn.offsetParent !== null);
       return {
         sessionExpired: sessionExpired,

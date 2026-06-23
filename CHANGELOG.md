@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.243] - 2026-06-23 20:53:00
+
+### 🐛 Sửa lỗi cú pháp Firefox evaluate string (Bug Fix)
+
+- **Nguyên nhân**: `(() => { var ... })()` vẫn có thể bị SpiderMonkey của Firefox từ chối vì thiếu dấu ngoặc bao ngoài làm parse ambigious hoặc parse như declaration ở top level.
+- **Fix**: Wrap IIFE bằng cú pháp ngoặc đầy đủ `(function() { ... })()` và bắt đầu chuỗi eval bằng một dòng mới để đảm bảo được parse chính xác như một Expression Statement, loại bỏ hoàn toàn lỗi `expected expression, got keyword 'var'`.
+
 ## [0.3.242] - 2026-06-23 20:46:00
 
 ### 🐛 Fix Firefox eval syntax error: `const` → `var` trong IIFE (Critical Bug Fix)
