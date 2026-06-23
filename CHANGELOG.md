@@ -2,7 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.241] - 2026-06-23 20:42:00
+
+### 🐛 Sửa lỗi detect user message sau khi submit prompt (Bug Fix)
+
+- **Nguyên nhân**: `waitForPromptSubmitted` chỉ check `hasUserMessage` selector nhưng ChatGPT đôi khi navigate sang URL `/c/<id>` trước khi render user message bubble → timeout 5s và report "no-user-message" dù submit đã thành công.
+- **Fix**:
+  - Thêm check `stopVisible` (Stop button visible = AI đang generate = submit thành công) → return `ok: true` ngay lập tức.
+  - Thêm check `onChatUrl && composerLen === 0` (trang đã chuyển sang `/c/...` và composer trống = thành công).
+  - Thêm selector `.group/conversation-turn` cho ChatGPT UI mới.
+  - Thêm `data-testid="composer-stop-button"` vào stop button selectors.
+  - Tăng timeout: 5000ms → 15000ms để đủ thời gian cho mạng chậm.
+  - Tăng delay giữa các attempt: 1500ms → 2000ms.
+
 ## [0.3.240] - 2026-06-23 20:34:00
+
 
 ### 🐛 Triệt để sửa vòng lặp vô hạn điền email/password và lỗi chặn tài nguyên (Critical Bug Fix)
 

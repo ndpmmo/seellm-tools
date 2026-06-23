@@ -362,21 +362,21 @@ async function submitComposerWithRetry(tabId, userId, promptText) {
 
   for (const attempt of attempts) {
     const result = await attempt().catch(err => ({ method: 'unknown', error: err.message }));
-    await delay(1500);
-    const submitted = await waitForPromptSubmitted(tabId, userId, promptText, 5000);
+    await delay(2000);
+    const submitted = await waitForPromptSubmitted(tabId, userId, promptText, 15000);
     if (submitted.ok) {
       return { ok: true, method: result.method, submitted, result };
     }
     if (submitted.reason === 'session_expired') {
       return { ok: false, method: result.method, reason: 'session_expired', submitted, result };
     }
-    console.log(`[Warmup] ⚠️ Submit bằng ${result.method} chưa tạo user message (composerLen=${submitted.state?.textLength ?? submitted.state?.composerTextLength ?? 0}). Thử cách khác...`);
+    console.log(`[Warmup] ⚠️ Submit bằng ${result.method} chưa tạo user message (composerLen=${submitted.state?.composerTextLength ?? 0}, stopVisible=${submitted.state?.stopVisible}, onChatUrl=${submitted.state?.onChatUrl}). Thử cách khác...`);
   }
 
   return { ok: false, reason: 'no-user-message', state: await getComposerState(tabId, userId).catch(() => null) };
 }
 
-async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 12000) {
+async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 15000) {
   const promptHead = promptText.slice(0, 40);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -391,20 +391,25 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 120
         '[data-testid*="conversation-turn"] [data-message-author-role="user"]',
         'article [data-message-author-role="user"]',
         'main article',
+        '.group\\/conversation-turn',
       ];
       const userMessageTexts = Array.from(document.querySelectorAll(userMessageSelectors.join(',')))
         .filter(el => el && el.offsetParent !== null && !el.closest('form') && !el.closest('[contenteditable="true"]') && !el.closest('#prompt-textarea'))
         .map(el => (el.innerText || el.textContent || '').trim())
         .filter(Boolean);
-      const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"]');
+      const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"], button[data-testid="composer-stop-button"]');
       const hasUserMessage = userMessageTexts.some(text => text.includes(promptHead));
+      // Also treat as submitted if composer is empty AND we're on a chat URL (not homepage)
+      const onChatUrl = /\/c\/[a-z0-9-]+/.test(window.location.pathname);
+      const stopVisible = !!(stopBtn && stopBtn.offsetParent !== null);
       return {
         sessionExpired,
         composerTextLength: composerText.length,
         composerStillHasPrompt: composerText.includes(promptHead),
         hasUserMessage,
         userMessageCount: userMessageTexts.length,
-        stopVisible: !!(stopBtn && stopBtn.offsetParent !== null),
+        stopVisible,
+        onChatUrl,
       };
     })()`).catch(() => null);
 
@@ -412,6 +417,10 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 120
       return { ok: false, reason: 'session_expired', state };
     }
     if (state?.hasUserMessage) {
+      return { ok: true, state };
+    }
+    // If stop button visible OR on a chat URL with empty composer = AI is generating = submit succeeded
+    if (state?.stopVisible || (state?.onChatUrl && state?.composerTextLength === 0)) {
       return { ok: true, state };
     }
     await delay(1000);
