@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.238] - 2026-06-23 14:27:31
+
+### 🐛 Sửa warmup nhận nhầm ChatGPT chưa đăng nhập là session hợp lệ (Bug Fix)
+
+- **Đối chiếu log/screenshot warmup mới**:
+  - Run `acc_18bf1f3c` báo `Session hợp lệ!`, sau đó gõ được prompt vào composer nhưng không tạo được user message dù thử `Enter`, DOM click, `Meta+Enter`, `Control+Enter`.
+  - Screenshot `data/screenshots/warmup_acc_18bf1f3c/03_phase03_step02_q1_after_type_checkpoint.png` vẫn hiển thị nút `Log in` ở góc phải và sidebar có nội dung `Get responses tailored to you`, nghĩa là ChatGPT đang ở shell chưa đăng nhập.
+  - Kết luận: lỗi submit là hậu quả; nguyên nhân gốc là `getState().looksLoggedIn` false positive nên warmup bước vào Q&A khi account chưa thật sự authenticated.
+- **`scripts/lib/openai-login-flow.js`**:
+  - Thêm nhận diện `hasVisibleLoginAction`, `hasVisibleSignUpAction`, `hasLoggedOutSidebarPrompt`, `hasLoggedOutChatShell`.
+  - Nếu đang ở `chatgpt.com` mà còn thấy nút/login action hoặc banner logged-out và không có profile/account menu thật, cưỡng chế `looksLoggedIn=false`.
+  - Siết trường hợp trang home ChatGPT: không còn coi home/sidebar (`New chat`, `Search chats`) là đủ để login; cần profile/account indicator thật và không có UI logged-out.
+- **`scripts/warmup.js`**:
+  - Thêm `assertChatgptAuthenticated()` trước khi bắt đầu Q&A và trước từng câu hỏi.
+  - Khi phát hiện shell chưa đăng nhập, throw `session_expired` kèm flags chi tiết (`hasLoggedOutChatShell`, `hasVisibleLoginAction`, `hasLoggedOutSidebarPrompt`, URL...) để nhánh retry hiện có tự đóng tab/mở lại/login thay vì treo ở submit.
+  - Log thêm các flags logged-out trong loop đăng nhập để lần sau nhìn log biết ngay vì sao session không được chấp nhận.
+
 ## [0.3.237] - 2026-06-23 11:41:41
 
 ### 🔎 Thêm diagnostic script để bắt DOM/nút gửi ChatGPT khi warmup không submit được (Tooling)

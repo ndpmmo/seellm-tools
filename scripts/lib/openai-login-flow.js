@@ -175,6 +175,7 @@ export async function getState(tabId, userId) {
       const host  = location.hostname;
       const body  = (document.body?.innerText || '').toLowerCase();
       const lowerUrl = href.toLowerCase();
+      const isChatgptHost = host === 'chatgpt.com' || host.endsWith('.chatgpt.com');
 
       const isVisible = el => {
         if (!el) return false;
@@ -280,20 +281,64 @@ export async function getState(tabId, userId) {
 
       // ── Error screen ──
       const rawHasError = ERROR_KW.some(k => body.includes(k));
-      const hasProfileBtn = !!(
-        document.querySelector('[data-testid="profile-button"]') ||
-        document.querySelector('[data-testid="accounts-profile-button"]') ||
-        document.querySelector('[data-testid="user-menu-button"]') ||
-        document.querySelector('[aria-label="Open user menu"]') ||
-        document.querySelector('[aria-label="User menu"]')
+      const hasProfileBtn = !!Array.from(document.querySelectorAll([
+        '[data-testid="profile-button"]',
+        '[data-testid="accounts-profile-button"]',
+        '[data-testid="user-menu-button"]',
+        '[aria-label="Open user menu"]',
+        '[aria-label="User menu"]',
+        'button[aria-haspopup="menu"]'
+      ].join(','))).find(el => {
+        if (!isVisible(el)) return false;
+        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+        const text = (el.innerText || el.textContent || '').toLowerCase();
+        return testId.includes('profile') || testId.includes('user-menu') || aria.includes('user menu') || aria.includes('profile') || aria.includes('account') || text.includes('my plan');
+      });
+      const visibleAuthActions = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+        .filter(isVisible)
+        .map(el => ({
+          text: (el.innerText || el.textContent || '').trim().toLowerCase(),
+          aria: (el.getAttribute('aria-label') || '').trim().toLowerCase(),
+          testId: (el.getAttribute('data-testid') || '').trim().toLowerCase(),
+          href: (el.getAttribute('href') || '').trim().toLowerCase(),
+        }));
+      const hasVisibleLoginAction = visibleAuthActions.some(item =>
+        item.testId === 'login-button' ||
+        item.testId.includes('login') ||
+        item.href.includes('/login') ||
+        item.href.includes('/log-in') ||
+        item.aria === 'log in' ||
+        item.aria === 'login' ||
+        item.text === 'log in' ||
+        item.text === 'login' ||
+        item.text === 'đăng nhập'
       );
-      const hasSignUpInPage = body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
-      const hasLogInBtn     = body.includes('log in') && !hasProfileBtn;
+      const hasVisibleSignUpAction = visibleAuthActions.some(item =>
+        item.testId === 'signup-button' ||
+        item.testId.includes('signup') ||
+        item.testId.includes('sign-up') ||
+        item.href.includes('/signup') ||
+        item.href.includes('/sign-up') ||
+        item.aria === 'sign up' ||
+        item.aria === 'sign up for free' ||
+        item.text === 'sign up' ||
+        item.text === 'sign up for free' ||
+        item.text === 'đăng ký'
+      );
+      const hasLoggedOutSidebarPrompt =
+        body.includes('get responses tailored to you') ||
+        body.includes('log in to get answers tailored to you') ||
+        body.includes('log in or sign up') ||
+        body.includes('try it first');
+      const hasSignUpInPage = hasVisibleSignUpAction || body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
+      const hasLogInBtn = !hasProfileBtn && (hasVisibleLoginAction || body.includes('log in'));
+      const hasLoggedOutChatShell = isChatgptHost && !hasProfileBtn && (hasVisibleLoginAction || hasVisibleSignUpAction || hasLoggedOutSidebarPrompt);
       const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
       const isConversation  = href.includes('/c/') || href.includes('/g/');
-      const isChatgptHome   = (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
+      const isChatgptHome   = isChatgptHost && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
 
-      const tempLooksLoggedIn = ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && !hasSignUpInPage && !hasLogInBtn);
+      const tempLooksLoggedIn = !hasLoggedOutChatShell && (((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && hasProfileBtn && !hasSignUpInPage && !hasLogInBtn));
       const hasError = rawHasError && (onAuthDomain || !tempLooksLoggedIn);
 
       const hasDeactivated = body.includes('account_deactivated') || 
@@ -324,7 +369,7 @@ export async function getState(tabId, userId) {
         body.includes('please sign in again') ||
         body.includes('token has been invalidated');
 
-      const looksLoggedIn = !hasSessionExpiredText && tempLooksLoggedIn && (
+      const looksLoggedIn = !hasSessionExpiredText && !hasLoggedOutChatShell && tempLooksLoggedIn && (
         onAuthDomain ? (
           !hasEmailInput &&
           !hasPasswordInput &&
@@ -354,7 +399,7 @@ export async function getState(tabId, userId) {
 
       return {
         href, host,
-        looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, isConversation,
+        looksLoggedIn, hasProfileBtn, hasSignUpInPage, hasLogInBtn, hasLoggedOutChatShell, hasVisibleLoginAction, hasVisibleSignUpAction, hasLoggedOutSidebarPrompt, isConversation,
         onAuthDomain, hasEmailInput, hasPasswordInput, hasMfaInput,
         hasCookieBanner, hasPhoneScreen, hasError, hasDeactivated,
         hasEmailInboxScreen,

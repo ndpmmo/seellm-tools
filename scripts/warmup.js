@@ -54,6 +54,25 @@ function parseArgs() {
   return args;
 }
 
+async function assertChatgptAuthenticated(tabId, userId, context = 'before_qna') {
+  const state = await getState(tabId, userId);
+  if (!state?.looksLoggedIn) {
+    const flags = [
+      `looksLoggedIn=${state?.looksLoggedIn ?? 'null'}`,
+      `hasProfileBtn=${state?.hasProfileBtn ?? 'null'}`,
+      `hasLogInBtn=${state?.hasLogInBtn ?? 'null'}`,
+      `hasSignUpInPage=${state?.hasSignUpInPage ?? 'null'}`,
+      `hasLoggedOutChatShell=${state?.hasLoggedOutChatShell ?? 'null'}`,
+      `hasVisibleLoginAction=${state?.hasVisibleLoginAction ?? 'null'}`,
+      `hasVisibleSignUpAction=${state?.hasVisibleSignUpAction ?? 'null'}`,
+      `hasLoggedOutSidebarPrompt=${state?.hasLoggedOutSidebarPrompt ?? 'null'}`,
+      `href=${state?.href || 'unknown'}`
+    ].join(', ');
+    throw new Error(`session_expired: ChatGPT chưa đăng nhập ở ${context} (${flags})`);
+  }
+  return state;
+}
+
 /**
  * Polls the DOM to detect when ChatGPT has finished generating the AI response.
  * Uses multiple strategies for bulletproof detection.
@@ -610,6 +629,10 @@ async function runWarmup() {
         console.log(`   - hasPasswordInput: ${state.hasPasswordInput}`);
         console.log(`   - hasMfaInput: ${state.hasMfaInput}`);
         console.log(`   - hasContinueWithPassword: ${state.hasContinueWithPassword}`);
+        console.log(`   - hasLoggedOutChatShell: ${state.hasLoggedOutChatShell}`);
+        console.log(`   - hasVisibleLoginAction: ${state.hasVisibleLoginAction}`);
+        console.log(`   - hasVisibleSignUpAction: ${state.hasVisibleSignUpAction}`);
+        console.log(`   - hasLoggedOutSidebarPrompt: ${state.hasLoggedOutSidebarPrompt}`);
         
         if (state.looksLoggedIn) {
           console.log(`[Warmup] 👤 Đăng nhập thành công (trạng thái looksLoggedIn = true)!`);
@@ -1213,6 +1236,8 @@ async function runWarmup() {
     if (WARMUP_SCREENSHOTS && stepRecorder) {
       await stepRecorder.checkpoint(2, 1, 'chatgpt_logged_in_dashboard');
     }
+
+    await assertChatgptAuthenticated(tabId, USER_ID, 'trước_QA');
     
     // 7. Perform conversational Q&A warmup
     console.log(`\n💬 [Warmup] Bắt đầu tương tác Q&A (${qCountArg} câu hỏi)...`);
@@ -1226,6 +1251,7 @@ async function runWarmup() {
     for (let idx = 0; idx < selectedPrompts.length; idx++) {
       const promptText = selectedPrompts[idx];
       console.log(`\n[Warmup] ❓ Câu hỏi ${idx + 1}/${selectedPrompts.length}: "${promptText}"`);
+      await assertChatgptAuthenticated(tabId, USER_ID, `trước_câu_${idx + 1}`);
       
       // Clear onboarding modals (up to 5 screens) if any overlays exist.
       // ChatGPT shows multi-step onboarding: "What brings you to ChatGPT?" → "You're all set" → etc.
