@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.247] - 2026-06-24 00:10:00
+
+### 🚀 Khắc phục hoàn toàn hiện tượng Log ảo & Cải tiến độ chính xác Q&A (Feature & Bug Fix)
+
+- **Ngăn chặn Log ảo (False Success Reporting)**: Theo dõi số lượng câu trả lời assistant hiện có (`prevAssistantCount`) trước khi gửi prompt mới. Nếu sau khi kết thúc câu hỏi mà không nhận được thêm câu trả lời mới hoặc phản hồi bị trống (chỉ có dấu tròn trắng / white dot), script sẽ ném lỗi `session_expired` thay vì báo thành công giả, từ đó kích hoạt chế độ tự động mở lại tab và thử lại (tối đa 3 lần).
+- **Tránh đọc lặp câu hỏi trước**: Hàm `getLatestAssistantMessage` giờ đây chỉ đọc các câu trả lời mới sinh sau chỉ số `prevAssistantCount`, đảm bảo không đọc lại nội dung của câu hỏi trước khi câu hỏi hiện tại bị lỗi/nghẽn.
+- **Phân loại lỗi**: Bổ sung các từ khóa tiếng Việt về lỗi không phản hồi vào cơ chế nhận diện lỗi có thể thử lại (`isRetriable`).
+
 ## [0.3.246] - 2026-06-23 23:55:00
 
 ### 🚀 Bổ sung Cơ chế Thử lại Đọc DOM & Nâng Timeout Chụp ảnh (Feature & Bug Fix)

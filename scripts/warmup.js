@@ -233,9 +233,33 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   return false;
 }
 
-async function getLatestAssistantMessage(tabId, userId) {
+async function getAssistantMessageCount(tabId, userId) {
   return await evalJson(tabId, userId, `
   (function() {
+    var selectors = [
+      '.markdown',
+      '.prose',
+      'article:not([data-message-author-role="user"])',
+      '[data-message-author-role="assistant"]',
+      '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]'
+    ];
+    var els = Array.from(document.querySelectorAll(selectors.join(',')))
+      .filter(Boolean);
+    var validEls = els.filter(function(el) {
+      if (el.closest('form') || el.closest('#prompt-textarea') || el.closest('[contenteditable="true"]')) {
+        return false;
+      }
+      var text = (el.innerText || el.textContent || '').trim();
+      return text.length > 0;
+    });
+    return validEls.length;
+  })()`).catch(() => 0);
+}
+
+async function getLatestAssistantMessage(tabId, userId, prevCount = 0) {
+  return await evalJson(tabId, userId, `
+  (function() {
+    var prevCount = ${prevCount};
     var selectors = [
       '.markdown',
       '.prose',
@@ -255,15 +279,15 @@ async function getLatestAssistantMessage(tabId, userId) {
       return text.length > 0;
     });
     
-    if (validEls.length === 0) return null;
+    if (validEls.length === 0 || validEls.length <= prevCount) return null;
     var lastEl = validEls[validEls.length - 1];
     return (lastEl.innerText || lastEl.textContent || '').trim();
   })()`).catch(() => null);
 }
 
-async function getLatestAssistantMessageWithRetry(tabId, userId, retries = 3) {
+async function getLatestAssistantMessageWithRetry(tabId, userId, prevCount = 0, retries = 3) {
   for (var i = 0; i < retries; i++) {
-    var msg = await getLatestAssistantMessage(tabId, userId);
+    var msg = await getLatestAssistantMessage(tabId, userId, prevCount);
     if (msg && msg.length > 0) {
       return msg;
     }
@@ -1378,6 +1402,9 @@ async function runWarmup() {
         throw new Error('Không tìm thấy hộp thoại chat của ChatGPT! (Chờ 45 giây không xuất hiện)');
       }
       
+      // Lấy số lượng câu trả lời hiện tại trước khi gửi prompt mới
+      const prevAssistantCount = await getAssistantMessageCount(tabId, USER_ID);
+
       // Type message using keyboard mode first, then verify because ChatGPT's
       // composer can accept focus while silently dropping keyboard input.
       if (WARMUP_SCREENSHOTS && stepRecorder) {
@@ -1418,11 +1445,11 @@ async function runWarmup() {
       }
       
       // In Câu trả lời của ChatGPT
-      const aiResponse = await getLatestAssistantMessageWithRetry(tabId, USER_ID);
-      if (aiResponse) {
+      const aiResponse = await getLatestAssistantMessageWithRetry(tabId, USER_ID, prevAssistantCount);
+      if (aiResponse && aiResponse.length > 0) {
         console.log(`[Warmup] 💬 ChatGPT trả lời:\n--------------------------------------------------\n${aiResponse}\n--------------------------------------------------`);
       } else {
-        console.log(`[Warmup] ⚠️ Không đọc được nội dung câu trả lời của ChatGPT từ DOM.`);
+        throw new Error(`session_expired: Không nhận được câu trả lời từ AI cho câu hỏi ${idx + 1} (phản hồi trống hoặc bị kẹt)`);
       }
       
       if (WARMUP_SCREENSHOTS && stepRecorder) {
@@ -1513,7 +1540,9 @@ async function runWarmup() {
         msg.includes('browser closed') ||
         msg.includes('net_timeout') ||
         msg.includes('aborted due to timeout') ||
-        msg.includes('không tìm thấy hộp thoại chat')
+        msg.includes('không tìm thấy hộp thoại chat') ||
+        msg.includes('không nhận được câu trả lời từ ai') ||
+        msg.includes('không nhận được phản hồi')
       );
       
       if (isRetriable && attempt < maxAttempts) {
