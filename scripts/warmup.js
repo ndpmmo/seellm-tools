@@ -77,20 +77,10 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       const streamingEl = document.querySelector('.result-streaming, .streaming, [class*="streaming"]');
       const isStreaming = !!streamingEl;
       
-      // 3. Check submit/voice button state
-      const submitBtn = document.querySelector('button[class*="composer-submit"], button[aria-label="Send prompt"], button[data-testid="send-button"]');
-      let isSubmitStop = false;
-      if (submitBtn && submitBtn.offsetParent !== null) {
-        const ariaLabel = (submitBtn.getAttribute('aria-label') || '').toLowerCase();
-        const className = (submitBtn.className || '').toLowerCase();
-        // Only trust explicit "stop" signals — avoid svg rect which is too broad
-        // and causes false positives on the regular send button
-        const hasStopSvg = !!submitBtn.querySelector('svg[use*="stop"]');
-        
-        if (ariaLabel.includes('stop') || className.includes('stop') || hasStopSvg) {
-          isSubmitStop = true;
-        }
-      }
+      // 3. Check submit/voice button state. Keep this narrow: ChatGPT now reuses
+      // composer-submit classes for idle controls, which previously caused hangs.
+      const submitBtn = document.querySelector('button[data-testid="stop-button"], button[data-testid="stop-generating-button"], button[aria-label="Stop generating"]');
+      const isSubmitStop = !!(submitBtn && submitBtn.offsetParent !== null);
       
       // Get text length of main conversation container to monitor typing progress
       const mainEl = document.querySelector('main');
@@ -210,6 +200,115 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   
   console.log(`[Warmup] ⚠️ Hết thời gian chờ phản hồi (${timeoutMs}ms). Tiến hành tiếp tục.`);
   return false;
+}
+
+async function getComposerState(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    const editor = document.querySelector('#prompt-textarea');
+    const visible = !!(editor && editor.offsetParent !== null);
+    const text = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
+    const sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[class*="composer-submit"]');
+    const sendVisible = !!(sendBtn && sendBtn.offsetParent !== null);
+    const sendDisabled = !!(sendBtn && (sendBtn.disabled || sendBtn.hasAttribute('disabled') || sendBtn.getAttribute('aria-disabled') === 'true'));
+    return {
+      visible,
+      text,
+      textLength: text.length,
+      sendVisible,
+      sendDisabled,
+      sendAria: sendBtn ? (sendBtn.getAttribute('aria-label') || '') : '',
+    };
+  })()`);
+}
+
+async function injectComposerPrompt(tabId, userId, promptText) {
+  const promptJson = JSON.stringify(promptText);
+  return await evalJson(tabId, userId, `(() => {
+    const promptText = ${promptJson};
+    const editor = document.querySelector('#prompt-textarea');
+    if (!editor || editor.offsetParent === null) {
+      return { ok: false, reason: 'composer-not-visible' };
+    }
+
+    editor.focus();
+    if ('value' in editor) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+        || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      if (setter) setter.call(editor, promptText);
+      else editor.value = promptText;
+    } else {
+      editor.replaceChildren();
+      const block = document.createElement('p');
+      block.textContent = promptText;
+      editor.appendChild(block);
+    }
+
+    editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: promptText }));
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: promptText }));
+    editor.dispatchEvent(new Event('change', { bubbles: true }));
+    editor.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ', code: 'Space' }));
+
+    const text = (editor.value || editor.innerText || editor.textContent || '').trim();
+    return { ok: text.includes(promptText.slice(0, 40)), textLength: text.length, textSample: text.slice(0, 120) };
+  })()`);
+}
+
+async function ensureComposerPrompt(tabId, userId, promptText) {
+  let state = await getComposerState(tabId, userId).catch(() => null);
+  if (state?.text?.includes(promptText.slice(0, 40))) {
+    return { ok: true, method: 'keyboard', state };
+  }
+
+  console.log(`[Warmup] ⚠️ Composer chưa nhận đủ prompt sau /type (len=${state?.textLength ?? 0}). Thử inject DOM fallback...`);
+  const injected = await injectComposerPrompt(tabId, userId, promptText).catch(err => ({ ok: false, reason: err.message }));
+  await delay(800);
+  state = await getComposerState(tabId, userId).catch(() => null);
+  const ok = !!(state?.text?.includes(promptText.slice(0, 40)));
+  return { ok, method: injected?.ok ? 'dom-inject' : 'failed', state, injected };
+}
+
+async function sendComposerPrompt(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    const sendButtons = Array.from(document.querySelectorAll('button[data-testid="send-button"], button[aria-label="Send prompt"], button[class*="composer-submit"]'))
+      .filter(btn => btn && btn.offsetParent !== null && !btn.disabled && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true');
+    const sendBtn = sendButtons.find(btn => {
+      const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+      const testId = (btn.getAttribute('data-testid') || '').toLowerCase();
+      return testId.includes('send') || label.includes('send') || !label.includes('voice');
+    });
+    if (!sendBtn) {
+      return { ok: false, reason: 'send-button-disabled-or-missing', count: sendButtons.length };
+    }
+    sendBtn.click();
+    sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return { ok: true, aria: sendBtn.getAttribute('aria-label') || '', testId: sendBtn.getAttribute('data-testid') || '' };
+  })()`).catch(err => ({ ok: false, reason: err.message }));
+}
+
+async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 12000) {
+  const promptHead = promptText.slice(0, 40);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const state = await evalJson(tabId, userId, `(() => {
+      const promptHead = ${JSON.stringify(promptHead)};
+      const editor = document.querySelector('#prompt-textarea');
+      const composerText = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
+      const mainText = (document.querySelector('main')?.innerText || document.body?.innerText || '');
+      const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[data-testid="stop-button"]');
+      return {
+        composerTextLength: composerText.length,
+        composerStillHasPrompt: composerText.includes(promptHead),
+        mainHasPrompt: mainText.includes(promptHead),
+        stopVisible: !!(stopBtn && stopBtn.offsetParent !== null),
+      };
+    })()`).catch(() => null);
+
+    if (state?.mainHasPrompt || state?.stopVisible || (state && !state.composerStillHasPrompt && state.composerTextLength === 0)) {
+      return { ok: true, state };
+    }
+    await delay(1000);
+  }
+  return { ok: false, state: await getComposerState(tabId, userId).catch(() => null) };
 }
 
 /**
@@ -1105,29 +1204,38 @@ async function runWarmup() {
         throw new Error('Không tìm thấy hộp thoại chat của ChatGPT! (Chờ 45 giây không xuất hiện)');
       }
       
-      // Type message using keyboard mode to ensure ProseMirror state updates correctly
+      // Type message using keyboard mode first, then verify because ChatGPT's
+      // composer can accept focus while silently dropping keyboard input.
       if (WARMUP_SCREENSHOTS && stepRecorder) {
-        await stepRecorder.before(3 + idx, 1, `q${idx + 1}_sending`);
+        await stepRecorder.before(3 + idx, 1, `q${idx + 1}_before_type`);
       }
       await camofoxPost(`/tabs/${tabId}/type`, { userId: USER_ID, selector: '#prompt-textarea', text: promptText, mode: 'keyboard', delay: 10 });
       await delay(1000);
+      const composerResult = await ensureComposerPrompt(tabId, USER_ID, promptText);
+      if (!composerResult.ok) {
+        throw new Error(`warmup_prompt_input_failed: Composer không nhận prompt (method=${composerResult.method}, len=${composerResult.state?.textLength ?? 0}, reason=${composerResult.injected?.reason || 'unknown'})`);
+      }
+      console.log(`[Warmup] ✅ Prompt đã vào composer (${composerResult.method}, len=${composerResult.state?.textLength ?? 0}).`);
+      if (WARMUP_SCREENSHOTS && stepRecorder) {
+        await stepRecorder.checkpoint(3 + idx, 2, `q${idx + 1}_after_type`);
+      }
       
       // Send message (try clicking Send button first, fallback to pressing Enter key)
-      const sent = await evalJson(tabId, USER_ID, `(() => {
-        const sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[class*="composer-submit"]');
-        if (sendBtn && sendBtn.offsetParent !== null && !sendBtn.disabled && !sendBtn.hasAttribute('disabled')) {
-          sendBtn.click();
-          sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-          return true;
-        }
-        return false;
-      })()`).catch(() => false);
+      const sent = await sendComposerPrompt(tabId, USER_ID);
       
-      if (!sent) {
-        console.log(`[Warmup] ⚠️ Không tìm thấy nút gửi khả dụng hoặc nút bị vô hiệu hóa, tiến hành nhấn phím Enter...`);
+      if (!sent?.ok) {
+        console.log(`[Warmup] ⚠️ Không tìm thấy nút gửi khả dụng hoặc nút bị vô hiệu hóa (${sent?.reason || 'unknown'}), tiến hành nhấn phím Enter...`);
         await pressKey(tabId, USER_ID, 'Enter');
       }
       await delay(2000);
+      const submitted = await waitForPromptSubmitted(tabId, USER_ID, promptText);
+      if (!submitted.ok) {
+        throw new Error(`warmup_prompt_submit_failed: Prompt chưa rời composer sau khi gửi (len=${submitted.state?.textLength ?? 0}, sendVisible=${submitted.state?.sendVisible ?? false}, sendDisabled=${submitted.state?.sendDisabled ?? false})`);
+      }
+      console.log(`[Warmup] ✅ Prompt đã được gửi vào conversation.`);
+      if (WARMUP_SCREENSHOTS && stepRecorder) {
+        await stepRecorder.checkpoint(3 + idx, 3, `q${idx + 1}_after_send`);
+      }
       
       // Wait for complete response
       const genCompleted = await waitForGenerationComplete(tabId, USER_ID);
@@ -1136,7 +1244,7 @@ async function runWarmup() {
       }
       
       if (WARMUP_SCREENSHOTS && stepRecorder) {
-        await stepRecorder.after(3 + idx, 2, `q${idx + 1}_response_complete`);
+        await stepRecorder.after(3 + idx, 4, `q${idx + 1}_response_complete`);
       }
       
       questionsAsked++;

@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.235] - 2026-06-23 10:59:39
+
+### 🐛 Sửa warmup treo khi prompt không vào khung chat nhưng vẫn chờ phản hồi (Bug Fix)
+
+- **Đối chiếu log/screenshot warmup mới**:
+  - Run `2026-06-23T03-49-53____Warmup_carterlynnbrsz_hotmail_com.log` vào session hợp lệ, Camofox `/navigate` trả `200`, `/type` trả `200`, sau đó warmup log `Generation status: generating (submit-stop)` liên tục tới khi process bị `SIGTERM`.
+  - Screenshot `warmup_acc_18bf1f3c/03_phase03_step01_q1_sending_before.png` cho thấy ChatGPT vẫn ở màn hình home, composer còn placeholder `Ask anything`, không có prompt trong khung chat.
+  - Kết luận: lỗi hiện tại không phải ChatGPT trả lời chậm; script đã chụp ảnh trước khi type, không verify prompt thật sự nhập/gửi thành công, rồi detector generation nhầm nút composer thành trạng thái đang generate.
+- **Nguyên nhân**:
+  - UI ChatGPT/Camofox hiện tại có thể focus `#prompt-textarea` nhưng keyboard type không làm ProseMirror/composer nhận nội dung, dù endpoint `/type` vẫn trả `200`.
+  - Detector `submit-stop` trước đó vẫn còn quá rộng với `button[class*="composer-submit"]`, nên khi prompt chưa gửi, script vẫn tưởng ChatGPT đang generate và chờ vô ích.
+- **`scripts/warmup.js`**:
+  - Thêm `getComposerState()`, `ensureComposerPrompt()`, `injectComposerPrompt()`, `sendComposerPrompt()` và `waitForPromptSubmitted()` để xác minh prompt đã vào composer và đã rời composer sau khi gửi.
+  - Nếu `/type` không đưa prompt vào composer, tự fallback bằng DOM insert + `InputEvent`/`change` events rồi verify lại.
+  - Nếu prompt không nhập được hoặc không submit được, throw lỗi rõ ràng `warmup_prompt_input_failed` / `warmup_prompt_submit_failed` thay vì đi vào vòng chờ response ảo.
+  - Thu hẹp nhận diện `submit-stop` chỉ còn các stop button rõ ràng (`Stop generating`, `stop-generating-button`, `stop-button`) để tránh false generating trên composer idle.
+  - Đổi screenshot checkpoint Q&A thành `q*_before_type`, `q*_after_type`, `q*_after_send`, `q*_response_complete` để lần sau nhìn ảnh là biết treo ở nhập, gửi hay đợi phản hồi.
+
 ## [0.3.234] - 2026-06-23 10:46:07
 
 ### 🐛 Sửa false positive `session_expired` khi warmup đang chờ ChatGPT trả lời (Bug Fix)
