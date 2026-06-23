@@ -233,6 +233,22 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   return false;
 }
 
+async function getLatestAssistantMessage(tabId, userId) {
+  return await evalJson(tabId, userId, `
+  (function() {
+    var selectors = [
+      '[data-message-author-role="assistant"]',
+      '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
+      'article [data-message-author-role="assistant"]'
+    ];
+    var els = Array.from(document.querySelectorAll(selectors.join(',')))
+      .filter(function(el) { return el && el.offsetParent !== null; });
+    if (els.length === 0) return null;
+    var lastEl = els[els.length - 1];
+    return (lastEl.innerText || lastEl.textContent || '').trim();
+  })()`).catch(() => null);
+}
+
 async function getComposerState(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
     const editor = document.querySelector('#prompt-textarea');
@@ -1372,6 +1388,14 @@ async function runWarmup() {
       const genCompleted = await waitForGenerationComplete(tabId, USER_ID);
       if (!genCompleted) {
         console.log(`[Warmup] ⚠️ Không xác nhận được phản hồi ChatGPT cho câu hỏi ${idx + 1}. Tiếp tục...`);
+      }
+      
+      // In Câu trả lời của ChatGPT
+      const aiResponse = await getLatestAssistantMessage(tabId, USER_ID);
+      if (aiResponse) {
+        console.log(`[Warmup] 💬 ChatGPT trả lời:\n--------------------------------------------------\n${aiResponse}\n--------------------------------------------------`);
+      } else {
+        console.log(`[Warmup] ⚠️ Không đọc được nội dung câu trả lời của ChatGPT từ DOM.`);
       }
       
       if (WARMUP_SCREENSHOTS && stepRecorder) {

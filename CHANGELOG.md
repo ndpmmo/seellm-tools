@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.244] - 2026-06-23 23:33:00
+
+### 🚀 Bổ sung Log Câu trả lời AI & Sửa lỗi Timeout Chụp ảnh (Feature & Bug Fix)
+
+- **Tính năng mới (AI Response Log)**: Thêm hàm `getLatestAssistantMessage` trích xuất trực tiếp văn bản phản hồi mới nhất của ChatGPT từ DOM và in rõ ràng trên console ngay khi AI sinh xong câu trả lời.
+- **Sửa lỗi (Timeout Chụp ảnh)**: Tăng giới hạn timeout client từ `6000ms` lên `20000ms` trong `scripts/lib/screenshot.js` để tránh việc chụp ảnh bị huỷ ngang do proxy lag ở các bước chuyển tiếp trang.
+- **Rà soát**: Xác minh các cơ chế kiểm tra và chẩn đoán lỗi tài khoản (sai mật khẩu, tài khoản bị khoá, đổi pass, OTP email) vẫn được kế thừa hoàn hảo từ các bản backup cũ.
+
 ## [0.3.243] - 2026-06-23 20:53:00
 
 ### 🐛 Sửa lỗi cú pháp Firefox evaluate string (Bug Fix)
