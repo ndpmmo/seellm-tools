@@ -333,12 +333,23 @@ export async function getState(tabId, userId) {
         body.includes('try it first');
       const hasSignUpInPage = hasVisibleSignUpAction || body.includes('sign up for free') || body.includes('sign up') || body.includes('đăng ký');
       const hasLogInBtn = !hasProfileBtn && (hasVisibleLoginAction || body.includes('log in'));
-      const hasLoggedOutChatShell = isChatgptHost && !hasProfileBtn && (hasVisibleLoginAction || hasVisibleSignUpAction || hasLoggedOutSidebarPrompt);
+      const hasLoggedOutChatShell = isChatgptHost && (
+        hasVisibleLoginAction || 
+        hasVisibleSignUpAction || 
+        hasLoggedOutSidebarPrompt ||
+        !!document.querySelector('[data-testid="login-button"], [data-testid="signup-button"]')
+      );
       const hasNewChat      = body.includes('new chat') || body.includes('search chats') || body.includes('chatgpt plus');
       const isConversation  = href.includes('/c/') || href.includes('/g/');
       const isChatgptHome   = isChatgptHost && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
 
-      const tempLooksLoggedIn = !hasLoggedOutChatShell && (((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn) || isConversation || (isChatgptHome && hasProfileBtn && !hasSignUpInPage && !hasLogInBtn));
+      const tempLooksLoggedIn = hasProfileBtn || (!hasLoggedOutChatShell && (
+        isConversation || 
+        (isChatgptHome 
+          ? (hasProfileBtn && !hasSignUpInPage && !hasLogInBtn) 
+          : ((hasProfileBtn || hasNewChat) && !hasSignUpInPage && !hasLogInBtn)
+        )
+      ));
       const hasError = rawHasError && (onAuthDomain || !tempLooksLoggedIn);
 
       const hasDeactivated = body.includes('account_deactivated') || 
@@ -412,9 +423,16 @@ export async function getState(tabId, userId) {
         isWorkspaceScreen: !hasError && isWorkspaceScr,
         isOrganizationScreen: lowerUrl.includes('/organization') || ORG_KW.some(k => body.includes(k)),
         isOnboardingScreen: isOnboarding,
+        hasSessionExpiredText,
+        tempLooksLoggedIn,
+        isWorkspaceScr,
+        isConsentScr,
+        isOnboarding
       };
     })()
   `, 5000);
+  console.log(`[getState debug] looksLoggedIn=${state?.looksLoggedIn}, hasProfileBtn=${state?.hasProfileBtn}, hasLoggedOutChatShell=${state?.hasLoggedOutChatShell}, hasSessionExpiredText=${state?.hasSessionExpiredText}, tempLooksLoggedIn=${state?.tempLooksLoggedIn}, isWorkspaceScr=${state?.isWorkspaceScreen}, isConsentScr=${state?.isConsentScreen}, hasError=${state?.hasError}`);
+  console.log(`[getState debug detail] hasResetPasswordScreen=${state?.hasResetPasswordScreen}, hasWrongPassword=${state?.hasWrongPassword}, hasPasskeyEnrollScreen=${state?.hasPasskeyEnrollScreen}, hasPhoneScreen=${state?.hasPhoneScreen}, hasDeactivated=${state?.hasDeactivated}, isOnboarding=${state?.isOnboardingScreen}`);
   return state;
 }
 
@@ -453,7 +471,7 @@ export async function fillEmail(tabId, userId, email) {
             else oneTapContainer.remove();
           }
         } catch (_) {}
-        return isVisible(inp);
+        return !!inp;
       })()
     `, 3000).catch(() => {});
     await new Promise(r => setTimeout(r, 200));

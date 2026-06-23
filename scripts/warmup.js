@@ -826,9 +826,13 @@ async function runWarmup() {
               })()`).catch(() => null);
               
               if (clicked === false) {
-                console.log(`[Warmup] 🔑 Ô nhập password bị trống (trang đã bị reset) -> Tiến hành điền lại password ngay...`);
-                passwordFilled = false;
-                passwordWaitCount = 0;
+                if (passwordWaitCount >= 2) {
+                  console.log(`[Warmup] 🔑 Ô nhập password bị trống sau ${passwordWaitCount} lần chờ -> Tiến hành điền lại password...`);
+                  passwordFilled = false;
+                  passwordWaitCount = 0;
+                } else {
+                  console.log(`[Warmup] 🔑 Ô nhập password tạm thời trống (trang đang chuyển), tiếp tục chờ (lần ${passwordWaitCount}/2)...`);
+                }
               }
               await delay(3000);
               continue;
@@ -888,9 +892,13 @@ async function runWarmup() {
               })()`).catch(() => null);
               
               if (clicked === false) {
-                console.log(`[Warmup] 📧 Ô nhập email bị trống (trang đã bị reset) -> Tiến hành điền lại email ngay...`);
-                emailFilled = false;
-                emailWaitCount = 0;
+                if (emailWaitCount >= 2) {
+                  console.log(`[Warmup] 📧 Ô nhập email bị trống sau ${emailWaitCount} lần chờ -> Tiến hành điền lại email...`);
+                  emailFilled = false;
+                  emailWaitCount = 0;
+                } else {
+                  console.log(`[Warmup] 📧 Ô nhập email tạm thời trống (trang đang chuyển), tiếp tục chờ (lần ${emailWaitCount}/2)...`);
+                }
               }
               await delay(3000);
               continue;

@@ -2,6 +2,37 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.240] - 2026-06-23 20:34:00
+
+### 🐛 Triệt để sửa vòng lặp vô hạn điền email/password và lỗi chặn tài nguyên (Critical Bug Fix)
+
+- **Nguyên nhân gốc (Root Cause) — Vòng lặp vô hạn email**:
+  - Sau khi `fillEmail` gõ email và nhấn Enter, trình duyệt bắt đầu điều hướng và ô nhập email **tạm thời trống** trong 1-2 giây.
+  - Logic cũ: nếu `clicked === false` (input trống, không click được Continue) → lập tức reset `emailFilled = false` và gõ lại email ở lượt tiếp theo — chặn đứng điều hướng đang diễn ra, gây lặp vô hạn 40 lần.
+  - **Fix `scripts/warmup.js`**: Chỉ reset `emailFilled = false` khi đã đợi ít nhất **2 lượt** (`emailWaitCount >= 2`, tương đương ≥6 giây). Nếu ô trống ở lượt đầu tiên, chỉ log cảnh báo và tiếp tục chờ. Logic tương tự áp dụng cho `passwordFilled`.
+- **Nguyên nhân gốc — Nút gửi/icon bị trắng**:
+  - Plugin `seellm-tools` trong Camofox đăng ký `page.route()` khi sự kiện `tab:created` kích hoạt với điều kiện chặn `(isAsset && !isCloudflare)`.
+  - Vì ChatGPT (`chatgpt.com`, `oaistatic.com`) không phải Cloudflare domain, toàn bộ ảnh/font/SVG của ChatGPT bị chặn — bao gồm cả icon mũi tên nút gửi, sidebar icons, v.v.
+  - **Fix `plugins/seellm-tools/index.js`**: Đổi điều kiện từ `!isCloudflare` thành `!isBypassDomain`. Các domain bypass (`openai.com`, `chatgpt.com`, `oaistatic.com`, `auth0.com`) được phép tải đầy đủ tài nguyên.
+  - **Fix `server.js` (core blockResources)**: Đồng bộ — thêm `isBypass` check trong route handler `blockResources`, bao gồm cả `statsigapi.net` trong danh sách bypass.
+
+## [0.3.239] - 2026-06-23 20:13:30
+
+
+### 🐛 Sửa lỗi lặp vòng đăng nhập và trơ nút gửi khi warmup ChatGPT (Bug Fix)
+
+- **Nguyên nhân**:
+  - Khi bật `blockResources: true`, Camofox mặc định chặn tải `font` và domain `statsigapi.net` (dịch vụ feature flags của OpenAI).
+  - Thiếu Statsig khiến ứng dụng React của ChatGPT khởi tạo lỗi/không đồng bộ (hybrid state: vừa hiển thị greeting "Hey, Kenneth" vừa hiển thị nút Login/Signup).
+  - Logic `looksLoggedIn` thấy nút Login tồn tại liền coi là chưa đăng nhập, dẫn đến lặp vô hạn việc click nút Login vốn đã trơ do lỗi JS.
+  - Chặn `font` khiến icon mũi tên gửi bị trắng (visual bug).
+- **Tinh chỉnh chặn tài nguyên trong Camofox (`camofox-browser/server.js`)**:
+  - Không chặn loại tài nguyên `font` để đảm bảo hiển thị đầy đủ icon.
+  - Cho phép các yêu cầu tới `statsigapi.net` để tránh làm hỏng luồng khởi tạo React của ChatGPT.
+  - Vẫn giữ chặn toàn bộ `image`, `media` nặng và các tracker `sentry.io`, `datadoghq.com` nhằm tối ưu băng thông và tốc độ tải trang.
+- **Tối ưu nhận diện đăng nhập (`seellm-tools/scripts/lib/openai-login-flow.js`)**:
+  - Điều chỉnh hàm `getState()`: Ưu tiên nhận diện `hasProfileBtn` là đã đăng nhập thành công (`true`), bỏ qua các cờ logged-out ảo khi có avatar/profile button thực sự xuất hiện.
+
 ## [0.3.238] - 2026-06-23 14:27:31
 
 ### 🐛 Sửa warmup nhận nhầm ChatGPT chưa đăng nhập là session hợp lệ (Bug Fix)
