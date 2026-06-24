@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.251] - 2026-06-24 21:40:00
+
+### 🚀 Bổ sung nhãn email_error để nhận diện lỗi Email/OTP (Feature)
+
+- **Thêm nhãn `email_error` cho tài khoản**: Tích hợp các hàm kiểm tra và tự động gán nhãn `email_error` trong `server/routes/vault.js` khi phát hiện các lỗi liên quan đến email/OTP (như tài khoản Hotmail bị khóa/abuse, không lấy được mã OTP từ hòm thư, lỗi login email) trong cả hai tiến trình `Warmup` và `2FA Regen`.
+- **Tự động dọn dẹp nhãn**: Nhãn `email_error` (và `need_2fa` nếu có) sẽ tự động được gỡ bỏ khỏi tài khoản ngay khi tiến trình đăng nhập hoặc tái tạo 2FA thành công.
+
 ## [0.3.250] - 2026-06-24 21:30:00
 
 ### 🚀 Khôi phục logic fillEmail và cải tiến nhận diện OTP trong 2FA Regen (Bug Fix)

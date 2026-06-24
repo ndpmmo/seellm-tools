@@ -181,6 +181,38 @@ function maybeAddNeed2faTag(id, message) {
   }
 }
 
+function isEmailErrorMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('abuse mode') || 
+         msg.includes('service abuse') || 
+         msg.includes('email_locked') || 
+         msg.includes('không lấy được mã otp từ email') || 
+         msg.includes('không lấy được otp từ email') || 
+         msg.includes('email-verification screen') || 
+         msg.includes('fetch otp from mail failed') || 
+         msg.includes('email credentials') || 
+         msg.includes('login to email failed') ||
+         msg.includes('lỗi lấy access token') ||
+         msg.includes('graph api') ||
+         msg.includes('mail.read') ||
+         msg.includes('outlook.office.com') ||
+         msg.includes('hộp thư');
+}
+
+function maybeAddEmailErrorTag(id, message) {
+  if (isEmailErrorMsg(message)) {
+    const account = vault.getAccountFull(id);
+    if (!account) return;
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('email_error')) {
+      tags.push('email_error');
+      vault.upsertAccount({ id, tags });
+    }
+  }
+}
+
+
 function removeNeedPhoneTag(id) {
   const account = vault.getAccountFull(id);
   if (!account) return;
@@ -3631,7 +3663,7 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       // Xoá các nhãn lỗi nếu đăng nhập thành công
       let tags = safeParseTags(account.tags);
       let tagsChanged = false;
-      ['wrong_password', 'account_deactivated', 'need_phone'].forEach(t => {
+      ['wrong_password', 'account_deactivated', 'need_phone', 'email_error'].forEach(t => {
         if (tags.includes(t)) {
           tags = tags.filter(x => x !== t);
           tagsChanged = true;
@@ -3655,6 +3687,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       maybeAddWrongPasswordTag(id, error);
       updateData.status = 'relogin';
       updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong Warmup: ${error})`;
+    } else if (isEmailErrorMsg(error)) {
+      maybeAddEmailErrorTag(id, error);
+      updateData.status = 'error';
+      updateData.notes = `Lỗi Email/OTP (phát hiện trong Warmup: ${error})`;
     } else {
       let targetStatus = accountStatus;
       if (preCheckStatus === 'idle') {
@@ -3810,6 +3846,10 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
     } else if (isReloginMsg(error)) {
       updateData.status = 'relogin';
       updateData.notes = `Tài khoản yêu cầu đăng nhập lại (phát hiện trong 2FA Regen: ${error})`;
+    } else if (isEmailErrorMsg(error)) {
+      maybeAddEmailErrorTag(id, error);
+      updateData.status = 'error';
+      updateData.notes = `Lỗi Email/OTP (phát hiện trong 2FA Regen: ${error})`;
     } else if (status === 'success' && secret) {
       updateData.two_fa_secret = secret;
       // Trạng thái: nếu account chưa từng được deploy (ever_ready !== 1) thì đưa về 'idle' để tránh tự động đẩy lên gateway.
@@ -3817,6 +3857,19 @@ router.post('/accounts/:id/regenerate-2fa-result', async (req, res) => {
       const isNeverDeployed = account.ever_ready !== 1 && account.status !== 'ready';
       updateData.status = isNeverDeployed ? 'idle' : 'ready';
       updateData.notes = isNeverDeployed ? '2FA regenerated successfully (idle)' : '2FA regenerated successfully';
+
+      // Xoá nhãn need_2fa và email_error nếu thành công
+      let tags = safeParseTags(account.tags);
+      let tagsChanged = false;
+      ['need_2fa', 'email_error'].forEach(t => {
+        if (tags.includes(t)) {
+          tags = tags.filter(x => x !== t);
+          tagsChanged = true;
+        }
+      });
+      if (tagsChanged) {
+        updateData.tags = tags;
+      }
     } else if (status === 'failed') {
       updateData.notes = `2FA regeneration failed: ${error}`;
     }
