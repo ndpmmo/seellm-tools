@@ -361,7 +361,7 @@ export async function getState(tabId, userId) {
       const isConversation  = href.includes('/c/') || href.includes('/g/');
       const isChatgptHome   = isChatgptHost && (href.endsWith('chatgpt.com/') || href.endsWith('chatgpt.com'));
 
-      const tempLooksLoggedIn = hasProfileBtn || (!hasLoggedOutChatShell && (
+      const tempLooksLoggedIn = !hasLoggedOutChatShell && (hasProfileBtn || (
         isConversation || 
         (isChatgptHome 
           ? (hasProfileBtn && !hasSignUpInPage && !hasLogInBtn) 
@@ -414,6 +414,7 @@ export async function getState(tabId, userId) {
           !isWorkspaceScr &&
           !isConsentScr
         ) : (
+          !hasLoggedOutChatShell &&
           !hasResetPasswordScreen &&
           !hasWrongPassword &&
           !hasPasskeyEnrollScreen &&

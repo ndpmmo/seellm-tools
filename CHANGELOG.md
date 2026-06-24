@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.256] - 2026-06-25 02:45:00
+
+### 🚀 Khắc phục lỗi nhận diện nhầm trạng thái Đăng nhập khi tài khoản chưa đăng nhập (Bug Fix)
+
+- **Sửa lỗi nhận diện looksLoggedIn**: Thắt chặt cờ `tempLooksLoggedIn` và `looksLoggedIn` trong hàm `getState` (`openai-login-flow.js`) bằng cách yêu cầu phủ định trạng thái `hasLoggedOutChatShell` (`!hasLoggedOutChatShell`). Điều này ngăn ngừa race condition/false positive nghiêm trọng khi trang chủ ChatGPT của phiên đăng nhập trống hiển thị placeholder profile button (`accounts-profile-button`) trước khi các nút đăng nhập thực tế kịp render, khiến hệ thống tin tưởng nhầm rằng tài khoản đã đăng nhập thành công và tiến hành chạy script tiếp rồi treo.
+
 ## [0.3.255] - 2026-06-25 02:40:00
 
 ### 🚀 Bổ sung phát hiện lỗi ChatGPT "Hmm...something seems to have gone wrong." (Bug Fix)
