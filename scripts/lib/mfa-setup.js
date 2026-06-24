@@ -298,6 +298,68 @@ function generateTOTP(secret) {
     return code.toString().padStart(6, '0');
 }
 
+// ── Password Verification Prompt (Re-auth) Bypass ──────────────────────────────
+async function handlePasswordVerificationPrompt(tabId, userId, apiHelper, password, log, wait, run) {
+    if (!password) {
+        log('⚠️ Không có mật khẩu để tự động xác minh lại danh tính nếu được yêu cầu.');
+        return;
+    }
+
+    // Check if there is a password input on the page (usually in a dialog)
+    const hasPasswordPrompt = await run(`(() => {
+        const pwdInput = document.querySelector('[role="dialog"] input[type="password"], input[type="password"]');
+        if (!pwdInput) return false;
+        // Verify it's a re-auth password prompt, not the login screen itself
+        const bodyText = (document.body.innerText || '').toLowerCase();
+        return bodyText.includes('password') || bodyText.includes('confirm') || bodyText.includes('xác nhận') || bodyText.includes('mật khẩu');
+    })()`);
+
+    if (hasPasswordPrompt) {
+        log('🔑 Phát hiện yêu cầu xác nhận lại mật khẩu để bật 2FA!');
+        
+        // Fill the password
+        const typeResult = await run(`(() => {
+            const pwdInput = document.querySelector('[role="dialog"] input[type="password"]') || document.querySelector('input[type="password"]');
+            if (!pwdInput) return false;
+            
+            pwdInput.focus();
+            const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+            if (nativeInput) nativeInput.set.call(pwdInput, ${JSON.stringify(password)});
+            else pwdInput.value = ${JSON.stringify(password)};
+            
+            pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
+            pwdInput.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        })()`);
+        
+        if (typeResult) {
+            log('Đã điền mật khẩu xác nhận. Click nút Tiếp tục/Xác nhận...');
+            
+            // Native click or DOM click the continue button in the dialog
+            await apiHelper(`/tabs/${tabId}/click`, {
+                userId,
+                selector: '[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Continue"), [role="dialog"] button:has-text("Confirm"), [role="dialog"] button:has-text("Tiếp tục"), button[type="submit"]'
+            }, 5000).catch(() => {});
+            
+            // Fallback JS click if still present after 1.5s
+            await wait(1500);
+            await run(`(() => {
+                const pwdInput = document.querySelector('[role="dialog"] input[type="password"], input[type="password"]');
+                if (pwdInput) {
+                    const btn = Array.from(document.querySelectorAll('[role="dialog"] button, button'))
+                        .find(b => {
+                            const t = (b.textContent || b.value || '').toLowerCase().trim();
+                            return t === 'continue' || t === 'confirm' || t === 'tiếp tục' || t === 'xác nhận' || t === 'next' || t === 'submit';
+                        });
+                    if (btn) btn.click();
+                }
+            })()`).catch(() => {});
+            
+            await wait(4000); // Chờ load trang/dialog tiếp theo
+        }
+    }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 /**
  * @param {string} tabId
@@ -438,6 +500,20 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     return clickedAny;
                 })()
             `).catch(() => {});
+
+            // Tự động mở sidebar nếu bị đóng/ẩn (từ lượt thứ 2 trở đi)
+            if (i >= 2) {
+                await run(`
+                    (() => {
+                        const showSidebarBtn = document.querySelector('[data-testid="show-sidebar-button"], [aria-label="Show sidebar"], [aria-label="Open sidebar"]');
+                        if (showSidebarBtn && window.getComputedStyle(showSidebarBtn).display !== 'none') {
+                            showSidebarBtn.click();
+                            return true;
+                        }
+                        return false;
+                    })()
+                `).catch(() => {});
+            }
 
             // Thử click profile/user menu button và settings item
             if (i === 4) {
@@ -876,6 +952,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             `).catch(() => {});
         }
         await wait(4000);
+
+        // --- Xử lý xác nhận mật khẩu (nếu có) ---
+        await handlePasswordVerificationPrompt(tabId, userId, apiHelper, options.password, log, wait, run);
 
         if (options.email && options.emailCreds) {
             await handleEmailOTPVerification(tabId, userId, apiHelper, options.email, options.emailCreds, log, wait, run);

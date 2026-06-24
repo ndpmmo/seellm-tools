@@ -667,7 +667,19 @@ async function runWarmup() {
     }, { timeoutMs: 35000 });
     
     tabId = opened.tabId;
-    await delay(3000);
+    await delay(1000);
+
+    // Set fixed viewport to avoid narrow/mobile layout on headful macOS
+    console.log(`[Warmup] 🌐 Thiết lập viewport size 1440x900...`);
+    await camofoxPost(`/tabs/${tabId}/viewport`, {
+      userId: USER_ID,
+      width: 1440,
+      height: 900
+    }).catch(err => {
+      console.warn(`⚠️ [Warmup] Không thể thiết lập viewport: ${err.message}`);
+    });
+
+    await delay(2000);
     
     // Set up step recorder for screenshots if enabled
     if (WARMUP_SCREENSHOTS) {

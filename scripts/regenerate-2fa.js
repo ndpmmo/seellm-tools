@@ -194,7 +194,19 @@ async function run2faRegen() {
     }, { timeoutMs: 35000 });
 
     tabId = opened.tabId;
-    await delay(3000);
+    await delay(1000);
+
+    // Set fixed viewport to avoid narrow/mobile layout on headful macOS
+    console.log(`[2FA Regen] 🌐 Thiết lập viewport size 1440x900...`);
+    await camofoxPost(`/tabs/${tabId}/viewport`, {
+      userId: USER_ID,
+      width: 1440,
+      height: 900
+    }).catch(err => {
+      console.warn(`⚠️ [2FA Regen] Không thể thiết lập viewport: ${err.message}`);
+    });
+
+    await delay(2000);
 
     // Set up step recorder
     if (WARMUP_SCREENSHOTS) {
@@ -242,6 +254,7 @@ async function run2faRegen() {
       const maxLoginAttempts = 40;
       let emailFilled = false;
       let emailWaitCount = 0;
+      let emailFillAttempts = 0;
       let passwordFilled = false;
       let passwordWaitCount = 0;
       let mfaFilled = false;
@@ -506,29 +519,45 @@ async function run2faRegen() {
         // Email input
         if (state.hasEmailInput) {
           if (emailFilled) {
-            emailWaitCount++;
-            if (emailWaitCount < 3) {
-              console.log(`[2FA Regen] 📧 Email đã được điền, đang chờ (lần ${emailWaitCount})...`);
-              await evalJson(tabId, USER_ID, `(() => {
-                const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-                  .find(el => {
-                    const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-                    return t === 'continue' || t === 'next' || t === 'tiếp tục';
-                  });
-                if (btn) btn.click();
-              })()`).catch(() => {});
-              await delay(3000);
-              continue;
-            } else {
+            // Check if the input actually has the email value inside it
+            if (!state.emailValue || state.emailValue.trim() === '') {
+              console.log(`[2FA Regen] ⚠️ Email input trống rỗng dù đã set emailFilled. Đặt lại emailFilled = false để điền lại...`);
               emailFilled = false;
               emailWaitCount = 0;
+            } else {
+              emailWaitCount++;
+              if (emailWaitCount < 3) {
+                console.log(`[2FA Regen] 📧 Email đã được điền ("${state.emailValue}"), đang chờ (lần ${emailWaitCount})...`);
+                await evalJson(tabId, USER_ID, `(() => {
+                  const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+                    .find(el => {
+                      const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                      return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                    });
+                  if (btn) btn.click();
+                })()`).catch(() => {});
+                await delay(3000);
+                continue;
+              } else {
+                emailFilled = false;
+                emailWaitCount = 0;
+              }
             }
           }
           if (!emailFilled) {
-            console.log(`[2FA Regen] 📧 Điền email: ${account.email}`);
-            await fillEmail(tabId, USER_ID, account.email);
-            emailFilled = true;
-            emailWaitCount = 0;
+            emailFillAttempts++;
+            if (emailFillAttempts > 3) {
+              throw new Error('LOGIN_REJECTED: Nhập email thất bại nhiều lần (quá giới hạn 3 lần thử). Có thể do Proxy reputation block, Cloudflare hoặc trang web bị lỗi tải.');
+            }
+            console.log(`[2FA Regen] 📧 Điền email (lần thử ${emailFillAttempts}/3): ${account.email}`);
+            const fillRes = await fillEmail(tabId, USER_ID, account.email);
+            if (fillRes && fillRes.ok) {
+              emailFilled = true;
+              emailWaitCount = 0;
+            } else {
+              console.log(`[2FA Regen] ⚠️ Điền email thất bại: ${JSON.stringify(fillRes)}`);
+              emailFilled = false;
+            }
             await delay(5000);
             continue;
           }
@@ -637,6 +666,7 @@ async function run2faRegen() {
     const mfaResult = await setupMFA(tabId, USER_ID, apiHelper, {
       email: account.email,
       emailCreds: emailCreds,
+      password: account.password,
       currentSecret: account.two_fa_secret || account.twoFaSecret,
       stepRecorder: stepRecorder
     });

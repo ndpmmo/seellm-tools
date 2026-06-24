@@ -133,6 +133,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, 
 
   // ── State tracking ──
   let emailFilled = false;
+  let emailFillAttempts = 0;
   let passwordFilled = false;
   let mfaFilled = false;
   let consentAttempted = false;
@@ -199,15 +200,35 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, 
     }
 
     // ── 5. Login form on auth.openai.com → fill credentials ──
-    if (state?.hasEmailInput && !emailFilled && creds.email) {
-      console.log(`[OAuth] 📧 Email input detected, filling: ${creds.email}`);
-      const r = await fillEmail(tabId, userId, creds.email);
-      console.log(`[OAuth] fillEmail →`, JSON.stringify(r));
-      emailFilled = true;
-      await new Promise(r2 => setTimeout(r2, 4000));
-      // OAuth Phase 1, Step 3: Email filled
-      await recorder.after(1, 3, 'email_filled');
-      continue;
+    if (state?.hasEmailInput && creds.email) {
+      if (emailFilled) {
+        if (!state.emailValue || state.emailValue.trim() === '') {
+          console.log(`[OAuth] ⚠️ Email input trống rỗng dù đã set emailFilled. Điền lại...`);
+          emailFilled = false;
+        } else {
+          console.log(`[OAuth] 📧 Email already filled ("${state.emailValue}"). Waiting...`);
+          await new Promise(r2 => setTimeout(r2, 1000));
+          continue;
+        }
+      }
+      if (!emailFilled) {
+        emailFillAttempts++;
+        if (emailFillAttempts > 3) {
+          throw new Error('LOGIN_REJECTED: Nhập email thất bại nhiều lần (OAuth). Có thể do Proxy reputation block.');
+        }
+        console.log(`[OAuth] 📧 Email input detected, filling (lần ${emailFillAttempts}/3): ${creds.email}`);
+        const r = await fillEmail(tabId, userId, creds.email);
+        console.log(`[OAuth] fillEmail →`, JSON.stringify(r));
+        if (r && r.ok) {
+          emailFilled = true;
+          await new Promise(r2 => setTimeout(r2, 4000));
+          // OAuth Phase 1, Step 3: Email filled
+          await recorder.after(1, 3, 'email_filled');
+        } else {
+          emailFilled = false;
+        }
+        continue;
+      }
     }
 
     if (state?.hasPasswordInput && !passwordFilled && creds.password) {
@@ -925,6 +946,16 @@ export async function runAutoRegister(taskInput) {
     tabId = tabRes.tabId;
     userAgent = tabRes.userAgent || null;
     console.log(`Tab ID: ${tabId}`);
+
+    // Set fixed viewport to avoid narrow/mobile layout on headful macOS
+    console.log(`[Register] 🌐 Thiết lập viewport size 1440x900...`);
+    await camofoxPostWithSessionKey(`/tabs/${tabId}/viewport`, {
+      userId: USER_ID,
+      width: 1440,
+      height: 900
+    }).catch(err => {
+      console.warn(`⚠️ [Register] Không thể thiết lập viewport: ${err.message}`);
+    });
 
     recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
 
@@ -2708,7 +2739,13 @@ export async function runAutoRegister(taskInput) {
     let mfaResult;
     try {
       await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
-      mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
+      const emailCreds = { refreshToken, clientId };
+      mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
+        email,
+        emailCreds,
+        password: chatGptPassword,
+        stepRecorder: recorder
+      });
 
       // Retry MFA setup on any failure (max CONFIG.mfaMaxRetries retries)
       if (!mfaResult.success) {
@@ -2727,7 +2764,12 @@ export async function runAutoRegister(taskInput) {
             await new Promise(r => setTimeout(r, 3000));
           }
           
-          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
+          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
+            email,
+            emailCreds,
+            password: chatGptPassword,
+            stepRecorder: recorder
+          });
           if (retryResult.success) {
             console.log(`[7] ✅ MFA retry ${retry} thành công!`);
             mfaResult = retryResult;
@@ -2786,7 +2828,12 @@ export async function runAutoRegister(taskInput) {
       } else {
         console.log(`[7.2] ⚠️ CẢNH BÁO: Phát hiện 2FA thực tế CHƯA BẬT (hoặc bật bị hụt)! Bắt đầu Self-Healing kích hoạt lại...`);
         // Tiến hành chạy setupMFA một lần nữa để khắc phục
-        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, { stepRecorder: recorder });
+        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
+          email,
+          emailCreds,
+          password: chatGptPassword,
+          stepRecorder: recorder
+        });
         if (healResult.success) {
           twoFaSecret = healResult.secret;
           mfaResult = healResult;

@@ -721,6 +721,17 @@ async function runConnectFlow(task) {
         }, { timeoutMs: 25000 });
         tabId = opened.tabId;
         const userAgent = opened.userAgent || null;
+
+        // Set fixed viewport to avoid narrow/mobile layout on headful macOS
+        console.log(`[Connect] 🌐 Thiết lập viewport size 1440x900...`);
+        await camofoxPost(`/tabs/${tabId}/viewport`, {
+          userId: USER_ID,
+          width: 1440,
+          height: 900
+        }).catch(err => {
+          console.warn(`⚠️ [Connect] Không thể thiết lập viewport: ${err.message}`);
+        });
+
         recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
         
         console.log(`[Connect] 🌐 Mở trang ChatGPT login...`);

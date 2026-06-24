@@ -193,6 +193,15 @@ export async function getState(tabId, userId) {
         return selectors.some(s => isVisible(document.querySelector(s)));
       })();
 
+      const emailValue = (() => {
+        const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
+        for (const s of selectors) {
+          const el = document.querySelector(s);
+          if (isVisible(el)) return el.value || '';
+        }
+        return '';
+      })();
+
       const hasPasswordInput = (() => {
         const selectors = [
           'input[type="password"]', 'input[name="password"]', 'input[id="password"]', 'input[autocomplete="current-password"]'
@@ -307,7 +316,8 @@ export async function getState(tabId, userId) {
         '[aria-label="User menu"]',
         'button[aria-haspopup="menu"]'
       ].join(','))).find(el => {
-        if (!isVisible(el)) return false;
+        const isClosedSidebar = !!document.querySelector('[data-testid="show-sidebar-button"], [aria-label="Show sidebar"], [aria-label="Open sidebar"]');
+        if (!isVisible(el) && !isClosedSidebar) return false;
         const aria = (el.getAttribute('aria-label') || '').toLowerCase();
         const testId = (el.getAttribute('data-testid') || '').toLowerCase();
         const text = (el.innerText || el.textContent || '').toLowerCase();
@@ -446,7 +456,8 @@ export async function getState(tabId, userId) {
         tempLooksLoggedIn,
         isWorkspaceScr,
         isConsentScr,
-        isOnboarding
+        isOnboarding,
+        emailValue
       };
     })()
   `, 5000);
@@ -509,7 +520,10 @@ export async function fillEmail(tabId, userId, email) {
       const typedValue = await evalJson(tabId, userId, `
         (() => {
           const inp = document.querySelector(${JSON.stringify(selector)});
-          return inp ? inp.value : '';
+          if (!inp) return '';
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+          return inp.value || '';
         })()
       `).catch(() => '');
       
@@ -1501,6 +1515,17 @@ export async function selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { ti
     // Radix UI menus don't respond to JavaScript dispatchEvent; we must use Camofox's
     // click API which simulates real user clicks through the browser automation layer.
     try {
+      // Tự động mở sidebar nếu bị đóng để profile button hiển thị
+      await evalJson(tabId, userId, `(() => {
+        const showSidebarBtn = document.querySelector('[data-testid="show-sidebar-button"], [aria-label="Show sidebar"], [aria-label="Open sidebar"]');
+        if (showSidebarBtn && window.getComputedStyle(showSidebarBtn).display !== 'none') {
+          showSidebarBtn.click();
+          return true;
+        }
+        return false;
+      })()`, 3000).catch(() => {});
+      await new Promise(r => setTimeout(r, 1000));
+
       // Check if profile button is visible on the current page (dashboard sidebar)
       const hasProfileBtn = await evalJson(tabId, userId, `(() => {
         const btn = document.querySelector('[data-testid="accounts-profile-button"]');

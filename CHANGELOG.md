@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.261] - 2026-06-25 05:25:00
+
+### 🚀 Khắc phục Lỗi Nhận diện Đăng nhập & Mở Cài đặt do Giao diện Thu nhỏ (Closed Sidebar & Viewport Bug Fix)
+
+- **Thiết lập Viewport Cố định Desktop**: Tự động gọi POST `/tabs/${tabId}/viewport` để cấu hình kích thước viewport cố định `1440x900` ngay sau khi tạo tab Camoufox mới trong tất cả các scripts chạy chính (`regenerate-2fa.js`, `auto-register-worker.js`, `auto-worker.js`, và `warmup.js`). Tránh hiện tượng viewport bị thu nhỏ trên host macOS/headful dẫn đến giao diện chuyển sang mobile layout làm ẩn nút Profile.
+- **Nhận diện Đăng nhập linh hoạt khi Sidebar bị đóng**: Cập nhật logic `hasProfileBtn` trong hàm `getState` (`openai-login-flow.js`) để cho phép nút Profile được xem là tồn tại kể cả khi bị ẩn/không hiển thị, miễn là nút "Show sidebar" đang xuất hiện (biểu thị sidebar đang đóng).
+- **Tự động mở Sidebar khi cần truy cập Profile**:
+  - Bổ sung logic tự động click nút "Show sidebar" (`[data-testid="show-sidebar-button"]`) trong hàm `selectPersonalWorkspaceOnWorkspacePage` của `openai-login-flow.js` trước khi tìm nút Profile.
+  - Tích hợp logic tự động click mở sidebar vào vòng lặp chờ Settings modal của hàm `setupMFA` (`mfa-setup.js`) từ lần thử thứ 3, giúp nút Profile hiển thị để các thao tác click Settings modal diễn ra chính xác.
+
+## [0.3.260] - 2026-06-25 05:15:00
+
+### 🚀 Khắc phục lỗi Login Loop Email trống & Tối ưu hóa Xác thực Mật khẩu khi bật 2FA (Bug Fix & Robustness)
+
+- **Đồng bộ hóa Trạng thái React khi điền Email**: Cập nhật hàm `fillEmail` để tự động phát các sự kiện DOM `input` và `change` trên trường email ngay sau khi gõ phím native qua Camofox. Điều này đảm bảo React/Next.js của ChatGPT cập nhật đúng giá trị email trong state, ngăn chặn việc submit form với email rỗng dẫn đến chuyển hướng ngược lại về `/auth/login?email=`.
+- **Xử lý Hộp thoại Xác nhận lại Mật khẩu khi cấu hình 2FA**: Bổ sung hàm helper `handlePasswordVerificationPrompt` trong `mfa-setup.js` để tự động phát hiện, điền mật khẩu của tài khoản và nhấn xác nhận nếu ChatGPT hiển thị hộp thoại re-auth password trước khi bật Authenticator App.
+- **Cơ chế Fail-Fast tránh lặp vô hạn**: Bổ sung cờ `emailValue` để liên tục kiểm tra nếu trường email bị xóa sạch/trống rỗng trên giao diện thực tế. Nếu thao tác điền email và submit thất bại liên tiếp quá 3 lần, script sẽ lập tức dừng lại với lỗi rõ ràng `LOGIN_REJECTED` (thay vì lặp kẹt vô hạn 40 lượt), giúp tiết kiệm tài nguyên và đẩy nhanh việc xoay vòng proxy.
+
 ## [0.3.259] - 2026-06-25 05:05:00
 
 ### 🚀 Tăng cường tính ổn định của cơ chế Native Click Fallback trong MFA Setup (Bug Fix & Optimization)
