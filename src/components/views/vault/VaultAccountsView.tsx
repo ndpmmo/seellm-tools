@@ -130,6 +130,7 @@ function safeParseTags(raw: any): string[] {
 // Tag → icon + color mapping. Each tag renders as a small icon-only badge with tooltip.
 const TAG_META: Record<string, { icon: any; color: string; bg: string; border: string; tip: string }> = {
   'auto-register': { icon: Bot, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', tip: 'Auto-registered — tạo tự động qua worker' },
+  'auto-recovered': { icon: Bot, color: 'text-indigo-400/80', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20', tip: 'Auto-recovered — tạo tự động và khôi phục từ cloud/backup' },
   'vault-register': { icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', tip: 'Vault-registered — đăng ký qua vault UI' },
   'need_phone':    { icon: PhoneOff, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Cần số điện thoại — yêu cầu xác thực SMS' },
   'email_dead':    { icon: Skull, color: 'text-rose-300', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Email đã chết — không thể truy cập hộp thư' },
@@ -137,6 +138,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
   'wrong_password': { icon: KeyRound, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Sai mật khẩu — phát hiện trong quá trình đăng nhập hoặc warmup' },
   'need_2fa': { icon: ShieldAlert, color: 'text-amber-500 font-bold', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Thiếu Secret Key 2FA — phát hiện trong quá trình đăng nhập/warmup' },
+  'email_error': { icon: Mail, color: 'text-rose-400 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Lỗi Email/OTP — hòm thư bị khóa, abuse hoặc lỗi fetch OTP' },
   'email_pool_deleted': { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Email liên kết đã bị xóa khỏi Email Pool của Workshop' },
 };
 

@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.252] - 2026-06-24 21:50:00
+
+### 🚀 Đồng bộ hiển thị tag auto-recovered và email_error trên UI (Feature & UI Fix)
+
+- **Đồng bộ nhãn `auto-recovered`**: Bổ sung tag `auto-recovered` vào `TAG_META` tại `VaultAccountsView.tsx` để hiển thị biểu tượng Robot 🤖 tương tự như `auto-register` cho các tài khoản được tự động đăng ký nhưng khôi phục/đồng bộ từ cloud/backup.
+- **Đồng bộ nhãn `email_error`**: Định nghĩa hiển thị biểu tượng Thư cảnh báo ✉️ (Mail) cho tag `email_error` trên giao diện người dùng.
+
 ## [0.3.251] - 2026-06-24 21:40:00
 
 ### 🚀 Bổ sung nhãn email_error để nhận diện lỗi Email/OTP (Feature)
