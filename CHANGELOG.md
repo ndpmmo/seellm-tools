@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.249] - 2026-06-24 21:15:00
+
+### 🚀 Khắc phục lỗi login loop và nhận diện nhầm Consent Screen trong 2FA Regen (Bug Fix)
+
+- **Sửa logic nhận diện Consent Screen**: Ràng buộc thêm điều kiện miền authentication (`onAuthDomain`) khi kiểm tra `specificConsentKws` trong hàm `getState` tại `openai-login-flow.js` để tránh hiểu nhầm trang đăng nhập ChatGPT thành trang Consent do từ khóa `continue`/`allow` xuất hiện phổ biến.
+- **Tối ưu hóa điền Email**: Cập nhật hàm `fillEmail` để tự động thực hiện click native vào nút "Continue" / submit form (`actClick`) và fallback `form.requestSubmit()` sau khi gõ xong email nếu trang chưa chuyển tiếp, giải quyết dứt điểm lỗi bị kẹt lặp lại ở bước nhập email.
+
 ## [0.3.248] - 2026-06-24 14:20:00
 
 ### 📝 Cập nhật tài liệu Tùy biến Camofox local (v1.11.7 - v1.11.9) (Documentation)

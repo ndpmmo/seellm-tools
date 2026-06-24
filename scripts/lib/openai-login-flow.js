@@ -274,10 +274,20 @@ export async function getState(tabId, userId) {
       );
 
       // Inline consent screen logic
+      const specificConsentKws = [
+        'authorize', 'allow', 'consent',
+        'autorisieren', 'zulassen', 'erlauben',
+        'autoriser', 'permettre',
+        'autorizar', 'permitir',
+        'autorizza', 'consenti',
+        'cho phép', 'ủy quyền',
+        'разрешить'
+      ];
       const isConsentScr = (
         (lowerUrl.includes('consent') && !lowerUrl.includes('/log-in')) ||
-        (CONSENT_KW.some(k => body.includes(k)) && body.includes('continue'))
+        (onAuthDomain && specificConsentKws.some(k => body.includes(k)) && (body.includes('continue') || body.includes('allow') || body.includes('authorize')))
       );
+
 
       // ── Error screen ──
       const rawHasError = ERROR_KW.some(k => body.includes(k));
@@ -486,6 +496,61 @@ export async function fillEmail(tabId, userId, email) {
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
+      console.log(`[fillEmail] Native type succeeded. Waiting 1000ms...`);
+      await new Promise(r => setTimeout(r, 1000));
+      
+      console.log(`[fillEmail] Attempting native click on Continue button...`);
+      try {
+        const nativeClickRes = await actClick(tabId, userId, {
+          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
+          timeoutMs: 6000
+        }, { timeoutMs: 9000 });
+        console.log(`[fillEmail] Native click result:`, JSON.stringify(nativeClickRes));
+      } catch (clickErr) {
+        console.log(`[fillEmail] Native click failed: ${clickErr.message}`);
+      }
+      
+      // Check if still on email page
+      let stillOnEmailPage = await evalJson(tabId, userId, `
+        (() => {
+          const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
+          const isVisible = el => {
+            if (!el) return false;
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+          };
+          return selectors.some(s => isVisible(document.querySelector(s)));
+        })()
+      `).catch(() => false);
+      
+      if (stillOnEmailPage) {
+        console.log(`[fillEmail] Still on email page, trying form.requestSubmit() fallback...`);
+        const submitResult = await evalJson(tabId, userId, `
+          (() => {
+            const emailInput = document.querySelector(${JSON.stringify(selector)});
+            const form = emailInput?.closest('form') || document.querySelector('form');
+            if (form) {
+              try {
+                if (typeof form.requestSubmit === 'function') {
+                  form.requestSubmit();
+                  return { method: 'requestSubmit', ok: true };
+                } else {
+                  form.submit();
+                  return { method: 'submit', ok: true };
+                }
+              } catch (e) {
+                return { method: 'error', ok: false, err: e.message };
+              }
+            }
+            return { method: 'no-form', ok: false };
+          })()
+        `).catch(() => null);
+        console.log(`[fillEmail] Form submit fallback result:`, JSON.stringify(submitResult));
+        
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
       return { ok: true, strategy: 'camofox-type', value: email };
     }
   } catch (typeErr) {
