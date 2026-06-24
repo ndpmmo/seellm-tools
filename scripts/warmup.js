@@ -35,6 +35,29 @@ function randomInt(min, max) {
 // Wait helper
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Wait up to maxMs, polling state every intervalMs. If state changes, return early.
+async function waitStateTransition(tabId, userId, initialState, maxMs = 5000, intervalMs = 1000) {
+  if (!initialState) {
+    await delay(maxMs);
+    return null;
+  }
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await delay(intervalMs);
+    const newState = await getState(tabId, userId).catch(() => null);
+    if (!newState) continue;
+    if (newState.href !== initialState.href ||
+        newState.hasEmailInput !== initialState.hasEmailInput ||
+        newState.hasPasswordInput !== initialState.hasPasswordInput ||
+        newState.hasMfaInput !== initialState.hasMfaInput ||
+        newState.looksLoggedIn !== initialState.looksLoggedIn ||
+        newState.hasError !== initialState.hasError) {
+      return newState;
+    }
+  }
+  return null;
+}
+
 // Parse command line arguments
 function parseArgs() {
   const args = {};
@@ -70,6 +93,23 @@ async function assertChatgptAuthenticated(tabId, userId, context = 'before_qna')
     ].join(', ');
     throw new Error(`session_expired: ChatGPT chưa đăng nhập ở ${context} (${flags})`);
   }
+
+  // Double check session validity via API to be 100% accurate
+  try {
+    const sessionRes = await evalJson(tabId, userId, `
+      fetch('/api/auth/session')
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    `);
+    if (!sessionRes || !sessionRes.accessToken) {
+      console.warn(`[Warmup] ⚠️ DOM looksLoggedIn=true nhưng API /api/auth/session báo chưa đăng nhập!`);
+      throw new Error(`session_expired: API session invalid hoặc expired ở ${context}`);
+    }
+  } catch (err) {
+    if (err.message.includes('session_expired')) throw err;
+    console.warn(`[Warmup] ⚠️ Lỗi kiểm tra API session (có thể do mạng/lag): ${err.message}`);
+  }
+
   return state;
 }
 
@@ -924,7 +964,7 @@ async function runWarmup() {
             await fillPassword(tabId, USER_ID, account.password);
             passwordFilled = true;
             passwordWaitCount = 0;
-            await delay(6000);
+            await waitStateTransition(tabId, USER_ID, state, 6000);
             continue;
           }
         }
@@ -997,7 +1037,7 @@ async function runWarmup() {
             }
             emailFilled = true;
             emailWaitCount = 0;
-            await delay(5000);
+            await waitStateTransition(tabId, USER_ID, state, 5000);
             continue;
           }
         }

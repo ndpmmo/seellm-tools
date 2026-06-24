@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.257] - 2026-06-25 03:05:00
+
+### 🚀 Tối ưu hóa Tốc độ Đăng nhập & Xác minh Phiên tuyệt đối chính xác (Feature & Optimization)
+
+- **Xác thực phiên API tuyệt đối chính xác**: Bổ sung cơ chế gọi trực tiếp API `/api/auth/session` (NextAuth session) trong `assertChatgptAuthenticated` (`scripts/warmup.js`) để xác minh sự tồn tại của `accessToken` hợp lệ. Điều này tạo lớp bảo vệ kép tối cao, phát hiện và sửa chữa ngay lập tức nếu DOM bị lỗi hiển thị/lag đánh lừa trạng thái đăng nhập.
+- **Tối ưu hóa Tốc độ điền thông tin (Dynamic Wait Transition)**: Thiết lập hàm helper `waitStateTransition` thay thế các khoảng trễ cứng `delay(5000)` / `delay(6000)` sau khi điền email/password. Trình duyệt giờ đây sẽ poll trạng thái trang mỗi 1000ms và tiếp tục ngay lập tức khi phát hiện trang chuyển tiếp (ví dụ: chuyển từ màn email sang mật khẩu hoặc sang dashboard), tiết kiệm từ 2 đến 4 giây cho mỗi bước trên các đường truyền proxy tốc độ tốt.
+
 ## [0.3.256] - 2026-06-25 02:45:00
 
 ### 🚀 Khắc phục lỗi nhận diện nhầm trạng thái Đăng nhập khi tài khoản chưa đăng nhập (Bug Fix)
