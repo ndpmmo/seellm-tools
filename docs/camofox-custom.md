@@ -731,3 +731,34 @@ const ip = extractIpFromText(res.body);
 - *Lưu ý*: Thay đổi này là ở phía `seellm-tools`, **KHÔNG** sửa đổi code Camofox
 
 ```
+
+## Chi tiết tùy biến & Tối ưu trên nhánh Camofox local (v1.11.2 -> v1.11.9-seellm)
+
+Camofox trên máy chạy nhánh `custom/v1.11.2-seellm` (phiên bản hiện tại đã được nâng cấp lên `1.11.9`). Dưới đây là các thay đổi và tối ưu hóa chính được triển khai trực tiếp trên mã nguồn của Camofox `/Users/ndpmmo/Documents/Tools/camofox-browser`:
+
+### 1. Tự động hóa & Resource Blocking (`blockResources`)
+- **API `POST /tabs`**: Bổ sung tham số `"blockResources": true`. Khi được bật, Camofox sẽ kích hoạt cơ chế `page.route` toàn cục để tự động chặn các tài nguyên nặng và không cần thiết (`image`, `media`, `font`) cùng các thư viện tracking/analytics phổ biến như `sentry.io`, `datadoghq.com`.
+- **Cơ chế Bypass OpenAI/ChatGPT (v1.11.9)**:
+  - **Sửa đổi**: Bổ sung danh sách whitelist các domain bypass bao gồm: `openai.com`, `chatgpt.com`, `oaistatic.com`, `auth0.com`, `cloudflare.com`, `statsigapi.net`.
+  - **Mục đích**: Tránh việc chặn nhầm các icon SVG, font chữ, và các script cốt lõi của giao diện ChatGPT UI, giúp nút gửi và composer không bị trắng/trơ hoặc lỗi giao diện trên gói Free.
+  - **Vị trí sửa đổi**: `server.js` (core) và `plugins/seellm-tools/index.js` (chuyển đổi từ `!isCloudflare` sang `!isBypassDomain`).
+
+### 2. Tùy biến Timeout trong các Request
+- **Tham số `timeoutMs`**: Hỗ trợ truyền `timeoutMs` trong body của `POST /tabs` và `POST /tabs/:tabId/navigate`.
+- **Hoạt động**: Thay vì giới hạn cứng `30000ms`, client có thể cấu hình động mức timeout phù hợp dựa trên tốc độ proxy (Ví dụ: `seellm-tools` gọi với `timeoutMs: 35000` cho proxy chậm).
+
+### 3. Tùy chọn Mốc chờ Navigation (`waitUntil` - v1.11.8)
+- **Hoạt động**: Cho phép tùy biến tham số `waitUntil` (`commit`, `load`, `domcontentloaded`, `networkidle`) khi tạo tab hoặc navigate.
+- **Tối ưu**: Trong môi trường proxy chậm, có thể cấu hình `commit` để kết thúc chờ ngay khi server trả về response header ban đầu, tránh việc trình duyệt bị treo timeout chờ đợi các asset/font load sau.
+
+### 4. Khôi phục Fail-fast Navigation (v1.11.9)
+- **Thay đổi**: Đưa mặc định `NAVIGATE_TIMEOUT_MS` về `30000ms` (30s) và `HANDLER_TIMEOUT_MS` về `60000ms` (60s).
+- **Mục đích**: Đảm bảo nếu proxy bị kẹt hoặc ChatGPT không phản hồi, luồng sẽ fail nhanh để script chính (như `warmup.js`) thực hiện đóng tab và retry ngay lập tức, tránh treo cứng tab lock gây nghẽn hàng đợi (CPU/queue starvation).
+
+### 5. Sửa lỗi import Cookie (v1.11.5)
+- **Sửa đổi**: Trong API `POST /sessions/:userId/cookies`, tự động gán path mặc định là `'/'` cho các cookie không định nghĩa trường path.
+- **Mục đích**: Tránh lỗi crash validation của Playwright (`addCookies` validation error) khi nạp cookie thô từ database.
+
+### 6. Tự động dọn dẹp Port xung đột (`killProcessOnPort` - v1.11.5)
+- **Hoạt động**: Khi bắt đầu khởi động Camofox, tự động gọi script kiểm tra cổng `9377`. Nếu phát hiện có tiến trình cũ chiếm dụng (do Node.js crash hoặc exit không dọn dẹp), nó sẽ tự động chạy `lsof` để quét và `kill` tiến trình cũ nhằm tránh lỗi `EADDRINUSE`.
+

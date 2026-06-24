@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.248] - 2026-06-24 14:20:00
+
+### 📝 Cập nhật tài liệu Tùy biến Camofox local (v1.11.7 - v1.11.9) (Documentation)
+
+- **Cập nhật Camofox Docs**: Bổ sung chi tiết các tùy biến và tối ưu hóa trên nhánh Camofox local (`custom/v1.11.2-seellm` - v1.11.9) vào tài liệu `docs/camofox-custom.md` hiển thị ở màn hình Admin Dashboard (`?view=camofox-docs`).
+- **Nội dung đồng bộ**: Ghi nhận cơ chế `blockResources` và whitelist domains bypass OpenAI, cơ chế tùy biến `timeoutMs` và `waitUntil`, khôi phục fail-fast timeouts, sửa lỗi import cookies, và port conflict killer.
+
 ## [0.3.247] - 2026-06-24 00:10:00
 
 ### 🚀 Khắc phục hoàn toàn hiện tượng Log ảo & Cải tiến độ chính xác Q&A (Feature & Bug Fix)
