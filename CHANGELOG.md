@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.255] - 2026-06-25 02:40:00
+
+### 🚀 Bổ sung phát hiện lỗi ChatGPT "Hmm...something seems to have gone wrong." (Bug Fix)
+
+- **Phát hiện lỗi ChatGPT**: Thêm từ khóa `'something seems to have gone wrong'` và `'retry'` vào danh sách keywords phát hiện lỗi tự động trong `waitForGenerationComplete` (scripts/warmup.js) và bộ từ khóa lỗi `somethingWrong` của `openai-login-flow.js`. Điều này giúp phát hiện chính xác khi trang ChatGPT bị lỗi kết nối hoặc gián đoạn giữa chừng, ném ra lỗi `session_expired` để tiến trình tự động khởi động lại tab mới và hồi phục thay vì kẹt chờ vô vọng.
+
+## [0.3.254] - 2026-06-24 23:35:00
+
+### 🚀 Khắc phục kẹt Login Loop 40 lượt khi cookies đã đăng nhập hợp lệ (Bug Fix)
+
+- **Sửa lỗi nhận diện trạng thái Đăng nhập**: Loại bỏ ràng buộc `!hasLoggedOutChatShell` ra khỏi định nghĩa cờ `looksLoggedIn` trong hàm `getState` tại `openai-login-flow.js`. Khôi phục đúng cơ chế ổn định của bản backup `v0.3.218`. Điều này ngăn chặn lỗi nhận diện nhầm: khi tài khoản đã đăng nhập thành công (`hasProfileBtn === true`), nhưng do trang chủ ChatGPT chứa các văn bản/nút login ẩn của sidebar, hệ thống đánh giá sai thành chưa đăng nhập và liên tục lặp lại thao tác click "Log in" vô hại.
+
 ## [0.3.253] - 2026-06-24 23:10:00
 
 ### 🚀 Xác thực kết quả gõ phím ảo trong fillEmail (Bug Fix)

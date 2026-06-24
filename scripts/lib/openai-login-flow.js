@@ -136,6 +136,7 @@ export const MULTILANG = {
   // Generic error UI
   somethingWrong: [
     'something went wrong', 'try again',
+    'something seems to have gone wrong', 'retry',
     'etwas ist schief gegangen', 'erneut versuchen',
     'une erreur est survenue', 'réessayer',
     'algo salió mal', 'inténtalo de nuevo',
@@ -397,7 +398,7 @@ export async function getState(tabId, userId) {
         body.includes('please sign in again') ||
         body.includes('token has been invalidated');
 
-      const looksLoggedIn = !hasSessionExpiredText && !hasLoggedOutChatShell && tempLooksLoggedIn && (
+      const looksLoggedIn = !hasSessionExpiredText && tempLooksLoggedIn && (
         onAuthDomain ? (
           !hasEmailInput &&
           !hasPasswordInput &&

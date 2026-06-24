@@ -124,6 +124,8 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       if (!errorText) {
         const errorKeywords = [
           'something went wrong',
+          'something seems to have gone wrong',
+          'retry',
           'error generating a response',
           'try signing in again',
           'token has been invalidated',
@@ -133,7 +135,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
           'please log in again',
           'please sign in again',
         ];
-        const contextualErrors = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="error"], [class*="error"]'))
+        const contextualErrors = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="error"], [class*="error"], button'))
           .filter(el => el && el.offsetParent !== null)
           .map(el => (el.innerText || el.textContent || '').trim())
           .filter(Boolean);
