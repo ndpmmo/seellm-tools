@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.259] - 2026-06-25 05:05:00
+
+### 🚀 Tăng cường tính ổn định của cơ chế Native Click Fallback trong MFA Setup (Bug Fix & Optimization)
+
+- **Cơ chế Double-Check và Fallback trạng thái**: Bổ sung kiểm tra thực tế trên DOM sau khi gửi yêu cầu click native qua Camofox. Nếu trạng thái UI của switch 2FA, nút "Trouble scanning" hoặc menu Profile/Settings không thay đổi sau 1000ms, hệ thống sẽ tự động kích hoạt chế độ click giả lập JS làm fallback, đảm bảo độ tin cậy tuyệt đối kể cả khi sự kiện native click bị mất hoặc không kích hoạt được React handler.
+
 ## [0.3.258] - 2026-06-25 05:00:00
 
 ### 🚀 Khắc phục lỗi 2FA (MFA Setup) qua việc thay thế Click JS bằng Camofox Native Click (Bug Fix & Optimization)

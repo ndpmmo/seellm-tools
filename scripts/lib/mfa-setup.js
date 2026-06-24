@@ -456,18 +456,22 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     `);
                     if (profileTagged) {
                         log('Click Profile button bằng Camofox native click...');
+                        let profileClicked = false;
                         try {
                             await apiHelper(`/tabs/${tabId}/click`, {
                                 userId,
                                 selector: '[data-mfa-target="profile-btn"]'
                             }, 5000);
+                            profileClicked = true;
                         } catch (err) {
                             log('Native click Profile button thất bại, fallback sang JS click:', err.message);
+                        }
+                        if (!profileClicked) {
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
                         }
                         await wait(1500);
 
-                        const settingsTagged = await run(`
+                        let settingsTagged = await run(`
                             (() => {
                                 const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
                                 const settingsItem = menuItems.find(el => {
@@ -481,15 +485,41 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                 return false;
                             })()
                         `);
+                        
+                        if (!settingsTagged) {
+                            log('Không tìm thấy settings menu item sau native click, fallback sang JS click Profile...');
+                            await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
+                            await wait(1500);
+                            
+                            settingsTagged = await run(`
+                                (() => {
+                                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                                    const settingsItem = menuItems.find(el => {
+                                        const t = (el.textContent || '').trim().toLowerCase();
+                                        return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt');
+                                    });
+                                    if (settingsItem) {
+                                        settingsItem.setAttribute('data-mfa-target', 'settings-item');
+                                        return true;
+                                    }
+                                    return false;
+                                })()
+                            `);
+                        }
+
                         if (settingsTagged) {
                             log('Click Settings menu item bằng Camofox native click...');
+                            let settingsClicked = false;
                             try {
                                 await apiHelper(`/tabs/${tabId}/click`, {
                                     userId,
                                     selector: '[data-mfa-target="settings-item"]'
                                 }, 5000);
+                                settingsClicked = true;
                             } catch (err) {
                                 log('Native click Settings item thất bại, fallback sang JS click:', err.message);
+                            }
+                            if (!settingsClicked) {
                                 await run(`document.querySelector('[data-mfa-target="settings-item"]')?.click()`).catch(() => {});
                             }
                         }
@@ -629,13 +659,29 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             log(`  Tắt toggle: ${toggledOff}`);
             if (toggledOff === 'tagged_off_switch') {
                 log('Click tắt toggle bằng Camofox native click...');
+                let offClickedOk = false;
                 try {
                     await apiHelper(`/tabs/${tabId}/click`, {
                         userId,
                         selector: '[data-mfa-target="toggle-off-switch"]'
                     }, 5000);
+                    await wait(1000);
+                    const isToggledOff = await run(`
+                        (() => {
+                            const el = document.querySelector('[data-mfa-target="toggle-off-switch"]');
+                            if (!el) return true; // Biến mất nghĩa là đã off
+                            return el.getAttribute('aria-checked') !== 'true' && el.checked !== true;
+                        })()
+                    `);
+                    if (isToggledOff) {
+                        offClickedOk = true;
+                    } else {
+                        log('Native click không tắt được switch, thực hiện JS click fallback...');
+                    }
                 } catch (err) {
                     log('Native click tắt toggle thất bại, fallback sang JS click:', err.message);
+                }
+                if (!offClickedOk) {
                     await run(`document.querySelector('[data-mfa-target="toggle-off-switch"]')?.click()`).catch(() => {});
                 }
             }
@@ -781,6 +827,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         }
 
         log('Click toggle/enable Authenticator app bằng Camofox native click...');
+        let clickedOk = false;
         try {
             let targetSelector = '[data-mfa-target="toggle-switch"]';
             if (toggled === 'tagged_enable_button') targetSelector = '[data-mfa-target="enable-btn"]';
@@ -790,8 +837,35 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 userId,
                 selector: targetSelector
             }, 5000);
+            
+            await wait(1000);
+            
+            // Check xem trạng thái đã thay đổi chưa
+            const isToggledOn = await run(`
+                (() => {
+                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') || 
+                               document.querySelector('[data-mfa-target="enable-btn"]') ||
+                               document.querySelector('[data-mfa-target="toggle-switch-fallback"]');
+                    if (!el) return false;
+                    const isSwitch = el.getAttribute('role') === 'switch' || el.tagName.toLowerCase() === 'input';
+                    if (isSwitch) {
+                        return el.getAttribute('aria-checked') === 'true' || el.checked === true;
+                    }
+                    // Nếu là button, check xem dialog thiết lập đã mở chưa
+                    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+                    return dialogs.length > 1; // Thường có settings modal trước, dialog mới là dialog thứ 2
+                })()
+            `);
+            if (isToggledOn) {
+                clickedOk = true;
+            } else {
+                log('Native click không làm thay đổi trạng thái switch/nút, thực hiện JS click fallback...');
+            }
         } catch (err) {
             log('Native click toggle/enable Authenticator app thất bại, fallback sang JS click:', err.message);
+        }
+
+        if (!clickedOk) {
             await run(`
                 (() => {
                     const el = document.querySelector('[data-mfa-target="toggle-switch"]') || 
@@ -799,7 +873,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                document.querySelector('[data-mfa-target="toggle-switch-fallback"]');
                     if (el) el.click();
                 })()
-            `);
+            `).catch(() => {});
         }
         await wait(4000);
 
@@ -905,13 +979,33 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
         if (troubleTagged.startsWith('tagged_')) {
             log('Click "Trouble scanning?" bằng Camofox native click...');
+            let troubleClickedOk = false;
             try {
                 await apiHelper(`/tabs/${tabId}/click`, {
                     userId,
                     selector: '[data-mfa-target="trouble-btn"]'
                 }, 5000);
+                await wait(1000);
+                // Check xem Secret Key container đã xuất hiện chưa
+                const hasSecretKey = await run(`
+                    (() => {
+                        const all = Array.from(document.querySelectorAll('*'));
+                        return all.some(el => {
+                            const text = el.textContent || '';
+                            return text.length > 10 && /^[a-z2-7=]+$/i.test(text.replace(/[\\s-]/g, ''));
+                        });
+                    })()
+                `);
+                if (hasSecretKey) {
+                    troubleClickedOk = true;
+                } else {
+                    log('Native click không mở được Trouble scanning panel, thực hiện JS click fallback...');
+                }
             } catch (err) {
                 log('Native click "Trouble scanning?" thất bại, fallback sang JS click trực tiếp:', err.message);
+            }
+            
+            if (!troubleClickedOk) {
                 await run(`
                     (() => {
                         const el = document.querySelector('[data-mfa-target="trouble-btn"]');
@@ -938,7 +1032,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             }
                         }
                     })()
-                `);
+                `).catch(() => {});
             }
         } else {
             log('⚠️ Không thể tag nút "Trouble scanning?", bỏ qua click.');
