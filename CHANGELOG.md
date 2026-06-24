@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.253] - 2026-06-24 23:10:00
+
+### 🚀 Xác thực kết quả gõ phím ảo trong fillEmail (Bug Fix)
+
+- **Xác thực giá trị input**: Bổ sung cơ chế đọc và kiểm tra giá trị thực tế của input email ngay sau khi phím ảo của Camofox kết thúc gõ (`actType`). Nếu giá trị gõ bị thiếu, sai lệch hoặc trống do lag/trượt bàn phím ảo, hàm sẽ tự động kích hoạt chế độ DOM fallback ngay lập tức, ngăn ngừa việc click Continue với email trống dẫn đến lỗi kẹt URL `?email=` rỗng.
+
 ## [0.3.252] - 2026-06-24 21:50:00
 
 ### 🚀 Đồng bộ hiển thị tag auto-recovered và email_error trên UI (Feature & UI Fix)

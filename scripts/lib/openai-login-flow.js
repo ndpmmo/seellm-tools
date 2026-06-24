@@ -503,7 +503,19 @@ export async function fillEmail(tabId, userId, email) {
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
-      return { ok: true, strategy: 'camofox-type', value: email };
+      await new Promise(r => setTimeout(r, 200));
+      const typedValue = await evalJson(tabId, userId, `
+        (() => {
+          const inp = document.querySelector(${JSON.stringify(selector)});
+          return inp ? inp.value : '';
+        })()
+      `).catch(() => '');
+      
+      if (typedValue.trim().toLowerCase() === email.toLowerCase()) {
+        return { ok: true, strategy: 'camofox-type', value: email };
+      } else {
+        console.log(`⚠️ [fillEmail] Camoufox Type gõ xong nhưng giá trị thực tế không khớp (mong muốn: "${email}", thực tế: "${typedValue}"). Chuyển sang DOM fallback...`);
+      }
     }
   } catch (typeErr) {
     console.log(`⚠️ [fillEmail] Camoufox Type thất bại: ${typeErr.message}. Fallback to DOM...`);
