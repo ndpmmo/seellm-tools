@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.250] - 2026-06-24 21:30:00
+
+### 🚀 Khôi phục logic fillEmail và cải tiến nhận diện OTP trong 2FA Regen (Bug Fix)
+
+- **Khôi phục hàm `fillEmail`**: Revert hàm `fillEmail` về cấu trúc đơn giản, tin cậy của bản backup `v0.3.218` (chỉ type và submit bằng native keyboard của Camofox), loại bỏ hoàn toàn các bước click native Continue và form submit lặp lại dồn dập bên trong. Việc click Continue fallback khi bị kẹt sẽ do vòng lặp kiểm soát chính ở ngoài (`regenerate-2fa.js` và `warmup.js`) chịu trách nhiệm, tránh gửi request Form trống khiến trang bị chuyển hướng về URL rỗng email.
+- **Cải tiến nhận diện màn hình Email OTP**: Cập nhật hàm `getState` (`hasEmailOtpInput`) để kiểm tra thêm thuộc tính `id` và `className` của phần tử input xem có chứa từ khóa `code` hay không. Điều này giúp nhận diện chính xác ô nhập OTP trên trang "Check your inbox" của OpenAI.
+
 ## [0.3.249] - 2026-06-24 21:15:00
 
 ### 🚀 Khắc phục lỗi login loop và nhận diện nhầm Consent Screen trong 2FA Regen (Bug Fix)

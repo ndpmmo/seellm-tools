@@ -227,7 +227,14 @@ export async function getState(tabId, userId) {
       // Dùng để các flow cần lấy email OTP thực sự (2FA regen, register) không bị bypass nhầm.
       const hasEmailOtpInput = !!(
         (href.includes('email-verification') || body.includes('check your inbox') || body.includes('resend email') || body.includes('xác minh email')) &&
-        Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (el.autocomplete === 'one-time-code' || (el.placeholder || '').toLowerCase().includes('code') || (el.name || '').toLowerCase().includes('code') || el.type === 'number'))
+        Array.from(document.querySelectorAll('input')).some(el => isVisible(el) && (
+          el.autocomplete === 'one-time-code' || 
+          (el.placeholder || '').toLowerCase().includes('code') || 
+          (el.name || '').toLowerCase().includes('code') || 
+          (el.id || '').toLowerCase().includes('code') ||
+          (el.className || '').toLowerCase().includes('code') ||
+          el.type === 'number'
+        ))
       );
 
       // ── MFA / TOTP Authenticator Screen (gated: phải KHÔNG phải email inbox screen, KHÔNG phải email OTP, và KHÔNG có nút Continue với Password) ──
@@ -496,61 +503,6 @@ export async function fillEmail(tabId, userId, email) {
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
-      console.log(`[fillEmail] Native type succeeded. Waiting 1000ms...`);
-      await new Promise(r => setTimeout(r, 1000));
-      
-      console.log(`[fillEmail] Attempting native click on Continue button...`);
-      try {
-        const nativeClickRes = await actClick(tabId, userId, {
-          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
-          timeoutMs: 6000
-        }, { timeoutMs: 9000 });
-        console.log(`[fillEmail] Native click result:`, JSON.stringify(nativeClickRes));
-      } catch (clickErr) {
-        console.log(`[fillEmail] Native click failed: ${clickErr.message}`);
-      }
-      
-      // Check if still on email page
-      let stillOnEmailPage = await evalJson(tabId, userId, `
-        (() => {
-          const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
-          const isVisible = el => {
-            if (!el) return false;
-            const s = window.getComputedStyle(el);
-            const r = el.getBoundingClientRect();
-            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-          };
-          return selectors.some(s => isVisible(document.querySelector(s)));
-        })()
-      `).catch(() => false);
-      
-      if (stillOnEmailPage) {
-        console.log(`[fillEmail] Still on email page, trying form.requestSubmit() fallback...`);
-        const submitResult = await evalJson(tabId, userId, `
-          (() => {
-            const emailInput = document.querySelector(${JSON.stringify(selector)});
-            const form = emailInput?.closest('form') || document.querySelector('form');
-            if (form) {
-              try {
-                if (typeof form.requestSubmit === 'function') {
-                  form.requestSubmit();
-                  return { method: 'requestSubmit', ok: true };
-                } else {
-                  form.submit();
-                  return { method: 'submit', ok: true };
-                }
-              } catch (e) {
-                return { method: 'error', ok: false, err: e.message };
-              }
-            }
-            return { method: 'no-form', ok: false };
-          })()
-        `).catch(() => null);
-        console.log(`[fillEmail] Form submit fallback result:`, JSON.stringify(submitResult));
-        
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      
       return { ok: true, strategy: 'camofox-type', value: email };
     }
   } catch (typeErr) {
@@ -608,34 +560,6 @@ export async function fillEmail(tabId, userId, email) {
       return { ok: true, clicked: !!btn, value: input.value, strategy: 'dom' };
     })()
   `, 6000);
-
-  if (!res?.ok) {
-    const recovery = await evalJson(tabId, userId, `
-      (() => {
-        const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
-        const isVisible = el => {
-          if (!el) return false;
-          const s = window.getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-        };
-        const input = selectors.map(s => document.querySelector(s)).find(isVisible);
-        if (!input) return { ok: false, reason: 'no-email-input-after-dom' };
-        const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
-          .filter(isVisible)
-          .find(el => {
-            const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-            return t === 'continue' || t === 'next' || t === 'tiếp tục';
-          });
-        if (btn) {
-          btn.click();
-          btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        }
-        return { ok: true, clicked: !!btn, strategy: 'dom-retry', value: input.value };
-      })()
-    `, 6000).catch(() => null);
-    if (recovery?.ok) return recovery;
-  }
 
   return res;
 }
