@@ -442,23 +442,61 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             // Thử click profile/user menu button và settings item
             if (i === 4) {
                 log('Settings modal chưa mở. Thử kích hoạt bằng click Profile/Settings menu...');
-                await run(`
-                    (async () => {
-                        const profileBtn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])');
-                        if (profileBtn) {
-                            profileBtn.click();
-                            await new Promise(r => setTimeout(r, 1000));
-                            const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
-                            const settingsItem = menuItems.find(el => {
-                                const t = (el.textContent || '').trim().toLowerCase();
-                                return t === 'settings' || t === 'cài đặt';
-                            });
-                            if (settingsItem) {
-                                settingsItem.click();
+                try {
+                    const profileTagged = await run(`
+                        (() => {
+                            const btn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])') ||
+                                        Array.from(document.querySelectorAll('button')).find(b => b.querySelector('img[src*="avatar"]') || (b.textContent || '').toLowerCase().includes('avatar'));
+                            if (btn) {
+                                btn.setAttribute('data-mfa-target', 'profile-btn');
+                                return true;
+                            }
+                            return false;
+                        })()
+                    `);
+                    if (profileTagged) {
+                        log('Click Profile button bằng Camofox native click...');
+                        try {
+                            await apiHelper(`/tabs/${tabId}/click`, {
+                                userId,
+                                selector: '[data-mfa-target="profile-btn"]'
+                            }, 5000);
+                        } catch (err) {
+                            log('Native click Profile button thất bại, fallback sang JS click:', err.message);
+                            await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
+                        }
+                        await wait(1500);
+
+                        const settingsTagged = await run(`
+                            (() => {
+                                const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                                const settingsItem = menuItems.find(el => {
+                                    const t = (el.textContent || '').trim().toLowerCase();
+                                    return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt');
+                                });
+                                if (settingsItem) {
+                                    settingsItem.setAttribute('data-mfa-target', 'settings-item');
+                                    return true;
+                                }
+                                return false;
+                            })()
+                        `);
+                        if (settingsTagged) {
+                            log('Click Settings menu item bằng Camofox native click...');
+                            try {
+                                await apiHelper(`/tabs/${tabId}/click`, {
+                                    userId,
+                                    selector: '[data-mfa-target="settings-item"]'
+                                }, 5000);
+                            } catch (err) {
+                                log('Native click Settings item thất bại, fallback sang JS click:', err.message);
+                                await run(`document.querySelector('[data-mfa-target="settings-item"]')?.click()`).catch(() => {});
                             }
                         }
-                    })()
-                `).catch(() => {});
+                    }
+                } catch (clickErr) {
+                    log(`⚠️ Thử click Profile/Settings menu thất bại: ${clickErr.message}`);
+                }
             }
             // Thử path-based settings URL
             if (i === 7) {
@@ -501,12 +539,25 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     });
                 }
                 if (sec) {
-                    sec.click();
+                    sec.setAttribute('data-mfa-target', 'security-tab-btn');
                     return true;
                 }
                 return false;
             })()
         `);
+        
+        if (activeSecTab) {
+            log('Click Security tab bằng Camofox native click...');
+            try {
+                await apiHelper(`/tabs/${tabId}/click`, {
+                    userId,
+                    selector: '[data-mfa-target="security-tab-btn"]'
+                }, 5000);
+            } catch (err) {
+                log('Native click Security tab thất bại, fallback sang JS click:', err.message);
+                await run(`document.querySelector('[data-mfa-target="security-tab-btn"]')?.click()`).catch(() => {});
+            }
+        }
         
         if (!activeSecTab) {
             log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
@@ -566,8 +617,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             if (!par) break;
                             const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
                             if (sw) { 
-                                sw.click(); 
-                                return 'toggled_off_switch'; 
+                                sw.setAttribute('data-mfa-target', 'toggle-off-switch');
+                                return 'tagged_off_switch'; 
                             }
                             par = par.parentElement;
                         }
@@ -576,6 +627,18 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `);
             log(`  Tắt toggle: ${toggledOff}`);
+            if (toggledOff === 'tagged_off_switch') {
+                log('Click tắt toggle bằng Camofox native click...');
+                try {
+                    await apiHelper(`/tabs/${tabId}/click`, {
+                        userId,
+                        selector: '[data-mfa-target="toggle-off-switch"]'
+                    }, 5000);
+                } catch (err) {
+                    log('Native click tắt toggle thất bại, fallback sang JS click:', err.message);
+                    await run(`document.querySelector('[data-mfa-target="toggle-off-switch"]')?.click()`).catch(() => {});
+                }
+            }
             await wait(4000);
 
             // Bổ sung xử lý thử thách xác minh khi tắt 2FA
@@ -594,12 +657,22 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 });
                 if (disableBtn) {
                     disableBtn.removeAttribute('disabled');
-                    disableBtn.click();
+                    disableBtn.setAttribute('data-mfa-target', 'disable-btn');
                     return true;
                 }
                 return false;
             })()`);
             if (clickedDisable) {
+                log('Click vô hiệu hóa 2FA trên hộp thoại bằng Camofox native click...');
+                try {
+                    await apiHelper(`/tabs/${tabId}/click`, {
+                        userId,
+                        selector: '[data-mfa-target="disable-btn"]'
+                    }, 5000);
+                } catch (err) {
+                    log('Native click vô hiệu hóa thất bại, fallback sang JS click:', err.message);
+                    await run(`document.querySelector('[data-mfa-target="disable-btn"]')?.click()`).catch(() => {});
+                }
                 log('  Đã xác nhận click vô hiệu hóa 2FA trên hộp thoại.');
                 await wait(4000);
             }
@@ -671,8 +744,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         
                         const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
                         if (sw) { 
-                            sw.click(); 
-                            return 'toggled_switch'; 
+                            sw.setAttribute('data-mfa-target', 'toggle-switch');
+                            return 'tagged_switch'; 
                         }
                         
                         const btn = Array.from(par.querySelectorAll('button')).find(b => {
@@ -680,8 +753,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             return bt.includes('enable') || bt.includes('set up') || bt.includes('turn on') || bt.includes('bật') || bt.includes('thiết lập');
                         });
                         if (btn) { 
-                            btn.click(); 
-                            return 'clicked_enable_button'; 
+                            btn.setAttribute('data-mfa-target', 'enable-btn');
+                            return 'tagged_enable_button'; 
                         }
                         
                         par = par.parentElement;
@@ -692,16 +765,41 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 for (const p of panels) {
                     if ((p.innerText||'').toLowerCase().includes('authenticator')) {
                         const sw = p.querySelector('button[role="switch"]');
-                        if (sw) { sw.click(); return 'toggled_fallback'; }
+                        if (sw) {
+                            sw.setAttribute('data-mfa-target', 'toggle-switch-fallback');
+                            return 'tagged_switch_fallback'; 
+                        }
                     }
                 }
                 return 'not_found';
             })()
         `);
-        log(`  Toggle result: ${toggled}`);
+        log(`  Toggle tagged: ${toggled}`);
 
         if (toggled === 'not_found') {
             return { success: false, secret: null, totp: null, error: 'Toggle/Button Authenticator app not found' };
+        }
+
+        log('Click toggle/enable Authenticator app bằng Camofox native click...');
+        try {
+            let targetSelector = '[data-mfa-target="toggle-switch"]';
+            if (toggled === 'tagged_enable_button') targetSelector = '[data-mfa-target="enable-btn"]';
+            if (toggled === 'tagged_switch_fallback') targetSelector = '[data-mfa-target="toggle-switch-fallback"]';
+            
+            await apiHelper(`/tabs/${tabId}/click`, {
+                userId,
+                selector: targetSelector
+            }, 5000);
+        } catch (err) {
+            log('Native click toggle/enable Authenticator app thất bại, fallback sang JS click:', err.message);
+            await run(`
+                (() => {
+                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') || 
+                               document.querySelector('[data-mfa-target="enable-btn"]') ||
+                               document.querySelector('[data-mfa-target="toggle-switch-fallback"]');
+                    if (el) el.click();
+                })()
+            `);
         }
         await wait(4000);
 
@@ -806,34 +904,42 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log(`  Trouble scanning tagging: ${troubleTagged}`);
 
         if (troubleTagged.startsWith('tagged_')) {
-            log('Click "Trouble scanning?" bằng JS click trực tiếp...');
-            await run(`
-                (() => {
-                    const el = document.querySelector('[data-mfa-target="trouble-btn"]');
-                    if (el) {
-                        try { el.focus(); } catch (e) {}
-                        
-                        // Trigger mouse events first
-                        const events = ['mousedown', 'mouseup', 'click'];
-                        for (const name of events) {
-                            try {
-                                const ev = new MouseEvent(name, {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window,
-                                    buttons: 1
-                                });
-                                el.dispatchEvent(ev);
-                            } catch (e) {}
+            log('Click "Trouble scanning?" bằng Camofox native click...');
+            try {
+                await apiHelper(`/tabs/${tabId}/click`, {
+                    userId,
+                    selector: '[data-mfa-target="trouble-btn"]'
+                }, 5000);
+            } catch (err) {
+                log('Native click "Trouble scanning?" thất bại, fallback sang JS click trực tiếp:', err.message);
+                await run(`
+                    (() => {
+                        const el = document.querySelector('[data-mfa-target="trouble-btn"]');
+                        if (el) {
+                            try { el.focus(); } catch (e) {}
+                            
+                            // Trigger mouse events first
+                            const events = ['mousedown', 'mouseup', 'click'];
+                            for (const name of events) {
+                                try {
+                                    const ev = new MouseEvent(name, {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window,
+                                        buttons: 1
+                                    });
+                                    el.dispatchEvent(ev);
+                                } catch (e) {}
+                            }
+                            
+                            // Also trigger standard click just in case
+                            if (typeof el.click === 'function') {
+                                el.click();
+                            }
                         }
-                        
-                        // Also trigger standard click just in case
-                        if (typeof el.click === 'function') {
-                            el.click();
-                        }
-                    }
-                })()
-            `);
+                    })()
+                `);
+            }
         } else {
             log('⚠️ Không thể tag nút "Trouble scanning?", bỏ qua click.');
         }
@@ -1095,7 +1201,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 const btn = Array.from(document.querySelectorAll('button'))
                     .find(b => {
                         const t = b.textContent.trim().toLowerCase();
-                        return t === 'verify' || t.includes('verify') || t.includes('xác minh');
+                        return t === 'verify' || t.includes('verify') || t === 'xác minh';
                     });
                 if (btn) {
                     btn.removeAttribute('disabled');
@@ -1130,13 +1236,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await saveCheckpoint('navigated_away');
 
         log('Xác minh thông minh: Quay lại Security Settings...');
-        try {
-            await run(`window.location.hash = '#settings/Security'`);
-            await wait(3000);
-        } catch (navBackErr) {
-            log(`⚠️ Lỗi khi JS navigate quay lại settings: ${navBackErr.message}`);
-        }
-
+        
         // Chờ modal load lại
         let isReopened = false;
         for (let i = 0; i < 8; i++) {
@@ -1151,40 +1251,97 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             if (isReopened) break;
             
             if (i === 3) {
-                await run(`
-                    (() => {
-                        const profileBtn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"])');
-                        if (profileBtn) profileBtn.click();
-                    })()
-                `).catch(() => {});
-                await wait(1000);
-                await run(`
-                    (() => {
-                        const items = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
-                        const settingsItem = items.find(el => {
-                            const t = (el.textContent || '').trim().toLowerCase();
-                            return t === 'settings' || t === 'cài đặt';
-                        });
-                        if (settingsItem) settingsItem.click();
-                    })()
-                `).catch(() => {});
+                try {
+                    const profileTagged = await run(`
+                        (() => {
+                            const btn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"])');
+                            if (btn) {
+                                btn.setAttribute('data-mfa-target', 'verify-profile-btn');
+                                return true;
+                            }
+                            return false;
+                        })()
+                    `);
+                    if (profileTagged) {
+                        log('Verify double check: Click Profile button bằng Camofox native click...');
+                        try {
+                            await apiHelper(`/tabs/${tabId}/click`, {
+                                userId,
+                                selector: '[data-mfa-target="verify-profile-btn"]'
+                            }, 5000);
+                        } catch (err) {
+                            log('Native click Profile button thất bại, fallback sang JS click:', err.message);
+                            await run(`document.querySelector('[data-mfa-target="verify-profile-btn"]')?.click()`).catch(() => {});
+                        }
+                        await wait(1000);
+
+                        const settingsTagged = await run(`
+                            (() => {
+                                const items = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                                const settingsItem = items.find(el => {
+                                    const t = (el.textContent || '').trim().toLowerCase();
+                                    return t === 'settings' || t === 'cài đặt';
+                                });
+                                if (settingsItem) {
+                                    settingsItem.setAttribute('data-mfa-target', 'verify-settings-item');
+                                    return true;
+                                }
+                                return false;
+                            })()
+                        `);
+                        if (settingsTagged) {
+                            log('Verify double check: Click Settings menu item bằng Camofox native click...');
+                            try {
+                                await apiHelper(`/tabs/${tabId}/click`, {
+                                    userId,
+                                    selector: '[data-mfa-target="verify-settings-item"]'
+                                }, 5000);
+                            } catch (err) {
+                                log('Native click Settings item thất bại, fallback sang JS click:', err.message);
+                                await run(`document.querySelector('[data-mfa-target="verify-settings-item"]')?.click()`).catch(() => {});
+                            }
+                        }
+                    }
+                } catch (clickErr) {
+                    log(`⚠️ Verify double check: click Profile/Settings menu thất bại: ${clickErr.message}`);
+                }
             }
             await wait(1000);
         }
 
         // Click Security tab
-        await run(`
-            (() => {
-                let sec = document.querySelector('[data-testid="security-tab"]');
-                if (!sec) {
-                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a')).find(el => {
-                        const text = (el.textContent || '').toLowerCase().trim();
-                        return text === 'security' || text === 'bảo mật';
-                    });
+        try {
+            const secTagged = await run(`
+                (() => {
+                    let sec = document.querySelector('[data-testid="security-tab"]');
+                    if (!sec) {
+                        sec = Array.from(document.querySelectorAll('[role="tab"], button, a')).find(el => {
+                            const text = (el.textContent || '').toLowerCase().trim();
+                            return text === 'security' || text === 'bảo mật';
+                        });
+                    }
+                    if (sec) {
+                        sec.setAttribute('data-mfa-target', 'verify-security-tab');
+                        return true;
+                    }
+                    return false;
+                })()
+            `);
+            if (secTagged) {
+                log('Verify double check: Click Security tab bằng Camofox native click...');
+                try {
+                    await apiHelper(`/tabs/${tabId}/click`, {
+                        userId,
+                        selector: '[data-mfa-target="verify-security-tab"]'
+                    }, 5000);
+                } catch (err) {
+                    log('Native click Security tab thất bại, fallback sang JS click:', err.message);
+                    await run(`document.querySelector('[data-mfa-target="verify-security-tab"]')?.click()`).catch(() => {});
                 }
-                if (sec) sec.click();
-            })()
-        `).catch(() => {});
+            }
+        } catch (secErr) {
+            log(`⚠️ Verify double check: click Security tab thất bại: ${secErr.message}`);
+        }
         await wait(2000);
         await saveCheckpoint('fresh_verification_check');
 

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.258] - 2026-06-25 05:00:00
+
+### 🚀 Khắc phục lỗi 2FA (MFA Setup) qua việc thay thế Click JS bằng Camofox Native Click (Bug Fix & Optimization)
+
+- **Mở Settings Modal tin cậy**: Thay thế toàn bộ các hành động click Profile button và Settings menu item trong `mfa-setup.js` bằng Camofox Native Click (`apiHelper`) thay cho click giả lập JavaScript (`.click()`). Điều này giải quyết triệt để vấn đề Radix-UI/React của ChatGPT bỏ qua sự kiện click JS khi mở dropdown menu.
+- **Trích xuất Secret Key 2FA thành công**: Chuyển đổi lệnh click nút "Trouble scanning?" sang native click. Nhờ đó, panel chứa khóa bí mật (Secret Key) được mở ra và render thành công trong DOM, khắc phục lỗi nhận diện 2FA thành công nhưng khóa bí mật bị lưu là `None` trong các tiến trình Đăng ký tự động.
+- **Tối ưu hóa các thao tác click khác**: Áp dụng native click cho việc chuyển tab Security, tắt/bật công tắc 2FA (switch toggling) và xác nhận vô hiệu hóa 2FA cũ trên modal.
+
 ## [0.3.257] - 2026-06-25 03:05:00
 
 ### 🚀 Tối ưu hóa Tốc độ Đăng nhập & Xác minh Phiên tuyệt đối chính xác (Feature & Optimization)
