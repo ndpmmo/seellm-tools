@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.267] - 2026-06-26 12:41:00
+
+### 🚀 Sửa lỗi Cú pháp Unclosed Brace trong getLatestAssistantMessageWithRetry (Syntax Error Fix)
+
+- **Khắc phục lỗi biên dịch**: Bổ sung dấu ngoặc nhọn `}` và câu lệnh `return null;` bị thiếu do quá trình thay thế mã nguồn ở phiên bản trước của hàm `getLatestAssistantMessageWithRetry`, loại bỏ triệt để lỗi `SyntaxError: Unexpected end of input` khiến warmup crash ngay từ lúc load script.
+
 ## [0.3.266] - 2026-06-26 12:38:00
 
 ### 🚀 Bổ sung Chẩn đoán Lỗi DOM & Cải thiện Định dạng Thông báo Lỗi khi Gặp Mạng Chậm (DOM Error Diagnosis)

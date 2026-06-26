@@ -337,6 +337,8 @@ async function getLatestAssistantMessageWithRetry(tabId, userId, prevCount = 0, 
       console.log(`[Warmup] ⏳ Chưa đọc được câu trả lời từ DOM, đang thử lại sau 2 giây (lần ${i + 1}/${retries})...`);
       await delay(2000);
     }
+  }
+  return null;
 }
 
 async function checkPageErrors(tabId, userId) {
