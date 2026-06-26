@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.264] - 2026-06-26 10:25:00
+
+### 🚀 Khắc phục Lặp Vô hạn khi Bị chặn bởi Cloudflare Turnstile (Cloudflare Turnstile Fail-Fast Logic)
+
+- **Cơ chế dừng sớm (Fail-Fast) khi gặp Turnstile**: Bắt và kiểm tra kết quả trả về của hàm `fillPassword`. Nếu hàm trả về trạng thái bị chặn (`isBlock: true` hoặc lý do `BLOCKED_BY_OPENAI_TURNSTILE`), tiến trình sẽ dừng ngay lập tức và ném ra lỗi rõ ràng thay vì tiếp tục lặp đi lặp lại điền mật khẩu trên cùng một trang bị kẹt (lặp tới 40 lượt trong warmup hoặc 5 lượt trong worker).
+- **Đồng bộ hóa trên toàn bộ script**: Cấu hình logic dừng sớm này cho tất cả các tiến trình chính: `warmup.js`, `auto-worker.js` (cả luồng kết nối thông thường và luồng đăng nhập OAuth/PKCE), và `auto-register-worker.js` (các luồng OAuth, khôi phục session, và tạo mật khẩu mới sau OTP).
+
 ## [0.3.263] - 2026-06-26 10:12:00
 
 ### 🚀 Bổ sung Thông tin Số Ngày đã Warmup Tài khoản Vault (Warmup Success Days Tracking)

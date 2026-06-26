@@ -973,7 +973,10 @@ async function runWarmup() {
           }
           if (!passwordFilled) {
             console.log(`[Warmup] 🔑 Điền password...`);
-            await fillPassword(tabId, USER_ID, account.password);
+            const pwdResult = await fillPassword(tabId, USER_ID, account.password);
+            if (pwdResult && pwdResult.ok === false && pwdResult.isBlock) {
+              throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${pwdResult.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+            }
             passwordFilled = true;
             passwordWaitCount = 0;
             await waitStateTransition(tabId, USER_ID, state, 6000);

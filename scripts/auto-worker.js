@@ -864,6 +864,9 @@ async function runConnectFlow(task) {
             console.log(`[Connect] [3] Điền password (attempt ${attempt + 1})...`);
             if (attempt === 0) await recorder.before(3, 1, 'before_password');
             const r = await fillPassword(tabId, USER_ID, password);
+            if (r && r.ok === false && r.isBlock) {
+              return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+            }
             await new Promise(r2 => setTimeout(r2, 3500));
             if (attempt === 0) await recorder.after(3, 1, 'password_filled');
             state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
@@ -2045,7 +2048,10 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
     if (oauthState?.hasPasswordInput) {
       console.log(`[Capture] 🔑 OAuth loop: điền password...`);
       await recorder.before(1, 9, 'oauth_fill_password');
-      await fillPassword(tabId, userId, password);
+      const r = await fillPassword(tabId, userId, password);
+      if (r && r.ok === false && r.isBlock) {
+        return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+      }
       await new Promise(r => setTimeout(r, 3500));
       await recorder.after(1, 9, 'oauth_fill_password');
       continue;
@@ -2594,6 +2600,9 @@ async function runLoginFlow(task) {
             console.log(`[Login] [3] Điền password (attempt ${attemptLoop + 1})...`);
             if (attemptLoop === 0) await recorder.before(1, 3, 'before_password');
             const r = await fillPassword(tabId, USER_ID, account.password);
+            if (r && r.ok === false && r.isBlock) {
+              return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+            }
             await new Promise(r2 => setTimeout(r2, 3500));
             if (attemptLoop === 0) await recorder.after(1, 3, 'password_filled');
             state = await getState(tabId, USER_ID);

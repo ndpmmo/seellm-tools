@@ -235,6 +235,9 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, 
       console.log(`[OAuth] 🔑 Password input detected, filling`);
       const r = await fillPassword(tabId, userId, creds.password);
       console.log(`[OAuth] fillPassword →`, JSON.stringify(r));
+      if (r && r.ok === false && r.isBlock) {
+        throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+      }
       passwordFilled = true;
       await new Promise(r2 => setTimeout(r2, 4000));
       // OAuth Phase 1, Step 4: Password filled
@@ -516,7 +519,10 @@ async function checkAndRecoverSessionEnded(tabId, userId, email, password = null
 
         if (pwdInputAppeared) {
           console.log(`[Recover] ✅ Đã thấy ô password, tiến hành điền password...`);
-          await fillPassword(tabId, userId, password);
+          const r = await fillPassword(tabId, userId, password);
+          if (r && r.ok === false && r.isBlock) {
+            throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+          }
           await new Promise(r => setTimeout(r, 3000));
         } else {
           console.log(`[Recover] ⚠️ Không xuất hiện ô password sau khi điền lại email.`);
@@ -2222,6 +2228,9 @@ export async function runAutoRegister(taskInput) {
         console.log(`[Password-submit-after-otp] [${attempt + 1}] →`, JSON.stringify(pwdClickInfo || {}));
         if (!pwdClickInfo || !pwdClickInfo.ok) {
           console.log(`[Password-after-otp] Attempt ${attempt + 1} UI error: ${pwdClickInfo?.reason || 'Unknown error'}`);
+          if (pwdClickInfo?.isBlock) {
+            throw new Error(`BLOCKED_BY_OPENAI: Form submission bị chặn ở màn hình Password (Turnstile/Proxy reputation block).`);
+          }
           if (attempt < pwdCandidates.length - 1) {
             await new Promise(r => setTimeout(r, 2000));
             continue;
