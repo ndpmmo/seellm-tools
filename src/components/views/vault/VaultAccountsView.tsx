@@ -2473,12 +2473,21 @@ export function VaultAccountsView() {
                                     const successCount = ps.warmupSuccessCount !== undefined 
                                       ? ps.warmupSuccessCount 
                                       : (ps.warmupStatus === 'success' ? ps.warmupCount || 0 : 0);
+                                    const successDays = ps.warmupSuccessDays || (successCount > 0 ? 1 : 0);
                                     return (
-                                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                                        <span>Thành công:</span>
-                                        <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1 py-0.2 rounded">
-                                          {successCount} lần
-                                        </span>
+                                      <div className="text-[10px] text-slate-400 mt-0.5 flex flex-col gap-1">
+                                        <div className="flex items-center gap-1">
+                                          <span>Thành công:</span>
+                                          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1 py-0.2 rounded">
+                                            {successCount} lần
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <span>Số ngày đã Warm:</span>
+                                          <span className="text-indigo-400 font-bold bg-indigo-500/10 px-1 py-0.2 rounded">
+                                            {successDays} ngày
+                                          </span>
+                                        </div>
                                       </div>
                                     );
                                   })()}

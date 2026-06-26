@@ -3639,6 +3639,16 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
     existingProviderData.warmupCount = (existingProviderData.warmupCount || 0) + 1;
     if (status === 'success') {
       existingProviderData.warmupSuccessCount = (existingProviderData.warmupSuccessCount || 0) + 1;
+      
+      // Track unique dates of successful warmups (YYYY-MM-DD format)
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (!existingProviderData.warmupSuccessDates) {
+        existingProviderData.warmupSuccessDates = [];
+      }
+      if (!existingProviderData.warmupSuccessDates.includes(todayStr)) {
+        existingProviderData.warmupSuccessDates.push(todayStr);
+      }
+      existingProviderData.warmupSuccessDays = existingProviderData.warmupSuccessDates.length;
     }
     
     if (sessionData) {

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.263] - 2026-06-26 10:12:00
+
+### 🚀 Bổ sung Thông tin Số Ngày đã Warmup Tài khoản Vault (Warmup Success Days Tracking)
+
+- **Theo dõi Số ngày Warmup Thực tế**: Thêm trường `warmupSuccessDates` (mảng lưu các ngày YYYY-MM-DD warmup thành công) và `warmupSuccessDays` (tổng số ngày đã warmup) vào `provider_specific_data`. 
+- **Quy tắc đếm theo ngày**: Không quan trọng một ngày warmup thành công bao nhiêu lần, miễn là có ít nhất 1 lần warmup thành công trong ngày đó thì số ngày warmup của tài khoản sẽ được tính cộng thêm 1.
+- **Cập nhật Giao diện (UI)**: Hiển thị thông tin "Số ngày đã Warm: X ngày" ngay bên cạnh thông tin "Thành công: Y lần" trong phần chi tiết tài khoản ở Account Vault (`?view=vault-accounts`). Có cơ chế tự động hiển thị fallback `1 ngày` nếu tài khoản đã có lịch sử warmup thành công trước đó để bảo toàn trải nghiệm người dùng.
+
 ## [0.3.262] - 2026-06-26 10:10:00
 
 ### 🚀 Sắp xếp Tài khoản Vault Thông minh theo Hoạt động Gần nhất (Smart Accounts Sorting)
