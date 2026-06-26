@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.272] - 2026-06-26 18:30:00
+
+### 🚀 Phân tách Logic Kiểm tra Email Sống ở tab Bulk Registration (No Auto-Save on Email Verify)
+
+- **Bổ sung tùy chọn `skipDb` cho API `bulk-verify`**: Cập nhật route backend `POST /api/vault/email-pool/bulk-verify` nhận thêm thuộc tính `skipDb` trong body. Khi `skipDb` được kích hoạt, hệ thống sẽ bỏ qua việc ghi dữ liệu xác thực vào database thông qua `vault.upsertEmailPool()`, bỏ qua việc bắn sự kiện qua SSE và không tự động gán/xóa tag `EMAIL DEAD`.
+- **Cập nhật giao diện Kiểm tra Email**: Cập nhật hàm `handleCheckEmails` tại component `VaultWorkshopView.tsx` truyền thêm `skipDb: true` khi gửi yêu cầu kiểm tra email. Đảm bảo việc nhập danh sách email thô hoặc có token để kiểm tra tính năng sống/chết ở tab Bulk Registration hoàn toàn không làm nhiễu dữ liệu hay ghi đè vào DB.
+
 ## [0.3.271] - 2026-06-26 15:40:00
 
 ### 🚀 Sửa lỗi tự động cuộn lên đầu khi thao tác tài khoản (Prevent Auto-Scroll on Row Operation)

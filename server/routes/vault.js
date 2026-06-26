@@ -872,6 +872,7 @@ router.post('/email-pool/check', async (req, res) => {
 router.post('/email-pool/bulk-verify', async (req, res) => {
   try {
     const pool = vault.getEmailPoolFull();
+    const skipDb = !!req.body.skipDb;
     let targets;
     
     if (Array.isArray(req.body.emails) && req.body.emails.length > 0) {
@@ -911,14 +912,16 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
           if (!refreshToken || refreshToken === 'null' || refreshToken === 'undefined' ||
               !clientId || clientId === 'null' || clientId === 'undefined') {
             const result = { email, status: 'dead', error: 'Thiếu Refresh Token hoặc Client ID' };
-            vault.upsertEmailPool({
-              email,
-              mail_status: 'dead',
-              last_checked_at: new Date().toISOString(),
-              notes: 'Lỗi: Thiếu Refresh Token hoặc Client ID',
-            });
-            if (emitSSE) emitSSE('email-pool-updated', { email });
-            propagateEmailDeadTag(email);
+            if (!skipDb) {
+              vault.upsertEmailPool({
+                email,
+                mail_status: 'dead',
+                last_checked_at: new Date().toISOString(),
+                notes: 'Lỗi: Thiếu Refresh Token hoặc Client ID',
+              });
+              if (emitSSE) emitSSE('email-pool-updated', { email });
+              propagateEmailDeadTag(email);
+            }
             return result;
           }
 
@@ -927,25 +930,29 @@ router.post('/email-pool/bulk-verify', async (req, res) => {
             await fetchMails(token, { top: 1, email });
 
             const result = { email, status: 'active', error: null };
-            vault.upsertEmailPool({
-              email,
-              mail_status: 'active',
-              last_checked_at: new Date().toISOString(),
-              notes: `Mail OK (${new Date().toLocaleTimeString()})`,
-            });
-            if (emitSSE) emitSSE('email-pool-updated', { email });
-            removeEmailDeadTag(email);
+            if (!skipDb) {
+              vault.upsertEmailPool({
+                email,
+                mail_status: 'active',
+                last_checked_at: new Date().toISOString(),
+                notes: `Mail OK (${new Date().toLocaleTimeString()})`,
+              });
+              if (emitSSE) emitSSE('email-pool-updated', { email });
+              removeEmailDeadTag(email);
+            }
             return result;
           } catch (err) {
             const result = { email, status: 'dead', error: err.message };
-            vault.upsertEmailPool({
-              email,
-              mail_status: 'dead',
-              last_checked_at: new Date().toISOString(),
-              notes: `Lỗi: ${err.message}`,
-            });
-            if (emitSSE) emitSSE('email-pool-updated', { email });
-            propagateEmailDeadTag(email);
+            if (!skipDb) {
+              vault.upsertEmailPool({
+                email,
+                mail_status: 'dead',
+                last_checked_at: new Date().toISOString(),
+                notes: `Lỗi: ${err.message}`,
+              });
+              if (emitSSE) emitSSE('email-pool-updated', { email });
+              propagateEmailDeadTag(email);
+            }
             return result;
           }
         })

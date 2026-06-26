@@ -293,7 +293,7 @@ export function VaultWorkshopView() {
             const data = await safeFetchJson('/api/vault/email-pool/bulk-verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ emails: payload })
+                body: JSON.stringify({ emails: payload, skipDb: true })
             });
             if (data.ok && Array.isArray(data.results)) {
                 const activeEmails = new Set(
