@@ -1413,16 +1413,16 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         `).catch(() => {});
         await wait(2000);
 
-        log('Xác minh thông minh: Chuyển hướng ra trang chủ ChatGPT...');
+        log('Xác minh thông minh: Chuyển hướng trực tiếp tới Security Settings...');
         try {
-            await run(`window.location.hash = ''`);
-            await wait(2000);
+            await run(`window.location.href = 'https://chatgpt.com/settings/security'`);
+            await wait(6000);
         } catch (navAwayErr) {
-            log(`⚠️ Lỗi khi JS navigate away: ${navAwayErr.message}`);
+            log(`⚠️ Lỗi khi JS navigate: ${navAwayErr.message}`);
         }
-        await saveCheckpoint('navigated_away');
+        await saveCheckpoint('navigated_to_settings');
 
-        log('Xác minh thông minh: Quay lại Security Settings...');
+        log('Xác minh thông minh: Kiểm tra trạng thái Security Settings...');
         
         // Chờ modal load lại
         let isReopened = false;
@@ -1441,7 +1441,22 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 try {
                     const profileTagged = await run(`
                         (() => {
-                            const btn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"])');
+                            const findVisibleBtn = () => {
+                                const selectors = [
+                                    '[data-testid="accounts-profile-button"]',
+                                    '[data-testid="profile-button"]',
+                                    '[data-testid="user-menu-button"]',
+                                    '[aria-label="Open user menu"]',
+                                    'button:has([alt*="avatar"])'
+                                ];
+                                for (const sel of selectors) {
+                                    const elements = Array.from(document.querySelectorAll(sel));
+                                    const visible = elements.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                                    if (visible) return visible;
+                                }
+                                return null;
+                            };
+                            const btn = findVisibleBtn();
                             if (btn) {
                                 btn.setAttribute('data-mfa-target', 'verify-profile-btn');
                                 return true;

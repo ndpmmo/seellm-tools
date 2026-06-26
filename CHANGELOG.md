@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.275] - 2026-06-26 19:15:00
+
+### 🚀 Khắc phục lỗi xác minh Double-Check 2FA do Hash Navigation lỗi thời
+
+- **Sửa đổi cơ chế điều hướng trong bước Double-Check**: Cập nhật phần xác minh thông minh cuối cùng tại `scripts/lib/mfa-setup.js` để tự động điều hướng trực tiếp bằng URL path `/settings/security` qua `window.location.href` thay vì thay đổi hash `#settings/Security` đã lỗi thời. Việc này khắc phục hoàn toàn lỗi không mở được hộp thoại cài đặt bảo mật khi chạy xác minh, khiến hệ thống hiểu nhầm 2FA bị lỗi dù thực tế đã kích hoạt thành công.
+- **Tối ưu hóa Chọn nút Profile trong bước xác minh**: Cập nhật helper click Profile button ở dòng 1444 trong bước Double-check để chỉ nhắm vào nút Profile đang hiển thị trên DOM (`offsetWidth > 0 && offsetHeight > 0`).
+
 ## [0.3.274] - 2026-06-26 18:42:00
 
 ### 🚀 Khắc phục lỗi thiết lập 2FA (MFA Setup) và tự phục hồi (Self-Healing) khi đăng ký tự động
