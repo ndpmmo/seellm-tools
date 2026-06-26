@@ -518,8 +518,29 @@ export function VaultAccountsView() {
 
   const sortedFiltered = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      const aTime = a.created_at ? Date.parse(a.created_at) : (a.updated_at ? Date.parse(a.updated_at) : 0);
-      const bTime = b.created_at ? Date.parse(b.created_at) : (b.updated_at ? Date.parse(b.updated_at) : 0);
+      // 1. Prioritize accounts undergoing active operations (pending, processing, warmup pending, or 2fa pending)
+      const aPs = a.provider_specific_data || {};
+      const bPs = b.provider_specific_data || {};
+      const aActive = (
+        a.status === 'processing' ||
+        a.status === 'pending' ||
+        aPs.warmupStatus === 'pending' ||
+        aPs.twoFaRegenStatus === 'pending'
+      ) ? 1 : 0;
+      const bActive = (
+        b.status === 'processing' ||
+        b.status === 'pending' ||
+        bPs.warmupStatus === 'pending' ||
+        bPs.twoFaRegenStatus === 'pending'
+      ) ? 1 : 0;
+
+      if (aActive !== bActive) {
+        return bActive - aActive; // Active items at the top
+      }
+
+      // 2. Sort by last operation/interaction time (updated_at)
+      const aTime = a.updated_at ? Date.parse(a.updated_at) : (a.created_at ? Date.parse(a.created_at) : 0);
+      const bTime = b.updated_at ? Date.parse(b.updated_at) : (b.created_at ? Date.parse(b.created_at) : 0);
       
       return bTime - aTime;
     });

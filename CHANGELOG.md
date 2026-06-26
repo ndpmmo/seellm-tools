@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.262] - 2026-06-26 10:10:00
+
+### 🚀 Sắp xếp Tài khoản Vault Thông minh theo Hoạt động Gần nhất (Smart Accounts Sorting)
+
+- **Ưu tiên Tài khoản đang có Hoạt động**: Tự động đưa các tài khoản ở trạng thái đang xử lý (`processing`, `pending`, hoặc đang chạy tiến trình `warmup`, `2fa-regen`) lên đầu danh sách để người dùng dễ dàng theo dõi.
+- **Sắp xếp theo Tương tác gần nhất**: Sắp xếp các tài khoản còn lại theo thời gian cập nhật/hoạt động gần nhất (`updated_at DESC` thay vì `created_at DESC`), giúp các tài khoản vừa được thao tác (warmup thành công, đổi proxy, cập nhật notes, v.v.) lập tức nổi lên đầu giao diện.
+
 ## [0.3.261] - 2026-06-25 05:25:00
 
 ### 🚀 Khắc phục Lỗi Nhận diện Đăng nhập & Mở Cài đặt do Giao diện Thu nhỏ (Closed Sidebar & Viewport Bug Fix)
