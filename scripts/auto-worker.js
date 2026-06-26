@@ -858,6 +858,7 @@ async function runConnectFlow(task) {
 
         // Password
         let passDone = false;
+        let passwordBlockCount = 0;
         for (let attempt = 0; attempt < 5 && !passDone; attempt++) {
           if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
           if (state?.hasPasswordInput) {
@@ -865,7 +866,14 @@ async function runConnectFlow(task) {
             if (attempt === 0) await recorder.before(3, 1, 'before_password');
             const r = await fillPassword(tabId, USER_ID, password);
             if (r && r.ok === false && r.isBlock) {
-              return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              passwordBlockCount++;
+              console.warn(`[Connect] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
+              if (passwordBlockCount >= 3) {
+                return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              }
+              await new Promise(r2 => setTimeout(r2, 3000));
+              state = await checkStateAndReportDeactivated(tabId, USER_ID, task);
+              continue;
             }
             await new Promise(r2 => setTimeout(r2, 3500));
             if (attempt === 0) await recorder.after(3, 1, 'password_filled');
@@ -1665,6 +1673,7 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
   let consentBypassExhausted = false;
   let fallbackToSessionNow = false;
   const oauthLoopStartedAt = Date.now();
+  let passwordBlockCount = 0;
 
   for (let i = 0; i < 30; i++) {
     const currentUrl = await evalJson(tabId, userId, 'location.href', 4000);
@@ -2050,7 +2059,13 @@ async function captureAndReport(tabId, userId, runDir, task, email, recorder, ef
       await recorder.before(1, 9, 'oauth_fill_password');
       const r = await fillPassword(tabId, userId, password);
       if (r && r.ok === false && r.isBlock) {
-        return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+        passwordBlockCount++;
+        console.warn(`[Capture] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
+        if (passwordBlockCount >= 3) {
+          return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+        }
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
       }
       await new Promise(r => setTimeout(r, 3500));
       await recorder.after(1, 9, 'oauth_fill_password');
@@ -2594,6 +2609,7 @@ async function runLoginFlow(task) {
 
         // Password loop
         let passDone = false;
+        let passwordBlockCount = 0;
         for (let attemptLoop = 0; attemptLoop < 5 && !passDone; attemptLoop++) {
           if (state?.looksLoggedIn || state?.hasMfaInput) { passDone = true; break; }
           if (state?.hasPasswordInput) {
@@ -2601,7 +2617,14 @@ async function runLoginFlow(task) {
             if (attemptLoop === 0) await recorder.before(1, 3, 'before_password');
             const r = await fillPassword(tabId, USER_ID, account.password);
             if (r && r.ok === false && r.isBlock) {
-              return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              passwordBlockCount++;
+              console.warn(`[Login] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
+              if (passwordBlockCount >= 3) {
+                return sendResult(task, 'error', `BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              }
+              await new Promise(r2 => setTimeout(r2, 3000));
+              state = await getState(tabId, USER_ID);
+              continue;
             }
             await new Promise(r2 => setTimeout(r2, 3500));
             if (attemptLoop === 0) await recorder.after(1, 3, 'password_filled');

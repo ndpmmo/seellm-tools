@@ -135,6 +135,7 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, 
   let emailFilled = false;
   let emailFillAttempts = 0;
   let passwordFilled = false;
+  let passwordBlockCount = 0;
   let mfaFilled = false;
   let consentAttempted = false;
   let consentAttempts = 0;
@@ -236,7 +237,13 @@ async function performCodexOAuth(tabId, userId, proxyUrl, recorder, creds = {}, 
       const r = await fillPassword(tabId, userId, creds.password);
       console.log(`[OAuth] fillPassword →`, JSON.stringify(r));
       if (r && r.ok === false && r.isBlock) {
-        throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+        passwordBlockCount++;
+        console.warn(`[OAuth] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
+        if (passwordBlockCount >= 3) {
+          throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${r.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+        }
+        await new Promise(r2 => setTimeout(r2, 3000));
+        continue;
       }
       passwordFilled = true;
       await new Promise(r2 => setTimeout(r2, 4000));

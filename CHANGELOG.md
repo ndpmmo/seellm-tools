@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.265] - 2026-06-26 10:33:00
+
+### 🚀 Tối ưu hóa Cơ chế Dừng Sớm Turnstile & Hỗ trợ Retry Ngoại vi (Turnstile Fail-Fast with Retry Support)
+
+- **Cho phép thử lại tối đa 3 lần nội bộ**: Thay vì dừng ngay lập tức ở lần đầu tiên gặp màn hình Turnstile block, hệ thống sẽ duy trì bộ đếm `passwordBlockCount` và cho phép thử lại tối đa 3 lần ngay trong tab hiện tại. Điều này đảm bảo tính chính xác và tránh bị ảnh hưởng bởi những lỗi tải trang hoặc lag tạm thời, trước khi chính thức kích hoạt cơ chế dừng sớm.
+- **Tích hợp cơ chế thử lại ngoại vi qua Proxy mới**: Đưa lỗi `blocked_by_openai_turnstile` vào danh mục lỗi có thể thử lại (`isRetriable`) trong `warmup.js`. Khi gặp lỗi này quá giới hạn thử lại nội bộ, tiến trình sẽ đóng tab cũ và khởi chạy tab mới (cho phép thử lại tối đa 3 lần ngoại vi), giúp tăng tỷ lệ thành công của tiến trình warmup nếu lỗi do IP hoặc phiên trình duyệt tạm thời.
+
 ## [0.3.264] - 2026-06-26 10:25:00
 
 ### 🚀 Khắc phục Lặp Vô hạn khi Bị chặn bởi Cloudflare Turnstile (Cloudflare Turnstile Fail-Fast Logic)

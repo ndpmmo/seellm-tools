@@ -733,6 +733,7 @@ async function runWarmup() {
       let emailWaitCount = 0;
       let passwordFilled = false;
       let passwordWaitCount = 0;
+      let passwordBlockCount = 0;
       let mfaFilled = false;
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
@@ -975,7 +976,16 @@ async function runWarmup() {
             console.log(`[Warmup] 🔑 Điền password...`);
             const pwdResult = await fillPassword(tabId, USER_ID, account.password);
             if (pwdResult && pwdResult.ok === false && pwdResult.isBlock) {
-              throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${pwdResult.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              passwordBlockCount++;
+              console.warn(`[Warmup] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
+              if (passwordBlockCount >= 3) {
+                throw new Error(`BLOCKED_BY_OPENAI_TURNSTILE: ${pwdResult.reason || 'Bị chặn bởi Cloudflare Turnstile'}`);
+              }
+              // Reset passwordFilled and delay to try again in next round
+              passwordFilled = false;
+              passwordWaitCount = 0;
+              await delay(3000);
+              continue;
             }
             passwordFilled = true;
             passwordWaitCount = 0;
@@ -1597,6 +1607,7 @@ async function runWarmup() {
         msg.includes('browser closed') ||
         msg.includes('net_timeout') ||
         msg.includes('aborted due to timeout') ||
+        msg.includes('blocked_by_openai_turnstile') ||
         msg.includes('không tìm thấy hộp thoại chat') ||
         msg.includes('không nhận được câu trả lời từ ai') ||
         msg.includes('không nhận được phản hồi')
