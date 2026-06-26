@@ -94,12 +94,20 @@ async function assertChatgptAuthenticated(tabId, userId, context = 'before_qna')
     throw new Error(`session_expired: ChatGPT chưa đăng nhập ở ${context} (${flags})`);
   }
 
-  // Double check session validity via API to be 100% accurate
   try {
     const sessionRes = await evalJson(tabId, userId, `
-      fetch('/api/auth/session')
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
+      (async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        try {
+          const r = await fetch('/api/auth/session', { signal: controller.signal });
+          clearTimeout(timeoutId);
+          return r.ok ? await r.json() : null;
+        } catch (e) {
+          clearTimeout(timeoutId);
+          return null;
+        }
+      })()
     `);
     if (!sessionRes || !sessionRes.accessToken) {
       console.warn(`[Warmup] ⚠️ DOM looksLoggedIn=true nhưng API /api/auth/session báo chưa đăng nhập!`);
@@ -643,6 +651,12 @@ async function runWarmup() {
   let stepRecorder = null;
   
   try {
+    // Clean up root screenshot folder once before attempts run
+    if (WARMUP_SCREENSHOTS) {
+      const baseDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`);
+      await fs.rm(baseDir, { recursive: true, force: true }).catch(() => {});
+    }
+
     const maxAttempts = 3;
     let runSuccess = false;
 
@@ -709,11 +723,10 @@ async function runWarmup() {
     
     // Set up step recorder for screenshots if enabled
     if (WARMUP_SCREENSHOTS) {
-      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`);
-      await fs.rm(runDir, { recursive: true, force: true }).catch(() => {});
+      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`, `attempt_${attempt}`);
       await fs.mkdir(runDir, { recursive: true });
       stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
-      console.log(`[Warmup] 📸 Chụp ảnh logs đã bật! Thư mục ảnh: ${runDir}`);
+      console.log(`[Warmup] 📸 Chụp ảnh logs cho lượt thử ${attempt} đã bật! Thư mục ảnh: ${runDir}`);
     }
 
     
@@ -1436,7 +1449,7 @@ async function runWarmup() {
         const dismissed = await dismissOnboardingModals(tabId, USER_ID);
         if (dismissed) {
           console.log(`[Warmup] 🛡️ Phát hiện và đóng hộp thoại giới thiệu / Onboarding Modal (Lượt ${i + 1})...`);
-          await delay(3000); // increased: next modal needs time to render
+          await delay(1500); // reduced from 3000ms to speed up the process
         } else {
           break;
         }
@@ -1578,9 +1591,18 @@ async function runWarmup() {
     try {
       console.log(`[Warmup] 🔄 Lấy thông tin session từ /api/auth/session...`);
       const sessionRes = await evalJson(tabId, USER_ID, `
-        fetch('/api/auth/session')
-          .then(r => r.ok ? r.json() : null)
-          .catch(() => null)
+        (async () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
+          try {
+            const r = await fetch('/api/auth/session', { signal: controller.signal });
+            clearTimeout(timeoutId);
+            return r.ok ? await r.json() : null;
+          } catch (e) {
+            clearTimeout(timeoutId);
+            return null;
+          }
+        })()
       `, { timeoutMs: 35000 }); // Increased from 8s — fetch goes through proxy, needs more time
       if (sessionRes && typeof sessionRes === 'object') {
         sessionData = sessionRes;

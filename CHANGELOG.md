@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.268] - 2026-06-26 14:05:00
+
+### 🚀 Tối ưu hóa Hiệu năng & Khả năng Điều tra Lỗi Quy trình Warmup (Warmup Flow Optimizations)
+
+- **Phân tách Screenshots theo Lượt thử (Attempt Versioning)**: Chuyển thư mục lưu ảnh chụp màn hình sang thư mục con `data/screenshots/warmup_<account_id>/attempt_<attempt_number>`, đồng thời chỉ xóa thư mục gốc một lần duy nhất trước khi bắt đầu vòng lặp thử lại. Điều này giúp giữ lại toàn bộ bằng chứng hình ảnh của các lượt chạy trước để phục vụ công tác gỡ lỗi.
+- **Bổ sung Timeout bằng AbortController**: Tích hợp `AbortController` cho các lệnh gọi `fetch('/api/auth/session')` bên trong trang ChatGPT với thời gian chờ tối đa 12 giây. Khắc phục triệt để lỗi treo vô hạn luồng điều khiển Node.js do proxy bị lag hoặc mất kết nối mạng.
+- **Tăng tốc đóng Onboarding Modals**: Giảm thời gian chờ của mỗi lượt đóng onboarding modal từ 3000ms xuống còn 1500ms để tối ưu hóa thời gian chạy tổng thể.
+
 ## [0.3.267] - 2026-06-26 12:41:00
 
 ### 🚀 Sửa lỗi Cú pháp Unclosed Brace trong getLatestAssistantMessageWithRetry (Syntax Error Fix)
