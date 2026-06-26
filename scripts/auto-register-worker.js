@@ -925,6 +925,7 @@ export async function runAutoRegister(taskInput) {
     let runSuccess = false;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let isRetriableError = false;
       try {
         phoneBypassAttempted = false;
         phoneBypassSuccess = false;
@@ -1933,6 +1934,10 @@ export async function runAutoRegister(taskInput) {
       }
 
       if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau khi gửi lại.`);
+
+      // Chờ thêm 3 giây để đảm bảo trang OTP đã load và hydrate hoàn toàn, tránh race condition gõ quá nhanh
+      console.log(`[4.2] Chờ trang nhập mã PIN (OTP) ổn định...`);
+      await new Promise(r => setTimeout(r, 3000));
 
       console.log(`[4.2] Nhập mã PIN ${otpCode} lên web...`);
       await recorder.before(4, 2, 'otp_entry');
@@ -3090,6 +3095,7 @@ export async function runAutoRegister(taskInput) {
           msg.includes('net_timeout') ||
           msg.includes('aborted due to timeout')
         );
+        isRetriableError = isRetriable;
         
         if (isRetriable && attempt < maxAttempts) {
           console.warn(`\n⚠️ [Register] Phát hiện lỗi liên quan đến trình duyệt/session ở lượt thử ${attempt}/${maxAttempts}: ${err.message}. Sẽ khởi động lại tab mới và thử lại sau 5 giây...`);
@@ -3103,7 +3109,7 @@ export async function runAutoRegister(taskInput) {
         }
         throw err;
       } finally {
-        if (tabId && !runSuccess && attempt < maxAttempts) {
+        if (tabId && !runSuccess && attempt < maxAttempts && isRetriableError) {
           console.log(`[Register] 🧹 Đóng tab của lượt thử thất bại...`);
           await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 5000 }).catch(() => {});
           tabId = null;

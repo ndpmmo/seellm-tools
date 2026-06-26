@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.276] - 2026-06-26 19:25:00
+
+### 🚀 Tối ưu hóa tải trang Security Settings trong MFA Setup và Ổn định hóa bước xác thực OTP Đăng ký
+
+- **Chờ tải đồng bộ nội dung Security Settings**: Thêm vòng lặp kiểm tra tối đa 12 giây trong `scripts/lib/mfa-setup.js` để đợi hộp thoại Settings tải hoàn tất các nội dung bảo mật (như từ khóa "password", "authenticator", "xác thực") trước khi kiểm tra trạng thái 2FA. Giúp khắc phục triệt để lỗi click nhầm làm tắt 2FA khi trang load chậm qua proxy.
+- **Thêm độ trễ ổn định cho màn hình nhập mã OTP**: Bổ sung 3 giây chờ trước khi tự động điền OTP trong `scripts/auto-register-worker.js` để tránh tình trạng điền mã quá sớm trước khi React hoàn tất việc gắn kết (hydrate), ngăn ngừa lỗi kẹt ở màn hình OTP.
+- **Khắc phục lỗi mất tabId trước khi chụp hình lỗi**: Điều chỉnh khối `finally` của vòng lặp đăng ký để chỉ đóng tab nếu lỗi có thể thử lại (`isRetriableError`). Đối với các lỗi nghiêm trọng, tab sẽ được giữ lại để tiến trình ngoài có thể chụp ảnh màn hình lỗi (`error_occurred.png`) trước khi dọn dẹp.
+
 ## [0.3.275] - 2026-06-26 19:15:00
 
 ### 🚀 Khắc phục lỗi xác minh Double-Check 2FA do Hash Navigation lỗi thời

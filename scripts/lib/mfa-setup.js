@@ -683,6 +683,26 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
         }
         await wait(2000);
+
+        // Chờ nội dung Security & Login tải xong hoàn toàn
+        log('Chờ nội dung Security & Login tải xong...');
+        let isSettingsLoaded = false;
+        for (let w = 0; w < 12; w++) {
+            isSettingsLoaded = await run(`
+                (() => {
+                    const dialog = document.querySelector('[role="dialog"]');
+                    if (!dialog) return false;
+                    const text = dialog.innerText.toLowerCase();
+                    return text.includes('password') || text.includes('multi-factor') || text.includes('authenticator') || text.includes('xác thực');
+                })()
+            `);
+            if (isSettingsLoaded) break;
+            await wait(1000);
+        }
+        if (!isSettingsLoaded) {
+            log('⚠️ Cảnh báo: Nội dung Security tab chưa tải xong hoàn toàn sau 12 giây.');
+        }
+
         await saveCheckpoint('security_settings_loaded');
 
         // ── 1.5. Xử lý kịch bản 2FA ĐANG BẬT (Cần Tắt Trước Khi Tái Tạo) ──────────
