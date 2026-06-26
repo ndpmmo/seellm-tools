@@ -337,8 +337,32 @@ async function getLatestAssistantMessageWithRetry(tabId, userId, prevCount = 0, 
       console.log(`[Warmup] ⏳ Chưa đọc được câu trả lời từ DOM, đang thử lại sau 2 giây (lần ${i + 1}/${retries})...`);
       await delay(2000);
     }
-  }
-  return null;
+}
+
+async function checkPageErrors(tabId, userId) {
+  return await evalJson(tabId, userId, `(() => {
+    const text = document.body?.innerText || '';
+    const errWords = [
+      'something went wrong',
+      'network error',
+      'too many requests',
+      'unusual activity',
+      'our systems have detected',
+      'please try again later',
+      'failed to get service status',
+      'error generating response'
+    ];
+    for (const word of errWords) {
+      if (text.toLowerCase().includes(word)) {
+        return { hasError: true, word, snippet: text.slice(0, 500) };
+      }
+    }
+    const redEl = document.querySelector('[class*="error"], [class*="red-500"], .text-red-500');
+    if (redEl && redEl.offsetParent !== null) {
+      return { hasError: true, snippet: redEl.innerText.slice(0, 200) };
+    }
+    return { hasError: false };
+  })()`).catch(() => ({ hasError: false }));
 }
 
 
@@ -1515,7 +1539,11 @@ async function runWarmup() {
       const aiResponse = await getLatestAssistantMessageWithRetry(tabId, USER_ID, prevAssistantCount);
       if (aiResponse && aiResponse.length > 0) {
         console.log(`[Warmup] 💬 ChatGPT trả lời:\n--------------------------------------------------\n${aiResponse}\n--------------------------------------------------`);
-      } else {
+       } else {
+        const pageErr = await checkPageErrors(tabId, USER_ID);
+        if (pageErr && pageErr.hasError) {
+          throw new Error(`CHATGPT_ERROR: ChatGPT báo lỗi trên trang: "${pageErr.snippet || pageErr.word}". Có thể do proxy chậm hoặc nghẽn mạng.`);
+        }
         throw new Error(`session_expired: Không nhận được câu trả lời từ AI cho câu hỏi ${idx + 1} (phản hồi trống hoặc bị kẹt)`);
       }
       

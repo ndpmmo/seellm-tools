@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.266] - 2026-06-26 12:38:00
+
+### 🚀 Bổ sung Chẩn đoán Lỗi DOM & Cải thiện Định dạng Thông báo Lỗi khi Gặp Mạng Chậm (DOM Error Diagnosis)
+
+- **Chẩn đoán Lỗi Đọc Phản hồi**: Thêm hàm helper `checkPageErrors` trong `warmup.js`. Khi script không thể đọc được nội dung phản hồi của ChatGPT từ DOM (ví dụ: trả về `null`), nó sẽ quét toàn bộ nội dung body để tìm các từ khóa lỗi phổ biến của ChatGPT ("Something went wrong", "Network error", "Too many requests", v.v.) hoặc các phần tử báo lỗi màu đỏ.
+- **Chi tiết hóa Lỗi khi Proxy Chậm**: Thay vì chỉ thông báo lỗi chung chung là `session_expired` khi không đọc được phản hồi, hệ thống giờ đây sẽ ném ra lỗi chi tiết hơn `CHATGPT_ERROR: ChatGPT báo lỗi trên trang: "..."` để chỉ rõ trạng thái lỗi của AI (do kết nối mạng/proxy chập chờn hoặc bị bóp băng thông).
+
 ## [0.3.265] - 2026-06-26 10:33:00
 
 ### 🚀 Tối ưu hóa Cơ chế Dừng Sớm Turnstile & Hỗ trợ Retry Ngoại vi (Turnstile Fail-Fast with Retry Support)
