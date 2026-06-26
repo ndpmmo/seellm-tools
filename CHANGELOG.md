@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.274] - 2026-06-26 18:42:00
+
+### 🚀 Khắc phục lỗi thiết lập 2FA (MFA Setup) và tự phục hồi (Self-Healing) khi đăng ký tự động
+
+- **Sửa lỗi Scope của `emailCreds`**: Di chuyển khai báo `emailCreds` ra ngoài khối `try` của vòng lặp setup 2FA trong `scripts/auto-register-worker.js`. Việc này giải quyết lỗi `ReferenceError: emailCreds is not defined` khi chương trình chạy khối Double-Check & Self-Healing để kích hoạt lại 2FA khi bị hụt.
+- **Tối ưu hóa Chọn nút Profile và Reload Fallback trong `mfa-setup.js`**:
+  * Cập nhật hàm tìm nút Profile hiển thị thực tế trên DOM (kiểm tra `offsetWidth > 0 && offsetHeight > 0`), tránh việc click nhầm vào nút profile của sidebar thu nhỏ đang bị ẩn dẫn đến không mở được Settings modal.
+  * Cải tiến bước reload ở lượt thử thứ 8, tự động chuyển hướng trực tiếp sang URL cài đặt bảo mật `/settings/security` thay vì sử dụng Hash navigation cũ (`#settings/Security`).
+
 ## [0.3.273] - 2026-06-26 18:38:00
 
 ### 🚀 Sửa lỗi không dừng được tiến trình Bulk Registration (Fix Express Route Shadowing)

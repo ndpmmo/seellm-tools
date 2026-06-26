@@ -2753,9 +2753,9 @@ export async function runAutoRegister(taskInput) {
 
     // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
     let mfaResult;
+    const emailCreds = { refreshToken, clientId };
     try {
       await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
-      const emailCreds = { refreshToken, clientId };
       mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
         email,
         emailCreds,

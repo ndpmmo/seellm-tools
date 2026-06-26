@@ -521,8 +521,24 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 try {
                     const profileTagged = await run(`
                         (() => {
-                            const btn = document.querySelector('[data-testid="accounts-profile-button"], [data-testid="profile-button"], [data-testid="user-menu-button"], [aria-label="Open user menu"], button:has([alt*="avatar"]), button:has(img[src*="avatar"])') ||
-                                        Array.from(document.querySelectorAll('button')).find(b => b.querySelector('img[src*="avatar"]') || (b.textContent || '').toLowerCase().includes('avatar'));
+                            const findVisibleBtn = () => {
+                                const selectors = [
+                                    '[data-testid="accounts-profile-button"]',
+                                    '[data-testid="profile-button"]',
+                                    '[data-testid="user-menu-button"]',
+                                    '[aria-label="Open user menu"]',
+                                    'button:has([alt*="avatar"])',
+                                    'button:has(img[src*="avatar"])'
+                                ];
+                                for (const sel of selectors) {
+                                    const elements = Array.from(document.querySelectorAll(sel));
+                                    const visible = elements.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                                    if (visible) return visible;
+                                }
+                                const buttons = Array.from(document.querySelectorAll('button'));
+                                return buttons.find(b => (b.querySelector('img[src*="avatar"]') || (b.textContent || '').toLowerCase().includes('avatar')) && b.offsetWidth > 0 && b.offsetHeight > 0);
+                            };
+                            const btn = findVisibleBtn();
                             if (btn) {
                                 btn.setAttribute('data-mfa-target', 'profile-btn');
                                 return true;
@@ -615,14 +631,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             }
             // Reload page nếu vẫn không mở được sau lần thứ 8
             if (i === 8) {
-                log('⚠️ Reload page để reset trạng thái DOM...');
+                log('⚠️ Reload page và điều hướng trực tiếp sang settings URL...');
                 try {
-                    await run(`window.location.reload()`);
-                    await wait(4000);
-                    await run(`window.location.hash = '#settings/Security'`);
-                    await wait(2000);
+                    await run(`window.location.href = 'https://chatgpt.com/settings/security'`);
+                    await wait(6000);
                 } catch (reloadErr) {
-                    log(`⚠️ Reload thất bại: ${reloadErr.message}`);
+                    log(`⚠️ Điều hướng trực tiếp thất bại: ${reloadErr.message}`);
                 }
             }
             await wait(1000);
