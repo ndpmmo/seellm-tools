@@ -778,10 +778,6 @@ async function runWarmup() {
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
         console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
         
-        // Take a screenshot of the login step
-        if (WARMUP_SCREENSHOTS && stepRecorder) {
-          await stepRecorder.checkpoint(1, 10 + attempt, `login_loop_step_${attempt}`);
-        }
         
         // 1. Get current state
         const state = await getState(tabId, USER_ID);
@@ -1028,6 +1024,9 @@ async function runWarmup() {
             }
             passwordFilled = true;
             passwordWaitCount = 0;
+            if (WARMUP_SCREENSHOTS && stepRecorder) {
+              await stepRecorder.checkpoint(1, 3, 'login_password_filled');
+            }
             await waitStateTransition(tabId, USER_ID, state, 6000);
             continue;
           }
@@ -1101,6 +1100,9 @@ async function runWarmup() {
             }
             emailFilled = true;
             emailWaitCount = 0;
+            if (WARMUP_SCREENSHOTS && stepRecorder) {
+              await stepRecorder.checkpoint(1, 2, 'login_email_filled');
+            }
             await waitStateTransition(tabId, USER_ID, state, 5000);
             continue;
           }
@@ -1117,6 +1119,9 @@ async function runWarmup() {
           console.log(`[Warmup] 🔢 Điền mã OTP: ${otp}`);
           await fillMfa(tabId, USER_ID, otp);
           mfaFilled = true;
+          if (WARMUP_SCREENSHOTS && stepRecorder) {
+            await stepRecorder.checkpoint(1, 4, 'login_mfa_filled');
+          }
           await delay(5000);
           continue;
         }
@@ -1513,9 +1518,6 @@ async function runWarmup() {
 
       // Type message using keyboard mode first, then verify because ChatGPT's
       // composer can accept focus while silently dropping keyboard input.
-      if (WARMUP_SCREENSHOTS && stepRecorder) {
-        await stepRecorder.before(3 + idx, 1, `q${idx + 1}_before_type`);
-      }
       const cleared = await clearComposerPrompt(tabId, USER_ID);
       if (!cleared.ok) {
         console.log(`[Warmup] ⚠️ Không clear được composer trước khi nhập prompt mới (reason=${cleared.reason || 'unknown'}, len=${cleared.textLength ?? 'n/a'}).`);
@@ -1527,9 +1529,6 @@ async function runWarmup() {
         throw new Error(`warmup_prompt_input_failed: Composer không nhận prompt (method=${composerResult.method}, len=${composerResult.state?.textLength ?? 0}, reason=${composerResult.injected?.reason || 'unknown'})`);
       }
       console.log(`[Warmup] ✅ Prompt đã vào composer (${composerResult.method}, len=${composerResult.state?.textLength ?? 0}).`);
-      if (WARMUP_SCREENSHOTS && stepRecorder) {
-        await stepRecorder.checkpoint(3 + idx, 2, `q${idx + 1}_after_type`);
-      }
       
       // Submit message and only continue when a real user message appears.
       const submitted = await submitComposerWithRetry(tabId, USER_ID, promptText);
@@ -1540,9 +1539,6 @@ async function runWarmup() {
         throw new Error(`warmup_prompt_submit_failed: Không thấy user message sau khi gửi prompt (reason=${submitted.reason || 'unknown'}, len=${submitted.state?.textLength ?? 0}, sendVisible=${submitted.state?.sendVisible ?? false}, sendDisabled=${submitted.state?.sendDisabled ?? false})`);
       }
       console.log(`[Warmup] ✅ Prompt đã được gửi vào conversation (${submitted.method}).`);
-      if (WARMUP_SCREENSHOTS && stepRecorder) {
-        await stepRecorder.checkpoint(3 + idx, 3, `q${idx + 1}_after_send`);
-      }
       
       // Wait for complete response
       const genCompleted = await waitForGenerationComplete(tabId, USER_ID);

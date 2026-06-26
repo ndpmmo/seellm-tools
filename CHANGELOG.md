@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.269] - 2026-06-26 15:15:00
+
+### 🚀 Tối ưu hóa Tần suất Chụp ảnh Màn hình (Screenshot Capture Optimization)
+
+- **Loại bỏ Chụp ảnh theo Vòng lặp (Removed Loop-level Snapshots)**: Xóa bỏ checkpoint chụp ảnh ở mỗi lượt lặp đăng nhập (`login_loop_step_`) vốn gây ra hàng chục file ảnh trùng lặp vô nghĩa và làm treo/lag tiến trình qua proxy chậm.
+- **Bổ sung Chụp ảnh theo Điểm mốc Đăng nhập**: Thêm checkpoint chụp ảnh màn hình có chọn lọc khi điền thông tin đăng nhập thành công (`login_email_filled`, `login_password_filled`, `login_mfa_filled`), giảm số lượng ảnh chụp đăng nhập từ tối đa 40 ảnh xuống còn tối đa 4 ảnh.
+- **Tinh giản Chụp ảnh luồng Q&A**: Loại bỏ các ảnh chụp trung gian trong lúc gõ và gửi tin nhắn (`q_before_type`, `q_after_type`, `q_after_send`). Giữ lại duy nhất 1 ảnh chụp khi nhận phản hồi hoàn tất (`q_response_complete`) cho mỗi câu hỏi để kiểm tra kết quả cuối cùng.
+- **Tiết kiệm Dung lượng & Tăng tốc độ**: Giảm đáng kể tổng số lượng ảnh chụp trong một lượt chạy, khắc phục hoàn toàn tình trạng Playwright screenshot timeout trên proxy bị chậm.
+
 ## [0.3.268] - 2026-06-26 14:05:00
 
 ### 🚀 Tối ưu hóa Hiệu năng & Khả năng Điều tra Lỗi Quy trình Warmup (Warmup Flow Optimizations)
