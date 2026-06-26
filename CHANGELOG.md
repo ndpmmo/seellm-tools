@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.270] - 2026-06-26 15:25:00
+
+### 🚀 Cải tiến & Tối ưu hóa Logic Chọn Hàng loạt (Bulk Selection Behavior Redesign)
+
+- **Giới hạn Checkbox Chọn tất cả ở Header**: Thay đổi nút checkbox chọn tất cả ở tiêu đề bảng thành chỉ chọn/bỏ chọn tối đa 50 tài khoản trên trang hiện tại (`paginatedSortedFiltered`). Tránh việc chọn nhầm hàng loạt tài khoản ở các trang ẩn khi người dùng chỉ muốn thao tác trên trang hiện tại.
+- **Thêm tính năng Chọn tất cả các trang liên phân trang**: Bổ sung liên kết `"Chọn tất cả X tài khoản"` trên Floating Batch Actions Bar. Khi người dùng chọn trang hiện tại, nếu danh sách kết quả lọc (`sortedFiltered`) có nhiều hơn 1 trang, nút này sẽ hiển thị để cho phép chọn nhanh tất cả tài khoản trên mọi trang chỉ với 1 click.
+- **Tự động lọc bỏ các ID không còn hiển thị (Auto-Prune Selections)**: Tích hợp `useEffect` tự động theo dõi và loại bỏ các ID tài khoản khỏi danh sách chọn `selectedIds` nếu chúng không còn khớp với từ khóa tìm kiếm hoặc bộ lọc nâng cao hiện tại, giúp ngăn chặn triệt để rủi ro thao tác hàng loạt nhầm lên các tài khoản đang bị ẩn.
+
 ## [0.3.269] - 2026-06-26 15:15:00
 
 ### 🚀 Tối ưu hóa Tần suất Chụp ảnh Màn hình (Screenshot Capture Optimization)

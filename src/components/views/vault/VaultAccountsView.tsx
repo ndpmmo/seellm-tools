@@ -561,6 +561,24 @@ export function VaultAccountsView() {
     }
   }, [currentPage, totalPages]);
 
+  // Auto prune selected IDs that are no longer present in sortedFiltered when search/filter changes
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const sortedFilteredSet = new Set(sortedFiltered.map(it => it.id));
+    let changed = false;
+    const nextSelected = new Set<string>();
+    selectedIds.forEach(id => {
+      if (sortedFilteredSet.has(id)) {
+        nextSelected.add(id);
+      } else {
+        changed = true;
+      }
+    });
+    if (changed) {
+      setSelectedIds(nextSelected);
+    }
+  }, [sortedFiltered]);
+
   /* ── CRUD ── */
   const save = async () => {
     try {
@@ -2178,13 +2196,21 @@ export function VaultAccountsView() {
                 <th className="px-4 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-8">
                   <button
                     onClick={() => {
-                      if (selectedIds.size === sortedFiltered.length && sortedFiltered.length > 0) setSelectedIds(new Set());
-                      else setSelectedIds(new Set(sortedFiltered.map(it => it.id)));
+                      const allCurrentPageSelected = paginatedSortedFiltered.length > 0 && paginatedSortedFiltered.every(it => selectedIds.has(it.id));
+                      setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        if (allCurrentPageSelected) {
+                          paginatedSortedFiltered.forEach(it => next.delete(it.id));
+                        } else {
+                          paginatedSortedFiltered.forEach(it => next.add(it.id));
+                        }
+                        return next;
+                      });
                     }}
                     className="text-slate-400 hover:text-indigo-400"
-                    title="Chọn tất cả"
+                    title="Chọn tất cả trên trang này"
                   >
-                    {selectedIds.size === sortedFiltered.length && sortedFiltered.length > 0 ? <CheckSquare size={14} /> : <Square size={14} />}
+                    {paginatedSortedFiltered.length > 0 && paginatedSortedFiltered.every(it => selectedIds.has(it.id)) ? <CheckSquare size={14} /> : <Square size={14} />}
                   </button>
                 </th>
                 <th className="px-2 py-2.5 w-7" />
@@ -2652,6 +2678,14 @@ export function VaultAccountsView() {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
             <span className="text-xs font-bold text-slate-200 whitespace-nowrap">Đã chọn {selectedIds.size} tài khoản</span>
+            {selectedIds.size < sortedFiltered.length && (
+              <button
+                onClick={() => setSelectedIds(new Set(sortedFiltered.map(it => it.id)))}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-semibold ml-2 transition-colors duration-150 font-sans"
+              >
+                Chọn tất cả {sortedFiltered.length} tài khoản
+              </button>
+            )}
           </div>
           <div className="h-6 w-[1px] bg-white/10 shrink-0" />
           <div className="flex items-center gap-2 shrink-0">
