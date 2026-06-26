@@ -2327,7 +2327,16 @@ export function VaultAccountsView() {
                           twoFaRegenError={it.provider_specific_data?.twoFaRegenError}
                         />
                       </td>
-                      <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                      <td
+                        className="px-4 py-2.5 text-right"
+                        onClick={e => {
+                          e.stopPropagation();
+                          // Blur focused button immediately to prevent browser from auto-scrolling to top when row position changes
+                          if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+                            document.activeElement.blur();
+                          }
+                        }}
+                      >
                         <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                           {it.status !== 'dead' && isOpenAI(it.provider) && (
                             <Button 

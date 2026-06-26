@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.271] - 2026-06-26 15:40:00
+
+### 🚀 Sửa lỗi tự động cuộn lên đầu khi thao tác tài khoản (Prevent Auto-Scroll on Row Operation)
+
+- **Ngăn chặn auto-scroll theo phần tử focus**: Bổ sung logic tự động giải phóng tiêu điểm (`document.activeElement.blur()`) tại sự kiện `onClick` của cột thao tác tài khoản (`td`). Điều này giúp ngăn chặn hành vi mặc định của trình duyệt tự động cuộn (auto-scroll) vùng chứa lên đầu bảng để giữ tiêu điểm trên nút bấm khi tài khoản được thay đổi trạng thái và sắp xếp lại lên đầu danh sách.
+
 ## [0.3.270] - 2026-06-26 15:25:00
 
 ### 🚀 Cải tiến & Tối ưu hóa Logic Chọn Hàng loạt (Bulk Selection Behavior Redesign)
