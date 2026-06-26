@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.273] - 2026-06-26 18:38:00
+
+### 🚀 Sửa lỗi không dừng được tiến trình Bulk Registration (Fix Express Route Shadowing)
+
+- **Sửa lỗi định tuyến trùng lặp**: Di chuyển toàn bộ định nghĩa lớp `BulkRegisterRunner` và các route liên quan `/api/vault/accounts/bulk-register/...` lên phía trên các route sử dụng tham số động `:id` (cụ thể là `/accounts/:id/retry` và `/accounts/:id/stop`). Việc này giúp loại bỏ hoàn toàn lỗi Express nhận nhầm path `/accounts/bulk-register/stop` thành route đơn lẻ của tài khoản có `:id = "bulk-register"`, khắc phục lỗi phản hồi `404 Not Found` khi nhấn nút Dừng.
+
 ## [0.3.272] - 2026-06-26 18:30:00
 
 ### 🚀 Phân tách Logic Kiểm tra Email Sống ở tab Bulk Registration (No Auto-Save on Email Verify)
