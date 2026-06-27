@@ -1699,7 +1699,9 @@ class BulkRegisterRunner {
       this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'} (Stagger: ${delayMs}ms)`);
       
       const cfg = loadConfig();
-      const r = processManager.spawnProcess(procId, `📜 ${scriptName}`, 'node', [scriptPath, raw], process.cwd(), {
+      // Đặt tên process chứa email để ghi logs vào file riêng biệt hoàn toàn cho từng tài khoản
+      const procName = `Register_${emailRecord.email}`;
+      const r = processManager.spawnProcess(procId, procName, 'node', [scriptPath, raw], process.cwd(), {
         WORKER_AUTH_TOKEN: cfg.workerAuthToken
       });
 

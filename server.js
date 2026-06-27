@@ -99,7 +99,7 @@ function logServerEvent(label, extra = '') {
 
 function makeLogPath(id, name) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const safe = name.replace(/[^\w]/g, '_').slice(0, 40);
+  const safe = name.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
   return path.join(LOGS_DIR, `${ts}_${safe}.log`);
 }
 

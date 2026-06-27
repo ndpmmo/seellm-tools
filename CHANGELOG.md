@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.290] - 2026-06-28 03:16:00
+
+### 🚀 Tách Biệt Tuyệt Đối Luồng Log Của Từng Tài Khoản Đăng Ký Hàng Loạt
+
+- **[vault.js] Tự động đặt tên Process chứa Email**: Khi spawn tiến trình con để chạy `auto-register-worker.js`, hệ thống nay gán định danh `Register_[email]` cụ thể thay vì đặt tên chung cho tất cả process.
+- **[server.js] Tách biệt file logs vật lý cho từng tài khoản**: Cập nhật hàm `makeLogPath` để trích xuất và thay thế các ký tự đặc biệt của email (như `@` hay `.`) thành ký tự hợp lệ cho tên file. Từ đó, toàn bộ logs đầu ra của mỗi email sẽ được ghi độc lập vào các file có cấu trúc riêng (VD: `[timestamp]_Register_abc_hotmail_com.log`), chấm dứt hoàn toàn tình trạng logs lẫn lộn gây lỗi tranh chấp/kiểm tra tab chéo chéo nhau khi chạy đa luồng đồng thời.
+
 ## [0.3.289] - 2026-06-28 02:25:00
 
 ### 🛡️ Khắc phục sự cố Trình duyệt Restart và Tối ưu hóa gửi lại mã OTP (Batch 2)
