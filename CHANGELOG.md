@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.285] - 2026-06-28 00:33:00
+
+### 🚀 Nâng cấp thuật toán nhận dạng trường nhập Ngày sinh thông minh bỏ qua định dạng ẩn CSS
+
+- **Loại bỏ phụ thuộc `isVisible` đối với trường nhập phụ**: Thay đổi thuật toán tìm kiếm trường Ngày sinh/Tuổi. Thay vì lọc nghiêm ngặt theo khả năng hiển thị CSS (vốn hay bị các thư viện Datepicker của React ẩn đi bằng cách đặt opacity = 0 hoặc kích thước 0x0), hệ thống chỉ lọc bỏ các input có `type="hidden"`, `checkbox`, `radio` và `submit`.
+- **Nhận diện bằng loại trừ thông minh**: Tự động nhận diện ô nhập Tên trước, tất cả các ô nhập còn lại không phải là Tên sẽ tự động được coi là ô nhập Ngày sinh/Tuổi. Hỗ trợ tự động điền trực tiếp vào cả các ô nhập ẩn thực tế nếu không có bất kỳ ô nhập hiển thị nào khác.
+
 ## [0.3.284] - 2026-06-28 00:25:00
 
 ### 🚀 Bổ sung log chẩn đoán thông tin DOM chi tiết của các trường nhập khi lỗi Onboarding

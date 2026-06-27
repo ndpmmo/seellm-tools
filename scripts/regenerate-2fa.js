@@ -373,17 +373,28 @@ async function run2faRegen() {
             };
 
             const inputs = Array.from(document.querySelectorAll('input, select')).filter(el => {
-              if (el.tagName === 'INPUT' && el.type === 'hidden') return false;
-              return isVisible(el);
+              if (el.tagName === 'INPUT') {
+                if (el.type === 'hidden' || el.type === 'checkbox' || el.type === 'radio' || el.type === 'submit') {
+                  return false;
+                }
+              }
+              return true;
             });
 
-            // Tìm ô nhập tên
-            const nameInput = inputs.find(el => {
+            const isNameInput = (el) => {
               const placeholder = (el.placeholder || '').toLowerCase();
               const id = (el.id || '').toLowerCase();
               const name = (el.name || '').toLowerCase();
               return placeholder.includes('name') || id.includes('name') || name.includes('name');
-            }) || inputs.find(el => el.type === 'text');
+            };
+
+            let nameInputs = inputs.filter(isNameInput);
+            let bdayInputs = inputs.filter(el => !isNameInput(el));
+
+            if (nameInputs.length === 0 && inputs.length > 0) {
+              nameInputs = [inputs[0]];
+              bdayInputs = inputs.slice(1);
+            }
 
             const getAllInputsDump = () => {
               return Array.from(document.querySelectorAll('input, select')).map(el => {
@@ -406,14 +417,8 @@ async function run2faRegen() {
               });
             };
 
-            if (!nameInput) {
+            if (nameInputs.length === 0) {
               return { ok: false, reason: 'name-input-not-found', allInputs: getAllInputsDump() };
-            }
-
-            // Các ô nhập còn lại trên màn hình chính là ô nhập tuổi / ngày sinh
-            const bdayInputs = inputs.filter(el => el !== nameInput);
-            if (bdayInputs.length === 0) {
-              return { ok: false, reason: 'bday-input-not-found-yet', hasInputs: !!nameInput + '/false', allInputs: getAllInputsDump() };
             }
 
             const setValue = (el, val) => {
@@ -437,7 +442,21 @@ async function run2faRegen() {
             };
 
             // Điền tên
-            setValue(nameInput, ${JSON.stringify(fullName)});
+            nameInputs.forEach(nameInput => {
+              if (nameInputs.length >= 2) {
+                const placeholder = (nameInput.placeholder || '').toLowerCase();
+                const name = (nameInput.name || '').toLowerCase();
+                const isFirst = placeholder.includes('first') || name.includes('first');
+                const parts = ${JSON.stringify(fullName)}.split(' ');
+                if (isFirst) {
+                  setValue(nameInput, parts[0] || '');
+                } else {
+                  setValue(nameInput, parts.slice(1).join(' ') || parts[0]);
+                }
+              } else {
+                setValue(nameInput, ${JSON.stringify(fullName)});
+              }
+            });
 
             // Điền ngày sinh / tuổi
             if (bdayInputs.length >= 3) {
@@ -449,10 +468,10 @@ async function run2faRegen() {
               setValue(monthEl, ${JSON.stringify(String(monthNum).padStart(2, '0'))});
               setValue(dayEl, ${JSON.stringify(String(dayNum).padStart(2, '0'))});
               setValue(yearEl, ${JSON.stringify(String(year))});
-            } else {
+            } else if (bdayInputs.length > 0) {
               // Chỉ có 1 ô nhập bday (dạng Date hoặc Age)
               const bdayEl = bdayInputs[0];
-              if (bdayEl.type === 'number' || (bdayEl.placeholder || '').toLowerCase().includes('age')) {
+              if (bdayEl.type === 'number' || (bdayEl.placeholder || '').toLowerCase().includes('age') || (bdayEl.name || '').toLowerCase().includes('age')) {
                 setValue(bdayEl, ${JSON.stringify(age)});
               } else if (bdayEl.type === 'date') {
                 setValue(bdayEl, ${JSON.stringify(birthdate)});
@@ -463,6 +482,14 @@ async function run2faRegen() {
                   ? ${JSON.stringify(String(monthNum).padStart(2, '0') + '/' + String(dayNum).padStart(2, '0') + '/' + String(year))}
                   : ${JSON.stringify(String(dayNum).padStart(2, '0') + '/' + String(monthNum).padStart(2, '0') + '/' + String(year))};
                 setValue(bdayEl, dobStr);
+              }
+            } else {
+              // Fallback trường hợp đặc biệt: không tìm thấy input nào khác name, thử tìm input ẩn thực tế
+              const hiddenBday = document.querySelector('input[type="hidden"][name*="birth" i], input[type="hidden"][name*="dob" i], input[type="hidden"][name="birthday"]');
+              if (hiddenBday) {
+                setValue(hiddenBday, ${JSON.stringify(birthdate)});
+              } else {
+                return { ok: false, reason: 'bday-input-not-found-yet', hasInputs: nameInputs.length > 0 + '/false', allInputs: getAllInputsDump() };
               }
             }
 
