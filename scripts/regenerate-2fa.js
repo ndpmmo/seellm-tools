@@ -365,28 +365,34 @@ async function run2faRegen() {
           console.log(`[2FA Regen] ✍️ Điền Full Name: "${fullName}" | Age: ${age} | Bday: ${birthdate}`);
           
           const onboardResult = await evalJson(tabId, USER_ID, `(() => {
-            const isVisible = (el) => el && el.type !== 'hidden' && el.style.display !== 'none';
-            const getVisibleInput = (selectors) => Array.from(document.querySelectorAll(selectors)).find(isVisible);
+            const isVisible = (el) => {
+              if (!el) return false;
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+            };
 
-            const nameInput = Array.from(document.querySelectorAll('input')).find(el => {
+            const inputs = Array.from(document.querySelectorAll('input, select')).filter(el => {
+              if (el.tagName === 'INPUT' && el.type === 'hidden') return false;
+              return isVisible(el);
+            });
+
+            // Tìm ô nhập tên
+            const nameInput = inputs.find(el => {
               const placeholder = (el.placeholder || '').toLowerCase();
               const id = (el.id || '').toLowerCase();
               const name = (el.name || '').toLowerCase();
-              return placeholder.includes('name') || id.includes('name') || name.includes('name') || el.type === 'text';
-            });
+              return placeholder.includes('name') || id.includes('name') || name.includes('name');
+            }) || inputs.find(el => el.type === 'text');
 
-            // Thử lấy các ô nhập ngày sinh MM / DD / YYYY
-            const birthMonthEl = getVisibleInput('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
-            const birthDayEl = getVisibleInput('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
-            const birthYearEl = getVisibleInput('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
+            if (!nameInput) {
+              return { ok: false, reason: 'name-input-not-found' };
+            }
 
-            const ageEl = getVisibleInput('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
-            const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[name*="birth" i], input[id*="birth" i], input[autocomplete="bday"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday" i], input[placeholder*="Date of birth" i]');
-
-            const hasBdayInput = !!((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl) || ageEl || dobEl);
-
-            if (!nameInput || !hasBdayInput) {
-              return { ok: false, reason: 'missing-inputs', hasInputs: !!nameInput + '/' + hasBdayInput };
+            // Các ô nhập còn lại trên màn hình chính là ô nhập tuổi / ngày sinh
+            const bdayInputs = inputs.filter(el => el !== nameInput);
+            if (bdayInputs.length === 0) {
+              return { ok: false, reason: 'bday-input-not-found-yet', hasInputs: !!nameInput + '/false' };
             }
 
             const setValue = (el, val) => {
@@ -409,23 +415,33 @@ async function run2faRegen() {
               el.blur();
             };
 
+            // Điền tên
             setValue(nameInput, ${JSON.stringify(fullName)});
 
-            if ((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl)) {
-              if (birthMonthEl) setValue(birthMonthEl, ${JSON.stringify(String(monthNum).padStart(2, '0'))});
-              if (birthDayEl) setValue(birthDayEl, ${JSON.stringify(String(dayNum).padStart(2, '0'))});
-              if (birthYearEl) setValue(birthYearEl, ${JSON.stringify(String(year))});
-            } else if (ageEl && ageEl.type !== 'date') {
-              setValue(ageEl, ${JSON.stringify(age)});
-            } else if (dobEl) {
-              if (dobEl.type === 'date') {
-                setValue(dobEl, ${JSON.stringify(birthdate)});
+            // Điền ngày sinh / tuổi
+            if (bdayInputs.length >= 3) {
+              // Giao diện segmented MM / DD / YYYY
+              const monthEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('m') || (el.name || '').toLowerCase().includes('month') || (el.ariaLabel || '').toLowerCase().includes('month')) || bdayInputs[0];
+              const dayEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('d') || (el.name || '').toLowerCase().includes('day') || (el.ariaLabel || '').toLowerCase().includes('day')) || bdayInputs[1];
+              const yearEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('y') || (el.name || '').toLowerCase().includes('year') || (el.ariaLabel || '').toLowerCase().includes('year')) || bdayInputs[2];
+              
+              setValue(monthEl, ${JSON.stringify(String(monthNum).padStart(2, '0'))});
+              setValue(dayEl, ${JSON.stringify(String(dayNum).padStart(2, '0'))});
+              setValue(yearEl, ${JSON.stringify(String(year))});
+            } else {
+              // Chỉ có 1 ô nhập bday (dạng Date hoặc Age)
+              const bdayEl = bdayInputs[0];
+              if (bdayEl.type === 'number' || (bdayEl.placeholder || '').toLowerCase().includes('age')) {
+                setValue(bdayEl, ${JSON.stringify(age)});
+              } else if (bdayEl.type === 'date') {
+                setValue(bdayEl, ${JSON.stringify(birthdate)});
               } else {
-                const placeholder = dobEl.placeholder || '';
+                // Type text hoặc loại khác
+                const placeholder = bdayEl.placeholder || '';
                 let dobStr = placeholder.startsWith('MM')
                   ? ${JSON.stringify(String(monthNum).padStart(2, '0') + '/' + String(dayNum).padStart(2, '0') + '/' + String(year))}
                   : ${JSON.stringify(String(dayNum).padStart(2, '0') + '/' + String(monthNum).padStart(2, '0') + '/' + String(year))};
-                setValue(dobEl, dobStr);
+                setValue(bdayEl, dobStr);
               }
             }
 

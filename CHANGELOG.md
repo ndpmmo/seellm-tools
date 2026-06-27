@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.283] - 2026-06-28 00:15:00
+
+### 🚀 Nâng cấp hàm kiểm tra và tìm kiếm trường điền Ngày sinh khi Onboarding
+
+- **Cải thiện độ chính xác hiển thị (isVisible)**: Sử dụng hàm kiểm tra độ hiển thị tiêu chuẩn (sử dụng `window.getComputedStyle` và `getBoundingClientRect` để kiểm tra độ rộng, độ cao, opacity và visibility) tương đương như ở phía đăng nhập, tránh việc chọn nhầm các ô nhập đã bị ẩn bằng CSS của thư viện React.
+- **Tự động chờ màn hình chuyển tiếp hoàn tất**: Bổ sung cơ chế phát hiện và trì hoãn tự động (trả về `bday-input-not-found-yet`) khi trang web đang trong quá trình chuyển tiếp từ màn hình nhập OTP sang màn hình Onboarding để tránh việc điền thông tin quá sớm khi trường nhập chưa sẵn sàng.
+
 ## [0.3.282] - 2026-06-27 23:48:00
 
 ### 🚀 Khắc phục tình trạng rò rỉ phiên đăng nhập (stale session cookies) khi chạy lại Auto-Register
