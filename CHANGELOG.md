@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.292] - 2026-06-28 04:42:00
+
+### 🛡️ Khắc phục Domino Failure khi Browser Restart trong lúc MFA + MFA Concurrency Limiter
+
+**Root cause**: Khi nhiều workers chạy song song đều vào giai đoạn MFA cùng lúc, browser bị quá tải → restart toàn bộ → tất cả tab đang MFA mất → không lấy được session token → tất cả fail với `No Auth session`.
+
+- **[auto-register-worker.js] MFA Global Concurrency Limiter**: Thêm cơ chế `acquireMfaSlot / releaseMfaSlot` giới hạn tối đa `MFA_MAX_CONCURRENT` (mặc định 2, override qua `MFA_MAX_CONCURRENT` env) workers được setup MFA đồng thời. Các workers vượt ngưỡng sẽ xếp hàng chờ thay vì tiến thẳng vào, loại bỏ áp lực cực đại lên browser và ngăn chặn crash domino.
+- **[auto-register-worker.js] Fix Self-Healing (7.2) dùng sai recovery path**: Self-Healing trước đây gọi trực tiếp `setupMFA()` không có cơ chế tạo tab mới khi browser restart. Nay route qua `runSetupMfaWithRecovery()` để có đầy đủ tab recovery nếu browser tiếp tục restart trong quá trình self-healing.
+- **[auto-register-worker.js] Session Recovery tại Bước 8 (Tab bị mất)**: Khi `getCookies` trả về rỗng (do browser restart làm mất tab), thay vì throw ngay `No Auth session`, worker nay tạo tab mới → navigate về `chatgpt.com` → chờ session cookie tự load từ persistent profile → reload nếu cần. Chỉ throw error khi toàn bộ recovery path thất bại.
+
 ## [0.3.291] - 2026-06-28 03:36:00
 
 ### ⚡ Tối Ưu Hóa Tốc Độ Kích Hoạt MFA & Cơ Chế Fail-Fast Click

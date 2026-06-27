@@ -60,6 +60,42 @@ const CONFIG = {
 };
 
 // ============================================
+// MFA GLOBAL CONCURRENCY LIMITER
+// Giới hạn số lượng workers đang setup MFA cùng lúc để tránh browser bị quá tải và restart.
+// Khi browser restart toàn bộ → tất cả tabs đang MFA đều mất → domino failure.
+// ============================================
+const MFA_MAX_CONCURRENT = parseInt(process.env.MFA_MAX_CONCURRENT || '2', 10);
+let _mfaActiveCount = 0;
+const _mfaWaitQueue = [];
+
+/**
+ * Acquire the MFA slot. Returns a release function.
+ * Waits if MFA_MAX_CONCURRENT workers are already in MFA phase.
+ */
+async function acquireMfaSlot(email) {
+  if (_mfaActiveCount < MFA_MAX_CONCURRENT) {
+    _mfaActiveCount++;
+    console.log(`[MFA Slot] Acquired (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
+    return () => releaseMfaSlot(email);
+  }
+  // Wait in queue
+  console.log(`[MFA Slot] Waiting for slot (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} busy) for ${email}`);
+  await new Promise(resolve => _mfaWaitQueue.push(resolve));
+  _mfaActiveCount++;
+  console.log(`[MFA Slot] Acquired from queue (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
+  return () => releaseMfaSlot(email);
+}
+
+function releaseMfaSlot(email) {
+  _mfaActiveCount = Math.max(0, _mfaActiveCount - 1);
+  console.log(`[MFA Slot] Released (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
+  if (_mfaWaitQueue.length > 0) {
+    const next = _mfaWaitQueue.shift();
+    next();
+  }
+}
+
+// ============================================
 // OAUTH HELPERS
 // ============================================
 
@@ -2816,8 +2852,9 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
 
     // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
-    // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
-    let mfaResult;
+     let mfaResult;
+     // Acquire MFA concurrency slot to prevent browser overload when many workers run in parallel
+     const releaseMfa = await acquireMfaSlot(email);
     const emailCreds = { refreshToken, clientId };
     
     // Hàm thực hiện setupMFA và tự động khôi phục tab mới nếu trình duyệt bị restart (lỗi HTTP 410/404)
@@ -2933,6 +2970,8 @@ export async function runAutoRegister(taskInput) {
       // Drift đã xảy ra → log rõ ràng và bỏ qua MFA, không hang
       console.log(`[7] ⚠️ Domain drift khi setup MFA: "${driftErr.message}" → BỎ QUA setup 2FA, account sẽ được lưu với status mfa_pending.`);
       mfaResult = { success: false, secret: null, totp: null, error: `domain_drift: ${driftErr.message}` };
+    } finally {
+      releaseMfa();
     }
     let twoFaSecret = null;
 
@@ -2977,19 +3016,19 @@ export async function runAutoRegister(taskInput) {
         console.log(`[7.2] ✅ XÁC NHẬN CHẮC CHẮN: Kiểm tra DOM thực tế cho thấy 2FA đã kích hoạt hoạt động tốt!`);
       } else {
         console.log(`[7.2] ⚠️ CẢNH BÁO: Phát hiện 2FA thực tế CHƯA BẬT (hoặc bật bị hụt)! Bắt đầu Self-Healing kích hoạt lại...`);
-        // Tiến hành chạy setupMFA một lần nữa để khắc phục
-        const healResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
-          email,
-          emailCreds,
-          password: chatGptPassword,
-          stepRecorder: recorder
-        });
-        if (healResult.success) {
-          twoFaSecret = healResult.secret;
-          mfaResult = healResult;
-          console.log(`[7.2] 🟢 Self-Healing thành công! 2FA đã được kích hoạt lại. Secret: ${twoFaSecret}`);
-        } else {
-          console.log(`[7.2] 🔴 Self-Healing kích hoạt lại thất bại: ${healResult.error || 'Unknown'}`);
+        // Route qua runSetupMfaWithRecovery để có tab recovery nếu browser bị restart trong self-healing
+        try {
+          const healRecovery = await runSetupMfaWithRecovery(tabId);
+          if (healRecovery.mfaResult.success) {
+            twoFaSecret = healRecovery.mfaResult.secret;
+            mfaResult = healRecovery.mfaResult;
+            tabId = healRecovery.tabId;
+            console.log(`[7.2] 🟢 Self-Healing thành công! 2FA đã được kích hoạt lại. Secret: ${twoFaSecret}`);
+          } else {
+            console.log(`[7.2] 🔴 Self-Healing kích hoạt lại thất bại: ${healRecovery.mfaResult.error || 'Unknown'}`);
+          }
+        } catch (healErr) {
+          console.log(`[7.2] 🔴 Self-Healing kích hoạt lại thất bại: ${healErr.message}`);
         }
       }
     } catch (checkErr) {
@@ -3035,13 +3074,12 @@ export async function runAutoRegister(taskInput) {
     }
 
     // 8. TỔNG KẾT
-    const tokens = await getCookies(tabId, USER_ID);
-    const sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
+    let tokens = await getCookies(tabId, USER_ID);
+    let sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
 
     // Session token validation
     if (!sessionToken) {
-      console.log(`[8] 🔴 Báo lỗi: Không tìm thấy session token.`);
-      console.log(`[8] Cookies: ${tokens.length} total, names: ${tokens.map(c => c.name).join(', ')}`);
+      console.log(`[8] 🔴 Không tìm thấy session token. Cookies: ${tokens.length} total, names: ${tokens.map(c => c.name).join(', ')}`);
       
       // Try fallback tokens
       const fallbackToken = tokens.find(t => t.name === 'oai-client-auth-session')?.value ||
@@ -3049,7 +3087,53 @@ export async function runAutoRegister(taskInput) {
       if (fallbackToken) {
         console.log(`[8] ⚠️ Using fallback token: ${fallbackToken.slice(0, 20)}...`);
       } else {
-        throw new Error('Registration failed (No Auth session). Check screenshots.');
+        // Tab có thể đã mất do browser restart → thử tạo tab mới và re-login để lấy lại session
+        console.log(`[8] 🔄 Không có session token. Thử khôi phục qua tab mới...`);
+        let recoverySuccess = false;
+        try {
+          // Đóng tab cũ (có thể đã dead)
+          await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`, { timeoutMs: 3000 }).catch(() => {});
+          // Tạo tab mới
+          const usePersistent2 = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
+          const recTabRes = await camofoxPostWithSessionKey('/tabs', {
+            userId: USER_ID,
+            url: 'about:blank',
+            headless: false,
+            humanize: true,
+            persistent: usePersistent2,
+            blockResources: !!proxyUrl,
+            timeoutMs: proxyUrl ? 60000 : 30000,
+            ...(proxyUrl ? { proxy: proxyUrl } : {})
+          });
+          tabId = recTabRes.tabId;
+          recorder = createStepRecorder(runDir, { tabId, userId: USER_ID });
+          console.log(`[8] ✅ Tạo tab mới để khôi phục: ${tabId}`);
+          // Navigate về chatgpt.com để lấy lại session cookie qua stored session (persistent profile)
+          await camofoxPostWithSessionKey(`/tabs/${tabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 8000));
+          // Thử lấy lại cookies
+          tokens = await getCookies(tabId, USER_ID);
+          sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
+          if (sessionToken && sessionToken.length >= 50) {
+            console.log(`[8] ✅ Khôi phục session token thành công sau tab recovery!`);
+            recoverySuccess = true;
+          } else {
+            // Reload một lần nữa để refresh session
+            await evalJson(tabId, USER_ID, `window.location.reload()`).catch(() => {});
+            await new Promise(r => setTimeout(r, 5000));
+            tokens = await getCookies(tabId, USER_ID);
+            sessionToken = tokens.find(t => t.name === '__Secure-next-auth.session-token')?.value || null;
+            if (sessionToken && sessionToken.length >= 50) {
+              console.log(`[8] ✅ Khôi phục session token thành công sau reload!`);
+              recoverySuccess = true;
+            }
+          }
+        } catch (recErr) {
+          console.log(`[8] ❌ Tab recovery thất bại: ${recErr.message}`);
+        }
+        if (!recoverySuccess) {
+          throw new Error('Registration failed (No Auth session). Check screenshots.');
+        }
       }
     } else if (sessionToken.length < 50) {
       // Token quá ngắn (< 50 chars) khả năng cao là invalid/truncated — throw để tránh lưu vào DB
