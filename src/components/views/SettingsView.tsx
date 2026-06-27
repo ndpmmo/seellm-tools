@@ -56,6 +56,10 @@ export function SettingsView() {
     autoExpandSlots: false,
     autoExpandSlotStep: 1,
     defaultSlotsPerProxy: 4,
+    mfaMaxConcurrent: 3,
+    mfaHardLimit: 5,
+    mfaEntryDelayMs: 1500,
+    mfaCooldownMs: 20000,
   });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
@@ -577,6 +581,61 @@ export function SettingsView() {
               value={f.autoExpandSlotStep ?? 1}
               onChange={e => set('autoExpandSlotStep', Math.max(1, parseInt(e.target.value, 10) || 1))}
               className={`bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full ${f.autoExpandSlots !== true ? 'opacity-50 cursor-not-allowed' : ''}`}
+            />
+          </Field>
+        </Section>
+
+        <Section title="Adaptive MFA Concurrency (2FA)" icon={SlidersHorizontal}>
+          <Field
+            label="MFA Max Concurrent"
+            hint="Số luồng MFA song song khởi đầu (Cáp theo RAM & tình trạng trình duyệt). Mặc định là 3."
+          >
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={f.mfaMaxConcurrent ?? 3}
+              onChange={e => set('mfaMaxConcurrent', parseInt(e.target.value, 10) || 3)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full"
+            />
+          </Field>
+          <Field
+            label="MFA Hard Limit"
+            hint="Giới hạn tối đa (trần tuyệt đối) số luồng MFA song song khi trình duyệt hoạt động hoàn hảo. Mặc định là 5."
+          >
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={f.mfaHardLimit ?? 5}
+              onChange={e => set('mfaHardLimit', parseInt(e.target.value, 10) || 5)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full"
+            />
+          </Field>
+          <Field
+            label="MFA Entry Delay (ms)"
+            hint="Khoảng cách thời gian giãn cách tối thiểu giữa 2 luồng vào MFA liên tiếp để tránh quá tải đồng thời. Mặc định là 1500."
+          >
+            <input
+              type="number"
+              min={0}
+              max={10000}
+              value={f.mfaEntryDelayMs ?? 1500}
+              onChange={e => set('mfaEntryDelayMs', parseInt(e.target.value, 10) || 1500)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full"
+            />
+          </Field>
+          <Field
+            label="MFA Cooldown (ms)"
+            hint="Thời gian đóng băng hàng đợi và tạm ngưng nhận thêm slot MFA mới (ms) ngay sau khi phát hiện browser restart/crash để trình duyệt phục hồi. Mặc định là 20000."
+          >
+            <input
+              type="number"
+              min={0}
+              max={120000}
+              value={f.mfaCooldownMs ?? 20000}
+              onChange={e => set('mfaCooldownMs', parseInt(e.target.value, 10) || 20000)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-cyan-500/50 w-full"
             />
           </Field>
         </Section>

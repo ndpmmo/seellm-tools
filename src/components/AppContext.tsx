@@ -71,6 +71,14 @@ export interface AppConfig {
   defaultSlotsPerProxy?: number;
   /** Số slot tự động tăng thêm mỗi lần mở rộng */
   autoExpandSlotStep?: number;
+  /** Số luồng MFA song song khởi đầu */
+  mfaMaxConcurrent?: number;
+  /** Trần tối đa của luồng MFA song song */
+  mfaHardLimit?: number;
+  /** Khoảng cách thời gian (ms) tối thiểu giữa các lượt vào MFA */
+  mfaEntryDelayMs?: number;
+  /** Thời gian hồi phục (ms) của browser sau restart/crash */
+  mfaCooldownMs?: number;
 }
 
 interface Toast { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'; }

@@ -28,6 +28,10 @@ export function loadConfig() {
     autoExpandSlots: false,
     defaultSlotsPerProxy: 4,
     autoExpandSlotStep: 1,
+    mfaMaxConcurrent: 3,
+    mfaHardLimit: 5,
+    mfaEntryDelayMs: 1500,
+    mfaCooldownMs: 20000,
   };
   try {
     if (existsSync(CONFIG_PATH)) {

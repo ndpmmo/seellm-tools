@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.293] - 2026-06-28 04:51:00
+
+### ⚙️ Hỗ trợ Cấu hình Adaptive MFA Concurrency trực tiếp tại Settings UI & DB (tools.config.json)
+
+- **[server/db/config.js & scripts/config.js]** Thêm defaults và exports cho 4 biến cấu hình mới của bộ kiểm soát luồng Adaptive MFA: `mfaMaxConcurrent`, `mfaHardLimit`, `mfaEntryDelayMs`, `mfaCooldownMs`.
+- **[auto-register-worker.js]** Trực tiếp đọc cấu hình của Adaptive MFA từ `scripts/config.js` thay vì dùng các biến môi trường (env vars) hardcoded.
+- **[AppContext.tsx & SettingsView.tsx]** Đăng ký cấu hình mới vào TypeScript Interface `AppConfig`, khai báo state mặc định và render nhóm cài đặt mới **"Adaptive MFA Concurrency (2FA)"** có giao diện trực quan hỗ trợ cập nhật động vào file cấu hình.
+
 ## [0.3.292] - 2026-06-28 04:42:00
 
 ### 🛡️ Khắc phục Domino Failure khi Browser Restart trong lúc MFA + MFA Concurrency Limiter

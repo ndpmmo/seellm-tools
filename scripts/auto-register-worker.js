@@ -13,7 +13,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
-import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
+import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST, MFA_MAX_CONCURRENT, MFA_HARD_LIMIT, MFA_ENTRY_DELAY_MS, MFA_COOLDOWN_MS } from './config.js';
 import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, waitForElementGone, waitForCondition, pressKey, checkProfileExists, deleteProfile, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
@@ -60,40 +60,110 @@ const CONFIG = {
 };
 
 // ============================================
-// MFA GLOBAL CONCURRENCY LIMITER
-// Giới hạn số lượng workers đang setup MFA cùng lúc để tránh browser bị quá tải và restart.
-// Khi browser restart toàn bộ → tất cả tabs đang MFA đều mất → domino failure.
+// ADAPTIVE MFA CONCURRENCY CONTROLLER
+// AIMD (Additive Increase / Multiplicative Decrease) + Staggered Entry + Cooldown Window
+//
+// Tuning via env vars:
+//   MFA_MAX_CONCURRENT  – soft limit khởi đầu           (default: 3)
+//   MFA_HARD_LIMIT      – trần tuyệt đối                (default: 5)
+//   MFA_ENTRY_DELAY_MS  – stagger tối thiểu giữa entries (default: 1500ms)
+//   MFA_COOLDOWN_MS     – cooldown window sau restart    (default: 20000ms)
+//
+// Logic:
+//   - success         → limit += 0.5  (additive increase, tăng dần khi browser ổn)
+//   - browser_restart → limit = max(1, floor(limit/2)) + cooldown  (MD, cắt mạnh khi crash)
+//   - mfa_fail        → limit không đổi (lỗi UI, không phải overload)
 // ============================================
-const MFA_MAX_CONCURRENT = parseInt(process.env.MFA_MAX_CONCURRENT || '2', 10);
-let _mfaActiveCount = 0;
-const _mfaWaitQueue = [];
+const MFA_INIT_CONCURRENT = MFA_MAX_CONCURRENT;
 
-/**
- * Acquire the MFA slot. Returns a release function.
- * Waits if MFA_MAX_CONCURRENT workers are already in MFA phase.
- */
-async function acquireMfaSlot(email) {
-  if (_mfaActiveCount < MFA_MAX_CONCURRENT) {
-    _mfaActiveCount++;
-    console.log(`[MFA Slot] Acquired (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
-    return () => releaseMfaSlot(email);
-  }
-  // Wait in queue
-  console.log(`[MFA Slot] Waiting for slot (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} busy) for ${email}`);
-  await new Promise(resolve => _mfaWaitQueue.push(resolve));
-  _mfaActiveCount++;
-  console.log(`[MFA Slot] Acquired from queue (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
-  return () => releaseMfaSlot(email);
-}
+const mfaController = (() => {
+  let limit         = MFA_INIT_CONCURRENT;  // soft limit hiện tại (float, cho phép 0.5 steps)
+  let active        = 0;                    // số workers đang trong MFA phase
+  let lastEntry     = 0;                    // timestamp lần acquire gần nhất (stagger)
+  let cooldownUntil = 0;                    // timestamp hết cooldown (sau browser restart)
+  const queue       = [];                   // Promise resolvers đang chờ slot
 
-function releaseMfaSlot(email) {
-  _mfaActiveCount = Math.max(0, _mfaActiveCount - 1);
-  console.log(`[MFA Slot] Released (${_mfaActiveCount}/${MFA_MAX_CONCURRENT} active) for ${email}`);
-  if (_mfaWaitQueue.length > 0) {
-    const next = _mfaWaitQueue.shift();
-    next();
+  /** Effective integer limit tại thời điểm hiện tại */
+  function effectiveLimit() {
+    return Math.max(1, Math.floor(limit));
   }
-}
+
+  /** Có thể acquire ngay không? */
+  function canAcquire() {
+    if (Date.now() < cooldownUntil) return false;  // đang trong cooldown window
+    if (active >= effectiveLimit()) return false;   // đã đủ slots
+    return true;
+  }
+
+  /** Drain queue: giao slot cho các waiter nếu điều kiện cho phép */
+  function drainQueue() {
+    while (queue.length > 0 && canAcquire()) {
+      queue.shift()();
+    }
+  }
+
+  /**
+   * Acquire MFA slot. Blocks nếu không có slot hoặc đang cooldown.
+   * @returns {function(outcome: 'success'|'browser_restart'|'mfa_fail'): void} release fn
+   */
+  async function acquire(email) {
+    // Xếp hàng nếu chưa thể vào ngay
+    if (!canAcquire()) {
+      const reason = Date.now() < cooldownUntil
+        ? `cooldown ${Math.ceil((cooldownUntil - Date.now()) / 1000)}s còn lại`
+        : `${active}/${effectiveLimit()} busy`;
+      console.log(`[MFA Ctrl] ⏳ Chờ slot (${reason}) → ${email}`);
+      await new Promise(resolve => queue.push(resolve));
+    }
+
+    // Staggered Entry: đảm bảo khoảng cách tối thiểu giữa hai lần vào
+    // Tránh nhiều workers acquire cùng tick → hammer browser đồng loạt
+    const sinceLastEntry = Date.now() - lastEntry;
+    if (sinceLastEntry < MFA_ENTRY_DELAY_MS) {
+      const jitter = MFA_ENTRY_DELAY_MS - sinceLastEntry;
+      console.log(`[MFA Ctrl] ⏱ Stagger ${jitter}ms → ${email}`);
+      await new Promise(r => setTimeout(r, jitter));
+    }
+
+    active++;
+    lastEntry = Date.now();
+    console.log(`[MFA Ctrl] ✅ Acquired [${active}/${effectiveLimit()}] limit=${limit.toFixed(1)} → ${email}`);
+
+    /**
+     * Release slot và cập nhật limit theo outcome.
+     * @param {'success'|'browser_restart'|'mfa_fail'} outcome
+     */
+    return function release(outcome) {
+      active = Math.max(0, active - 1);
+
+      if (outcome === 'success') {
+        // Additive Increase: tăng dần khi browser ổn định
+        limit = Math.min(MFA_HARD_LIMIT, limit + 0.5);
+        console.log(`[MFA Ctrl] 📈 AI: limit → ${limit.toFixed(1)} (success)`);
+        drainQueue();
+
+      } else if (outcome === 'browser_restart') {
+        // Multiplicative Decrease: cắt mạnh ngay khi phát hiện browser crash
+        const prev = limit;
+        limit = Math.max(1, Math.floor(limit / 2));
+        cooldownUntil = Date.now() + MFA_COOLDOWN_MS;
+        console.log(`[MFA Ctrl] 📉 MD: limit ${prev.toFixed(1)} → ${limit.toFixed(1)} | cooldown ${MFA_COOLDOWN_MS / 1000}s`);
+        // Drain queue chỉ sau khi cooldown kết thúc
+        setTimeout(() => {
+          console.log(`[MFA Ctrl] 🔓 Cooldown kết thúc, limit=${limit.toFixed(1)} active=${active}`);
+          drainQueue();
+        }, MFA_COOLDOWN_MS);
+
+      } else {
+        // mfa_fail: UI issue, không phải overload → không thay đổi limit
+        console.log(`[MFA Ctrl] ➡️ mfa_fail: limit giữ nguyên ${limit.toFixed(1)}`);
+        drainQueue();
+      }
+    };
+  }
+
+  return { acquire };
+})();
 
 // ============================================
 // OAUTH HELPERS
@@ -2852,9 +2922,10 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
 
     // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
-     let mfaResult;
-     // Acquire MFA concurrency slot to prevent browser overload when many workers run in parallel
-     const releaseMfa = await acquireMfaSlot(email);
+    let mfaResult;
+    // Acquire adaptive MFA slot (AIMD controller: tự điều chỉnh limit theo browser health)
+    const releaseMfa = await mfaController.acquire(email);
+    let _mfaHadBrowserRestart = false; // flag để truyền outcome chính xác khi release
     const emailCreds = { refreshToken, clientId };
     
     // Hàm thực hiện setupMFA và tự động khôi phục tab mới nếu trình duyệt bị restart (lỗi HTTP 410/404)
@@ -2904,6 +2975,7 @@ export async function runAutoRegister(taskInput) {
         return { mfaResult: res, tabId: activeTabId };
       } catch (err) {
         if (err.message === 'BROWSER_RESTARTED_IN_MFA') {
+          _mfaHadBrowserRestart = true; // signal cho AIMD controller: giảm limit + cooldown
           console.warn(`[7] ⚠️ Phát hiện browser bị restart hoặc tab bị mất trong lúc setup MFA. Tiến hành khôi phục session sang tab mới...`);
           
           // Lấy danh sách cookies hiện tại nếu có thể (hoặc phục hồi cookies cũ từ file nếu có)
@@ -2971,7 +3043,10 @@ export async function runAutoRegister(taskInput) {
       console.log(`[7] ⚠️ Domain drift khi setup MFA: "${driftErr.message}" → BỎ QUA setup 2FA, account sẽ được lưu với status mfa_pending.`);
       mfaResult = { success: false, secret: null, totp: null, error: `domain_drift: ${driftErr.message}` };
     } finally {
-      releaseMfa();
+      // Truyền outcome chính xác để AIMD controller tự điều chỉnh limit
+      const mfaOutcome = _mfaHadBrowserRestart ? 'browser_restart'
+        : (mfaResult?.success ? 'success' : 'mfa_fail');
+      releaseMfa(mfaOutcome);
     }
     let twoFaSecret = null;
 

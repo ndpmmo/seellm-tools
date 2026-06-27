@@ -25,6 +25,10 @@ const defaults = {
   warmupScreenshots: true,
   usePersistentProfiles: true,
   disableScreenshots: false,
+  mfaMaxConcurrent: 3,
+  mfaHardLimit: 5,
+  mfaEntryDelayMs: 1500,
+  mfaCooldownMs: 20000,
 };
 
 export function loadConfig() {
@@ -58,5 +62,9 @@ export const FORCE_LOCALE_STR = FORCE_EN_LOCALE ? 'en-US' : null;
 export const WARMUP_SCREENSHOTS = config.warmupScreenshots !== false; // default true
 export const USE_PERSISTENT_PROFILES = config.usePersistentProfiles !== false; // default true
 export const DISABLE_SCREENSHOTS = config.disableScreenshots === true; // default false
+export const MFA_MAX_CONCURRENT = config.mfaMaxConcurrent ?? 3;
+export const MFA_HARD_LIMIT = config.mfaHardLimit ?? 5;
+export const MFA_ENTRY_DELAY_MS = config.mfaEntryDelayMs ?? 1500;
+export const MFA_COOLDOWN_MS = config.mfaCooldownMs ?? 20000;
 
 
