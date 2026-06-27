@@ -1011,6 +1011,9 @@ async function runWarmup() {
             console.log(`[Warmup] 🔑 Điền password...`);
             const pwdResult = await fillPassword(tabId, USER_ID, account.password);
             if (pwdResult && pwdResult.ok === false && pwdResult.isBlock) {
+              if (pwdResult.reason === 'PASSWORD_TOO_SHORT') {
+                throw new Error(`PASSWORD_TOO_SHORT: Mật khẩu hiện tại (${account.password ? account.password.length : 0} ký tự) ngắn hơn yêu cầu 12 ký tự của OpenAI`);
+              }
               passwordBlockCount++;
               console.warn(`[Warmup] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
               if (passwordBlockCount >= 3) {

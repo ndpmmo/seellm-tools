@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.279] - 2026-06-27 18:25:00
+
+### 🚀 Khắc phục lỗi Warmup thất bại do Mật khẩu ngắn hơn 12 ký tự (PASSWORD_TOO_SHORT)
+
+- **Nhận diện lỗi Mật khẩu ngắn**: Cập nhật `fillPassword` trong `scripts/lib/openai-login-flow.js` để tự động phát hiện lỗi khi mật khẩu của tài khoản trong database ngắn hơn 12 ký tự (giới hạn mới của OpenAI). Thay vì báo lỗi sai lệch là `BLOCKED_BY_OPENAI_TURNSTILE`, hệ thống sẽ trả về mã lỗi chính xác `PASSWORD_TOO_SHORT`.
+- **Dừng sớm và Gán nhãn tài khoản**:
+  - Cấu hình `scripts/warmup.js` và `scripts/auto-worker.js` dừng ngay lập tức và ném ra lỗi chi tiết khi phát hiện `PASSWORD_TOO_SHORT`, tránh việc khởi động lại tab và chạy thử 3 lần vô ích.
+  - Cập nhật route lưu kết quả `server/routes/vault.js` để nhận diện lỗi `PASSWORD_TOO_SHORT`, tự động gán nhãn `wrong_password` và cập nhật ghi chú giải thích rõ ràng cho tài khoản trên giao diện quản trị.
+
 ## [0.3.278] - 2026-06-27 14:55:00
 
 ### 🚀 Cải tiến cơ chế tự động thử lại (Retry) khi Trình duyệt hoặc Tab bị sập/crashed giữa chừng khi đăng ký

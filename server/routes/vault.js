@@ -200,6 +200,12 @@ function isEmailErrorMsg(message) {
          msg.includes('hộp thư');
 }
 
+function isPasswordTooShortMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('password_too_short') || msg.includes('ngắn hơn yêu cầu 12 ký tự') || msg.includes('too_short') || msg.includes('at least 12 characters');
+}
+
 function maybeAddEmailErrorTag(id, message) {
   if (isEmailErrorMsg(message)) {
     const account = vault.getAccountFull(id);
@@ -3701,6 +3707,10 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       maybeAddNeed2faTag(id, error);
       updateData.status = 'error';
       updateData.notes = `Tài khoản yêu cầu 2FA nhưng thiếu Secret Key (phát hiện trong Warmup: ${error})`;
+    } else if (isPasswordTooShortMsg(error)) {
+      maybeAddWrongPasswordTag(id, error);
+      updateData.status = 'relogin';
+      updateData.notes = `Mật khẩu quá ngắn, OpenAI yêu cầu tối thiểu 12 ký tự (phát hiện trong Warmup: ${error})`;
     } else if (isReloginMsg(error)) {
       maybeAddWrongPasswordTag(id, error);
       updateData.status = 'relogin';

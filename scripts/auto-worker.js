@@ -2617,6 +2617,9 @@ async function runLoginFlow(task) {
             if (attemptLoop === 0) await recorder.before(1, 3, 'before_password');
             const r = await fillPassword(tabId, USER_ID, account.password);
             if (r && r.ok === false && r.isBlock) {
+              if (r.reason === 'PASSWORD_TOO_SHORT') {
+                return sendResult(task, 'error', `PASSWORD_TOO_SHORT: Mật khẩu hiện tại (${account.password ? account.password.length : 0} ký tự) ngắn hơn yêu cầu 12 ký tự của OpenAI`);
+              }
               passwordBlockCount++;
               console.warn(`[Login] ⚠️ Gặp màn hình Cloudflare Turnstile hoặc IP bị chặn (lần ${passwordBlockCount}/3)...`);
               if (passwordBlockCount >= 3) {

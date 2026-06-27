@@ -730,6 +730,13 @@ export async function fillPassword(tabId, userId, password) {
 
             if (stillOnPwdPage2) {
               if (submitResult && submitResult.ok) {
+                const isShortPwd = password && password.length < 12;
+                const bodyLower = (errInfo?.body || '').toLowerCase();
+                const isCriteriaError = bodyLower.includes('12 characters') || bodyLower.includes('at least 12');
+                if (isShortPwd || isCriteriaError) {
+                  console.log('[fillPassword] Password validation failed because the password is less than 12 characters or does not meet criteria.');
+                  return { ok: false, reason: 'PASSWORD_TOO_SHORT', isBlock: true };
+                }
                 console.log('[fillPassword] form.requestSubmit() completed but page did not transition. This strongly indicates a Turnstile / IP Reputation block.');
                 return { ok: false, reason: 'BLOCKED_BY_OPENAI_TURNSTILE', isBlock: true };
               }
