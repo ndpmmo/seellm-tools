@@ -566,15 +566,15 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             await apiHelper(`/tabs/${tabId}/click`, {
                                 userId,
                                 selector: '[data-mfa-target="profile-btn"]'
-                            }, 5000);
+                            }, 2500); // Rút ngắn xuống 2.5s để fail-fast
                             profileClicked = true;
                         } catch (err) {
-                            log('Native click Profile button thất bại, fallback sang JS click:', err.message);
+                            log('Native click Profile button thất bại/timeout, fallback sang JS click:', err.message);
                         }
                         if (!profileClicked) {
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
                         }
-                        await wait(1500);
+                        await wait(1000);
 
                         let settingsTagged = await run(`
                             (() => {
@@ -594,7 +594,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         if (!settingsTagged) {
                             log('Không tìm thấy settings menu item sau native click, fallback sang JS click Profile...');
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
-                            await wait(1500);
+                            await wait(1000);
                             
                             settingsTagged = await run(`
                                 (() => {
@@ -619,10 +619,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                 await apiHelper(`/tabs/${tabId}/click`, {
                                     userId,
                                     selector: '[data-mfa-target="settings-item"]'
-                                }, 5000);
+                                }, 2500); // Rút ngắn xuống 2.5s
                                 settingsClicked = true;
                             } catch (err) {
-                                log('Native click Settings item thất bại, fallback sang JS click:', err.message);
+                                log('Native click Settings item thất bại/timeout, fallback sang JS click:', err.message);
                             }
                             if (!settingsClicked) {
                                 await run(`document.querySelector('[data-mfa-target="settings-item"]')?.click()`).catch(() => {});
@@ -685,9 +685,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 await apiHelper(`/tabs/${tabId}/click`, {
                     userId,
                     selector: '[data-mfa-target="security-tab-btn"]'
-                }, 5000);
+                }, 2500); // 2.5s timeout
             } catch (err) {
-                log('Native click Security tab thất bại, fallback sang JS click:', err.message);
+                log('Native click Security tab thất bại/timeout, fallback sang JS click:', err.message);
                 await run(`document.querySelector('[data-mfa-target="security-tab-btn"]')?.click()`).catch(() => {});
             }
         }
@@ -695,7 +695,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         if (!activeSecTab) {
             log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
         }
-        await wait(2000);
+        await wait(1000);
 
         // Chờ nội dung Security & Login tải xong hoàn toàn
         log('Chờ nội dung Security & Login tải xong...');
@@ -1426,9 +1426,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 await apiHelper(`/tabs/${tabId}/click`, {
                     userId,
                     selector: '[data-mfa-target="verify-btn"]'
-                }, 5000); // 5s timeout to fail fast and fallback to JS
+                }, 2500); // 2.5s timeout to fail fast and fallback to JS
             } catch (clickErr) {
-                log('Native click nút Verify lỗi, fallback sang JS click:', clickErr.message);
+                log('Native click nút Verify lỗi/timeout, fallback sang JS click:', clickErr.message);
                 await run(`(() => {
                     const btn = document.querySelector('[data-mfa-target="verify-btn"]');
                     if (btn) btn.click();
@@ -1448,7 +1448,20 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 }
             `);
         }
-        await wait(6000);
+        // Đợi động cho hộp thoại Verify biến mất (tối đa 4s) thay vì bắt buộc chờ tĩnh 6s
+        let verifyDialogGone = false;
+        for (let vWait = 0; vWait < 4; vWait++) {
+            verifyDialogGone = await run(`
+                (() => {
+                    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+                    if (dialogs.length <= 1) return true; // Settings modal còn, dialog verify đã mất
+                    const text = dialogs[dialogs.length - 1]?.innerText?.toLowerCase() || '';
+                    return !text.includes('verify') && !text.includes('xác minh') && !text.includes('trouble scanning');
+                })()
+            `);
+            if (verifyDialogGone) break;
+            await wait(1000);
+        }
         await saveCheckpoint('verify_clicked');
 
         // ── 8. Xác minh thông minh (Thực hiện điều hướng đi chỗ khác rồi quay lại) ───────────────────────────────────
@@ -1463,7 +1476,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 return false;
             })()
         `).catch(() => {});
-        await wait(2000);
+        await wait(1000);
 
         log('Xác minh thông minh: Chuyển hướng trực tiếp tới Security Settings...');
         try {

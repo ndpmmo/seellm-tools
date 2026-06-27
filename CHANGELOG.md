@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.291] - 2026-06-28 03:36:00
+
+### ⚡ Tối Ưu Hóa Tốc Độ Kích Hoạt MFA & Cơ Chế Fail-Fast Click
+
+- **[mfa-setup.js] Fail-Fast Native Click Timeout**: Hạ thời gian chờ của chuột ảo từ 5 giây xuống còn **2.5 giây**. Khi proxy hoặc server lag, worker sẽ nhanh chóng bỏ qua native click bị treo để kích hoạt ngay cơ chế fallback **JS Click trực tiếp** trên DOM, giảm thiểu tối đa hiện tượng nghẽn hàng đợi lock (`lock_queue`) của Camofox.
+- **[mfa-setup.js] Dynamic Verify Polling**: Thay thế thời gian chờ tĩnh 6 giây sau khi click Verify bằng cơ chế thăm dò động tối đa 4 giây. Giúp kết thúc luồng ngay khi dialog xác minh biến mất trên giao diện.
+
 ## [0.3.290] - 2026-06-28 03:16:00
 
 ### 🚀 Tách Biệt Tuyệt Đối Luồng Log Của Từng Tài Khoản Đăng Ký Hàng Loạt
