@@ -462,7 +462,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         
         try {
             await run(`window.location.hash = '#settings/Security'`);
-            await wait(3000);
+            await wait(200);
         } catch (navErr) {
             log(`⚠️ Lỗi khi JS navigate to settings: ${navErr.message}`);
         }
@@ -470,7 +470,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // Đảm bảo settings modal được mở
         log('Chờ Settings modal mở...');
         let isOpened = false;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 25; i++) {
             isOpened = await run(`
                 (() => {
                     const dialog = document.querySelector('[role="dialog"]');
@@ -652,7 +652,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     log(`⚠️ Điều hướng trực tiếp thất bại: ${reloadErr.message}`);
                 }
             }
-            await wait(1000);
+            await wait(400);
         }
 
         if (!isOpened) {
@@ -695,12 +695,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         if (!activeSecTab) {
             log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
         }
-        await wait(1000);
+        await wait(200);
 
         // Chờ nội dung Security & Login tải xong hoàn toàn
         log('Chờ nội dung Security & Login tải xong...');
         let isSettingsLoaded = false;
-        for (let w = 0; w < 12; w++) {
+        for (let w = 0; w < 30; w++) {
             isSettingsLoaded = await run(`
                 (() => {
                     const dialog = document.querySelector('[role="dialog"]');
@@ -710,7 +710,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `);
             if (isSettingsLoaded) break;
-            await wait(1000);
+            await wait(400);
         }
         if (!isSettingsLoaded) {
             log('⚠️ Cảnh báo: Nội dung Security tab chưa tải xong hoàn toàn sau 12 giây.');
@@ -1017,7 +1017,20 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `).catch(() => {});
         }
-        await wait(4000);
+        // Đợi màn hình tiếp theo xuất hiện (màn hình nhập pass, màn hình xác minh danh tính hoặc màn hình cài đặt 2FA)
+        const nextScreenStart = Date.now();
+        while (Date.now() - nextScreenStart < 8000) {
+            const nextScreenReady = await run(`(() => {
+                const text = (document.body.innerText || '').toLowerCase();
+                const hasDialog = !!document.querySelector('[role="dialog"]');
+                const hasPassword = !!document.querySelector('input[type="password"]');
+                const hasVerify = text.includes('verify your identity') || text.includes('xác minh danh tính') || text.includes('identity');
+                const hasSetup = text.includes('trouble scanning') || text.includes("can't scan") || text.includes('authenticator');
+                return hasDialog || hasPassword || hasVerify || hasSetup;
+            })()`).catch(() => false);
+            if (nextScreenReady) break;
+            await wait(300);
+        }
 
         // --- Xử lý xác nhận mật khẩu (nếu có) ---
         await handlePasswordVerificationPrompt(tabId, userId, apiHelper, options.password, log, wait, run);
@@ -1029,7 +1042,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // Đảm bảo hộp thoại thiết lập MFA hiển thị thực tế
         log('Kiểm tra hộp thoại thiết lập MFA (QR Code)...');
         let mfaSetupScreenAppeared = false;
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 50; i++) {
             mfaSetupScreenAppeared = await run(`
                 (() => {
                     const text = (document.body.innerText || '').toLowerCase();
@@ -1072,7 +1085,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `);
             if (mfaSetupScreenAppeared) break;
-            await wait(1000);
+            await wait(400);
         }
         if (!mfaSetupScreenAppeared) {
             log('❌ Hộp thoại thiết lập MFA không hiển thị sau khi click toggle.');
@@ -1182,13 +1195,13 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         } else {
             log('⚠️ Không thể tag nút "Trouble scanning?", bỏ qua click.');
         }
-        await wait(2500);
+        await wait(200);
         await saveCheckpoint('trouble_scanning_clicked');
 
         // ── 5. Đọc secret key từ DOM ──────────────────────────────
         log('Đọc Secret Key từ DOM...');
         let secret = null;
-        for (let attempt = 0; attempt < 15; attempt++) {
+        for (let attempt = 0; attempt < 30; attempt++) {
             secret = await run(`
                 (() => {
                     const elements = Array.from(document.querySelectorAll('*'))
@@ -1275,8 +1288,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             `);
 
             if (secret) break;
-            log(`  Chờ Secret Key xuất hiện (lần thử ${attempt + 1}/15)...`);
-            await wait(1000);
+            log(`  Chờ Secret Key xuất hiện (lần thử ${attempt + 1}/30)...`);
+            await wait(400);
         }
 
         if (!secret) {

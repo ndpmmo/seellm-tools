@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.294] - 2026-06-28 05:55:00
+
+### 🚀 Tối ưu hóa phản ứng 2FA (Reactive Waiting), giữ kết nối (Heartbeat) và nâng cao Timeout
+
+- **[mfa-setup.js] Tối ưu hóa Chờ phản ứng (Reactive Polling)**: Thay đổi toàn bộ các hàm `wait(ms)` tĩnh và các vòng lặp polling sang tần suất nhanh hơn (400ms thay vì 1000ms), giúp hệ thống ghi nhận mã QR và Secret Key ngay khi chúng xuất hiện (chỉ mất 100-200ms) thay vì chờ mù 2.5 - 4 giây.
+- **[auto-register-worker.js] Thêm chốt chặn Fail-Fast & Giới hạn phục hồi**: Phát hiện lỗi sập tab hoặc mất kết nối (`BROWSER_RESTARTED_IN_MFA`) để lập tức báo lỗi và chuyển sang luồng phục hồi session thay vì tiếp tục chạy vòng lặp retry 2FA vô ích trên tab cũ. Đồng thời giới hạn tối đa 1 lần đệ quy phục hồi để tránh lặp vô tận.
+- **[auto-register-worker.js] Heartbeat giữ kết nối (Keep-alive)**: Triển khai wrapper `withCamofoxHeartbeat` gửi gói tin ping siêu nhẹ `evalJson(tabId, USER_ID, "1")` định kỳ mỗi 25 giây trong các pha chờ đợi lâu (như lấy OTP từ Mail), ngăn chặn Camofox dọn dẹp tab nhàn rỗi (idle).
+- **[camofox-browser: plugins/seellm-tools/index.js] Tối ưu hóa Camoufox Plugin**:
+  - Tự động thiết lập thời gian chờ mặc định (`setDefaultTimeout` / `setDefaultNavigationTimeout`) của Playwright lên **60 giây** để thích ứng với proxy tốc độ chậm.
+  - Mở rộng Regex chặn tài nguyên (`blockPattern`) để chặn thêm 10+ tracker nặng và các tệp script bên thứ 3 (như `googletagmanager`, `hotjar`, `intercom`, `doubleclick`, `amplitude`, `facebook`, v.v.), giúp giảm tải CPU/RAM cho trình duyệt và tránh sập tiến trình.
+
 ## [0.3.293] - 2026-06-28 04:51:00
 
 ### ⚙️ Hỗ trợ Cấu hình Adaptive MFA Concurrency trực tiếp tại Settings UI & DB (tools.config.json)

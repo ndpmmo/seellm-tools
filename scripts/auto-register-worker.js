@@ -186,6 +186,25 @@ function tryExtractCode(url) {
 }
 
 /**
+ * Runs a long-running promise function with a periodic heartbeat to prevent Camofox idle session cleanups
+ */
+async function withCamofoxHeartbeat(tabId, userId, promiseFn, intervalMs = 25000) {
+  let finished = false;
+  const pingInterval = setInterval(() => {
+    if (finished) return;
+    evalJson(tabId, userId, "1").catch(() => {});
+  }, intervalMs);
+
+  try {
+    return await promiseFn();
+  } finally {
+    finished = true;
+    clearInterval(pingInterval);
+  }
+}
+
+
+/**
  * Setup PerformanceObserver to capture localhost:1455 callback URL with ?code=
  * (Browser shows about:neterror because no server runs there, but URL is observed)
  */
@@ -2029,8 +2048,10 @@ export async function runAutoRegister(taskInput) {
     const isOnOtpScreen = otpScreenCheck.hasOtpInput && (otpScreenCheck.hasVerifyUrl || otpScreenCheck.hasVerifyText);
     if (isOnOtpScreen) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
-      // Lần đầu chờ OTP trong 50 giây
-      let otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 50, minTime: otpCheckStartTime });
+      // Lần đầu chờ OTP trong 50 giây với heartbeat giữ tab hoạt động
+      let otpCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
+        waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 50, minTime: otpCheckStartTime })
+      );
       
       if (!otpCode) {
         console.log(`[OTP] ⚠️ Không nhận được mã OTP sau 50s. Tiến hành click "Resend email" và thử lại...`);
@@ -2060,8 +2081,10 @@ export async function runAutoRegister(taskInput) {
         console.log(`[OTP] Resend email click result:`, resendRes);
         await new Promise(r => setTimeout(r, 5000));
         
-        // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian đã set trước
-        otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 60, minTime: newMinTime });
+        // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian đã set trước kèm heartbeat
+        otpCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
+          waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 60, minTime: newMinTime })
+        );
       }
 
       if (!otpCode) throw new Error(`Thất bại: Không lấy được mã OTP từ Mail sau khi gửi lại.`);
@@ -2238,7 +2261,9 @@ export async function runAutoRegister(taskInput) {
 
            // Use fresh timestamp for each retry to avoid receiving already-seen/expired codes
            const otpRetryMinTime = Date.now();
-           const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime });
+           const otpRetryCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
+              waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime })
+            );
            if (!otpRetryCode) {
              console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
              continue;
@@ -2928,6 +2953,7 @@ export async function runAutoRegister(taskInput) {
     let _mfaHadBrowserRestart = false; // flag để truyền outcome chính xác khi release
     const emailCreds = { refreshToken, clientId };
     
+    let mfaRecoveryCount = 0;
     // Hàm thực hiện setupMFA và tự động khôi phục tab mới nếu trình duyệt bị restart (lỗi HTTP 410/404)
     const runSetupMfaWithRecovery = async (currentTabId) => {
       let activeTabId = currentTabId;
@@ -2942,6 +2968,9 @@ export async function runAutoRegister(taskInput) {
         
         // Retry MFA setup on any failure (max CONFIG.mfaMaxRetries retries)
         if (!res.success) {
+          if (res.error === 'BROWSER_RESTARTED_IN_MFA') {
+            throw new Error('BROWSER_RESTARTED_IN_MFA');
+          }
           console.log(`[7] ⚠️ MFA setup thất bại (${res.error}), tiến hành retry...`);
           for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
             console.log(`[7] MFA retry ${retry}/${CONFIG.mfaMaxRetries}: Chuẩn bị lại trạng thái trang...`);
@@ -2969,6 +2998,9 @@ export async function runAutoRegister(taskInput) {
               break;
             } else {
               console.log(`[7] MFA retry ${retry} failed: ${retryResult.error}`);
+              if (retryResult.error === 'BROWSER_RESTARTED_IN_MFA') {
+                throw new Error('BROWSER_RESTARTED_IN_MFA');
+              }
             }
           }
         }
@@ -2976,6 +3008,11 @@ export async function runAutoRegister(taskInput) {
       } catch (err) {
         if (err.message === 'BROWSER_RESTARTED_IN_MFA') {
           _mfaHadBrowserRestart = true; // signal cho AIMD controller: giảm limit + cooldown
+          mfaRecoveryCount++;
+          if (mfaRecoveryCount > 1) {
+            console.warn(`[7] 🛑 Bỏ qua khôi phục MFA sau ${mfaRecoveryCount} lần sập liên tiếp.`);
+            throw err;
+          }
           console.warn(`[7] ⚠️ Phát hiện browser bị restart hoặc tab bị mất trong lúc setup MFA. Tiến hành khôi phục session sang tab mới...`);
           
           // Lấy danh sách cookies hiện tại nếu có thể (hoặc phục hồi cookies cũ từ file nếu có)
