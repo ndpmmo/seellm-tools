@@ -379,6 +379,19 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 return res?.result;
             } catch (err) {
                 const msg = err.message || String(err);
+                
+                // Phát hiện lỗi browser restart hoặc tab bị closed và quăng lỗi đặc biệt để ngoài worker xử lý tái tạo tab
+                const isTabDead = msg.includes('browser_restarted') || 
+                                  msg.includes('Tab no longer exists') || 
+                                  msg.includes('Tab not found') ||
+                                  msg.includes('target closed') ||
+                                  msg.includes('410') ||
+                                  msg.includes('404');
+                if (isTabDead) {
+                    log(`🔴 Phát hiện trình duyệt bị restart hoặc tab bị đóng trong lúc eval. Thrown BROWSER_RESTARTED_IN_MFA.`);
+                    throw new Error('BROWSER_RESTARTED_IN_MFA');
+                }
+
                 const isTransient = msg.includes('context was destroyed') || 
                                     msg.includes('navigation') || 
                                     msg.includes('destroyed') || 

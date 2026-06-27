@@ -2102,14 +2102,41 @@ export async function runAutoRegister(taskInput) {
       const isStillOnOtp = (otpVerifyCheck.hasVerifyUrl || otpVerifyCheck.hasVerifyText) && otpVerifyCheck.hasOtpInput;
       if (isStillOnOtp) {
         console.log(`[OTP] ⚠️ Vẫn ở màn hình OTP, retry entry...`);
-        for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
-          // Use fresh timestamp for each retry to avoid receiving already-seen/expired codes
-          const otpRetryMinTime = Date.now();
-          const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime });
-          if (!otpRetryCode) {
-            console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
-            continue;
-          }
+         for (let retry = 1; retry <= CONFIG.otpMaxRetries; retry++) {
+           console.log(`[OTP] Retry ${retry}/${CONFIG.otpMaxRetries}: Gửi yêu cầu "Resend email" trước khi poll...`);
+           
+           // Click Resend button
+           const resendRes = await evalJson(tabId, USER_ID, `
+             (() => {
+               const isVisible = el => {
+                 if (!el) return false;
+                 const s = window.getComputedStyle(el);
+                 const r = el.getBoundingClientRect();
+                 return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+               };
+               const btn = Array.from(document.querySelectorAll('button, [role="button"], a'))
+                 .filter(isVisible)
+                 .find(el => {
+                   const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                   return t.includes('resend email') || t.includes('resend code') || t.includes('gửi lại');
+                 });
+               if (btn) {
+                 btn.click();
+                 return true;
+               }
+               return false;
+             })()
+           `).catch(() => null);
+           console.log(`[OTP] Retry ${retry} Resend email click result:`, resendRes);
+           await new Promise(r => setTimeout(r, 4000));
+
+           // Use fresh timestamp for each retry to avoid receiving already-seen/expired codes
+           const otpRetryMinTime = Date.now();
+           const otpRetryCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime });
+           if (!otpRetryCode) {
+             console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
+             continue;
+           }
 
           console.log(`[OTP] Retry ${retry}: Nhập mã PIN ${otpRetryCode}...`);
           await evalJson(tabId, USER_ID, `
@@ -2789,49 +2816,119 @@ export async function runAutoRegister(taskInput) {
     console.log(`==========================================`);
 
     // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
+    // Domain guard trước khi setupMFA — tránh chạy trên trang lạ (Google/Apple/MS)
     let mfaResult;
     const emailCreds = { refreshToken, clientId };
-    try {
-      await assertOnExpectedDomain(tabId, USER_ID, 'before-mfa-setup');
-      mfaResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
-        email,
-        emailCreds,
-        password: chatGptPassword,
-        stepRecorder: recorder
-      });
-
-      // Retry MFA setup on any failure (max CONFIG.mfaMaxRetries retries)
-      if (!mfaResult.success) {
-        console.log(`[7] ⚠️ MFA setup thất bại (${mfaResult.error}), tiến hành retry...`);
-        for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
-          console.log(`[7] MFA retry ${retry}/${CONFIG.mfaMaxRetries}: Chuẩn bị lại trạng thái trang...`);
-          
-          // Reload page đầy đủ ở lần retry cuối để reset trạng thái DOM
-          if (retry === CONFIG.mfaMaxRetries) {
-            console.log(`[7] MFA retry ${retry}: Thực hiện full page reload để reset DOM...`);
-            await evalJson(tabId, USER_ID, `window.location.href = 'https://chatgpt.com'`).catch(() => {});
-            await new Promise(r => setTimeout(r, 5000));
-          } else {
-            // Các lần retry thường: navigate về Security tab
-            await evalJson(tabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
-            await new Promise(r => setTimeout(r, 3000));
-          }
-          
-          const retryResult = await setupMFA(tabId, USER_ID, camofoxPostWithSessionKey, {
-            email,
-            emailCreds,
-            password: chatGptPassword,
-            stepRecorder: recorder
-          });
-          if (retryResult.success) {
-            console.log(`[7] ✅ MFA retry ${retry} thành công!`);
-            mfaResult = retryResult;
-            break;
-          } else {
-            console.log(`[7] MFA retry ${retry} failed: ${retryResult.error}`);
+    
+    // Hàm thực hiện setupMFA và tự động khôi phục tab mới nếu trình duyệt bị restart (lỗi HTTP 410/404)
+    const runSetupMfaWithRecovery = async (currentTabId) => {
+      let activeTabId = currentTabId;
+      try {
+        await assertOnExpectedDomain(activeTabId, USER_ID, 'before-mfa-setup');
+        let res = await setupMFA(activeTabId, USER_ID, camofoxPostWithSessionKey, {
+          email,
+          emailCreds,
+          password: chatGptPassword,
+          stepRecorder: recorder
+        });
+        
+        // Retry MFA setup on any failure (max CONFIG.mfaMaxRetries retries)
+        if (!res.success) {
+          console.log(`[7] ⚠️ MFA setup thất bại (${res.error}), tiến hành retry...`);
+          for (let retry = 1; retry <= CONFIG.mfaMaxRetries; retry++) {
+            console.log(`[7] MFA retry ${retry}/${CONFIG.mfaMaxRetries}: Chuẩn bị lại trạng thái trang...`);
+            
+            // Reload page đầy đủ ở lần retry cuối để reset trạng thái DOM
+            if (retry === CONFIG.mfaMaxRetries) {
+              console.log(`[7] MFA retry ${retry}: Thực hiện full page reload để reset DOM...`);
+              await evalJson(activeTabId, USER_ID, `window.location.href = 'https://chatgpt.com'`).catch(() => {});
+              await new Promise(r => setTimeout(r, 5000));
+            } else {
+              // Các lần retry thường: navigate về Security tab
+              await evalJson(activeTabId, USER_ID, `window.location.hash = '#settings/Security'`).catch(() => {});
+              await new Promise(r => setTimeout(r, 3000));
+            }
+            
+            const retryResult = await setupMFA(activeTabId, USER_ID, camofoxPostWithSessionKey, {
+              email,
+              emailCreds,
+              password: chatGptPassword,
+              stepRecorder: recorder
+            });
+            if (retryResult.success) {
+              console.log(`[7] ✅ MFA retry ${retry} thành công!`);
+              res = retryResult;
+              break;
+            } else {
+              console.log(`[7] MFA retry ${retry} failed: ${retryResult.error}`);
+            }
           }
         }
+        return { mfaResult: res, tabId: activeTabId };
+      } catch (err) {
+        if (err.message === 'BROWSER_RESTARTED_IN_MFA') {
+          console.warn(`[7] ⚠️ Phát hiện browser bị restart hoặc tab bị mất trong lúc setup MFA. Tiến hành khôi phục session sang tab mới...`);
+          
+          // Lấy danh sách cookies hiện tại nếu có thể (hoặc phục hồi cookies cũ từ file nếu có)
+          let backupCookies = [];
+          try {
+            backupCookies = await getCookies(activeTabId, USER_ID).catch(() => []);
+          } catch (_) {}
+          
+          // Đóng tab cũ bị lỗi
+          await camofoxDelete(`/tabs/${activeTabId}?userId=${USER_ID}`, { timeoutMs: 3000 }).catch(() => {});
+          
+          // Khởi tạo tab mới
+          console.log(`[7] 🔄 Tạo tab Camofox mới để khôi phục...`);
+          const usePersistent = (await getGlobalUsePersistent()) !== false || (await checkProfileExists(USER_ID));
+          const newTabRes = await camofoxPostWithSessionKey('/tabs', {
+            userId: USER_ID,
+            url: "about:blank",
+            headless: false,
+            humanize: true,
+            persistent: usePersistent,
+            blockResources: !!proxyUrl,
+            timeoutMs: proxyUrl ? 60000 : 30000,
+            ...(proxyUrl ? { proxy: proxyUrl } : {})
+          });
+          
+          activeTabId = newTabRes.tabId;
+          tabId = activeTabId; // Cập nhật biến global/outer scope của flow
+          console.log(`[7] ✅ Đã tạo tab mới: ${activeTabId}`);
+          
+          // Thiết lập lại viewport
+          await camofoxPostWithSessionKey(`/tabs/${activeTabId}/viewport`, {
+            userId: USER_ID,
+            width: 1440,
+            height: 900
+          }).catch(() => {});
+          
+          // Nạp lại cookies vào tab mới
+          if (backupCookies.length > 0) {
+            console.log(`[7] 🔄 Nạp lại ${backupCookies.length} cookies vào tab mới...`);
+            await importSessionCookies(USER_ID, backupCookies).catch(e => console.log(`[7] Cookie import error: ${e.message}`));
+          }
+          
+          // Mở lại trang ChatGPT
+          console.log(`[7] 🌐 Điều hướng tab mới về chatgpt.com...`);
+          await camofoxPostWithSessionKey(`/tabs/${activeTabId}/navigate`, { userId: USER_ID, url: 'https://chatgpt.com/' });
+          await new Promise(r => setTimeout(r, 6000));
+          
+          // Cập nhật recorder với tabId mới
+          recorder = createStepRecorder(runDir, { tabId: activeTabId, userId: USER_ID });
+          
+          // Thử setup MFA trên tab mới
+          console.log(`[7] 🔄 Bắt đầu chạy lại setupMFA trên tab mới...`);
+          return runSetupMfaWithRecovery(activeTabId);
+        }
+        throw err;
       }
+    };
+
+    try {
+      const recoveryResult = await runSetupMfaWithRecovery(tabId);
+      mfaResult = recoveryResult.mfaResult;
+      tabId = recoveryResult.tabId;
     } catch (driftErr) {
       // Drift đã xảy ra → log rõ ràng và bỏ qua MFA, không hang
       console.log(`[7] ⚠️ Domain drift khi setup MFA: "${driftErr.message}" → BỎ QUA setup 2FA, account sẽ được lưu với status mfa_pending.`);
@@ -2896,7 +2993,15 @@ export async function runAutoRegister(taskInput) {
         }
       }
     } catch (checkErr) {
-      console.warn(`[7.2] ⚠️ Gặp lỗi khi chạy Double-Check 2FA: ${checkErr.message}`);
+      if (checkErr.message === 'BROWSER_RESTARTED_IN_MFA') {
+        console.warn(`[7.2] ⚠️ Browser restart phát hiện trong lúc Double check. Chạy lại mfa setup với tab recovery...`);
+        const recoveryResult = await runSetupMfaWithRecovery(tabId);
+        mfaResult = recoveryResult.mfaResult;
+        tabId = recoveryResult.tabId;
+        twoFaSecret = mfaResult.secret;
+      } else {
+        console.warn(`[7.2] ⚠️ Gặp lỗi khi chạy Double-Check 2FA: ${checkErr.message}`);
+      }
     }
 
     // 7.5. Codex OAuth flow (if enabled)

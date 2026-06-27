@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.289] - 2026-06-28 02:25:00
+
+### 🛡️ Khắc phục sự cố Trình duyệt Restart và Tối ưu hóa gửi lại mã OTP (Batch 2)
+
+- **[mfa-setup.js] Tự động phát hiện lỗi Browser Restart**: `setupMFA` nay nhận diện chính xác các lỗi liên quan đến việc trình duyệt đột ngột bị restart hoặc tab bị mất (HTTP 410/404) trong lúc tương tác với cài đặt 2FA và quăng ra một lỗi đặc trưng `BROWSER_RESTARTED_IN_MFA`.
+- **[auto-register-worker.js] Cơ chế Phục hồi session & Tái tạo tab mới (Self-Healing)**: Khi luồng setup 2FA bắt được lỗi `BROWSER_RESTARTED_IN_MFA`, nó sẽ ngay lập tức backup cookies hiện tại, đóng tab lỗi, khởi tạo một tab Camofox mới với cùng proxy, nạp lại cookies để khôi phục trạng thái đăng nhập, và tiếp tục setup MFA mà không làm gián đoạn tiến trình.
+- **[auto-register-worker.js] Tự động click "Resend email" khi retry OTP**: Trong vòng lặp thử lại OTP (`otpRetry`), trước khi tiến hành polling hòm thư, worker sẽ tự động click nút "Resend email" / "Gửi lại mã" trên giao diện để yêu cầu OpenAI gửi mã mới, nâng cao độ thành công của các lượt nhập mã bổ sung.
+
 ## [0.3.288] - 2026-06-28 01:40:00
 
 ### 🚀 Tối ưu hóa toàn diện hệ thống Đăng ký hàng loạt (Batch 1)
