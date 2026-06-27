@@ -3093,7 +3093,10 @@ export async function runAutoRegister(taskInput) {
           msg.includes('context closed') ||
           msg.includes('browser closed') ||
           msg.includes('net_timeout') ||
-          msg.includes('aborted due to timeout')
+          msg.includes('aborted due to timeout') ||
+          msg.includes('tab not found') ||
+          msg.includes('url hiện tại: null') ||
+          msg.includes('url hiện tại: ?')
         );
         isRetriableError = isRetriable;
         

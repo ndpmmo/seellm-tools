@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.278] - 2026-06-27 14:55:00
+
+### 🚀 Cải tiến cơ chế tự động thử lại (Retry) khi Trình duyệt hoặc Tab bị sập/crashed giữa chừng khi đăng ký
+
+- **Bổ sung các lỗi sập tab vào danh sách tự động thử lại**: Thêm kiểm tra `tab not found`, `url hiện tại: null` và `url hiện tại: ?` vào điều kiện `isRetriable` trong `scripts/auto-register-worker.js`. Giúp hệ thống tự động khởi tạo lại tab trình duyệt mới và tiếp tục tiến trình đăng ký khi tab cũ bị sập (crash) hoặc bị tắt ngoài ý muốn.
+
 ## [0.3.277] - 2026-06-27 14:45:00
 
 ### 🚀 Khắc phục lỗi thiết lập lại 2FA (MFA Setup) khi bị yêu cầu mật khẩu xác minh khi Tắt 2FA cũ
