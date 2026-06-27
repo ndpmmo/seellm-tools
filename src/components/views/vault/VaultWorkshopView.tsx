@@ -2253,10 +2253,10 @@ export function VaultWorkshopView() {
                                         <input
                                             type="number"
                                             min="1"
-                                            max="20"
+                                            max="5"
                                             className="w-16 h-8 bg-white/5 border border-white/10 rounded-md px-2 text-center text-xs text-slate-200 outline-none focus:border-indigo-500/50"
                                             value={bulkConcurrency}
-                                            onChange={e => setBulkConcurrency(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))}
+                                            onChange={e => setBulkConcurrency(Math.min(5, Math.max(1, parseInt(e.target.value) || 1)))}
                                         />
                                     </div>
 

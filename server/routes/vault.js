@@ -2182,7 +2182,11 @@ router.post('/accounts/bulk-register', async (req, res) => {
       return parsed && parsed.valid ? parsed.normalized : p.trim();
     }).filter(Boolean);
     const parsedRatio = parseInt(ratio, 10) || 1;
-    const parsedConcurrency = parseInt(concurrency, 10) || 2;
+    const totalMemGb = os.totalmem() / (1024 * 1024 * 1024);
+    const safeMaxConcurrency = totalMemGb <= 16.5 ? 3 : 5;
+    const requestedConcurrency = parseInt(concurrency, 10) || 2;
+    const parsedConcurrency = Math.min(safeMaxConcurrency, requestedConcurrency);
+    console.log(`[Bulk] System RAM: ${totalMemGb.toFixed(2)} GB | Safe Max Concurrency: ${safeMaxConcurrency} | Requested: ${requestedConcurrency} | Applied: ${parsedConcurrency}`);
 
     const queue = resolvedEmails.map((emailRecord, idx) => {
       let proxy = '';

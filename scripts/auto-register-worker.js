@@ -2232,7 +2232,11 @@ export async function runAutoRegister(taskInput) {
         throw new Error('OTP verification submitted but page failed to transition away from email-verification');
       }
 
-      if (finalUrlCheck.includes('auth/login') || finalUrlCheck.includes('google.com') || finalUrlCheck.includes('apple.com')) {
+      if (finalUrlCheck.includes('google.com') || finalUrlCheck.includes('apple.com')) {
+        throw new Error(`SOCIAL_SIGNUP_ONLY: Tài khoản đã đăng ký qua Google/Apple Auth, không thể dùng mật khẩu.`);
+      }
+
+      if (finalUrlCheck.includes('auth/login')) {
         throw new Error(`[OTP] Xác minh OTP thất bại hoặc bị điều hướng sai URL. URL hiện tại: ${finalUrlCheck}`);
       }
 

@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.287] - 2026-06-28 01:25:00
+
+### 🚀 Tối ưu hóa hiệu năng Concurrency và phát hiện thông minh liên kết Google/Apple Auth
+
+- **Bảo vệ RAM bằng giới hạn Concurrency thông minh**: Tự động tính toán tổng RAM hệ thống để cap số luồng trình duyệt song song an toàn ở backend (RAM <= 16GB tối đa 3 luồng, RAM > 16GB tối đa 5 luồng) nhằm triệt tiêu lỗi đơ trình duyệt, mất tab 404, hoặc time out Click trong tiến trình MFA khi chạy hàng loạt.
+- **Giới hạn số luồng tối đa trong UI**: Cập nhật form Cấu hình trong UI [VaultWorkshopView.tsx](file:///Users/ndpmmo/Documents/Github/seellm-tools/src/components/views/vault/VaultWorkshopView.tsx) giới hạn concurrency tối đa là 5 để định hướng người dùng nhập cấu hình luồng an toàn.
+- **Nhận diện lỗi liên kết mạng xã hội**: Tự động phát hiện khi OpenAI điều hướng trang đăng ký sang trang đăng nhập của bên thứ ba (Google/Apple) và ném ra lỗi rõ ràng `SOCIAL_SIGNUP_ONLY` giúp đánh dấu và phân loại tài khoản chuẩn xác.
+
 ## [0.3.286] - 2026-06-28 00:45:00
 
 ### 🚀 Khắc phục lỗi kẹt và báo sai mã lỗi chặn Turnstile khi chạy lại Đăng ký hàng loạt
