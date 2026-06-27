@@ -385,14 +385,35 @@ async function run2faRegen() {
               return placeholder.includes('name') || id.includes('name') || name.includes('name');
             }) || inputs.find(el => el.type === 'text');
 
+            const getAllInputsDump = () => {
+              return Array.from(document.querySelectorAll('input, select')).map(el => {
+                const s = window.getComputedStyle(el);
+                const r = el.getBoundingClientRect();
+                return {
+                  tagName: el.tagName,
+                  type: el.type,
+                  name: el.name,
+                  id: el.id,
+                  placeholder: el.placeholder,
+                  visible: isVisible(el),
+                  styleDisplay: el.style.display,
+                  computedDisplay: s.display,
+                  computedVisibility: s.visibility,
+                  computedOpacity: s.opacity,
+                  rectWidth: r.width,
+                  rectHeight: r.height
+                };
+              });
+            };
+
             if (!nameInput) {
-              return { ok: false, reason: 'name-input-not-found' };
+              return { ok: false, reason: 'name-input-not-found', allInputs: getAllInputsDump() };
             }
 
             // Các ô nhập còn lại trên màn hình chính là ô nhập tuổi / ngày sinh
             const bdayInputs = inputs.filter(el => el !== nameInput);
             if (bdayInputs.length === 0) {
-              return { ok: false, reason: 'bday-input-not-found-yet', hasInputs: !!nameInput + '/false' };
+              return { ok: false, reason: 'bday-input-not-found-yet', hasInputs: !!nameInput + '/false', allInputs: getAllInputsDump() };
             }
 
             const setValue = (el, val) => {

@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.284] - 2026-06-28 00:25:00
+
+### 🚀 Bổ sung log chẩn đoán thông tin DOM chi tiết của các trường nhập khi lỗi Onboarding
+
+- **Ghi nhận cấu trúc trường nhập**: Bổ sung hàm `getAllInputsDump` xuất chi tiết toàn bộ các trường nhập `<input>` và `<select>` trên trang bao gồm tên, nhãn, hiển thị thực tế, kích thước bounding rect và opacity khi lỗi Onboarding xảy ra để phục vụ việc chẩn đoán phiên bản cấu trúc mới của OpenAI.
+
 ## [0.3.283] - 2026-06-28 00:15:00
 
 ### 🚀 Nâng cấp hàm kiểm tra và tìm kiếm trường điền Ngày sinh khi Onboarding
