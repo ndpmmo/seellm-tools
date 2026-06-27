@@ -57,6 +57,16 @@ function StatusBadge({ status, notes, tags = [] }: { status: string; notes?: str
     );
   }
 
+  // 3.5. Trường hợp mật khẩu ngắn
+  if (tags.includes('short_password')) {
+    return (
+      <span title={notes} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+        🔑 Mật khẩu ngắn
+      </span>
+    );
+  }
+
   const m: Record<string, { color: string; bg: string; border: string; label: string }> = {
     ready: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Ready' },
     idle: { color: 'text-slate-400', bg: 'bg-white/5', border: 'border-white/5', label: 'Idle' },
@@ -137,6 +147,7 @@ const TAG_META: Record<string, { icon: any; color: string; bg: string; border: s
   'workspace':     { icon: Briefcase, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', tip: 'Tài khoản có Workspace — thuộc tổ chức/doanh nghiệp' },
   'account_deactivated': { icon: XCircle, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Tài khoản bị vô hiệu hóa — OpenAI Deactivated' },
   'wrong_password': { icon: KeyRound, color: 'text-rose-500 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Sai mật khẩu — phát hiện trong quá trình đăng nhập hoặc warmup' },
+  'short_password': { icon: KeyRound, color: 'text-amber-500 font-bold', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Mật khẩu quá ngắn (<12 ký tự) — OpenAI yêu cầu tối thiểu 12 ký tự' },
   'need_2fa': { icon: ShieldAlert, color: 'text-amber-500 font-bold', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Thiếu Secret Key 2FA — phát hiện trong quá trình đăng nhập/warmup' },
   'email_error': { icon: Mail, color: 'text-rose-400 font-bold', bg: 'bg-rose-500/10', border: 'border-rose-500/20', tip: 'Lỗi Email/OTP — hòm thư bị khóa, abuse hoặc lỗi fetch OTP' },
   'email_pool_deleted': { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', tip: 'Email liên kết đã bị xóa khỏi Email Pool của Workshop' },
@@ -1639,6 +1650,7 @@ export function VaultAccountsView() {
                   <option value="need_phone" className="bg-[#0f172a]">Cần Số điện thoại</option>
                   <option value="email_dead" className="bg-[#0f172a]">Email đã chết</option>
                   <option value="wrong_password" className="bg-[#0f172a]">Sai mật khẩu</option>
+                  <option value="short_password" className="bg-[#0f172a]">Mật khẩu ngắn (&lt;12 ký tự)</option>
                   <option value="need_2fa" className="bg-[#0f172a]">Thiếu Secret Key 2FA</option>
                   <option value="has_2fa" className="bg-[#0f172a]">Có bảo mật 2FA</option>
                   <option value="no_2fa" className="bg-[#0f172a]">Không có 2FA</option>
@@ -1699,6 +1711,8 @@ export function VaultAccountsView() {
                       filterTag === 'vault-register' ? 'Tạo thủ công' :
                       filterTag === 'need_phone' ? 'Cần Số điện thoại' :
                       filterTag === 'email_dead' ? 'Email đã chết' :
+                      filterTag === 'wrong_password' ? 'Sai mật khẩu' :
+                      filterTag === 'short_password' ? 'Mật khẩu ngắn' :
                       filterTag === 'has_2fa' ? 'Có bảo mật 2FA' :
                       filterTag === 'no_2fa' ? 'Không có 2FA' :
                       filterTag

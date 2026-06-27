@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.280] - 2026-06-27 21:55:00
+
+### 🚀 Bổ sung nhãn riêng và bộ lọc Mật khẩu ngắn cho giao diện Account Vault
+
+- **Nhãn lỗi riêng biệt (`short_password`)**: Thay vì gán nhãn chung `wrong_password`, hệ thống nay sẽ gán nhãn chính xác `short_password` cho các tài khoản có mật khẩu ngắn hơn 12 ký tự bị phát hiện trong lúc warmup.
+- **Trực quan hóa trạng thái**:
+  - Hiển thị nhãn `Mật khẩu ngắn` màu cam (amber) nổi bật trên danh sách tài khoản.
+  - Tự động xóa bỏ nhãn `short_password` khi tài khoản chạy warmup thành công ở lượt tiếp theo (sau khi người dùng cập nhật mật khẩu mới).
+- **Bộ lọc thông minh (Filter)**: Bổ sung bộ lọc "Mật khẩu ngắn (<12 ký tự)" vào dropdown bộ lọc Nhãn đặc biệt tại giao diện `?view=vault-accounts` để dễ dàng tìm kiếm và xử lý hàng loạt.
+
 ## [0.3.279] - 2026-06-27 18:25:00
 
 ### 🚀 Khắc phục lỗi Warmup thất bại do Mật khẩu ngắn hơn 12 ký tự (PASSWORD_TOO_SHORT)

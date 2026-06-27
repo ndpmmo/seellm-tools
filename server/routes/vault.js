@@ -206,6 +206,18 @@ function isPasswordTooShortMsg(message) {
   return msg.includes('password_too_short') || msg.includes('ngắn hơn yêu cầu 12 ký tự') || msg.includes('too_short') || msg.includes('at least 12 characters');
 }
 
+function maybeAddShortPasswordTag(id, message) {
+  if (isPasswordTooShortMsg(message)) {
+    const account = vault.getAccountFull(id);
+    if (!account) return;
+    const tags = safeParseTags(account.tags);
+    if (!tags.includes('short_password')) {
+      tags.push('short_password');
+      vault.upsertAccount({ id, tags });
+    }
+  }
+}
+
 function maybeAddEmailErrorTag(id, message) {
   if (isEmailErrorMsg(message)) {
     const account = vault.getAccountFull(id);
@@ -3687,7 +3699,7 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       // Xoá các nhãn lỗi nếu đăng nhập thành công
       let tags = safeParseTags(account.tags);
       let tagsChanged = false;
-      ['wrong_password', 'account_deactivated', 'need_phone', 'email_error'].forEach(t => {
+      ['wrong_password', 'account_deactivated', 'need_phone', 'email_error', 'short_password'].forEach(t => {
         if (tags.includes(t)) {
           tags = tags.filter(x => x !== t);
           tagsChanged = true;
@@ -3708,7 +3720,7 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       updateData.status = 'error';
       updateData.notes = `Tài khoản yêu cầu 2FA nhưng thiếu Secret Key (phát hiện trong Warmup: ${error})`;
     } else if (isPasswordTooShortMsg(error)) {
-      maybeAddWrongPasswordTag(id, error);
+      maybeAddShortPasswordTag(id, error);
       updateData.status = 'relogin';
       updateData.notes = `Mật khẩu quá ngắn, OpenAI yêu cầu tối thiểu 12 ký tự (phát hiện trong Warmup: ${error})`;
     } else if (isReloginMsg(error)) {
