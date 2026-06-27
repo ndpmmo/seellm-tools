@@ -737,6 +737,18 @@ export async function fillPassword(tabId, userId, password) {
                   console.log('[fillPassword] Password validation failed because the password is less than 12 characters or does not meet criteria.');
                   return { ok: false, reason: 'PASSWORD_TOO_SHORT', isBlock: true };
                 }
+                const isIncorrectPwd = bodyLower.includes('incorrect email') || 
+                                       bodyLower.includes('wrong email') || 
+                                       bodyLower.includes('incorrect password') || 
+                                       bodyLower.includes('không chính xác') || 
+                                       bodyLower.includes('sai mật khẩu') ||
+                                       bodyLower.includes('mật khẩu không đúng') ||
+                                       bodyLower.includes('password is incorrect') ||
+                                       bodyLower.includes('wrong password');
+                if (isIncorrectPwd) {
+                  console.log('[fillPassword] Password validation failed: Incorrect email address or password.');
+                  return { ok: false, reason: 'INCORRECT_PASSWORD', isBlock: false };
+                }
                 console.log('[fillPassword] form.requestSubmit() completed but page did not transition. This strongly indicates a Turnstile / IP Reputation block.');
                 return { ok: false, reason: 'BLOCKED_BY_OPENAI_TURNSTILE', isBlock: true };
               }

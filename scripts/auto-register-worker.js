@@ -796,8 +796,28 @@ export async function runAutoRegister(taskInput) {
 
   // Update pool status to processing
   await updatePoolStatus(email, { chatgpt_status: 'processing' });
-  // Tạo mật khẩu ngẫu nhiên đủ mạnh (CONFIG.passwordLength ký tự: chữ thường, chữ hoa, số, ký tự đặc biệt)
-  let chatGptPassword = generatePassword(CONFIG.passwordLength);
+
+  // Lấy password hiện tại từ Vault nếu account đã tồn tại để tránh tạo lại pass mới khi chạy lại (Re-Register)
+  let chatGptPassword = '';
+  try {
+    const vaultLookupRes = await fetch(`${TOOLS_API_URL}/api/vault/accounts/${encodeURIComponent(email)}`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (vaultLookupRes.ok) {
+      const vaultAcc = await vaultLookupRes.json();
+      if (vaultAcc && vaultAcc.password) {
+        chatGptPassword = vaultAcc.password;
+        console.log(`[Auto-Register] 🔑 Tìm thấy mật khẩu hiện tại trong Vault: ${chatGptPassword}`);
+      }
+    }
+  } catch (vaultErr) {
+    console.log(`[Auto-Register] Vault lookup error: ${vaultErr.message}`);
+  }
+
+  if (!chatGptPassword) {
+    chatGptPassword = generatePassword(CONFIG.passwordLength);
+    console.log(`[Auto-Register] 🔑 Sinh mật khẩu mới ngẫu nhiên: ${chatGptPassword}`);
+  }
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -1377,9 +1397,12 @@ export async function runAutoRegister(taskInput) {
 
     console.log(`[Flow Detection]:`, JSON.stringify(flowDetection));
 
-    // Email-exists detection: nếu vào OTP screen mà không hề thấy password input
+    // Email-exists detection: nếu vào OTP screen hoặc màn hình Password của Login
     // → account đã tồn tại, chuyển sang existing-account flow
-    if ((flowDetection?.isEmailVerification || flowDetection?.hasCodeInput) && !flowDetection?.hasPasswordInput && !flowDetection?.hasEmailVerificationLink) {
+    const isLoginPasswordPage = flowDetection?.url?.includes('log-in/password') || 
+                                (flowDetection?.hasPasswordInput && !flowDetection?.url?.includes('create-account'));
+    
+    if (isLoginPasswordPage || ((flowDetection?.isEmailVerification || flowDetection?.hasCodeInput) && !flowDetection?.hasPasswordInput && !flowDetection?.hasEmailVerificationLink)) {
       console.log(`[Flow] Email already registered — switching to existing-account flow`);
       isExistingAccount = true;
     }

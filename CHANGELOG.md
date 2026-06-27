@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.286] - 2026-06-28 00:45:00
+
+### 🚀 Khắc phục lỗi kẹt và báo sai mã lỗi chặn Turnstile khi chạy lại Đăng ký hàng loạt
+
+- **Tự động khôi phục Mật khẩu cũ từ Vault**: Khi tiến trình Đăng ký hàng loạt được chạy lại cho một email đã tồn tại trong Vault, hệ thống sẽ tự động tra cứu cục bộ qua API `/api/vault/accounts/:email` để tái sử dụng mật khẩu cũ đã đăng ký thay vì sinh mật khẩu ngẫu nhiên mới, tránh việc đăng nhập thất bại.
+- **Nhận dạng thông minh màn hình Mật khẩu Login**: Cho phép tự động chuyển đổi sang luồng đăng nhập (existing-account flow) ngay khi phát hiện màn hình điền mật khẩu đăng nhập `/log-in/password` trong quá trình đăng ký.
+- **Tránh báo lỗi giả lập chặn Turnstile**: Cập nhật hàm `fillPassword` trong `scripts/lib/openai-login-flow.js` để quét tìm các nhãn thông báo sai mật khẩu (ví dụ: "Incorrect email address or password") để báo đúng lỗi `INCORRECT_PASSWORD` thay vì kết luận sai là bị chặn IP/Turnstile.
+
 ## [0.3.285] - 2026-06-28 00:33:00
 
 ### 🚀 Nâng cấp thuật toán nhận dạng trường nhập Ngày sinh thông minh bỏ qua định dạng ẩn CSS
