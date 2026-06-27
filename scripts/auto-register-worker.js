@@ -936,8 +936,8 @@ export async function runAutoRegister(taskInput) {
         // Reset flags để browser flow detect lại từ đầu
         isExistingAccount = false;
         // Delay để OpenAI "quên" session từ protocol trước khi browser mở tab
-        console.log(`[Protocol] Waiting 10s before browser fallback to avoid session contamination...`);
-        await new Promise(r => setTimeout(r, 10000));
+        console.log(`[Protocol] Waiting 5s before browser fallback to avoid session contamination...`);
+        await new Promise(r => setTimeout(r, 5000));
       }
     }
 
@@ -1949,11 +1949,12 @@ export async function runAutoRegister(taskInput) {
             return false;
           })()
         `).catch(() => null);
+        // Đặt minTime TRƯỜC khi click resend để tránh nhận nhầm email cũ nếu email đến ngay sau khi click
+        const newMinTime = Date.now();
         console.log(`[OTP] Resend email click result:`, resendRes);
         await new Promise(r => setTimeout(r, 5000));
         
-        // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian mới để tránh nhận mã cũ
-        const newMinTime = Date.now();
+        // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian đã set trước
         otpCode = await waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 60, minTime: newMinTime });
       }
 
@@ -2250,7 +2251,8 @@ export async function runAutoRegister(taskInput) {
     `);
     if (hasPwdInputAfterOtp) {
       console.log(`[4.3] Phát hiện màn hình tạo mật khẩu sau khi giải OTP. Tiến hành điền mật khẩu...`);
-      let pwdCandidates = [];
+      // ƯU TIÊN dùng chatGptPassword đã có (từ Vault hoặc đã đựợc generate trước) để đảm bảo nhất quán với dữ liệu DB
+      const pwdCandidates = [chatGptPassword];
       while (pwdCandidates.length < 3) {
         const candidate = generatePassword(CONFIG.passwordLength);
         if (!pwdCandidates.includes(candidate)) pwdCandidates.push(candidate);
@@ -2357,8 +2359,10 @@ export async function runAutoRegister(taskInput) {
         return !!input;
       })()
     `);
-    if (!isExistingAccount || hasAboutInputs) {
-      console.log(`[5] Bypass thông tin Form About...`);
+    // Chỉ điền form About khi trang thực sự có các input liên quan
+    // (tránh waitForSelector 15s thừa nếu OpenAI bỏ bước About trong A/B test)
+    if (hasAboutInputs) {
+      console.log(`[5] Điền Form About (phát hiện có input name/birthday)...`);
       await assertPageContext(tabId, USER_ID, 'before-about-form', ['chatgpt.com', 'openai.com']);
       const userInfo = generateRandomUserInfo();
       await waitForSelector(tabId, USER_ID, 'input[name="name"], input[placeholder*="name" i]', { timeoutMs: 15000 }).catch(() => {});
@@ -2942,8 +2946,9 @@ export async function runAutoRegister(taskInput) {
       } else {
         throw new Error('Registration failed (No Auth session). Check screenshots.');
       }
-    } else if (sessionToken.length < 20) {
-      console.log(`[8] ⚠️ Session token quá ngắn (${sessionToken.length} chars), có thể invalid.`);
+    } else if (sessionToken.length < 50) {
+      // Token quá ngắn (< 50 chars) khả năng cao là invalid/truncated — throw để tránh lưu vào DB
+      throw new Error(`Registration failed: Session token invalid (length=${sessionToken.length}, expected 50+). Check screenshots.`);
     }
 
     console.log(`==========================================`);

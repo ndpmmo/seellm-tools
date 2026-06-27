@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.288] - 2026-06-28 01:40:00
+
+### 🚀 Tối ưu hóa toàn diện hệ thống Đăng ký hàng loạt (Batch 1)
+
+- **[vault.js] Giới hạn log tối đa 500 entries**: `BulkRegisterRunner.log()` nay tự động trim log entries cũ khi vượt 500 dòng, tránh memory leak khi chạy bulk run lớn (1000+ accounts).
+- **[vault.js] Giảm stagger delay từ 10s xuống 5s**: Khoảng cách khởi chạy giữa các browser từ 10 giây/luồng xuống còn 5 giây. RAM guard đã bảo vệ CPU, 5s là đủ để tránh race condition khi spawn browser đồng thời.
+- **[vault.js] Auto-stop policy thông minh hơn**: Hệ thống chỉ tự động dừng toàn bộ bulk run sau **≥2 lỗi proxy nghiêm trọng liên tiếp** (thay vì dừng ngay sau 1 lỗi). Điều này tránh dừng oan vì lỗi mạng thoáng qua, trong khi vẫn bảo vệ khỏi sự cố proxy thực sự.
+- **[vault.js] Fix `retryFailed()` duplicate queue**: Thêm dedup check khi push tasks vào queue — nếu email đã có trong queue (do gọi `retryFailed` nhiều lần), sẽ không bị push trùng, tránh spawn 2 worker cho cùng 1 email.
+- **[vault.js] Reset `autoRetryCounts` khi retry**: Gọi `retryFailed()` nay reset auto-retry count cho các email thất bại, cho phép cơ chế auto-proxy-rotation hoạt động đầy đủ trong lần retry kế tiếp.
+- **[auto-register-worker.js] Protocol fallback delay 10s → 5s**: Giảm thời gian chờ trước khi chuyển sang browser flow từ 10s xuống 5s sau khi protocol mode thất bại.
+- **[auto-register-worker.js] Fix OTP resend minTime sai thứ tự**: `minTime` (timestamp để lọc email cũ) nay được set **trước khi click resend**, không phải sau. Điều này đảm bảo email cũ đến trong khoảng 5s chờ không bị nhận nhầm làm mã OTP mới.
+- **[auto-register-worker.js] Password sau OTP ưu tiên dùng chatGptPassword**: Khi OpenAI yêu cầu tạo mật khẩu sau bước OTP, hệ thống nay ưu tiên dùng `chatGptPassword` đã có (từ Vault hoặc đã generate từ đầu flow) thay vì generate password ngẫu nhiên mới, đảm bảo nhất quán giữa password lưu DB và password thực tế.
+- **[auto-register-worker.js] About form condition chính xác hơn**: Điều kiện điền form About-You được đổi từ `if (!isExistingAccount || hasAboutInputs)` sang `if (hasAboutInputs)`. Nay chỉ thực sự điền form khi trang có input name/birthday, tránh `waitForSelector` 15s thừa nếu OpenAI bỏ bước này.
+- **[auto-register-worker.js] Session token validate nghiêm ngặt hơn**: Token ngắn dưới 50 ký tự (trước là 20) nay throw error thay vì chỉ log warning, tránh lưu token invalid/truncated vào DB và gây lỗi downstream.
+
 ## [0.3.287] - 2026-06-28 01:25:00
 
 ### 🚀 Tối ưu hóa hiệu năng Concurrency và phát hiện thông minh liên kết Google/Apple Auth

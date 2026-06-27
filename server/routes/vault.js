@@ -1563,6 +1563,8 @@ class BulkRegisterRunner {
     const timestamp = new Date().toLocaleTimeString();
     if (!this.logs) this.logs = [];
     this.logs.push(`[${timestamp}] ${text}`);
+    // Giới hạn tối đa 500 log entries để tránh memory leak khi chạy lớn
+    if (this.logs.length > 500) this.logs.splice(0, this.logs.length - 500);
     console.log(`[Bulk][${this.id}] ${text}`);
   }
 
@@ -1649,10 +1651,18 @@ class BulkRegisterRunner {
           this.failed.push({ email, error: errMsg });
           this.log(`❌ Đăng ký thất bại: ${email} (${errMsg})`);
 
-          // Only stop the entire bulk run if it's a severe system proxy error (not a simple reputation block)
+          // Chỉ dừng bulk run khi có ≥2 lỗi proxy nghiêm trọng liên tiếp để tránh dừng oan vì lỗi mạng tạm thời
           if (isProxyError && !errMsg.includes('BLOCKED_BY_OPENAI') && !errMsg.includes('IP Check failed')) {
-            this.log(`🛑 [An toàn] Tự động dừng tiến trình Bulk do lỗi Proxy hệ thống ở account ${email}.`);
-            this.stop();
+            this.consecutiveProxyErrors = (this.consecutiveProxyErrors || 0) + 1;
+            if (this.consecutiveProxyErrors >= 2) {
+              this.log(`🛑 [An toàn] Tự động dừng tiến trình Bulk do lỗi Proxy hệ thống liên tiếp (${this.consecutiveProxyErrors} lần) ở account ${email}.`);
+              this.stop();
+            } else {
+              this.log(`⚠️ [An toàn] Phát hiện lỗi Proxy hệ thống lần ${this.consecutiveProxyErrors} ở ${email}. Cần thêm 1 lỗi nữa mới dừng.`);
+            }
+          } else {
+            // Reset counter khi không phải lỗi proxy nghiêm trọng
+            this.consecutiveProxyErrors = 0;
           }
         }
 
@@ -1678,7 +1688,7 @@ class BulkRegisterRunner {
         break;
       }
 
-      const delayMs = spawnIndex * 10000;
+      const delayMs = spawnIndex * 5000; // 5s đủ để tránh browser spawn race; RAM guard đã giới hạn concurrency
       const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}`;
       spawnIndex++;
       
@@ -1781,6 +1791,9 @@ class BulkRegisterRunner {
     const tasksToRetry = this.allTasks.filter(t => failedEmails.includes(t.emailRecord.email));
     if (tasksToRetry.length === 0) return false;
 
+    // Reset autoRetryCounts cho các email được retry để cho phép auto-proxy-rotation hoạt động lại
+    failedEmails.forEach(e => this.autoRetryCounts.delete(e));
+
     // Rotate/Distribute proxies for tasks to retry if we have a pool of proxies
     if (this.proxies && this.proxies.length > 0) {
       const parsedRatio = (config && typeof config.ratio === 'number') ? config.ratio : 1;
@@ -1795,7 +1808,10 @@ class BulkRegisterRunner {
       });
     }
 
-    this.queue = [...this.queue, ...tasksToRetry];
+    // Dedup: chỉ thêm tasks chưa có trong queue (tránh gọi retryFailed 2 lần → 2 worker cùng email)
+    const existingQueueEmails = new Set(this.queue.map(t => t.emailRecord.email));
+    const dedupedTasks = tasksToRetry.filter(t => !existingQueueEmails.has(t.emailRecord.email));
+    this.queue = [...this.queue, ...dedupedTasks];
     this.total = this.completed.length + this.failed.length + this.queue.length + this.activeWorkers.size;
     this.failed = this.failed.filter(f => !failedEmails.includes(f.email));
     
