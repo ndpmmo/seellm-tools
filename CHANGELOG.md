@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.282] - 2026-06-27 23:48:00
+
+### 🚀 Khắc phục tình trạng rò rỉ phiên đăng nhập (stale session cookies) khi chạy lại Auto-Register
+
+- **Đồng bộ hóa độ dài Hash của Thư mục Profile**: Sửa đổi hàm `checkProfileExists` trong `scripts/lib/camofox.js` để sử dụng đúng độ dài 32 ký tự của mã băm SHA256 thay vì 64 ký tự, đồng bộ hoàn toàn với cấu trúc thư mục profile của `camofox-browser`.
+- **Dọn dẹp thư mục Profile vật lý khi dọn dẹp phiên**: Bổ sung hàm `deleteProfile` trong `scripts/lib/camofox.js` và gọi hàm này trong phần dọn dẹp trước khi đăng ký (`PreClean`) ở `scripts/auto-register-worker.js`.
+- **Loại bỏ lỗi kẹt trang chủ sau khi chạy lại**: Khi đăng ký lại một tài khoản đã từng đăng ký thành công một nửa trước đó, trình duyệt không còn khôi phục các session cookies cũ (như profile Kathryn Knight hay JC) dẫn đến việc bị chuyển hướng sai về trang chủ ChatGPT và báo lỗi `[Email-submit] URL không đổi`. Quá trình đăng ký giờ đây luôn bắt đầu từ một phiên trình duyệt hoàn toàn sạch sẽ (clean slate).
+
 ## [0.3.281] - 2026-06-27 23:38:00
 
 ### 🚀 Khắc phục lỗi kẹt màn hình Onboarding của tiến trình 2FA Regen

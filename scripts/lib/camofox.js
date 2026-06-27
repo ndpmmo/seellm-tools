@@ -33,10 +33,29 @@ export async function checkProfileExists(userId) {
   try {
     const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir() || '';
     const profilesDir = process.env.CAMOFOX_PROFILE_DIR || path.join(homeDir, '.camofox', 'profiles');
-    const hash = getSha256(userId);
+    const hash = getSha256(userId).slice(0, 32);
     const targetDir = path.join(profilesDir, hash);
     const stat = await fs.stat(targetDir);
     return stat.isDirectory();
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Deletes the physical profile directory on disk for a given userId
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function deleteProfile(userId) {
+  if (!userId) return false;
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir() || '';
+    const profilesDir = process.env.CAMOFOX_PROFILE_DIR || path.join(homeDir, '.camofox', 'profiles');
+    const hash = getSha256(userId).slice(0, 32);
+    const targetDir = path.join(profilesDir, hash);
+    await fs.rm(targetDir, { recursive: true, force: true });
+    return true;
   } catch (e) {
     return false;
   }

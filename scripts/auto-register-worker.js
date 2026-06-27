@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { CAMOUFOX_API, GATEWAY_URL, WORKER_AUTH_TOKEN, TOOLS_API_URL, PROTOCOL_FIRST } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, waitForElementGone, waitForCondition, pressKey, checkProfileExists, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSelector, waitForElementGone, waitForCondition, pressKey, checkProfileExists, deleteProfile, getGlobalUsePersistent, actClick, actPress, actType } from './lib/camofox.js';
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
@@ -940,7 +940,8 @@ export async function runAutoRegister(taskInput) {
     // 🧹 Xóa session/cookies cũ trước khi tạo tab đăng ký mới để tránh persistent session redirect
     // Khi persistent=true, session cũ của email này có thể còn active → OpenAI redirect về /?slm=1
     if (usePersistent) {
-      console.log(`🧹 [PreClean] Xóa session cũ của ${USER_ID} để tránh stale cookie redirect...`);
+      console.log(`🧹 [PreClean] Xóa session cũ và profile trên đĩa của ${USER_ID} để tránh stale cookie redirect...`);
+      await deleteProfile(USER_ID).catch(() => {});
       await camofoxDelete(`/sessions/${USER_ID}`, { timeoutMs: 8000 }).catch(e => {
         console.log(`[PreClean] Session delete failed (có thể session chưa tồn tại): ${e.message}`);
       });
