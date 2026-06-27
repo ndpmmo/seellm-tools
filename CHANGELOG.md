@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.277] - 2026-06-27 14:45:00
+
+### 🚀 Khắc phục lỗi thiết lập lại 2FA (MFA Setup) khi bị yêu cầu mật khẩu xác minh khi Tắt 2FA cũ
+
+- **Xử lý yêu cầu xác minh mật khẩu khi Tắt 2FA**: Bổ sung cuộc gọi `handlePasswordVerificationPrompt` vào tiến trình tắt 2FA cũ trong `scripts/lib/mfa-setup.js`. Việc này giải quyết lỗi khi hệ thống click tắt 2FA cũ và bị OpenAI yêu cầu xác nhận lại mật khẩu ("First, verify it's you"), dẫn đến kẹt màn hình và báo lỗi `Toggle/Button Authenticator app not found`.
+- **Đợi trang Settings tải lại sau re-auth**: Thêm vòng lặp chờ tối đa 15 giây để đợi trang chuyển hướng ngược lại về ChatGPT Settings và tải hoàn tất nội dung tab Security sau khi hoàn tất xác minh mật khẩu trước khi tiếp tục các thao tác bật 2FA mới.
+
 ## [0.3.276] - 2026-06-26 19:25:00
 
 ### 🚀 Tối ưu hóa tải trang Security Settings trong MFA Setup và Ổn định hóa bước xác thực OTP Đăng ký

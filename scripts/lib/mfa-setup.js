@@ -833,6 +833,25 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 await wait(4000);
             }
 
+            // --- Xử lý xác nhận mật khẩu khi tắt 2FA (nếu có) ---
+            await handlePasswordVerificationPrompt(tabId, userId, apiHelper, options.password, log, wait, run);
+
+            // Đợi quay lại ChatGPT Settings và nội dung tải xong hoàn toàn sau khi xác minh danh tính
+            log('Đợi quay lại ChatGPT Settings sau khi xác minh...');
+            let isSettingsLoadedAfterReauth = false;
+            for (let w = 0; w < 15; w++) {
+                isSettingsLoadedAfterReauth = await run(`
+                    (() => {
+                        const dialog = document.querySelector('[role="dialog"]');
+                        if (!dialog) return false;
+                        const text = dialog.innerText.toLowerCase();
+                        return text.includes('password') || text.includes('multi-factor') || text.includes('authenticator') || text.includes('xác thực');
+                    })()
+                `).catch(() => false);
+                if (isSettingsLoadedAfterReauth) break;
+                await wait(1000);
+            }
+
             log('Đợi 5 giây để tiến trình tắt 2FA hoàn tất và trang cập nhật...');
             await wait(5000);
 
