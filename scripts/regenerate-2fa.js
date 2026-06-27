@@ -354,11 +354,20 @@ async function run2faRegen() {
             // Append a realistic last name to satisfy "First and Last Name" validation
             fullName = fullName + ' Smith';
           }
-          const age = String(Math.floor(Math.random() * 11) + 25); // Random age between 25 and 35
+          const ageNum = Math.floor(Math.random() * 11) + 25; // Random age between 25 and 35
+          const age = String(ageNum);
+          const currentYear = new Date().getFullYear();
+          const year = currentYear - ageNum;
+          const monthNum = Math.floor(Math.random() * 12) + 1;
+          const dayNum = Math.floor(Math.random() * 28) + 1;
+          const birthdate = `${year}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
           
-          console.log(`[2FA Regen] ✍️ Điền Full Name: "${fullName}" | Age: ${age}`);
+          console.log(`[2FA Regen] ✍️ Điền Full Name: "${fullName}" | Age: ${age} | Bday: ${birthdate}`);
           
           const onboardResult = await evalJson(tabId, USER_ID, `(() => {
+            const isVisible = (el) => el && el.type !== 'hidden' && el.style.display !== 'none';
+            const getVisibleInput = (selectors) => Array.from(document.querySelectorAll(selectors)).find(isVisible);
+
             const nameInput = Array.from(document.querySelectorAll('input')).find(el => {
               const placeholder = (el.placeholder || '').toLowerCase();
               const id = (el.id || '').toLowerCase();
@@ -366,24 +375,32 @@ async function run2faRegen() {
               return placeholder.includes('name') || id.includes('name') || name.includes('name') || el.type === 'text';
             });
 
-            const ageInput = Array.from(document.querySelectorAll('input')).find(el => {
-              const placeholder = (el.placeholder || '').toLowerCase();
-              const id = (el.id || '').toLowerCase();
-              const name = (el.name || '').toLowerCase();
-              return placeholder.includes('age') || id.includes('age') || name.includes('age') || el.type === 'number' || el.inputMode === 'numeric';
-            });
+            // Thử lấy các ô nhập ngày sinh MM / DD / YYYY
+            const birthMonthEl = getVisibleInput('input[aria-label="Month" i], input[placeholder="MM"], input[name="birth_month"], input[name="month"], select[aria-label="Month" i], select[name="month"]');
+            const birthDayEl = getVisibleInput('input[aria-label="Day" i], input[placeholder="DD"], input[name="birth_day"], input[name="day"], select[aria-label="Day" i], select[name="day"]');
+            const birthYearEl = getVisibleInput('input[aria-label="Year" i], input[placeholder="YYYY"], input[name="birth_year"], input[name="year"], select[aria-label="Year" i], select[name="year"]');
 
-            if (!nameInput || !ageInput) {
-              return { ok: false, reason: 'missing-inputs', hasInputs: !!nameInput + '/' + !!ageInput };
+            const ageEl = getVisibleInput('input[name="age"], input[placeholder="Age"], input[placeholder*="age" i], input[aria-label="Age" i]');
+            const dobEl = getVisibleInput('input[name="birthday"], input[name="dob"], input[name*="birth" i], input[id*="birth" i], input[autocomplete="bday"], input[type="date"], input[placeholder*="DD"], input[placeholder*="MM/DD"], input[placeholder*="MM/DD/YYYY"], input[placeholder*="YYYY"], input[placeholder*="Birthday" i], input[placeholder*="Date of birth" i]');
+
+            const hasBdayInput = !!((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl) || ageEl || dobEl);
+
+            if (!nameInput || !hasBdayInput) {
+              return { ok: false, reason: 'missing-inputs', hasInputs: !!nameInput + '/' + hasBdayInput };
             }
 
             const setValue = (el, val) => {
+              if (!el) return;
               el.focus();
+              if (el.tagName === 'SELECT') {
+                el.value = val;
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+              }
               const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
               if (nativeInput) nativeInput.set.call(el, val);
               else el.value = val;
               
-              // Dispatch multiple keyboard and React state sync events to satisfy state validation
               el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
               el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
@@ -393,7 +410,24 @@ async function run2faRegen() {
             };
 
             setValue(nameInput, ${JSON.stringify(fullName)});
-            setValue(ageInput, ${JSON.stringify(age)});
+
+            if ((birthMonthEl && birthYearEl) || (birthMonthEl && birthDayEl && birthYearEl)) {
+              if (birthMonthEl) setValue(birthMonthEl, ${JSON.stringify(String(monthNum).padStart(2, '0'))});
+              if (birthDayEl) setValue(birthDayEl, ${JSON.stringify(String(dayNum).padStart(2, '0'))});
+              if (birthYearEl) setValue(birthYearEl, ${JSON.stringify(String(year))});
+            } else if (ageEl && ageEl.type !== 'date') {
+              setValue(ageEl, ${JSON.stringify(age)});
+            } else if (dobEl) {
+              if (dobEl.type === 'date') {
+                setValue(dobEl, ${JSON.stringify(birthdate)});
+              } else {
+                const placeholder = dobEl.placeholder || '';
+                let dobStr = placeholder.startsWith('MM')
+                  ? ${JSON.stringify(String(monthNum).padStart(2, '0') + '/' + String(dayNum).padStart(2, '0') + '/' + String(year))}
+                  : ${JSON.stringify(String(dayNum).padStart(2, '0') + '/' + String(monthNum).padStart(2, '0') + '/' + String(year))};
+                setValue(dobEl, dobStr);
+              }
+            }
 
             const btn = Array.from(document.querySelectorAll('button')).find(el => {
               const text = (el.innerText || el.textContent || '').toLowerCase();

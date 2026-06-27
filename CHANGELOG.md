@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.281] - 2026-06-27 23:38:00
+
+### 🚀 Khắc phục lỗi kẹt màn hình Onboarding của tiến trình 2FA Regen
+
+- **Cải tiến điền thông tin Onboarding**: Cập nhật hàm xử lý điền thông tin cá nhân lúc bắt đầu đăng nhập trong `scripts/regenerate-2fa.js`. Đồng bộ hóa logic điền ngày sinh đa dạng (hỗ trợ cả ô nhập `Age`, ô nhập Date dạng `dob` và các ô nhập MM/DD/YYYY riêng lẻ) tương tự như ở `auto-register-worker.js`.
+- **Khắc phục lỗi `missing-inputs`**: Sửa đổi này loại bỏ triệt để lỗi không tìm thấy trường `age` khi OpenAI thay đổi giao diện onboarding thành chọn ngày sinh dạng Month/Day/Year, giúp 2FA Regen vượt qua màn hình Onboarding một cách trôi chảy và tiếp tục tạo khóa 2FA.
+
 ## [0.3.280] - 2026-06-27 21:55:00
 
 ### 🚀 Bổ sung nhãn riêng và bộ lọc Mật khẩu ngắn cho giao diện Account Vault
