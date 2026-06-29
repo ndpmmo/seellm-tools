@@ -385,7 +385,23 @@ async function run2faRegen() {
               const placeholder = (el.placeholder || '').toLowerCase();
               const id = (el.id || '').toLowerCase();
               const name = (el.name || '').toLowerCase();
-              return placeholder.includes('name') || id.includes('name') || name.includes('name');
+              const label = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
+              const labelText = (label?.innerText || '').toLowerCase();
+              const parent = el.closest('[data-testid*="name" i], [class*="name" i]');
+              return placeholder.includes('name') || id.includes('name') || name.includes('name') || labelText.includes('name') || parent !== null;
+            };
+
+            const fieldText = (el) => {
+              const own = [
+                el.placeholder,
+                el.id,
+                el.name,
+                el.getAttribute('aria-label'),
+                el.getAttribute('data-testid'),
+              ].filter(Boolean).join(' ');
+              const label = el.id ? document.querySelector(\`label[for="\${CSS.escape(el.id)}"]\`) : null;
+              const parentText = (el.closest('label, fieldset, div')?.innerText || '').slice(0, 300);
+              return [own, label?.innerText, parentText].filter(Boolean).join(' ').toLowerCase();
             };
 
             let nameInputs = inputs.filter(isNameInput);
@@ -461,17 +477,20 @@ async function run2faRegen() {
             // Điền ngày sinh / tuổi
             if (bdayInputs.length >= 3) {
               // Giao diện segmented MM / DD / YYYY
-              const monthEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('m') || (el.name || '').toLowerCase().includes('month') || (el.ariaLabel || '').toLowerCase().includes('month')) || bdayInputs[0];
-              const dayEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('d') || (el.name || '').toLowerCase().includes('day') || (el.ariaLabel || '').toLowerCase().includes('day')) || bdayInputs[1];
-              const yearEl = bdayInputs.find(el => (el.placeholder || '').toLowerCase().includes('y') || (el.name || '').toLowerCase().includes('year') || (el.ariaLabel || '').toLowerCase().includes('year')) || bdayInputs[2];
+              const monthEl = bdayInputs.find(el => /month|mm\b|tháng/.test(fieldText(el))) || bdayInputs[0];
+              const dayEl = bdayInputs.find(el => /\bday\b|dd\b|ngày/.test(fieldText(el))) || bdayInputs[1];
+              const yearEl = bdayInputs.find(el => /year|yyyy|birth.*year|year.*birth|năm/.test(fieldText(el))) || bdayInputs[2];
               
               setValue(monthEl, ${JSON.stringify(String(monthNum).padStart(2, '0'))});
               setValue(dayEl, ${JSON.stringify(String(dayNum).padStart(2, '0'))});
               setValue(yearEl, ${JSON.stringify(String(year))});
             } else if (bdayInputs.length > 0) {
-              // Chỉ có 1 ô nhập bday (dạng Date hoặc Age)
+              // Chỉ có 1 ô nhập bday (dạng Date, Age, hoặc Year of birth)
               const bdayEl = bdayInputs[0];
-              if (bdayEl.type === 'number' || (bdayEl.placeholder || '').toLowerCase().includes('age') || (bdayEl.name || '').toLowerCase().includes('age')) {
+              const bdayText = fieldText(bdayEl);
+              if (/year|yyyy|birth.*year|year.*birth|năm/.test(bdayText)) {
+                setValue(bdayEl, ${JSON.stringify(String(year))});
+              } else if (bdayEl.type === 'number' || bdayText.includes('age') || bdayText.includes('tuổi')) {
                 setValue(bdayEl, ${JSON.stringify(age)});
               } else if (bdayEl.type === 'date') {
                 setValue(bdayEl, ${JSON.stringify(birthdate)});

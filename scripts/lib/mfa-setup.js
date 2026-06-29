@@ -461,7 +461,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await saveCheckpoint('mfa_navigate_start');
         
         try {
-            await run(`window.location.hash = '#settings/Security'`);
+            await run(`
+                (() => {
+                    window.location.hash = '#settings/Security';
+                    window.dispatchEvent(new HashChangeEvent('hashchange'));
+                })()
+            `);
             await wait(200);
         } catch (navErr) {
             log(`⚠️ Lỗi khi JS navigate to settings: ${navErr.message}`);
@@ -473,10 +478,19 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         for (let i = 0; i < 25; i++) {
             isOpened = await run(`
                 (() => {
-                    const dialog = document.querySelector('[role="dialog"]');
-                    if (!dialog) return false;
-                    const text = (dialog.innerText || '').toLowerCase();
-                    return text.includes('settings') || text.includes('cài đặt') || text.includes('security') || text.includes('bảo mật');
+                    const containers = [
+                        document.querySelector('[role="dialog"]'),
+                        document.querySelector('main'),
+                        document.body
+                    ].filter(Boolean);
+                    return containers.some(container => {
+                        const text = (container.innerText || '').toLowerCase();
+                        const url = window.location.href.toLowerCase();
+                        const hasSettingsUrl = url.includes('settings') || url.includes('#settings');
+                        const hasSettingsText = text.includes('settings') || text.includes('cài đặt');
+                        const hasSecurityText = text.includes('security') || text.includes('bảo mật') || text.includes('multi-factor') || text.includes('authenticator');
+                        return (hasSettingsUrl && hasSecurityText) || (hasSettingsText && hasSecurityText);
+                    });
                 })()
             `);
             if (isOpened) break;
@@ -539,7 +553,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                     '[data-testid="accounts-profile-button"]',
                                     '[data-testid="profile-button"]',
                                     '[data-testid="user-menu-button"]',
+                                    '[data-testid*="profile" i]',
+                                    '[data-testid*="account" i]',
                                     '[aria-label="Open user menu"]',
+                                    '[aria-label*="account" i]',
+                                    '[aria-label*="profile" i]',
+                                    '[aria-label*="user" i]',
                                     'button:has([alt*="avatar"])',
                                     'button:has(img[src*="avatar"])'
                                 ];
@@ -548,8 +567,18 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                     const visible = elements.find(el => el.offsetWidth > 0 && el.offsetHeight > 0);
                                     if (visible) return visible;
                                 }
-                                const buttons = Array.from(document.querySelectorAll('button'));
-                                return buttons.find(b => (b.querySelector('img[src*="avatar"]') || (b.textContent || '').toLowerCase().includes('avatar')) && b.offsetWidth > 0 && b.offsetHeight > 0);
+                                const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+                                return buttons.find(b => {
+                                    const text = (b.textContent || '').toLowerCase();
+                                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
+                                    return b.offsetWidth > 0 && b.offsetHeight > 0 && (
+                                        b.querySelector('img[src*="avatar"], img[alt*="avatar" i], svg') ||
+                                        text.includes('avatar') ||
+                                        label.includes('profile') ||
+                                        label.includes('account') ||
+                                        label.includes('user')
+                                    );
+                                });
                             };
                             const btn = findVisibleBtn();
                             if (btn) {
@@ -578,10 +607,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
                         let settingsTagged = await run(`
                             (() => {
-                                const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                                const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
                                 const settingsItem = menuItems.find(el => {
                                     const t = (el.textContent || '').trim().toLowerCase();
-                                    return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt');
+                                    const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                                    const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                                    return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt') || label.includes('settings') || testId.includes('settings');
                                 });
                                 if (settingsItem) {
                                     settingsItem.setAttribute('data-mfa-target', 'settings-item');
@@ -598,10 +629,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             
                             settingsTagged = await run(`
                                 (() => {
-                                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], button, a'));
+                                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
                                     const settingsItem = menuItems.find(el => {
                                         const t = (el.textContent || '').trim().toLowerCase();
-                                        return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt');
+                                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                                        return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt') || label.includes('settings') || testId.includes('settings');
                                     });
                                     if (settingsItem) {
                                         settingsItem.setAttribute('data-mfa-target', 'settings-item');
@@ -637,7 +670,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             if (i === 7) {
                 log('Vẫn chưa mở. Thử chuyển sang path-based settings URL...');
                 try {
-                    await run(`window.location.pathname = '/settings/security'`);
+                    await run(`history.pushState(null, '', '/settings/security'); window.dispatchEvent(new PopStateEvent('popstate'));`);
                 } catch (err) {
                     log(`⚠️ Chuyển sang /settings/security qua JS thất bại: ${err.message}`);
                 }
@@ -666,9 +699,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             (() => {
                 let sec = document.querySelector('[data-testid="security-tab"]');
                 if (!sec) {
-                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a')).find(el => {
+                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a, [data-testid*="security" i]')).find(el => {
                         const text = (el.textContent || '').toLowerCase().trim();
-                        return text === 'security' || text === 'bảo mật';
+                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                        return text === 'security' || text === 'bảo mật' || label.includes('security') || testId.includes('security');
                     });
                 }
                 if (sec) {
@@ -703,9 +738,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         for (let w = 0; w < 30; w++) {
             isSettingsLoaded = await run(`
                 (() => {
-                    const dialog = document.querySelector('[role="dialog"]');
-                    if (!dialog) return false;
-                    const text = dialog.innerText.toLowerCase();
+                    const container = document.querySelector('[role="dialog"]') || document.querySelector('main') || document.body;
+                    if (!container) return false;
+                    const text = container.innerText.toLowerCase();
                     return text.includes('password') || text.includes('multi-factor') || text.includes('authenticator') || text.includes('xác thực');
                 })()
             `);

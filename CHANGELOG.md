@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.299] - 2026-06-30 04:07:39
+
+### 🛡️ Khắc phục 2FA Regen thất bại do Onboarding Year-of-Birth và Settings UI mới
+
+- **[regenerate-2fa.js] Sửa lỗi điền sai trường "What year were you born?"**: Khi OpenAI hiển thị onboarding chỉ có 1 ô `Year of birth`, script cũ thấy input dạng number nên điền tuổi (`35`) thay vì năm sinh (`1991`), khiến form báo `Enter a valid year of birth` và loop đến timeout. Logic mới đọc label/placeholder/context để phân biệt `year of birth` với `age`, điền đúng năm sinh khi field yêu cầu năm.
+- **[mfa-setup.js] Tương thích Settings/Security UI mới của ChatGPT**: Mở rộng cách nhận diện Settings từ chỉ `[role="dialog"]` sang cả `main`/`body` và URL `settings`, đồng thời hỗ trợ route/hash navigation, `hashchange`/`popstate`, selector profile menu/settings item rộng hơn, và Security tab theo `text`/`aria-label`/`data-testid`. Khắc phục lỗi `Settings modal could not be opened after 10 attempts` dù account đã login vào ChatGPT home.
+- **[scripts/MAPS.md] Bổ sung bản đồ quản lý scripts**: Thêm catalog nhóm script theo chức năng và liên kết nhanh từ `scripts/README.md` để dễ tra cứu entrypoint, helper, debug/probe, maintenance và legacy scripts.
+- **Chẩn đoán từ log thực tế**: Đối chiếu 3 log 2FA Regen mới nhất cho `kanekimihuy`, `andresnashkldv`, `brooksmiddletonflak` cùng screenshot lỗi để xác định 2 root cause riêng biệt trước khi vá.
+
 ## [0.3.298] - 2026-06-29 20:58:00
 
 ### 🚨 Khắc phục lỗi cốt lõi: auth.openai.com landing page không render form email
