@@ -369,7 +369,10 @@ async function checkPageErrors(tabId, userId) {
     }
     const redEl = document.querySelector('[class*="error"], [class*="red-500"], .text-red-500');
     if (redEl && redEl.offsetParent !== null) {
-      return { hasError: true, snippet: redEl.innerText.slice(0, 200) };
+      const textVal = (redEl.innerText || '').toLowerCase();
+      if (!textVal.includes('can make mistakes') && !textVal.includes('check important info')) {
+        return { hasError: true, snippet: redEl.innerText.slice(0, 200) };
+      }
     }
     return { hasError: false };
   })()`).catch(() => ({ hasError: false }));
@@ -848,7 +851,7 @@ async function runWarmup() {
           continue;
         }
 
-        if (!state.onAuthDomain && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && !state.hasEmailOtpInput) {
+        if (!state.onAuthDomain) {
           if (emailFilled && emailWaitCount < 3) {
             console.log(`[Warmup] ⏳ Đang chờ chuyển trang sau khi điền email...`);
             await delay(3000);

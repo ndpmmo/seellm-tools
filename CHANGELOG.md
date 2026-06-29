@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.295] - 2026-06-29 06:17:00
+
+### 🚀 Khắc phục lỗi kẹt vòng lặp đăng nhập và chẩn đoán lỗi trang giả lập của Warmup
+
+- **[warmup.js] Tách biệt tuyệt đối Redirect Domain khi chưa đăng nhập**: Thay đổi điều kiện kiểm tra chuyển hướng đăng nhập thành `if (!state.onAuthDomain)`. Khi người dùng chưa đăng nhập và không nằm trên auth domain (`auth.openai.com`), hệ thống sẽ lập tức kích hoạt luồng chuyển hướng login thay vì bị đánh lừa bởi các ô nhập email rác hoặc form đăng ký phụ trên trang chủ `chatgpt.com`.
+- **[warmup.js] Khử lỗi chẩn đoán nhầm Disclaimer thành Lỗi hệ thống**: Cập nhật hàm `checkPageErrors` loại bỏ nhãn cảnh báo mặc định của ChatGPT ("ChatGPT can make mistakes. Check important info.") khỏi danh sách quét lỗi của phần tử có class `error` hoặc màu chữ đỏ. Giúp ngăn chặn việc kết luận sai lệch do proxy chậm hoặc trang tải chưa đầy đủ.
+
 ## [0.3.294] - 2026-06-28 05:55:00
 
 ### 🚀 Tối ưu hóa phản ứng 2FA (Reactive Waiting), giữ kết nối (Heartbeat) và nâng cao Timeout
