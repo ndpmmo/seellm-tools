@@ -777,6 +777,7 @@ async function runWarmup() {
       let passwordWaitCount = 0;
       let passwordBlockCount = 0;
       let mfaFilled = false;
+      let consecutiveRedirectClicks = 0; // Đếm số lần click redirect mà URL không thay đổi
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
         console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
@@ -806,6 +807,11 @@ async function runWarmup() {
           console.log(`[Warmup] 👤 Đăng nhập thành công (trạng thái looksLoggedIn = true)!`);
           isLoggedIn = true;
           break;
+        }
+
+        // Reset bộ đếm khi URL đã chuyển sang auth domain thành công
+        if (state.onAuthDomain) {
+          consecutiveRedirectClicks = 0;
         }
         
         if (state.hasDeactivated) {
@@ -869,14 +875,29 @@ async function runWarmup() {
             emailWaitCount = 0;
             passwordFilled = false;
             passwordWaitCount = 0;
+            consecutiveRedirectClicks = 0; // reset vì ta đã vào được auth domain trước đó
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await delay(4000);
             continue;
           }
 
-          console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login...`);
-          await dismissGooglePopupAndClickLogin(tabId, USER_ID);
-          await delay(4000);
+          consecutiveRedirectClicks++;
+          if (consecutiveRedirectClicks >= 3) {
+            // Click DOM không hiệu quả → force navigate thẳng đến trang đăng nhập
+            console.log(`[Warmup] 🚨 Click redirect thất bại ${consecutiveRedirectClicks} lần liên tiếp -> Force navigate thẳng đến auth.openai.com/log-in...`);
+            consecutiveRedirectClicks = 0;
+            try {
+              await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' });
+            } catch (navErr) {
+              console.warn(`[Warmup] ⚠️ Force navigate thất bại: ${navErr.message}. Thử lại bằng chatgpt.com login page...`);
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+            }
+            await delay(3000);
+          } else {
+            console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login (lần ${consecutiveRedirectClicks}/3)...`);
+            await dismissGooglePopupAndClickLogin(tabId, USER_ID);
+            await delay(4000);
+          }
           continue;
         }
         
