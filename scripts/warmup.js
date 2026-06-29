@@ -946,6 +946,46 @@ async function runWarmup() {
           await delay(4000);
           continue;
         }
+
+        // 2.5. Handle auth.openai.com landing page: "Log in" button visible but no form yet
+        // Xảy ra khi navigate thẳng đến auth.openai.com/log-in nhưng trang hiển thị
+        // nút "Log in" + "Sign up" mà chưa render form email (React chưa hydrate xong).
+        if (state.onAuthDomain && state.hasVisibleLoginAction && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput) {
+          console.log(`[Warmup] 🖱️ Ở auth domain nhưng chưa có form email -> Click nút "Log in" để mở form đăng nhập...`);
+          const clickedLoginBtn = await evalJson(tabId, USER_ID, `(() => {
+            const isVisible = el => {
+              if (!el) return false;
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+            };
+            const loginKeywords = ['log in', 'login', 'sign in', 'đăng nhập', 'anmelden', 'se connecter', 'iniciar sesión', 'accedi', 'entrar', 'войти'];
+            const els = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+            for (const el of els) {
+              const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+              const href = (el.getAttribute('href') || '').toLowerCase();
+              const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+              if (loginKeywords.some(k => text === k) || testId.includes('login') || href.includes('/log-in') || href.includes('/login')) {
+                el.click();
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return { clicked: true, text: text.slice(0, 60), href, testId };
+              }
+            }
+            // Fallback: nếu không tìm thấy nút exact match, thử bất kỳ nút nào có text ngắn gồm "log"
+            for (const el of els) {
+              const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (text.includes('log') && text.length < 20) {
+                el.click();
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return { clicked: true, fallback: true, text: text.slice(0, 60) };
+              }
+            }
+            return { clicked: false, totalEls: els.length };
+          })()`).catch(() => null);
+          console.log(`[Warmup] 🖱️ Click "Log in" result:`, JSON.stringify(clickedLoginBtn));
+          await delay(3000);
+          continue;
+        }
         
         // 3. Handle Cookie Banner
         if (state.hasCookieBanner) {

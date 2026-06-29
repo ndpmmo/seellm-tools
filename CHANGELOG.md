@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.298] - 2026-06-29 20:58:00
+
+### 🚨 Khắc phục lỗi cốt lõi: auth.openai.com landing page không render form email
+
+- **[warmup.js] Thêm handler 2.5 — Click nút "Log in" trên trang landing auth.openai.com**: Khi `onAuthDomain=true` và `hasVisibleLoginAction=true` nhưng chưa có `hasEmailInput`/`hasPasswordInput`, tức là `auth.openai.com/log-in` đang hiển thị trang chào (nút "Log in" + "Sign up") nhưng chưa render form. Code trước hoàn toàn không xử lý case này, dẫn đến loop `delay(3000)` vô hạn. Fix: click nút "Log in" để trigger hydration form.
+- **[warmup.js] Multi-language + fallback matching cho click nút Log In**: Hỗ trợ 10 ngôn ngữ (en, de, fr, es, it, pt, vi, ru, ja, zh), fallback text matching nếu không có exact match.
+- **Nguyên nhân gốc rễ**: `hasVisibleLoginAction` được phát hiện (khi ở `auth.openai.com`) nhưng **không có handler nào trong vòng lặp đăng nhập** xử lý trường hợp này, khiến code fall-through đến `delay(3000)` mỗi vòng cho đến khi hết 40 lượt → throw "Đăng nhập thất bại hoặc hết thời gian chờ".
+
+## [0.3.297] - 2026-06-29 06:39:00
+
+### 🚀 Khắc phục lỗi kẹt vòng lặp đăng nhập và chẩn đoán lỗi trang giả lập của Warmup
+
+- **[warmup.js] Tách biệt tuyệt đối Redirect Domain khi chưa đăng nhập**: Thay đổi điều kiện kiểm tra chuyển hướng đăng nhập thành `if (!state.onAuthDomain)`. Khi người dùng chưa đăng nhập và không nằm trên auth domain (`auth.openai.com`), hệ thống sẽ lập tức kích hoạt luồng chuyển hướng login thay vì bị đánh lừa bởi các ô nhập email rác hoặc form đăng ký phụ trên trang chủ `chatgpt.com`.
+- **[warmup.js] Khử lỗi chẩn đoán nhầm Disclaimer thành Lỗi hệ thống**: Cập nhật hàm `checkPageErrors` loại bỏ nhãn cảnh báo mặc định của ChatGPT ("ChatGPT can make mistakes. Check important info.") khỏi danh sách quét lỗi của phần tử có class `error` hoặc màu chữ đỏ. Giúp ngăn chặn việc kết luận sai lệch do proxy chậm hoặc trang tải chưa đầy đủ.
+
 ## [0.3.295] - 2026-06-29 06:17:00
 
 ### 🚀 Khắc phục lỗi kẹt vòng lặp đăng nhập và chẩn đoán lỗi trang giả lập của Warmup
