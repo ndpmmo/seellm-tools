@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.301] - 2026-06-30 04:39:22
+
+### 🛡️ Tối ưu state-machine 2FA Regen sau loạt log 21:26
+
+- **[mfa-setup.js] Sửa false-positive `SESSION_EXPIRED_IN_MFA`**: Detector cũ quét toàn `document.body`, nên bắt nhầm text stale/ẩn trong khi screenshot thực tế đang ở Settings General. Nay chỉ coi session expired là fatal khi text nằm trong overlay/dialog hiển thị thật hoặc full-page auth error không có Settings dialog.
+- **[mfa-setup.js] Nhận diện Settings modal độc lập với Security content**: Settings General nay được xem là mở hợp lệ, sau đó state-machine chủ động click tab `Security and login`. Tránh lỗi bỏ lỡ modal Settings chỉ vì chưa vào đúng tab Security.
+- **[mfa-setup.js] Click đúng tab `Security and login` của UI ChatGPT mới**: Selector tab Security chuyển từ exact match `security` sang hỗ trợ `Security and login`, aria/data-testid và biến thể tiếng Việt; đồng thời tránh coi màn General có `Higher intelligence` là Security active.
+- **[regenerate-2fa.js] Re-auth state-machine khi session hết hạn trong Settings**: Retry sau `SESSION_EXPIRED_IN_MFA` không còn chỉ navigate về home rồi kiểm tra login. Script nay chạy vòng re-auth giới hạn, xử lý login button, email, password, email OTP, TOTP, workspace và cookie banner trước khi gọi lại `setupMFA`.
+- **Chẩn đoán từ log mới**: `rohanmoyernytc` rơi về logged-out shell sau session expired; `kanekimihuy` bị false-positive session expired trong Settings General; `maximilianogarzahqin` kẹt Settings do onboarding overlay `Continue` xuất hiện muộn và Settings/Security state chưa được mô hình hóa đủ.
+
 ## [0.3.300] - 2026-06-30 04:24:29
 
 ### 🛡️ Khắc phục 2FA Regen fail tiếp theo do Settings menu khó mở và session hết hạn trong modal

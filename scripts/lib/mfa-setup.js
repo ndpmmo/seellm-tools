@@ -26,33 +26,33 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
             return dialogs[dialogs.length - 1] || null;
         })();
         if (!container) return false;
-        
+
         const text = container.innerText.toLowerCase();
-        
+
         // Tránh trùng khớp với hộp thoại thiết lập Authenticator app/MFA setup
-        const isMfaSetupDialog = text.includes('authenticator') || 
-                                 text.includes('trouble scanning') || 
-                                 text.includes('can\\'t scan') || 
-                                 text.includes('không thể quét') || 
+        const isMfaSetupDialog = text.includes('authenticator') ||
+                                 text.includes('trouble scanning') ||
+                                 text.includes('can\\'t scan') ||
+                                 text.includes('không thể quét') ||
                                  text.includes('nhập khóa') ||
                                  text.includes('qr code') ||
                                  text.includes('mã qr');
         if (isMfaSetupDialog) return false;
-        
+
         // Kiểm tra các cụm từ đặc trưng chỉ xuất hiện khi có thử thách xác minh danh tính
         const hasVerifyTitle = text.includes('verify your identity') || text.includes('xác minh danh tính');
         const hasInboxMsg = text.includes('check your inbox') || text.includes('hộp thư đến') || text.includes('we sent a code') || text.includes('sent a code');
         const hasEmailKeywords = text.includes('email') || text.includes('inbox') || text.includes('hộp thư') || text.includes('@');
-        
-        const hasOtpPrompt = text.includes('nhập mã xác minh') || 
-                             /enter the (verification )?code/i.test(text) || 
+
+        const hasOtpPrompt = text.includes('nhập mã xác minh') ||
+                             /enter the (verification )?code/i.test(text) ||
                              /enter the 6-digit/i.test(text) ||
                              (text.includes('verification code') && (text.includes('sent to') || text.includes('đã gửi')));
-                             
+
         // Có ô nhập code hoặc nút tiếp tục/gửi mã trong bối cảnh xác minh danh tính
         const hasOtpInput = !!container.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]');
-        
-        return (hasVerifyTitle || hasInboxMsg || (hasOtpPrompt && hasEmailKeywords)) && 
+
+        return (hasVerifyTitle || hasInboxMsg || (hasOtpPrompt && hasEmailKeywords)) &&
                (hasOtpInput || text.includes('continue') || text.includes('tiếp tục') || text.includes('send code') || text.includes('gửi mã'));
     })()`);
 
@@ -61,7 +61,7 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
         if (!emailCreds || (!emailCreds.refreshToken && !emailCreds.refresh_token)) {
             throw new Error(`Cần xác minh danh tính qua email nhưng không tìm thấy refresh token trong email pool!`);
         }
-        
+
         // Kiểm tra xem đã có ô nhập mã chưa. Nếu chưa có, có thể cần click Continue để kích hoạt gửi mail.
         const hasCodeInput = await run(`!!document.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]')`);
         if (!hasCodeInput) {
@@ -75,7 +75,7 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
                     const t = (b.textContent || b.value || '').toLowerCase().trim();
                     return t.includes('continue') || t.includes('tiếp tục');
                 });
-                
+
                 if (targetBtn) {
                     targetBtn.click();
                     return true;
@@ -89,7 +89,7 @@ async function handleEmailOTPVerification(tabId, userId, apiHelper, email, email
                 log('⚠️ Không tìm thấy nút gửi mã xác minh danh tính.');
             }
         }
-        
+
         // Trừ 5 phút để tránh lệch múi giờ/đồng hồ giữa local và Microsoft Exchange Server
         const otpCheckStartTime = new Date(Date.now() - 5 * 60 * 1000);
         log('Đang truy vấn hộp thư để lấy mã OTP...');
@@ -194,24 +194,24 @@ async function handleAuthenticatorMFAVerification(tabId, userId, apiHelper, curr
             return dialogs[dialogs.length - 1] || null;
         })();
         if (!container) return false;
-        
+
         const text = container.innerText.toLowerCase();
-        
+
         // Tránh trùng khớp với hộp thoại thiết lập Authenticator app/MFA setup mới
         const isMfaSetupDialog = text.includes('authenticator') && (
-            text.includes('trouble scanning') || 
-            text.includes('can\\'t scan') || 
-            text.includes('không thể quét') || 
+            text.includes('trouble scanning') ||
+            text.includes('can\\'t scan') ||
+            text.includes('không thể quét') ||
             text.includes('nhập khóa') ||
             text.includes('qr code') ||
             text.includes('mã qr')
         );
         if (isMfaSetupDialog) return false;
-        
+
         const hasVerifyTitle = text.includes('verify your identity') || text.includes('xác minh danh tính');
         const hasAppPrompt = text.includes('authenticator app') || text.includes('one-time password application') || text.includes('ứng dụng xác thực');
         const hasOtpInput = !!container.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]');
-        
+
         return hasVerifyTitle && hasAppPrompt && hasOtpInput;
     })()`);
 
@@ -220,7 +220,7 @@ async function handleAuthenticatorMFAVerification(tabId, userId, apiHelper, curr
         if (!currentSecret) {
             throw new Error(`Cần xác minh danh tính qua Authenticator App nhưng không có currentSecret!`);
         }
-        
+
         // Generate TOTP from current secret
         const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
         let bits = '';
@@ -243,7 +243,7 @@ async function handleAuthenticatorMFAVerification(tabId, userId, apiHelper, curr
         const currentTotp = codeNum.toString().padStart(6, '0');
 
         log(`🔢 Mã TOTP sinh từ secret hiện tại: ${currentTotp}. Tiến hành điền và xác minh...`);
-        
+
         const fillSuccess = await run(`((code) => {
             const input = document.querySelector('input[autocomplete="one-time-code"], input[maxlength="6"], input[inputmode="numeric"]');
             if (input) {
@@ -316,31 +316,31 @@ async function handlePasswordVerificationPrompt(tabId, userId, apiHelper, passwo
 
     if (hasPasswordPrompt) {
         log('🔑 Phát hiện yêu cầu xác nhận lại mật khẩu để bật 2FA!');
-        
+
         // Fill the password
         const typeResult = await run(`(() => {
             const pwdInput = document.querySelector('[role="dialog"] input[type="password"]') || document.querySelector('input[type="password"]');
             if (!pwdInput) return false;
-            
+
             pwdInput.focus();
             const nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
             if (nativeInput) nativeInput.set.call(pwdInput, ${JSON.stringify(password)});
             else pwdInput.value = ${JSON.stringify(password)};
-            
+
             pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
             pwdInput.dispatchEvent(new Event('change', { bubbles: true }));
             return true;
         })()`);
-        
+
         if (typeResult) {
             log('Đã điền mật khẩu xác nhận. Click nút Tiếp tục/Xác nhận...');
-            
+
             // Native click or DOM click the continue button in the dialog
             await apiHelper(`/tabs/${tabId}/click`, {
                 userId,
                 selector: '[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Continue"), [role="dialog"] button:has-text("Confirm"), [role="dialog"] button:has-text("Tiếp tục"), button[type="submit"]'
             }, 5000).catch(() => {});
-            
+
             // Fallback JS click if still present after 1.5s
             await wait(1500);
             await run(`(() => {
@@ -354,7 +354,7 @@ async function handlePasswordVerificationPrompt(tabId, userId, apiHelper, passwo
                     if (btn) btn.click();
                 }
             })()`).catch(() => {});
-            
+
             await wait(4000); // Chờ load trang/dialog tiếp theo
         }
     }
@@ -379,10 +379,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 return res?.result;
             } catch (err) {
                 const msg = err.message || String(err);
-                
+
                 // Phát hiện lỗi browser restart hoặc tab bị closed và quăng lỗi đặc biệt để ngoài worker xử lý tái tạo tab
-                const isTabDead = msg.includes('browser_restarted') || 
-                                  msg.includes('Tab no longer exists') || 
+                const isTabDead = msg.includes('browser_restarted') ||
+                                  msg.includes('Tab no longer exists') ||
                                   msg.includes('Tab not found') ||
                                   msg.includes('target closed') ||
                                   msg.includes('410') ||
@@ -392,9 +392,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     throw new Error('BROWSER_RESTARTED_IN_MFA');
                 }
 
-                const isTransient = msg.includes('context was destroyed') || 
-                                    msg.includes('navigation') || 
-                                    msg.includes('destroyed') || 
+                const isTransient = msg.includes('context was destroyed') ||
+                                    msg.includes('navigation') ||
+                                    msg.includes('destroyed') ||
                                     msg.includes('500');
                 if (isTransient && attempt < maxRetries) {
                     log(`⚠️ Eval failed (Attempt ${attempt}/${maxRetries}): ${msg.slice(0, 80)}. Retrying in 3s...`);
@@ -423,37 +423,132 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
     const detectFatalAuthOverlay = async (label = 'auth_overlay') => {
         const result = await run(`
             (() => {
-                const bodyText = (document.body?.innerText || '').toLowerCase();
-                const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]'));
-                const dialogText = dialogs.map(d => d.innerText || '').join('\\n').toLowerCase();
-                const text = bodyText + '\\n' + dialogText;
-                const hasSessionExpired =
-                    text.includes('your session has expired') ||
-                    text.includes('session has expired') ||
-                    text.includes('session expired') ||
-                    text.includes('please log in again') ||
-                    text.includes('log in again') ||
-                    text.includes('phiên đăng nhập') ||
-                    text.includes('đăng nhập lại');
+                const isVisible = el => {
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect();
+                    const s = window.getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0';
+                };
+                const overlays = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], [data-radix-portal] *'))
+                    .filter(isVisible)
+                    .filter(el => {
+                        const r = el.getBoundingClientRect();
+                        return r.width >= 220 && r.height >= 80;
+                    });
+                const overlayText = overlays.map(d => d.innerText || d.textContent || '').join('\\n').toLowerCase();
+                const pageText = (document.body?.innerText || '').toLowerCase();
+                const hasVisibleSessionExpired =
+                    overlayText.includes('your session has expired') ||
+                    overlayText.includes('session has expired') ||
+                    overlayText.includes('session expired') ||
+                    overlayText.includes('please log in again') ||
+                    overlayText.includes('log in again') ||
+                    overlayText.includes('phiên đăng nhập') ||
+                    overlayText.includes('đăng nhập lại');
+                const hasFullPageSessionExpired =
+                    !document.querySelector('[role="dialog"]') && (
+                        pageText.includes('your session has expired') ||
+                        pageText.includes('please log in again') ||
+                        pageText.includes('token has been invalidated')
+                    );
+                const hasSessionExpired = hasVisibleSessionExpired || hasFullPageSessionExpired;
                 if (hasSessionExpired) {
-                    return { found: true, code: 'SESSION_EXPIRED_IN_MFA', label: ${JSON.stringify(label)} };
+                    return { found: true, code: 'SESSION_EXPIRED_IN_MFA', label: ${JSON.stringify(label)}, source: hasVisibleSessionExpired ? 'visible_overlay' : 'full_page' };
                 }
                 const hasDeactivated =
-                    text.includes('account_deactivated') ||
-                    text.includes('account deactivated') ||
-                    text.includes('account has been deactivated') ||
-                    text.includes('tài khoản đã bị khóa');
+                    pageText.includes('account_deactivated') ||
+                    pageText.includes('account deactivated') ||
+                    pageText.includes('account has been deactivated') ||
+                    pageText.includes('tài khoản đã bị khóa');
                 if (hasDeactivated) {
-                    return { found: true, code: 'ACCOUNT_DEACTIVATED', label: ${JSON.stringify(label)} };
+                    return { found: true, code: 'ACCOUNT_DEACTIVATED', label: ${JSON.stringify(label)}, source: 'page' };
                 }
                 return { found: false };
             })()
         `).catch(() => ({ found: false }));
         if (result?.found) {
-            log(`Phát hiện trạng thái auth fatal (${label}): ${result.code}`);
+            log(`Phát hiện trạng thái auth fatal (${label}): ${result.code} (${result.source || 'unknown'})`);
             return result.code;
         }
         return null;
+    };
+
+    const settingsState = async () => {
+        return await run(`
+            (() => {
+                const isVisible = el => {
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect();
+                    const s = window.getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                };
+                const dialog = Array.from(document.querySelectorAll('[role="dialog"]')).find(isVisible);
+                const container = dialog || document.querySelector('main') || document.body;
+                const text = (container?.innerText || '').toLowerCase();
+                const url = window.location.href.toLowerCase();
+                const settingsOpen = !!dialog && (text.includes('general') || text.includes('settings') || text.includes('security and login') || text.includes('data controls'));
+                const hasSecurityPanelContent =
+                    text.includes('multi-factor') ||
+                    text.includes('authenticator') ||
+                    text.includes('two-factor') ||
+                    text.includes('xác thực') ||
+                    text.includes('log out of all devices') ||
+                    text.includes('password');
+                const securityActive = hasSecurityPanelContent && !text.includes('higher intelligence');
+                return { settingsOpen, securityActive, url, text: text.slice(0, 400) };
+            })()
+        `).catch(() => ({ settingsOpen: false, securityActive: false, text: '' }));
+    };
+
+    const clickSecurityTab = async () => {
+        const activeSecTab = await run(`
+            (() => {
+                const isVisible = el => {
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect();
+                    const s = window.getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                };
+                let sec = document.querySelector('[data-testid="security-tab"]');
+                if (!sec || !isVisible(sec)) {
+                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a, [data-testid*="security" i]')).find(el => {
+                        if (!isVisible(el)) return false;
+                        const text = (el.textContent || '').toLowerCase().trim();
+                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                        return text === 'security' ||
+                            text === 'security and login' ||
+                            text.includes('security and login') ||
+                            text === 'bảo mật' ||
+                            text.includes('bảo mật') ||
+                            label.includes('security') ||
+                            testId.includes('security');
+                    });
+                }
+                if (sec) {
+                    sec.setAttribute('data-mfa-target', 'security-tab-btn');
+                    return { found: true, text: (sec.textContent || sec.getAttribute('aria-label') || '').trim().slice(0, 80) };
+                }
+                return { found: false };
+            })()
+        `);
+
+        if (activeSecTab?.found) {
+            log(`Click Security tab bằng Camofox native click: ${activeSecTab.text || 'Security'}`);
+            try {
+                await apiHelper(`/tabs/${tabId}/click`, {
+                    userId,
+                    selector: '[data-mfa-target="security-tab-btn"]'
+                }, 2500);
+            } catch (err) {
+                log('Native click Security tab thất bại/timeout, fallback sang JS click:', err.message);
+                await run(`document.querySelector('[data-mfa-target="security-tab-btn"]')?.click()`).catch(() => {});
+            }
+            await wait(1000);
+            return true;
+        }
+        log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
+        return false;
     };
 
     const failIfFatalAuthOverlay = async (label) => {
@@ -546,7 +641,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         // ── 1. Điều hướng đến Security settings và đảm bảo settings modal được mở ──────────────────
         log('Điều hướng đến Security settings...');
         await saveCheckpoint('mfa_navigate_start');
-        
+
         try {
             await run(`
                 (() => {
@@ -563,25 +658,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Chờ Settings modal mở...');
         let isOpened = false;
         for (let i = 0; i < 25; i++) {
-            isOpened = await run(`
-                (() => {
-                    const containers = [
-                        document.querySelector('[role="dialog"]'),
-                        document.querySelector('main'),
-                        document.body
-                    ].filter(Boolean);
-                    return containers.some(container => {
-                        const text = (container.innerText || '').toLowerCase();
-                        const url = window.location.href.toLowerCase();
-                        const hasSettingsUrl = url.includes('settings') || url.includes('#settings');
-                        const hasSettingsText = text.includes('settings') || text.includes('cài đặt');
-                        const hasSecurityText = text.includes('security') || text.includes('bảo mật') || text.includes('multi-factor') || text.includes('authenticator');
-                        return (hasSettingsUrl && hasSecurityText) || (hasSettingsText && hasSecurityText);
-                    });
-                })()
-            `);
+            const currentSettingsState = await settingsState();
+            isOpened = currentSettingsState.settingsOpen || currentSettingsState.securityActive;
             if (isOpened) break;
-            
+
             // Tự động đóng onboarding/welcome modal nếu xuất hiện trong lúc chờ
             await failIfFatalAuthOverlay('waiting_settings');
             await dismissTransientOverlays('waiting_settings');
@@ -710,12 +790,12 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                 return false;
                             })()
                         `);
-                        
+
                         if (!settingsTagged) {
                             log('Không tìm thấy settings menu item sau native click, fallback sang JS click Profile...');
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
                             await wait(1000);
-                            
+
                             settingsTagged = await run(`
                                 (() => {
                                     const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
@@ -900,42 +980,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await failIfFatalAuthOverlay('settings_opened');
 
         // Đảm bảo Security tab active (tìm cả data-testid và text chứa Security/Bảo mật)
-        const activeSecTab = await run(`
-            (() => {
-                let sec = document.querySelector('[data-testid="security-tab"]');
-                if (!sec) {
-                    sec = Array.from(document.querySelectorAll('[role="tab"], button, a, [data-testid*="security" i]')).find(el => {
-                        const text = (el.textContent || '').toLowerCase().trim();
-                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
-                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
-                        return text === 'security' || text === 'bảo mật' || label.includes('security') || testId.includes('security');
-                    });
-                }
-                if (sec) {
-                    sec.setAttribute('data-mfa-target', 'security-tab-btn');
-                    return true;
-                }
-                return false;
-            })()
-        `);
-        
-        if (activeSecTab) {
-            log('Click Security tab bằng Camofox native click...');
-            try {
-                await apiHelper(`/tabs/${tabId}/click`, {
-                    userId,
-                    selector: '[data-mfa-target="security-tab-btn"]'
-                }, 2500); // 2.5s timeout
-            } catch (err) {
-                log('Native click Security tab thất bại/timeout, fallback sang JS click:', err.message);
-                await run(`document.querySelector('[data-mfa-target="security-tab-btn"]')?.click()`).catch(() => {});
-            }
+        let currentSettingsState = await settingsState();
+        if (!currentSettingsState.securityActive) {
+            await clickSecurityTab();
         }
-        
-        if (!activeSecTab) {
-            log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
-        }
-        await wait(200);
+        await wait(500);
         await failIfFatalAuthOverlay('after_security_open');
         await dismissTransientOverlays('after_security_open');
 
@@ -943,14 +992,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         log('Chờ nội dung Security & Login tải xong...');
         let isSettingsLoaded = false;
         for (let w = 0; w < 30; w++) {
-            isSettingsLoaded = await run(`
-                (() => {
-                    const container = document.querySelector('[role="dialog"]') || document.querySelector('main') || document.body;
-                    if (!container) return false;
-                    const text = container.innerText.toLowerCase();
-                    return text.includes('password') || text.includes('multi-factor') || text.includes('authenticator') || text.includes('xác thực');
-                })()
-            `);
+            currentSettingsState = await settingsState();
+            isSettingsLoaded = currentSettingsState.securityActive;
+            if (!isSettingsLoaded && w === 4) {
+                await clickSecurityTab();
+            }
             await failIfFatalAuthOverlay('waiting_security_loaded');
             if (isSettingsLoaded) break;
             await wait(400);
@@ -992,16 +1038,16 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
         if (isAlreadyEnabled) {
             log('🛡️ Phát hiện 2FA hiện tại đang ở trạng thái BẬT (Đã kích hoạt 2FA).');
-            
+
             // Nếu đã có currentSecret và không bắt buộc tạo lại, trả về thành công ngay lập tức
             if (!options.forceRegen && options.currentSecret) {
                 log('✅ Tài khoản đã có sẵn 2FA đang hoạt động và có khóa bí mật lưu trữ. Bỏ qua việc cài đặt lại để tránh lỗi.');
                 return { success: true, secret: options.currentSecret, totp: null, alreadyEnabled: true };
             }
-            
+
             log('🛡️ Tiến hành tắt 2FA cũ trước khi thiết lập lại...');
             await saveCheckpoint('disabling_old_mfa');
-            
+
             // Click toggle switch để tắt
             const toggledOff = await run(`
                 (() => {
@@ -1017,9 +1063,9 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         for (let d = 0; d < 8; d++) {
                             if (!par) break;
                             const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
-                            if (sw) { 
+                            if (sw) {
                                 sw.setAttribute('data-mfa-target', 'toggle-off-switch');
-                                return 'tagged_off_switch'; 
+                                return 'tagged_off_switch';
                             }
                             par = par.parentElement;
                         }
@@ -1179,33 +1225,33 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     let par = authTextEl;
                     for (let d = 0; d < 8; d++) {
                         if (!par) break;
-                        
+
                         const sw = par.querySelector('button[role="switch"], [role="switch"], input[type="checkbox"]');
-                        if (sw) { 
+                        if (sw) {
                             sw.setAttribute('data-mfa-target', 'toggle-switch');
-                            return 'tagged_switch'; 
+                            return 'tagged_switch';
                         }
-                        
+
                         const btn = Array.from(par.querySelectorAll('button')).find(b => {
                             const bt = b.textContent.toLowerCase().trim();
                             return bt.includes('enable') || bt.includes('set up') || bt.includes('turn on') || bt.includes('bật') || bt.includes('thiết lập');
                         });
-                        if (btn) { 
+                        if (btn) {
                             btn.setAttribute('data-mfa-target', 'enable-btn');
-                            return 'tagged_enable_button'; 
+                            return 'tagged_enable_button';
                         }
-                        
+
                         par = par.parentElement;
                     }
                 }
-                
+
                 const panels = document.querySelectorAll('[role="tabpanel"]');
                 for (const p of panels) {
                     if ((p.innerText||'').toLowerCase().includes('authenticator')) {
                         const sw = p.querySelector('button[role="switch"]');
                         if (sw) {
                             sw.setAttribute('data-mfa-target', 'toggle-switch-fallback');
-                            return 'tagged_switch_fallback'; 
+                            return 'tagged_switch_fallback';
                         }
                     }
                 }
@@ -1224,18 +1270,18 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             let targetSelector = '[data-mfa-target="toggle-switch"]';
             if (toggled === 'tagged_enable_button') targetSelector = '[data-mfa-target="enable-btn"]';
             if (toggled === 'tagged_switch_fallback') targetSelector = '[data-mfa-target="toggle-switch-fallback"]';
-            
+
             await apiHelper(`/tabs/${tabId}/click`, {
                 userId,
                 selector: targetSelector
             }, 5000);
-            
+
             await wait(1000);
-            
+
             // Check xem trạng thái đã thay đổi chưa
             const isToggledOn = await run(`
                 (() => {
-                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') || 
+                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') ||
                                document.querySelector('[data-mfa-target="enable-btn"]') ||
                                document.querySelector('[data-mfa-target="toggle-switch-fallback"]');
                     if (!el) return false;
@@ -1260,7 +1306,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         if (!clickedOk) {
             await run(`
                 (() => {
-                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') || 
+                    const el = document.querySelector('[data-mfa-target="toggle-switch"]') ||
                                document.querySelector('[data-mfa-target="enable-btn"]') ||
                                document.querySelector('[data-mfa-target="toggle-switch-fallback"]');
                     if (el) el.click();
@@ -1298,10 +1344,10 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 (() => {
                     const text = (document.body.innerText || '').toLowerCase();
                     // Text-based detection (broad set of keywords from various UI variants)
-                    const hasSetupText = text.includes('trouble scanning') || 
+                    const hasSetupText = text.includes('trouble scanning') ||
                            text.includes("can't scan") ||
                            text.includes('cannot scan') ||
-                           text.includes('không thể quét') || 
+                           text.includes('không thể quét') ||
                            text.includes('nhập khóa') ||
                            text.includes('qr code') ||
                            text.includes('mã qr') ||
@@ -1351,7 +1397,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         const troubleTagged = await run(`
             (() => {
                 const KEYWORDS = ['trouble scanning', "can't scan", 'cannot scan', 'không thể quét', 'nhập khóa', 'nhập mã', 'enter setup key', 'enter key', 'use setup key', 'manual', 'enter code manually'];
-                
+
                 // 1. Find all elements containing any of the keywords in their text
                 const all = Array.from(document.querySelectorAll('*'));
                 const candidates = all.filter(e => {
@@ -1362,24 +1408,24 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     const text = (e.textContent || '').toLowerCase();
                     return KEYWORDS.some(kw => text.includes(kw));
                 });
-                
+
                 if (candidates.length === 0) {
                     return 'not_found';
                 }
-                
+
                 // 2. Find the leaf candidate (the candidate that doesn't contain any other candidate)
                 const leaf = candidates.find(c => {
                     return !candidates.some(other => other !== c && c.contains(other));
                 });
-                
+
                 if (!leaf) {
                     return 'candidate_found_but_no_leaf';
                 }
-                
+
                 // 3. Find closest interactive ancestor of the leaf, or default to the leaf itself
                 const interactive = leaf.closest('a, button, div[role="button"], [tabindex], [onclick]');
                 const el = interactive || leaf;
-                
+
                 el.setAttribute('data-mfa-target', 'trouble-btn');
                 return 'tagged_' + el.tagName.toLowerCase();
             })()
@@ -1413,14 +1459,14 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             } catch (err) {
                 log('Native click "Trouble scanning?" thất bại, fallback sang JS click trực tiếp:', err.message);
             }
-            
+
             if (!troubleClickedOk) {
                 await run(`
                     (() => {
                         const el = document.querySelector('[data-mfa-target="trouble-btn"]');
                         if (el) {
                             try { el.focus(); } catch (e) {}
-                            
+
                             // Trigger mouse events first
                             const events = ['mousedown', 'mouseup', 'click'];
                             for (const name of events) {
@@ -1434,7 +1480,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                                     el.dispatchEvent(ev);
                                 } catch (e) {}
                             }
-                            
+
                             // Also trigger standard click just in case
                             if (typeof el.click === 'function') {
                                 el.click();
@@ -1461,11 +1507,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             return tag !== 'script' && tag !== 'style' && tag !== 'noscript' && tag !== 'iframe' && tag !== 'link' && tag !== 'meta' && tag !== 'head';
                         })
                         .filter(el => el.childElementCount === 0);
-                    
+
                     const candidates = elements.map(el => {
                         const raw = el.textContent.trim();
                         const cleaned = raw.replace(/[\\s\\-]/g, '');
-                        
+
                         let score = 0;
                         try {
                             const style = window.getComputedStyle(el);
@@ -1488,11 +1534,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
 
                     let filtered = candidates.filter(item => {
                         // 1. Phải là Base32 hợp lệ và có độ dài chính xác 32 ký tự (chuẩn ChatGPT MFA)
-                        // Bất kỳ chuỗi tiếng Anh viết hoa nào không có số 0,1,8,9 (VD: PARENTALCONTROLS) 
+                        // Bất kỳ chuỗi tiếng Anh viết hoa nào không có số 0,1,8,9 (VD: PARENTALCONTROLS)
                         // đều là Base32 hợp lệ. Do đó phải giới hạn khắt khe độ dài là 32.
                         if (item.cleaned.length !== 32) return false;
                         if (!/^[A-Z2-7]{32}$/i.test(item.cleaned)) return false;
-                        
+
                         // 2. Không chấp nhận chữ lẫn lộn hoa/thường (Mixed case)
                         const lettersOnly = item.raw.replace(/[^a-zA-Z]/g, '');
                         if (lettersOnly.length > 0) {
@@ -1752,7 +1798,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         await saveCheckpoint('navigated_to_settings');
 
         log('Xác minh thông minh: Kiểm tra trạng thái Security Settings...');
-        
+
         // Chờ modal load lại
         let isReopened = false;
         for (let i = 0; i < 8; i++) {
@@ -1765,7 +1811,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `);
             if (isReopened) break;
-            
+
             if (i === 3) {
                 try {
                     const profileTagged = await run(`
@@ -1892,7 +1938,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     if (!/authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(text)) return false;
                     return !Array.from(el.children).some(child => /authenticator|two-factor|multi-factor|2fa|mfa|xác\\s+thực\\s+(hai|2)\\s+yếu\\s+tố|ứng\\s+dụng\\s+xác\\s+thực/i.test(child.textContent || ''));
                 });
-                
+
                 if (authTextEl) {
                     let par = authTextEl;
                     for (let d = 0; d < 8; d++) {

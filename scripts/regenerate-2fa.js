@@ -104,6 +104,117 @@ async function dismissOnboardingModals(tabId, userId) {
   })()`).catch(() => false);
 }
 
+async function forceReauthAfterSessionExpired(tabId, userId, account, emailCreds, stepRecorder) {
+  console.log(`[2FA Regen] 🔐 Bắt đầu cơ chế re-auth sau session expired trong Settings...`);
+  await navigate(tabId, userId, 'https://chatgpt.com/', { timeoutMs: 30000, waitUntil: 'commit' }).catch(() => {});
+  await delay(4000);
+
+  let emailFilled = false;
+  let passwordFilled = false;
+  let emailFillAttempts = 0;
+
+  for (let attempt = 1; attempt <= 24; attempt++) {
+    console.log(`[2FA Regen] 🔐 Re-auth loop ${attempt}/24...`);
+    if (WARMUP_SCREENSHOTS && stepRecorder) {
+      await stepRecorder.checkpoint(2, 20 + attempt, `mfa_reauth_loop_${attempt}`).catch(() => {});
+    }
+
+    await dismissOnboardingModals(tabId, userId).catch(() => false);
+    const state = await getState(tabId, userId);
+
+    if (state.looksLoggedIn) {
+      console.log(`[2FA Regen] ✅ Re-auth thành công, session đã hợp lệ lại.`);
+      return true;
+    }
+    if (state.hasDeactivated) {
+      throw new Error('ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa');
+    }
+    if (state.hasCookieBanner) {
+      await tryAcceptCookies(tabId, userId).catch(() => {});
+      await delay(1500);
+      continue;
+    }
+    if (state.isWorkspaceScreen) {
+      const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, userId, { timeoutMs: 12000 });
+      console.log(`[2FA Regen] 🔐 Re-auth workspace result: ${wsResult?.reason || wsResult?.text || 'unknown'}`);
+      await delay(3000);
+      continue;
+    }
+    if (state.isOnboardingScreen) {
+      console.log(`[2FA Regen] 🔐 Re-auth gặp onboarding, chờ loop chính xử lý lại sau khi reload.`);
+      await delay(2500);
+      continue;
+    }
+    if (state.hasEmailOtpInput) {
+      const refreshToken = emailCreds?.refreshToken || emailCreds?.refresh_token;
+      const clientId = emailCreds?.clientId || emailCreds?.client_id;
+      if (!refreshToken || !clientId) throw new Error('SESSION_EXPIRED_IN_MFA: Cần email OTP nhưng thiếu email pool credentials.');
+      const otpCode = await waitForOTPCode({
+        email: account.email,
+        refreshToken,
+        clientId,
+        senderDomain: 'openai.com',
+        maxWaitSecs: 120
+      });
+      if (!otpCode) throw new Error('SESSION_EXPIRED_IN_MFA: Không lấy được email OTP khi re-auth.');
+      await fillMfa(tabId, userId, otpCode);
+      await delay(5000);
+      continue;
+    }
+    if (state.hasMfaInput) {
+      const totpSecret = account.two_fa_secret || account.twoFaSecret;
+      if (!totpSecret) throw new Error('SESSION_EXPIRED_IN_MFA: Cần TOTP re-auth nhưng tài khoản không có Secret Key.');
+      const { otp } = await getFreshTOTP(totpSecret);
+      await fillMfa(tabId, userId, otp);
+      await delay(5000);
+      continue;
+    }
+    if (state.hasPasswordInput) {
+      if (!passwordFilled) {
+        await fillPassword(tabId, userId, account.password);
+        passwordFilled = true;
+      } else {
+        await evalJson(tabId, userId, `(() => {
+          const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+            .find(el => {
+              const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+              return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+            });
+          if (btn) btn.click();
+        })()`).catch(() => {});
+      }
+      await delay(5000);
+      continue;
+    }
+    if (state.hasEmailInput) {
+      if (!emailFilled) {
+        emailFillAttempts++;
+        if (emailFillAttempts > 3) throw new Error('SESSION_EXPIRED_IN_MFA: Nhập email re-auth thất bại quá 3 lần.');
+        const fillRes = await fillEmail(tabId, userId, account.email);
+        emailFilled = !!fillRes?.ok;
+      } else {
+        await evalJson(tabId, userId, `(() => {
+          const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
+            .find(el => {
+              const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+              return t === 'continue' || t === 'next' || t === 'tiếp tục';
+            });
+          if (btn) btn.click();
+        })()`).catch(() => {});
+      }
+      await delay(5000);
+      continue;
+    }
+
+    if (!state.onAuthDomain) {
+      await dismissGooglePopupAndClickLogin(tabId, userId).catch(() => {});
+    }
+    await delay(3000);
+  }
+
+  return false;
+}
+
 async function run2faRegen() {
   const args = parseArgs();
   const accountId = args.accountId;
@@ -795,11 +906,8 @@ async function run2faRegen() {
       if (WARMUP_SCREENSHOTS && stepRecorder) {
         await stepRecorder.checkpoint(2, 2, 'mfa_session_expired_retry_start').catch(() => {});
       }
-      await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 30000, waitUntil: 'commit' });
-      await delay(5000);
-      await dismissOnboardingModals(tabId, USER_ID).catch(() => false);
-      const reloggedState = await getState(tabId, USER_ID).catch(() => null);
-      if (!reloggedState?.looksLoggedIn) {
+      const reauthOk = await forceReauthAfterSessionExpired(tabId, USER_ID, account, emailCreds, stepRecorder);
+      if (!reauthOk) {
         throw new Error('SESSION_EXPIRED_IN_MFA: Session hết hạn trong Settings và không thể tự khôi phục login.');
       }
       mfaResult = await setupMFA(tabId, USER_ID, apiHelper, setupMfaOptions);
