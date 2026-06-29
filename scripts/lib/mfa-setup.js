@@ -420,9 +420,96 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         }
     };
 
+    const detectFatalAuthOverlay = async (label = 'auth_overlay') => {
+        const result = await run(`
+            (() => {
+                const bodyText = (document.body?.innerText || '').toLowerCase();
+                const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]'));
+                const dialogText = dialogs.map(d => d.innerText || '').join('\\n').toLowerCase();
+                const text = bodyText + '\\n' + dialogText;
+                const hasSessionExpired =
+                    text.includes('your session has expired') ||
+                    text.includes('session has expired') ||
+                    text.includes('session expired') ||
+                    text.includes('please log in again') ||
+                    text.includes('log in again') ||
+                    text.includes('phiên đăng nhập') ||
+                    text.includes('đăng nhập lại');
+                if (hasSessionExpired) {
+                    return { found: true, code: 'SESSION_EXPIRED_IN_MFA', label: ${JSON.stringify(label)} };
+                }
+                const hasDeactivated =
+                    text.includes('account_deactivated') ||
+                    text.includes('account deactivated') ||
+                    text.includes('account has been deactivated') ||
+                    text.includes('tài khoản đã bị khóa');
+                if (hasDeactivated) {
+                    return { found: true, code: 'ACCOUNT_DEACTIVATED', label: ${JSON.stringify(label)} };
+                }
+                return { found: false };
+            })()
+        `).catch(() => ({ found: false }));
+        if (result?.found) {
+            log(`Phát hiện trạng thái auth fatal (${label}): ${result.code}`);
+            return result.code;
+        }
+        return null;
+    };
+
+    const failIfFatalAuthOverlay = async (label) => {
+        const code = await detectFatalAuthOverlay(label);
+        if (code) {
+            await saveCheckpoint(code.toLowerCase());
+            throw new Error(code);
+        }
+    };
+
+    const dismissTransientOverlays = async (label = 'overlay') => {
+        const result = await run(`
+            (() => {
+                const CONTINUE_WORDS = [
+                    'continue', 'tiếp tục', 'done', 'got it', 'okay', 'ok',
+                    "let's go", 'let’s go', "let's get started", 'next'
+                ];
+                const bodyText = (document.body?.innerText || '').toLowerCase();
+                const hasOnboardingCopy =
+                    bodyText.includes("you're all set") ||
+                    bodyText.includes('you are all set') ||
+                    bodyText.includes('chatgpt can make mistakes') ||
+                    bodyText.includes('right settings') ||
+                    bodyText.includes('finish creating account');
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], a, input[type="submit"]'))
+                    .filter(el => {
+                        const r = el.getBoundingClientRect();
+                        const s = window.getComputedStyle(el);
+                        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                    });
+                const target = candidates.find(el => {
+                    const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    if (!text) return false;
+                    if (hasOnboardingCopy && CONTINUE_WORDS.some(w => text === w || text.includes(w))) return true;
+                    return text === 'continue' && document.querySelectorAll('[role="dialog"]').length > 0;
+                });
+                if (!target) return { clicked: false };
+                target.click();
+                target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return { clicked: true, text: (target.innerText || target.textContent || target.value || '').trim().slice(0, 80), label: ${JSON.stringify(label)} };
+            })()
+        `).catch(() => ({ clicked: false }));
+        if (result?.clicked) {
+            log(`Đã đóng overlay tạm thời (${label}): ${result.text || 'button'}`);
+            await wait(1200);
+        }
+        return result?.clicked === true;
+    };
+
     try {
         // ── 0. Đóng mọi onboarding modals/overlays nếu có ──────────────────
         log('Đóng các hộp thoại giới thiệu / onboarding modals nếu có...');
+        await failIfFatalAuthOverlay('setup_start');
+        await dismissTransientOverlays('setup_start');
         await run(`
             (() => {
                 let clickedAny = false;
@@ -496,6 +583,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             if (isOpened) break;
             
             // Tự động đóng onboarding/welcome modal nếu xuất hiện trong lúc chờ
+            await failIfFatalAuthOverlay('waiting_settings');
+            await dismissTransientOverlays('waiting_settings');
             await run(`
                 (() => {
                     let clickedAny = false;
@@ -543,7 +632,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             }
 
             // Thử click profile/user menu button và settings item
-            if (i === 4) {
+            if (i === 4 || i === 10 || i === 16) {
                 log('Settings modal chưa mở. Thử kích hoạt bằng click Profile/Settings menu...');
                 try {
                     const profileTagged = await run(`
@@ -603,7 +692,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                         if (!profileClicked) {
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
                         }
-                        await wait(1000);
+                            await wait(1000);
 
                         let settingsTagged = await run(`
                             (() => {
@@ -627,6 +716,106 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                             await run(`document.querySelector('[data-mfa-target="profile-btn"]')?.click()`).catch(() => {});
                             await wait(1000);
                             
+                            settingsTagged = await run(`
+                                (() => {
+                                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
+                                    const settingsItem = menuItems.find(el => {
+                                        const t = (el.textContent || '').trim().toLowerCase();
+                                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                                        return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt') || label.includes('settings') || testId.includes('settings');
+                                    });
+                                    if (settingsItem) {
+                                        settingsItem.setAttribute('data-mfa-target', 'settings-item');
+                                        return true;
+                                    }
+                                    return false;
+                                })()
+                            `);
+                        }
+
+                        if (!settingsTagged) {
+                            log('Không tìm thấy Settings sau selector profile, thử click account block góc dưới trái...');
+                            const cornerProfileClicked = await run(`
+                                (() => {
+                                    const x = 120;
+                                    const y = Math.max(20, window.innerHeight - 36);
+                                    let el = document.elementFromPoint(x, y);
+                                    if (!el) return 'no_element';
+                                    const clickable = el.closest('button, [role="button"], a, [tabindex], div') || el;
+                                    clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+                                    clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+                                    clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+                                    return (clickable.innerText || clickable.textContent || clickable.getAttribute('aria-label') || clickable.tagName || '').trim().slice(0, 100);
+                                })()
+                            `).catch(() => null);
+                            log('Corner profile click result:', cornerProfileClicked || 'none');
+                            await wait(1000);
+
+                            settingsTagged = await run(`
+                                (() => {
+                                    const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
+                                    const settingsItem = menuItems.find(el => {
+                                        const t = (el.textContent || '').trim().toLowerCase();
+                                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                                        const testId = (el.getAttribute('data-testid') || '').toLowerCase();
+                                        return t === 'settings' || t === 'cài đặt' || t.includes('settings') || t.includes('cài đặt') || label.includes('settings') || testId.includes('settings');
+                                    });
+                                    if (settingsItem) {
+                                        settingsItem.setAttribute('data-mfa-target', 'settings-item');
+                                        return true;
+                                    }
+                                    return false;
+                                })()
+                            `);
+                        }
+
+                        if (!settingsTagged) {
+                            log('Vẫn chưa thấy Settings, thử tìm/click account block rộng hơn trong sidebar...');
+                            const smartProfileClick = await run(`
+                                (() => {
+                                    const visible = el => {
+                                        if (!el) return false;
+                                        const r = el.getBoundingClientRect();
+                                        const s = window.getComputedStyle(el);
+                                        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+                                    };
+                                    const scoreEl = el => {
+                                        const r = el.getBoundingClientRect();
+                                        const text = (el.innerText || el.textContent || '').trim();
+                                        let score = 0;
+                                        if (r.left < 320) score += 30;
+                                        if (r.top > window.innerHeight - 170) score += 40;
+                                        if (text && text.length < 140) score += 15;
+                                        if (/free|plus|team|pro|smith|@|account|profile|upgrade/i.test(text)) score += 20;
+                                        if (el.matches('button, [role="button"], a, [tabindex]')) score += 15;
+                                        score += Math.min(20, (r.width * r.height) / 1000);
+                                        return score;
+                                    };
+                                    const candidates = Array.from(document.querySelectorAll('button, [role="button"], a, [tabindex], nav div, aside div, [class*="sidebar" i] div'))
+                                        .filter(visible)
+                                        .filter(el => {
+                                            const r = el.getBoundingClientRect();
+                                            return r.left < 360 && r.top > window.innerHeight - 220;
+                                        })
+                                        .sort((a, b) => scoreEl(b) - scoreEl(a));
+                                    const target = candidates[0];
+                                    if (!target) return { clicked: false, reason: 'no_sidebar_candidate' };
+                                    let clicked = target.closest('button, [role="button"], a, [tabindex]') || target;
+                                    for (let depth = 0; clicked && depth < 4; depth++, clicked = clicked.parentElement) {
+                                        const r = clicked.getBoundingClientRect();
+                                        const x = Math.max(1, Math.min(window.innerWidth - 1, r.left + Math.min(r.width - 4, 24)));
+                                        const y = Math.max(1, Math.min(window.innerHeight - 1, r.top + r.height / 2));
+                                        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                                            clicked.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
+                                        }
+                                    }
+                                    return { clicked: true, text: (target.innerText || target.textContent || target.getAttribute('aria-label') || target.tagName || '').trim().slice(0, 120) };
+                                })()
+                            `).catch(() => null);
+                            log('Smart profile click result:', smartProfileClick?.text || smartProfileClick?.reason || 'none');
+                            await wait(1200);
+
                             settingsTagged = await run(`
                                 (() => {
                                     const menuItems = Array.from(document.querySelectorAll('[role="menuitem"], [data-testid*="settings" i], button, a'));
@@ -675,6 +864,21 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     log(`⚠️ Chuyển sang /settings/security qua JS thất bại: ${err.message}`);
                 }
             }
+            if (i === 13) {
+                log('Thử hash settings bằng URL đầy đủ và phát event history...');
+                try {
+                    await run(`
+                        (() => {
+                            window.location.href = 'https://chatgpt.com/?model=auto#settings/Security';
+                            window.dispatchEvent(new HashChangeEvent('hashchange'));
+                            window.dispatchEvent(new PopStateEvent('popstate'));
+                        })()
+                    `);
+                    await wait(2500);
+                } catch (err) {
+                    log(`⚠️ Chuyển sang hash settings đầy đủ thất bại: ${err.message}`);
+                }
+            }
             // Reload page nếu vẫn không mở được sau lần thứ 8
             if (i === 8) {
                 log('⚠️ Reload page và điều hướng trực tiếp sang settings URL...');
@@ -689,10 +893,11 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         }
 
         if (!isOpened) {
-            log('❌ KHÔNG THỂ MỞ SETTINGS MODAL SAU 10 LẦN THỬ. Abort MFA setup.');
+            log('❌ KHÔNG THỂ MỞ SETTINGS MODAL SAU 25 LẦN THỬ. Abort MFA setup.');
             await saveCheckpoint('settings_modal_not_opened');
-            return { success: false, secret: null, totp: null, error: 'Settings modal could not be opened after 10 attempts' };
+            return { success: false, secret: null, totp: null, error: 'Settings modal could not be opened after 25 attempts' };
         }
+        await failIfFatalAuthOverlay('settings_opened');
 
         // Đảm bảo Security tab active (tìm cả data-testid và text chứa Security/Bảo mật)
         const activeSecTab = await run(`
@@ -731,6 +936,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
             log('⚠️ Security tab không tìm thấy qua selector/text, chờ thêm...');
         }
         await wait(200);
+        await failIfFatalAuthOverlay('after_security_open');
+        await dismissTransientOverlays('after_security_open');
 
         // Chờ nội dung Security & Login tải xong hoàn toàn
         log('Chờ nội dung Security & Login tải xong...');
@@ -744,14 +951,20 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                     return text.includes('password') || text.includes('multi-factor') || text.includes('authenticator') || text.includes('xác thực');
                 })()
             `);
+            await failIfFatalAuthOverlay('waiting_security_loaded');
             if (isSettingsLoaded) break;
             await wait(400);
         }
         if (!isSettingsLoaded) {
-            log('⚠️ Cảnh báo: Nội dung Security tab chưa tải xong hoàn toàn sau 12 giây.');
+            const visibleText = await run(`(() => (document.querySelector('[role="dialog"]') || document.body)?.innerText?.slice(0, 500) || '')()`).catch(() => '');
+            log('❌ Nội dung Security tab chưa tải xong hoàn toàn sau 12 giây. Abort để tránh click nhầm UI.', visibleText);
+            await saveCheckpoint('security_settings_not_loaded');
+            return { success: false, secret: null, totp: null, error: `Security settings content not loaded: ${visibleText}` };
         }
 
         await saveCheckpoint('security_settings_loaded');
+        await failIfFatalAuthOverlay('before_mfa_state_check');
+        await dismissTransientOverlays('before_mfa_state_check');
 
         // ── 1.5. Xử lý kịch bản 2FA ĐANG BẬT (Cần Tắt Trước Khi Tái Tạo) ──────────
         const isAlreadyEnabled = await run(`
@@ -950,6 +1163,8 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
         `);
 
         // ── 3. Click toggle "Authenticator app" hoặc nút Enable/Set up ──────────────────
+        await failIfFatalAuthOverlay('before_toggle');
+        await dismissTransientOverlays('before_toggle');
         log('Click toggle/enable Authenticator app...');
         const toggled = await run(`
             (() => {
@@ -1052,6 +1267,7 @@ export async function setupMFA(tabId, userId, apiHelper, options = {}) {
                 })()
             `).catch(() => {});
         }
+        await dismissTransientOverlays('after_toggle_click');
         // Đợi màn hình tiếp theo xuất hiện (màn hình nhập pass, màn hình xác minh danh tính hoặc màn hình cài đặt 2FA)
         const nextScreenStart = Date.now();
         while (Date.now() - nextScreenStart < 8000) {

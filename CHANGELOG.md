@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.300] - 2026-06-30 04:24:29
+
+### 🛡️ Khắc phục 2FA Regen fail tiếp theo do Settings menu khó mở và session hết hạn trong modal
+
+- **[mfa-setup.js] Phát hiện fatal auth overlay trước khi click 2FA toggle**: Bổ sung guard nhận diện `Your session has expired`, `Please log in again`, `SESSION_EXPIRED_IN_MFA`, `account_deactivated` và biến thể tiếng Việt. Khi gặp các trạng thái này, script dừng sạch, lưu checkpoint và không tiếp tục tag/click switch Authenticator trên DOM bị overlay che.
+- **[mfa-setup.js] Không click nhầm khi Security tab chưa tải**: Nếu nội dung Security không có `password`/`multi-factor`/`authenticator` sau thời gian chờ, script trả lỗi `Security settings content not loaded` kèm text đang thấy thay vì tiếp tục click toggle dựa trên DOM cũ. Fix này trực tiếp xử lý log `kanekimihuy` nơi screenshot hiển thị modal `Your session has expired`.
+- **[mfa-setup.js] Tăng độ bền mở Settings menu**: Lặp lại chiến lược Profile/Settings ở các mốc 4/10/16, thêm smart click account block trong sidebar, dispatch chuỗi pointer/mouse events trên candidate/ancestor và thử URL hash đầy đủ `https://chatgpt.com/?model=auto#settings/Security`. Nhắm vào log `rohanmoyernytc` nơi corner click thấy tên account nhưng menu Settings không bung.
+- **[regenerate-2fa.js] Retry một lần khi session hết hạn trong Settings**: Khi `setupMFA()` trả `SESSION_EXPIRED_IN_MFA`, script tự điều hướng về `chatgpt.com`, xác minh session còn login, đóng onboarding nếu có và gọi lại setup MFA đúng một lần. Nếu không khôi phục được login, lỗi được phân loại rõ ràng thay vì báo chung `MFA setup dialog did not appear`.
+- **Chẩn đoán từ 3 log mới nhất**: `andresnashkldv` thất bại do `ACCOUNT_DEACTIVATED`/tài khoản bị khóa, không phải lỗi script; `kanekimihuy` do session expired ngay trong Settings Security; `rohanmoyernytc` do Settings menu không mở từ giao diện ChatGPT home mới.
+
 ## [0.3.299] - 2026-06-30 04:07:39
 
 ### 🛡️ Khắc phục 2FA Regen thất bại do Onboarding Year-of-Birth và Settings UI mới

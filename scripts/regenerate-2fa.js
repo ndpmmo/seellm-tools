@@ -780,13 +780,30 @@ async function run2faRegen() {
       return await camofoxPost(path, body);
     };
 
-    const mfaResult = await setupMFA(tabId, USER_ID, apiHelper, {
+    const setupMfaOptions = {
       email: account.email,
       emailCreds: emailCreds,
       password: account.password,
       currentSecret: account.two_fa_secret || account.twoFaSecret,
       stepRecorder: stepRecorder
-    });
+    };
+
+    let mfaResult = await setupMFA(tabId, USER_ID, apiHelper, setupMfaOptions);
+
+    if (!mfaResult.success && mfaResult.error === 'SESSION_EXPIRED_IN_MFA') {
+      console.log(`[2FA Regen] 🔄 Session hết hạn trong Settings. Điều hướng lại ChatGPT và thử setup MFA thêm 1 lần...`);
+      if (WARMUP_SCREENSHOTS && stepRecorder) {
+        await stepRecorder.checkpoint(2, 2, 'mfa_session_expired_retry_start').catch(() => {});
+      }
+      await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 30000, waitUntil: 'commit' });
+      await delay(5000);
+      await dismissOnboardingModals(tabId, USER_ID).catch(() => false);
+      const reloggedState = await getState(tabId, USER_ID).catch(() => null);
+      if (!reloggedState?.looksLoggedIn) {
+        throw new Error('SESSION_EXPIRED_IN_MFA: Session hết hạn trong Settings và không thể tự khôi phục login.');
+      }
+      mfaResult = await setupMFA(tabId, USER_ID, apiHelper, setupMfaOptions);
+    }
 
     if (!mfaResult.success) {
       throw new Error(`Cài đặt 2FA bằng thư viện mfa-setup thất bại: ${mfaResult.error || 'Unknown error'}`);
