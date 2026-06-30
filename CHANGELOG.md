@@ -8246,3 +8246,16 @@ All 13 views fully migrated to Tailwind CSS:
 ## [0.0.1] - 2026-04-03
 ### Added
 - Bản phát hành đầu tiên: Hỗ trợ quản lý tài khoản Codex, kết nối D1 Cloud và giao diện điều khiển trung tâm.
+# Changelog - SeeLLM Tools
+
+**Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
+
+## [0.3.307] - 2026-07-01 00:00:00
+
+### 🛡️ Chốt vòng lặp Warmup thất bại và phân loại proxy/network triệt để hơn
+
+- **[warmup.js] Phân loại nguyên nhân thất bại transport rõ hơn**: Warmup giờ gắn thêm `notes` khi fail để tách `proxy_or_network`, `proxy_reputation` và `browser_restarted`. Các lỗi như `page.goto timeout`, `Turnstile/IP reputation block`, `tab/context closed` sẽ được ghi dấu thay vì chỉ lưu `failed` chung chung.
+- **[warmup.js] Chặn vòng lặp `Welcome Back` không tiến triển**: Nếu click xong mà fingerprint không đổi hoặc helper báo `welcome-back-loop`, script sẽ reset state và quay lại `auth.openai.com/log-in` thay vì tiếp tục quẩn ở cùng màn hình rồi kết thúc bằng `LOGIN_TIMEOUT_EMAIL_SCREEN`.
+- **[openai-login-flow.js] Helper `clickWelcomeBackContinue()` trả về cờ `transitioned`**: Warmup có thể biết hành động vừa click có mở thêm email/password form hay không, giúp phân biệt click thành công thật với click “có tác dụng giả”.
+- **[warmup.js] Failure notes đẩy đủ hơn về vault**: Khi warmup fail, notes hiện có cả `lastAction` và `category`, giúp vận hành nhìn nhanh ra proxy xấu hay loop UI mà không phải soi log dài.
+- **Lý do bổ sung sau v0.3.306**: Các log mới cho thấy proxy/IP reputation vẫn là nguyên nhân lớn, nhưng một phần fail đến từ recovery loop của `Welcome Back` không thoát ra được. Bản này chốt cả hai mặt để giảm tái phát.

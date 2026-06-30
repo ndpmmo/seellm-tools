@@ -99,6 +99,40 @@ function classifyLoginTimeout(state, meta = {}) {
   return `LOGIN_TIMEOUT_UNKNOWN_STATE: Login loop hết thời gian ở trạng thái chưa phân loại (lastAction=${action}; ${flags})`;
 }
 
+function classifyWarmupTransportFailure(message) {
+  const msg = String(message || '').toLowerCase();
+  if (
+    msg.includes('net_timeout_navigate') ||
+    msg.includes('page.goto') ||
+    (msg.includes('timeout') && msg.includes('navigate')) ||
+    msg.includes('proxy') && msg.includes('timeout')
+  ) {
+    return {
+      category: 'proxy_or_network',
+      note: 'Warmup thất bại do proxy/mạng chậm hoặc không tải được ChatGPT kịp thời.',
+    };
+  }
+  if (
+    msg.includes('blocked_by_openai_turnstile') ||
+    msg.includes('turnstile') ||
+    msg.includes('ip reputation') ||
+    msg.includes('access denied') ||
+    msg.includes('cloudflare')
+  ) {
+    return {
+      category: 'proxy_reputation',
+      note: 'Warmup thất bại do Turnstile/IP reputation block; proxy hiện tại nhiều khả năng không đạt độ tin cậy.',
+    };
+  }
+  if (msg.includes('browser_restarted') || msg.includes('tab no longer exists') || msg.includes('context closed')) {
+    return {
+      category: 'browser_restarted',
+      note: 'Warmup thất bại do browser/tab bị khởi động lại trong quá trình chạy.',
+    };
+  }
+  return null;
+}
+
 function getLoginScreenFingerprint(state) {
   if (!state) return 'state:null';
   const href = String(state.href || '').toLowerCase();
@@ -1048,6 +1082,40 @@ async function runWarmup() {
         if (chooseResult?.ok) {
           console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason}`);
           lastLoginAction = `welcome-back:${chooseResult.method || 'ok'}`;
+          if (chooseResult.transitioned === false) {
+            repeatedLoginFingerprintCount = Math.max(repeatedLoginFingerprintCount + 1, 6);
+            if (repeatedLoginFingerprintCount >= 7) {
+              console.warn(`[Warmup] ⚠️ Welcome Back không chuyển trạng thái sau ${repeatedLoginFingerprintCount} lần -> recovery sạch.`);
+              lastLoginAction = 'welcome-back-stuck';
+              emailFilled = false;
+              emailWaitCount = 0;
+              passwordFilled = false;
+              passwordWaitCount = 0;
+              repeatedLoginFingerprintCount = 0;
+              await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+                await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+              });
+              await delay(4000);
+              continue;
+            }
+          } else {
+            repeatedLoginFingerprintCount = 0;
+          }
+          await delay(4000);
+          continue;
+        }
+
+        if (chooseResult?.reason === 'welcome-back-stuck' || chooseResult?.reason === 'welcome-back-loop') {
+          console.warn(`[Warmup] ⚠️ Welcome Back bị kẹt/loop -> reset state và quay lại auth login sạch.`);
+          lastLoginAction = `welcome-back-recover:${chooseResult.reason}`;
+          emailFilled = false;
+          emailWaitCount = 0;
+          passwordFilled = false;
+          passwordWaitCount = 0;
+          repeatedLoginFingerprintCount = 0;
+          await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+            await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+          });
           await delay(4000);
           continue;
         }
@@ -1908,13 +1976,20 @@ async function runWarmup() {
     
     // Save failure status back to server
     try {
+      const failureMeta = classifyWarmupTransportFailure(err.message || err) || {};
+      const failureNotes = [
+        failureMeta.note || null,
+        `lastAction=${typeof lastLoginAction === 'string' ? lastLoginAction : 'unknown'}`,
+        failureMeta.category ? `category=${failureMeta.category}` : null,
+      ].filter(Boolean).join(' | ');
       await fetch(`${TOOLS_API_URL}/api/vault/accounts/${accountId}/warmup-result`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: 'failed',
           error: err.message,
-          questionsAsked
+          questionsAsked,
+          notes: failureNotes
         })
       });
       console.log(`[Warmup] 🛑 Cập nhật trạng thái Warmup THẤT BẠI về database.`);

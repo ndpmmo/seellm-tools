@@ -1180,6 +1180,14 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       if (!hasWelcomeBack) return { ok: false, reason: 'no-welcome-back' };
 
       const clickables = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a, input[type="submit"]')).filter(isVisible);
+      const beforeHref = location.href;
+      const beforeEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+        el.type === 'email' ||
+        (el.name || '').toLowerCase().includes('email') ||
+        (el.name || '').toLowerCase().includes('username') ||
+        (el.id || '').toLowerCase().includes('email') ||
+        (el.id || '').toLowerCase().includes('username')
+      )).length;
       const isSocialAuthButton = el => {
         const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
         const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
@@ -1216,7 +1224,15 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       const accountCandidates = clickables.filter(el => !isSocialAuthButton(el)).filter(matchesAccount);
       for (const el of accountCandidates) {
         if (safeClick(el)) {
-          return { ok: true, method: 'matched-account', text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
+          const afterHref = location.href;
+          const afterEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+            el.type === 'email' ||
+            (el.name || '').toLowerCase().includes('email') ||
+            (el.name || '').toLowerCase().includes('username') ||
+            (el.id || '').toLowerCase().includes('email') ||
+            (el.id || '').toLowerCase().includes('username')
+          )).length;
+          return { ok: true, method: 'matched-account', transitioned: afterHref !== beforeHref || afterEmailInputs > beforeEmailInputs, text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
         }
       }
 
@@ -1236,7 +1252,15 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
         const parentText = (el.closest('div, section, main, dialog')?.innerText || '').toLowerCase();
         if (text.includes('continue') || parentText.includes('welcome back') || parentText.includes('choose an account')) {
           if (safeClick(el)) {
-            return { ok: true, method: 'continue-button', text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
+            const afterHref = location.href;
+            const afterEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+              el.type === 'email' ||
+              (el.name || '').toLowerCase().includes('email') ||
+              (el.name || '').toLowerCase().includes('username') ||
+              (el.id || '').toLowerCase().includes('email') ||
+              (el.id || '').toLowerCase().includes('username')
+            )).length;
+            return { ok: true, method: 'continue-button', transitioned: afterHref !== beforeHref || afterEmailInputs > beforeEmailInputs, text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
           }
         }
       }
@@ -1245,12 +1269,28 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       for (const form of forms) {
         const submit = Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]')).filter(isVisible).find(el => !isSocialAuthButton(el));
         if (submit && safeClick(submit)) {
-          return { ok: true, method: 'form-submit', text: (submit.innerText || submit.textContent || submit.value || '').trim().slice(0, 80) };
+          const afterHref = location.href;
+          const afterEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+            el.type === 'email' ||
+            (el.name || '').toLowerCase().includes('email') ||
+            (el.name || '').toLowerCase().includes('username') ||
+            (el.id || '').toLowerCase().includes('email') ||
+            (el.id || '').toLowerCase().includes('username')
+          )).length;
+          return { ok: true, method: 'form-submit', transitioned: afterHref !== beforeHref || afterEmailInputs > beforeEmailInputs, text: (submit.innerText || submit.textContent || submit.value || '').trim().slice(0, 80) };
         }
         try {
           if (typeof form.requestSubmit === 'function') {
             form.requestSubmit(submit || undefined);
-            return { ok: true, method: 'request-submit' };
+            const afterHref = location.href;
+            const afterEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+              el.type === 'email' ||
+              (el.name || '').toLowerCase().includes('email') ||
+              (el.name || '').toLowerCase().includes('username') ||
+              (el.id || '').toLowerCase().includes('email') ||
+              (el.id || '').toLowerCase().includes('username')
+            )).length;
+            return { ok: true, method: 'request-submit', transitioned: afterHref !== beforeHref || afterEmailInputs > beforeEmailInputs };
           }
         } catch (_) {}
       }
@@ -1261,10 +1301,18 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
         return text.includes(lowerEmail) || text.includes(lowerLocalPart);
       });
       if (rememberedAccount && safeClick(rememberedAccount)) {
-        return { ok: true, method: 'remembered-account-fallback', text: (rememberedAccount.innerText || rememberedAccount.textContent || rememberedAccount.value || '').trim().slice(0, 80) };
+        const afterHref = location.href;
+        const afterEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+          el.type === 'email' ||
+          (el.name || '').toLowerCase().includes('email') ||
+          (el.name || '').toLowerCase().includes('username') ||
+          (el.id || '').toLowerCase().includes('email') ||
+          (el.id || '').toLowerCase().includes('username')
+        )).length;
+        return { ok: true, method: 'remembered-account-fallback', transitioned: afterHref !== beforeHref || afterEmailInputs > beforeEmailInputs, text: (rememberedAccount.innerText || rememberedAccount.textContent || rememberedAccount.value || '').trim().slice(0, 80) };
       }
 
-      return { ok: false, reason: 'welcome-back-unhandled', visible: clickables.slice(0, 10).map(el => (el.innerText || el.textContent || el.value || '').trim().slice(0, 80)) };
+      return { ok: false, reason: hasWelcomeBack ? 'welcome-back-loop' : 'welcome-back-unhandled', visible: clickables.slice(0, 10).map(el => (el.innerText || el.textContent || el.value || '').trim().slice(0, 80)) };
     })()
   `, 5000);
 }
