@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.303] - 2026-06-30 15:25:00
+
+### 🛡️ Phân loại triệt để lỗi Warmup login timeout và phục hồi auth/login_with bị kẹt
+
+- **[warmup.js] Thay lỗi chung `Đăng nhập thất bại hoặc hết thời gian chờ` bằng mã lỗi hành động được**: Login loop nay ghi nhớ state/action cuối cùng và phân loại thành `LOGIN_TIMEOUT_EMAIL_SCREEN`, `LOGIN_TIMEOUT_PASSWORD_SCREEN`, `LOGIN_TIMEOUT_LOGIN_WITH_STUCK`, `LOGIN_TIMEOUT_AUTH_LANDING`, `LOGIN_TIMEOUT_LOGGED_OUT_SHELL`, `EMAIL_OTP_REQUIRED`, `NEED_2FA`, v.v. Log/database sẽ biết chính xác đang kẹt ở bước nào.
+- **[warmup.js] Thêm recovery cho `auth/login_with?callback_path=/` không render form**: Nếu URL này đứng yên nhiều vòng mà không có email/password/MFA input, script reset flags và force reload `auth.openai.com/log-in` sạch thay vì chờ hết 40 vòng.
+- **[server/routes/vault.js] Map `LOGIN_TIMEOUT_*` và `SESSION_EXPIRED` về trạng thái `relogin`**: Warmup failure nay không còn rơi vào nhóm lỗi mơ hồ; Vault sẽ lưu notes rõ và đưa account vào luồng cần đăng nhập lại/xử lý phiên.
+
 ## [0.3.302] - 2026-06-30 15:00:00
 
 ### 🛡️ Fix triệt để warmup/login recovery cho màn Welcome back và giảm false-positive session expired

@@ -59,6 +59,46 @@ async function waitStateTransition(tabId, userId, initialState, maxMs = 5000, in
   return null;
 }
 
+function summarizeLoginState(state) {
+  if (!state) return 'state=null';
+  return [
+    `url=${state.href || 'unknown'}`,
+    `onAuthDomain=${state.onAuthDomain}`,
+    `looksLoggedIn=${state.looksLoggedIn}`,
+    `hasEmailInput=${state.hasEmailInput}`,
+    `hasPasswordInput=${state.hasPasswordInput}`,
+    `hasMfaInput=${state.hasMfaInput}`,
+    `hasContinueWithPassword=${state.hasContinueWithPassword}`,
+    `hasLoggedOutChatShell=${state.hasLoggedOutChatShell}`,
+    `hasVisibleLoginAction=${state.hasVisibleLoginAction}`,
+    `hasSessionExpiredText=${state.hasSessionExpiredText}`,
+  ].join(', ');
+}
+
+function classifyLoginTimeout(state, meta = {}) {
+  const href = String(state?.href || '').toLowerCase();
+  const flags = summarizeLoginState(state);
+  const action = meta.lastLoginAction || 'unknown';
+
+  if (!state) {
+    return `LOGIN_TIMEOUT_STATE_UNAVAILABLE: Không lấy được trạng thái trang trong login loop (lastAction=${action})`;
+  }
+  if (state.hasDeactivated) return 'ACCOUNT_DEACTIVATED: Tài khoản đã bị khóa';
+  if (state.hasResetPasswordScreen) return 'PASSWORD_RESET_REQUIRED: Tài khoản yêu cầu đặt lại mật khẩu';
+  if (state.hasWrongPassword) return 'WRONG_PASSWORD: Mật khẩu không đúng';
+  if (state.hasEmailOtpInput) return `EMAIL_OTP_REQUIRED: Màn hình OTP email vẫn còn sau khi hết thời gian login (${flags})`;
+  if (state.hasMfaInput) return `NEED_2FA: Màn hình 2FA vẫn còn sau khi hết thời gian login nhưng không hoàn tất được (${flags})`;
+  if (state.hasPasswordInput) return `LOGIN_TIMEOUT_PASSWORD_SCREEN: Kẹt ở màn hình mật khẩu sau ${meta.passwordWaitCount || 0} lần chờ (lastAction=${action}; ${flags})`;
+  if (state.hasEmailInput) return `LOGIN_TIMEOUT_EMAIL_SCREEN: Kẹt ở màn hình email sau ${meta.emailWaitCount || 0} lần chờ (lastAction=${action}; ${flags})`;
+  if (state.hasContinueWithPassword || state.hasEmailInboxScreen) return `LOGIN_TIMEOUT_EMAIL_VERIFICATION_SCREEN: Kẹt ở màn hình xác minh email/Continue with password (lastAction=${action}; ${flags})`;
+  if (href.includes('/auth/login_with')) return `LOGIN_TIMEOUT_LOGIN_WITH_STUCK: Kẹt tại auth/login_with không render form đăng nhập (lastAction=${action}; ${flags})`;
+  if (state.onAuthDomain && state.hasVisibleLoginAction) return `LOGIN_TIMEOUT_AUTH_LANDING: Kẹt ở auth landing có nút login nhưng không mở form (lastAction=${action}; ${flags})`;
+  if (state.onAuthDomain) return `LOGIN_TIMEOUT_AUTH_BLANK: Kẹt ở auth domain nhưng không có form/action rõ ràng (lastAction=${action}; ${flags})`;
+  if (state.hasLoggedOutChatShell || state.hasVisibleLoginAction || state.hasVisibleSignUpAction) return `LOGIN_TIMEOUT_LOGGED_OUT_SHELL: Kẹt ở ChatGPT logged-out shell, redirect login không hoàn tất (lastAction=${action}; ${flags})`;
+  if (state.hasSessionExpiredText) return `SESSION_EXPIRED: Trang báo session expired trong login recovery (${flags})`;
+  return `LOGIN_TIMEOUT_UNKNOWN_STATE: Login loop hết thời gian ở trạng thái chưa phân loại (lastAction=${action}; ${flags})`;
+}
+
 // Parse command line arguments
 function parseArgs() {
   const args = {};
@@ -785,6 +825,9 @@ async function runWarmup() {
       let passwordBlockCount = 0;
       let mfaFilled = false;
       let consecutiveRedirectClicks = 0; // Đếm số lần click redirect mà URL không thay đổi
+      let lastLoginState = null;
+      let lastLoginAction = 'start';
+      let loginWithStuckCount = 0;
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
         console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
@@ -794,9 +837,12 @@ async function runWarmup() {
         const state = await getState(tabId, USER_ID);
         if (!state) {
           console.warn(`[Warmup] ⚠️ Không thể lấy trạng thái trang (state is null) ở loop đăng nhập. Đang thử lại...`);
+          lastLoginState = null;
+          lastLoginAction = 'state-unavailable';
           await delay(2000);
           continue;
         }
+        lastLoginState = state;
         console.log(`[Warmup] ℹ️ Lượt ${attempt} trạng thái trang:`);
         console.log(`   - URL: ${state.href}`);
         console.log(`   - onAuthDomain: ${state.onAuthDomain}`);
@@ -819,6 +865,27 @@ async function runWarmup() {
         // Reset bộ đếm khi URL đã chuyển sang auth domain thành công
         if (state.onAuthDomain) {
           consecutiveRedirectClicks = 0;
+        }
+
+        const hrefLower = String(state.href || '').toLowerCase();
+        if (hrefLower.includes('/auth/login_with') && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput) {
+          loginWithStuckCount++;
+          if (loginWithStuckCount >= 4) {
+            console.warn(`[Warmup] ⚠️ auth/login_with kẹt ${loginWithStuckCount} vòng không render form -> force reload auth.openai.com/log-in sạch...`);
+            lastLoginAction = 'recover-login-with-stuck';
+            loginWithStuckCount = 0;
+            emailFilled = false;
+            emailWaitCount = 0;
+            passwordFilled = false;
+            passwordWaitCount = 0;
+            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+            });
+            await delay(4000);
+            continue;
+          }
+        } else {
+          loginWithStuckCount = 0;
         }
         
         if (state.hasDeactivated) {
@@ -846,6 +913,7 @@ async function runWarmup() {
           // Navigate thẳng về chatgpt.com thay vì click "Go back" (tránh vòng lặp redirect)
           // "Go back" sau workspace selection thường đưa về login page gây loop
           console.log(`[Warmup] 🔄 Điều hướng lại về chatgpt.com để khắc phục lỗi...`);
+          lastLoginAction = 'recover-error-screen';
           try {
             await navigate(tabId, USER_ID, 'https://chatgpt.com/');
           } catch (_) {
@@ -883,6 +951,7 @@ async function runWarmup() {
             passwordFilled = false;
             passwordWaitCount = 0;
             consecutiveRedirectClicks = 0; // reset vì ta đã vào được auth domain trước đó
+            lastLoginAction = 'reset-after-left-input';
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await delay(4000);
             continue;
@@ -893,6 +962,7 @@ async function runWarmup() {
             // Click DOM không hiệu quả → force navigate thẳng đến trang đăng nhập
             console.log(`[Warmup] 🚨 Click redirect thất bại ${consecutiveRedirectClicks} lần liên tiếp -> Force navigate thẳng đến auth.openai.com/log-in...`);
             consecutiveRedirectClicks = 0;
+            lastLoginAction = 'force-auth-log-in';
             try {
               await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' });
             } catch (navErr) {
@@ -902,6 +972,7 @@ async function runWarmup() {
             await delay(3000);
           } else {
             console.log(`[Warmup] 🌐 Đang ở trang chủ nhưng chưa đăng nhập -> Chuyển hướng tới trang login (lần ${consecutiveRedirectClicks}/3)...`);
+            lastLoginAction = 'click-chatgpt-login';
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await delay(4000);
           }
@@ -912,6 +983,7 @@ async function runWarmup() {
         const chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
         if (chooseResult?.ok) {
           console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason}`);
+          lastLoginAction = `welcome-back:${chooseResult.method || 'ok'}`;
           await delay(4000);
           continue;
         }
@@ -952,6 +1024,7 @@ async function runWarmup() {
             return { clicked: false, totalEls: els.length };
           })()`).catch(() => null);
           console.log(`[Warmup] 🖱️ Click "Log in" result:`, JSON.stringify(clickedLoginBtn));
+          lastLoginAction = clickedLoginBtn?.clicked ? 'click-auth-login-button' : 'auth-login-button-not-found';
           await delay(3000);
           continue;
         }
@@ -962,6 +1035,7 @@ async function runWarmup() {
           const clicked = await tryAcceptCookies(tabId, USER_ID);
           await delay(2000);
           if (clicked) {
+            lastLoginAction = 'accept-cookies';
             continue;
           }
         }
@@ -972,9 +1046,11 @@ async function runWarmup() {
           const wsResult = await selectPersonalWorkspaceOnWorkspacePage(tabId, USER_ID, { timeoutMs: 15000 });
           if (wsResult?.ok) {
             console.log(`[Warmup] ✅ Đã chọn Personal workspace: ${wsResult.text || ''}`);
+            lastLoginAction = 'select-personal-workspace';
             await delay(4000);
           } else {
             console.warn(`[Warmup] ⚠️ Chọn Workspace thất bại: ${wsResult?.reason}`);
+            lastLoginAction = `workspace-select-failed:${wsResult?.reason || 'unknown'}`;
             await delay(2000);
           }
           continue;
@@ -990,9 +1066,11 @@ async function runWarmup() {
             console.log(`[Warmup] ✅ Đã click "Continue with password" (method: ${cwpResult.method}). Chờ màn hình mật khẩu...`);
             passwordFilled = false;
             passwordWaitCount = 0;
+            lastLoginAction = `continue-with-password:${cwpResult.method || 'ok'}`;
             await delay(4000);
           } else {
             console.warn(`[Warmup] ⚠️ Không tìm thấy nút "Continue with password" trên màn hình email. Thử lại...`);
+            lastLoginAction = 'continue-with-password-not-found';
             await delay(3000);
           }
           continue;
@@ -1032,6 +1110,7 @@ async function runWarmup() {
                   console.log(`[Warmup] 🔑 Ô nhập password tạm thời trống (trang đang chuyển), tiếp tục chờ (lần ${passwordWaitCount}/2)...`);
                 }
               }
+              lastLoginAction = clicked ? 'retrigger-password-submit' : 'password-submit-not-ready';
               await delay(3000);
               continue;
             } else {
@@ -1060,6 +1139,7 @@ async function runWarmup() {
             }
             passwordFilled = true;
             passwordWaitCount = 0;
+            lastLoginAction = `fill-password:${pwdResult?.strategy || 'unknown'}`;
             if (WARMUP_SCREENSHOTS && stepRecorder) {
               await stepRecorder.checkpoint(1, 3, 'login_password_filled');
             }
@@ -1116,6 +1196,7 @@ async function runWarmup() {
                   console.log(`[Warmup] 📧 Ô nhập email tạm thời trống (trang đang chuyển), tiếp tục chờ (lần ${emailWaitCount}/2)...`);
                 }
               }
+              lastLoginAction = clicked ? 'retrigger-email-submit' : 'email-submit-not-ready';
               await delay(3000);
               continue;
             } else {
@@ -1131,11 +1212,13 @@ async function runWarmup() {
               console.warn(`[Warmup] ⚠️ fillEmail failed: ${fillResult?.reason || 'unknown'} — sẽ thử lại ở vòng sau`);
               emailFilled = false;
               emailWaitCount = 0;
+              lastLoginAction = `fill-email-failed:${fillResult?.reason || 'unknown'}`;
               await delay(3000);
               continue;
             }
             emailFilled = true;
             emailWaitCount = 0;
+            lastLoginAction = `fill-email:${fillResult?.strategy || 'unknown'}`;
             if (WARMUP_SCREENSHOTS && stepRecorder) {
               await stepRecorder.checkpoint(1, 2, 'login_email_filled');
             }
@@ -1155,6 +1238,7 @@ async function runWarmup() {
           console.log(`[Warmup] 🔢 Điền mã OTP: ${otp}`);
           await fillMfa(tabId, USER_ID, otp);
           mfaFilled = true;
+          lastLoginAction = 'fill-totp';
           if (WARMUP_SCREENSHOTS && stepRecorder) {
             await stepRecorder.checkpoint(1, 4, 'login_mfa_filled');
           }
@@ -1189,6 +1273,7 @@ async function runWarmup() {
             if (otpCode) {
               console.log(`[Warmup] 🔢 Nhập mã OTP từ email: ${otpCode}`);
               await fillMfa(tabId, USER_ID, otpCode);
+              lastLoginAction = 'fill-email-otp';
               await delay(6000);
               if (stepRecorder) await stepRecorder.after(4, 1, 'email_otp_filled');
               continue;
@@ -1206,6 +1291,7 @@ async function runWarmup() {
           const dismissed = await tryDismissPasskeyEnrollment(tabId, USER_ID);
           if (dismissed) {
             console.log(`[Warmup] ✅ Đã bỏ qua màn hình Passkey thành công!`);
+            lastLoginAction = 'dismiss-passkey';
             await delay(3000);
             continue;
           }
@@ -1216,7 +1302,11 @@ async function runWarmup() {
       }
       
       if (!isLoggedIn) {
-        throw new Error('Đăng nhập thất bại hoặc hết thời gian chờ!');
+        throw new Error(classifyLoginTimeout(lastLoginState, {
+          lastLoginAction,
+          emailWaitCount,
+          passwordWaitCount,
+        }));
       }
     } else {
       console.log(`[Warmup] ✅ Session hợp lệ!`);

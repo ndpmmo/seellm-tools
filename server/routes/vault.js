@@ -130,7 +130,16 @@ function isDeactivatedMsg(message) {
 function isReloginMsg(message) {
   if (!message) return false;
   const msg = String(message).toLowerCase();
-  return msg.includes('relogin') || msg.includes('password_reset_required') || msg.includes('reset password') || msg.includes('đặt lại mật khẩu') || msg.includes('wrong_password') || msg.includes('incorrect password') || msg.includes('mật khẩu không đúng') || msg.includes('sai mật khẩu');
+  return msg.includes('relogin') ||
+         msg.includes('login_timeout_') ||
+         msg.includes('session_expired') ||
+         msg.includes('password_reset_required') ||
+         msg.includes('reset password') ||
+         msg.includes('đặt lại mật khẩu') ||
+         msg.includes('wrong_password') ||
+         msg.includes('incorrect password') ||
+         msg.includes('mật khẩu không đúng') ||
+         msg.includes('sai mật khẩu');
 }
 
 function maybeAddAccountDeactivatedTag(id, message) {
