@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.302] - 2026-06-30 15:00:00
+
+### 🛡️ Fix triệt để warmup/login recovery cho màn Welcome back và giảm false-positive session expired
+
+- **[openai-login-flow.js] Thêm helper dùng chung cho màn `Welcome back` / remembered account**: Bổ sung `clickWelcomeBackContinue()` để xử lý đúng các màn có email đã ghi nhớ nhưng chưa tự chuyển sang form đăng nhập. Helper ưu tiên click account/Continue bằng nhiều selector và fallback theo `requestSubmit` để tránh kẹt ở `auth/login_with?callback_path=/`.
+- **[warmup.js] Dùng helper chung thay cho logic click thủ công**: Warmup nay xử lý màn `Welcome back` bằng cùng một cơ chế với 2FA regen, giảm lệch hành vi giữa hai luồng và tránh loop mù đến timeout khi chỉ thấy nút `Continue`.
+- **[warmup.js] Nới session-expired guard để giảm nhảy cò sai**: Nếu API `/api/auth/session` chưa khớp nhưng page không thật sự ở auth/login screen, script chỉ cảnh báo nhẹ thay vì kết luận expired ngay. Điều này giảm false-positive khi DOM tạm lệch với session API.
+- **[regenerate-2fa.js] Đồng bộ xử lý màn `Welcome back`**: 2FA Regen nay dùng chung helper mới để xử lý remembered-account screen, tránh tình trạng login recovery đi theo đường khác warmup.
+- **Chẩn đoán từ log warmup mới nhất**: Nhóm thất bại chính gồm `SESSION_EXPIRED` kèm kẹt ở `auth/login_with`, màn `Welcome back` có email nhưng không click tiếp được, và một phần account thật sự bị `ACCOUNT_DEACTIVATED` nên phải quarantine thay vì retry.
+
 ## [0.3.301] - 2026-06-30 04:39:22
 
 ### 🛡️ Tối ưu state-machine 2FA Regen sau loạt log 21:26

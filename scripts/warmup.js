@@ -17,6 +17,7 @@ import {
   fillMfa,
   tryAcceptCookies,
   dismissGooglePopupAndClickLogin,
+  clickWelcomeBackContinue,
   selectPersonalWorkspaceOnWorkspacePage,
   clickContinueWithPassword,
   tryDismissPasskeyEnrollment,
@@ -110,8 +111,14 @@ async function assertChatgptAuthenticated(tabId, userId, context = 'before_qna')
       })()
     `);
     if (!sessionRes || !sessionRes.accessToken) {
-      console.warn(`[Warmup] ⚠️ DOM looksLoggedIn=true nhưng API /api/auth/session báo chưa đăng nhập!`);
-      throw new Error(`session_expired: API session invalid hoặc expired ở ${context}`);
+      const url = String(state?.href || '');
+      const onAuthDomain = !!state?.onAuthDomain;
+      const hasLoginLikeScreen = !!(state?.hasLoggedOutChatShell || state?.hasVisibleLoginAction || state?.hasVisibleSignUpAction || state?.hasEmailInput || state?.hasPasswordInput || state?.hasMfaInput);
+      if (onAuthDomain || hasLoginLikeScreen || url.includes('/auth/') || url.includes('/login')) {
+        console.warn(`[Warmup] ⚠️ DOM looksLoggedIn=true nhưng API /api/auth/session báo chưa đăng nhập!`);
+        throw new Error(`session_expired: API session invalid hoặc expired ở ${context}`);
+      }
+      console.warn(`[Warmup] ⚠️ API session check chưa xác nhận nhưng page không ở auth/login screen. Giữ cảnh báo nhẹ để tránh false positive.`);
     }
   } catch (err) {
     if (err.message.includes('session_expired')) throw err;
@@ -902,47 +909,9 @@ async function runWarmup() {
         }
         
         // 2. Handle Welcome Back dialog (Diane Mitchell dialog in Image 1)
-        const chooseResult = await evalJson(tabId, USER_ID, `(() => {
-          const body = (document.body?.innerText || '').toLowerCase();
-          const hasWelcomeBack = body.includes('welcome back') || body.includes('chào mừng quay trở lại') || body.includes('choose an account') || body.includes('chọn một tài khoản');
-          if (!hasWelcomeBack) return null;
-          
-          // Strategy 1: Look for button, [role="button"], [role="option"], or anchor elements first
-          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a');
-          for (const el of clickables) {
-            if (el.offsetParent === null) continue;
-            const text = (el.textContent || '').trim().toLowerCase();
-            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
-            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
-              el.click();
-              // Dispatch MouseEvents for extra security
-              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return 'clicked_btn: ' + text.slice(0, 60);
-            }
-          }
-          
-          // Strategy 2: Fallback to child divs with classes containing account/item/button
-          const divs = document.querySelectorAll('div[class*="account"], div[class*="item"], div[class*="button"]');
-          for (const el of divs) {
-            if (el.offsetParent === null) continue;
-            // Ensure we are clicking a leaf-like div, not the outer modal container
-            if (el.querySelector('div[class*="account"], div[class*="item"]')) continue;
-            const text = (el.textContent || '').trim().toLowerCase();
-            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
-            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
-              el.click();
-              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return 'clicked_div: ' + text.slice(0, 60);
-            }
-          }
-          return null;
-        })()`);
-        if (chooseResult) {
-          console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã chọn tài khoản: ${chooseResult}`);
+        const chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+        if (chooseResult?.ok) {
+          console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason}`);
           await delay(4000);
           continue;
         }

@@ -1091,6 +1091,108 @@ export async function clickContinueWithPassword(tabId, userId) {
 }
 
 /**
+ * Handle the "Welcome back" / remembered account screen.
+ * This screen often shows a prefilled email plus a "Continue" button.
+ * @param {string} tabId - Tab ID
+ * @param {string} userId - User ID
+ * @param {string} accountEmail - Email used to prefer the correct remembered account
+ * @returns {Promise<object>} Result object
+ */
+export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '') {
+  const escapedEmail = JSON.stringify(String(accountEmail || '').toLowerCase());
+  return evalJson(tabId, userId, `
+    (() => {
+      const isVisible = el => {
+        if (!el) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+      };
+      const lowerEmail = ${escapedEmail};
+      const lowerLocalPart = lowerEmail.includes('@') ? lowerEmail.split('@')[0] : '';
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      const hasWelcomeBack = bodyText.includes('welcome back') ||
+        bodyText.includes('chào mừng quay trở lại') ||
+        bodyText.includes('choose an account') ||
+        bodyText.includes('chọn một tài khoản');
+      if (!hasWelcomeBack) return { ok: false, reason: 'no-welcome-back' };
+
+      const clickables = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a, input[type="submit"]')).filter(isVisible);
+      const matchesAccount = el => {
+        const text = ((el.innerText || el.textContent || el.value || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();
+        return !!text && (
+          (lowerEmail && text.includes(lowerEmail)) ||
+          (lowerLocalPart && text.includes(lowerLocalPart)) ||
+          text.includes('remembered') ||
+          text.includes('saved account')
+        );
+      };
+      const safeClick = el => {
+        if (!el) return false;
+        try { el.focus?.(); } catch (_) {}
+        try { el.click(); } catch (_) {}
+        try { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); } catch (_) {}
+        try { el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); } catch (_) {}
+        try { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+        return true;
+      };
+
+      const accountCandidates = clickables.filter(matchesAccount);
+      for (const el of accountCandidates) {
+        if (safeClick(el)) {
+          return { ok: true, method: 'matched-account', text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
+        }
+      }
+
+      const continueCandidates = clickables.filter(el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        return text === 'continue' ||
+               text.includes('continue') ||
+               text.includes('next') ||
+               text.includes('tiếp tục') ||
+               aria === 'continue' ||
+               aria.includes('continue') ||
+               aria.includes('next');
+      });
+      for (const el of continueCandidates) {
+        const text = ((el.innerText || el.textContent || el.value || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();
+        const parentText = (el.closest('div, section, main, dialog')?.innerText || '').toLowerCase();
+        if (text.includes('continue') || parentText.includes('welcome back') || parentText.includes('choose an account')) {
+          if (safeClick(el)) {
+            return { ok: true, method: 'continue-button', text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
+          }
+        }
+      }
+
+      const forms = Array.from(document.querySelectorAll('form')).filter(isVisible);
+      for (const form of forms) {
+        const submit = Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]')).find(isVisible);
+        if (submit && safeClick(submit)) {
+          return { ok: true, method: 'form-submit', text: (submit.innerText || submit.textContent || submit.value || '').trim().slice(0, 80) };
+        }
+        try {
+          if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit(submit || undefined);
+            return { ok: true, method: 'request-submit' };
+          }
+        } catch (_) {}
+      }
+
+      const rememberedAccount = clickables.find(el => {
+        const text = ((el.innerText || el.textContent || el.value || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();
+        return text.includes(lowerEmail) || text.includes(lowerLocalPart);
+      });
+      if (rememberedAccount && safeClick(rememberedAccount)) {
+        return { ok: true, method: 'remembered-account-fallback', text: (rememberedAccount.innerText || rememberedAccount.textContent || rememberedAccount.value || '').trim().slice(0, 80) };
+      }
+
+      return { ok: false, reason: 'welcome-back-unhandled', visible: clickables.slice(0, 10).map(el => (el.innerText || el.textContent || el.value || '').trim().slice(0, 80)) };
+    })()
+  `, 5000);
+}
+
+/**
  * Dismiss Google "Sign in with Google" popup overlay + click "Log in" button
  * @param {string} tabId - Tab ID
  * @param {string} userId - User ID

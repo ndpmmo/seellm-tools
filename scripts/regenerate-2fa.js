@@ -17,6 +17,7 @@ import {
   fillMfa,
   tryAcceptCookies,
   dismissGooglePopupAndClickLogin,
+  clickWelcomeBackContinue,
   selectPersonalWorkspaceOnWorkspacePage
 } from './lib/openai-login-flow.js';
 import fs from 'node:fs/promises';
@@ -418,28 +419,9 @@ async function run2faRegen() {
         }
 
         // Welcome back dialog
-        const chooseResult = await evalJson(tabId, USER_ID, `(() => {
-          const body = (document.body?.innerText || '').toLowerCase();
-          const hasWelcomeBack = body.includes('welcome back') || body.includes('chào mừng quay trở lại') || body.includes('choose an account') || body.includes('chọn một tài khoản');
-          if (!hasWelcomeBack) return null;
-
-          const clickables = document.querySelectorAll('button, [role="button"], [role="option"], a');
-          for (const el of clickables) {
-            if (el.offsetParent === null) continue;
-            const text = (el.textContent || '').trim().toLowerCase();
-            const emailPart = ${JSON.stringify(account.email.toLowerCase().split('@')[0])};
-            if (text.includes(emailPart) || text.includes(${JSON.stringify(account.email.toLowerCase())})) {
-              el.click();
-              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return 'clicked_btn: ' + text.slice(0, 60);
-            }
-          }
-          return null;
-        })()`);
-        if (chooseResult) {
-          console.log(`[2FA Regen] 👤 Đã chọn tài khoản Welcome Back: ${chooseResult}`);
+        const chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+        if (chooseResult?.ok) {
+          console.log(`[2FA Regen] 👤 Đã xử lý màn Welcome Back: ${chooseResult.method || chooseResult.reason}`);
           await delay(4000);
           continue;
         }
