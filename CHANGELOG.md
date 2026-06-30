@@ -8250,6 +8250,15 @@ All 13 views fully migrated to Tailwind CSS:
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.308] - 2026-07-01 00:00:00
+
+### 🛡️ Ghi nhận proxy health vào vault để tránh tái dùng proxy xấu
+
+- **[server/routes/vault.js] Warmup result giờ đẩy tín hiệu proxy/network failure vào `provider_specific_data`**: Nếu lỗi thuộc nhóm `page.goto timeout`, `Turnstile/IP reputation block`, `proxy_or_network`, `proxy_reputation`, vault sẽ ghi `proxyHealth=bad`, `proxyFailureCount`, `lastProxyFailureAt`, và `lastProxyFailure`.
+- **[server/routes/vault.js] Giữ trạng thái account tách biệt với lỗi hạ tầng**: Proxy xấu không còn bị ngụy trang thành lỗi login/account khi nguyên nhân thực tế là mạng/hạ tầng. Điều này giúp vận hành phân biệt được account chết với proxy chết.
+- **[warmup.js] Failure notes đã đủ ngữ cảnh hơn**: Warmup gửi `notes` kèm `category` và `lastAction`, nên vault có thể đánh dấu proxy/network failure ngay từ callback kết quả.
+- **Lý do bổ sung sau v0.3.307**: Sau khi chốt `Welcome Back` loop, vấn đề còn lại là feedback loop cho proxy. Bản này thêm lớp đánh dấu vận hành để giảm tái sử dụng proxy lỗi trong các lượt sau.
+
 ## [0.3.307] - 2026-07-01 00:00:00
 
 ### 🛡️ Chốt vòng lặp Warmup thất bại và phân loại proxy/network triệt để hơn

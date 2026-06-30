@@ -146,6 +146,21 @@ function isReloginMsg(message) {
          msg.includes('sai mật khẩu');
 }
 
+function isProxyFailureMsg(message) {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
+  return msg.includes('net_timeout_navigate') ||
+         msg.includes('page.goto') ||
+         (msg.includes('timeout') && msg.includes('navigate')) ||
+         msg.includes('blocked_by_openai_turnstile') ||
+         msg.includes('turnstile') ||
+         msg.includes('ip reputation') ||
+         msg.includes('cloudflare') ||
+         msg.includes('access denied') ||
+         msg.includes('proxy_or_network') ||
+         msg.includes('proxy_reputation');
+}
+
 function maybeAddAccountDeactivatedTag(id, message) {
   if (isDeactivatedMsg(message)) {
     const account = vault.getAccountFull(id);
@@ -3718,6 +3733,17 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       if (sessionData.account?.id) existingProviderData.accountId = sessionData.account.id;
       if (sessionData.account?.planType) existingProviderData.planType = sessionData.account.planType;
     }
+
+    const isProxyFailure = isProxyFailureMsg(error) || String(notes || '').toLowerCase().includes('proxy_or_network') || String(notes || '').toLowerCase().includes('proxy_reputation');
+    if (isProxyFailure) {
+      existingProviderData.proxyHealth = 'bad';
+      existingProviderData.lastProxyFailureAt = new Date().toISOString();
+      existingProviderData.proxyFailureCount = (existingProviderData.proxyFailureCount || 0) + 1;
+      existingProviderData.lastProxyFailure = error || notes || null;
+    } else if (status === 'success') {
+      existingProviderData.proxyHealth = 'good';
+      existingProviderData.lastProxySuccessAt = new Date().toISOString();
+    }
     
     const updateData = {
       id,
@@ -3766,6 +3792,8 @@ router.post('/accounts/:id/warmup-result', async (req, res) => {
       maybeAddEmailErrorTag(id, error);
       updateData.status = 'error';
       updateData.notes = `Lỗi Email/OTP (phát hiện trong Warmup: ${error})`;
+    } else if (isProxyFailure) {
+      updateData.notes = `Warmup thất bại do proxy/network (phát hiện trong Warmup: ${error || notes || 'unknown'})`;
     } else {
       let targetStatus = accountStatus;
       if (preCheckStatus === 'idle') {
