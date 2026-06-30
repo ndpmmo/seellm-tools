@@ -99,6 +99,23 @@ function classifyLoginTimeout(state, meta = {}) {
   return `LOGIN_TIMEOUT_UNKNOWN_STATE: Login loop hết thời gian ở trạng thái chưa phân loại (lastAction=${action}; ${flags})`;
 }
 
+function getLoginScreenFingerprint(state) {
+  if (!state) return 'state:null';
+  const href = String(state.href || '').toLowerCase();
+  const bucket = [
+    state.onAuthDomain ? 'auth' : 'home',
+    state.hasEmailInput ? 'email' : 'no-email',
+    state.hasPasswordInput ? 'password' : 'no-password',
+    state.hasMfaInput ? 'mfa' : 'no-mfa',
+    state.hasContinueWithPassword ? 'cwp' : 'no-cwp',
+    state.hasLoggedOutChatShell ? 'loggedout' : 'shell-ok',
+    state.hasVisibleLoginAction ? 'login-action' : 'no-login-action',
+    state.hasSessionExpiredText ? 'session-expired' : 'no-session-expired',
+    href.includes('/auth/login_with') ? 'login-with' : href.includes('/auth/login?') ? 'auth-login' : href.includes('/auth/log-in') ? 'auth-log-in' : 'other'
+  ];
+  return bucket.join('|');
+}
+
 // Parse command line arguments
 function parseArgs() {
   const args = {};
@@ -828,6 +845,8 @@ async function runWarmup() {
       let lastLoginState = null;
       let lastLoginAction = 'start';
       let loginWithStuckCount = 0;
+      let lastLoginFingerprint = null;
+      let repeatedLoginFingerprintCount = 0;
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
         console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
@@ -843,6 +862,31 @@ async function runWarmup() {
           continue;
         }
         lastLoginState = state;
+        const currentLoginFingerprint = getLoginScreenFingerprint(state);
+        if (currentLoginFingerprint === lastLoginFingerprint) {
+          repeatedLoginFingerprintCount++;
+        } else {
+          lastLoginFingerprint = currentLoginFingerprint;
+          repeatedLoginFingerprintCount = 1;
+        }
+
+        if (repeatedLoginFingerprintCount >= 6 && !state.looksLoggedIn) {
+          console.warn(`[Warmup] ⚠️ Login screen fingerprint lặp ${repeatedLoginFingerprintCount} vòng: ${currentLoginFingerprint}`);
+          if (state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && state.onAuthDomain) {
+            lastLoginAction = 'fingerprint-stuck-email';
+            emailFilled = false;
+            emailWaitCount = 0;
+            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+            await delay(3500);
+            continue;
+          }
+          if (state.hasLoggedOutChatShell && !state.onAuthDomain) {
+            lastLoginAction = 'fingerprint-stuck-loggedout-shell';
+            await dismissGooglePopupAndClickLogin(tabId, USER_ID).catch(() => {});
+            await delay(3500);
+            continue;
+          }
+        }
         console.log(`[Warmup] ℹ️ Lượt ${attempt} trạng thái trang:`);
         console.log(`   - URL: ${state.href}`);
         console.log(`   - onAuthDomain: ${state.onAuthDomain}`);

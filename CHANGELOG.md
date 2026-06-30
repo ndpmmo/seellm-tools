@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.304] - 2026-06-30 15:50:00
+
+### 🛡️ Thêm fingerprint guard cho Warmup login loop bị lặp trạng thái
+
+- **[warmup.js] Bắt vòng lặp trạng thái login bị đứng hình trước khi tab chết**: Login loop nay tính fingerprint của màn hình hiện tại. Nếu cùng một fingerprint lặp đủ nhiều vòng, script sẽ thử recovery sớm bằng cách reload sạch auth/login hoặc quay lại nút login trên logged-out shell thay vì để tab bị restart rồi mới báo `STATE_UNAVAILABLE`.
+- **[warmup.js] Giảm case `LOGIN_TIMEOUT_STATE_UNAVAILABLE` giả**: Khi tab/browser bị restart sau chuỗi lặp trạng thái, log trước đó giờ đã có fingerprint/action cụ thể hơn để chỉ ra là `fingerprint-stuck-email`, `fingerprint-stuck-loggedout-shell` hoặc `LOGIN_TIMEOUT_LOGIN_WITH_STUCK`.
+- **[warmup.js] Giữ hướng xử lý theo mã lỗi có thể hành động**: Mục tiêu của lớp guard mới là kéo lỗi về sớm hơn ở chính vòng login, để database và log nhìn ra màn nào đang giữ flow lại thay vì đợi tab đổ gãy.
+
 ## [0.3.303] - 2026-06-30 15:25:00
 
 ### 🛡️ Phân loại triệt để lỗi Warmup login timeout và phục hồi auth/login_with bị kẹt
