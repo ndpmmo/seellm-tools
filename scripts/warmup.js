@@ -872,6 +872,25 @@ async function runWarmup() {
 
         const hrefLower = String(state.href || '').toLowerCase();
         const hostLower = String(state.host || '').toLowerCase();
+        const isProviderDriftHost = hostLower.endsWith('accounts.google.com') ||
+          hostLower.endsWith('appleid.apple.com') ||
+          hostLower.endsWith('login.live.com') ||
+          hostLower.endsWith('login.microsoftonline.com');
+
+        if (isProviderDriftHost && !state.looksLoggedIn) {
+          console.warn(`[Warmup] ⚠️ Provider drift sang ${hostLower} -> quay lại OpenAI password login ngay.`);
+          lastLoginAction = `recover-provider-drift:${hostLower}`;
+          emailFilled = false;
+          emailWaitCount = 0;
+          passwordFilled = false;
+          passwordWaitCount = 0;
+          repeatedLoginFingerprintCount = 0;
+          await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+            await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+          });
+          await delay(4000);
+          continue;
+        }
 
         if (repeatedLoginFingerprintCount >= 6 && !state.looksLoggedIn) {
           console.warn(`[Warmup] ⚠️ Login screen fingerprint lặp ${repeatedLoginFingerprintCount} vòng: ${currentLoginFingerprint}`);
@@ -886,20 +905,6 @@ async function runWarmup() {
             lastLoginAction = 'fingerprint-stuck-loggedout-shell';
             await dismissGooglePopupAndClickLogin(tabId, USER_ID).catch(() => {});
             await delay(3500);
-            continue;
-          }
-          if (hostLower.endsWith('accounts.google.com')) {
-            console.warn(`[Warmup] ⚠️ Bị lạc sang Google OAuth full-page ${repeatedLoginFingerprintCount} vòng -> quay lại OpenAI password login.`);
-            lastLoginAction = 'recover-google-oauth-page';
-            emailFilled = false;
-            emailWaitCount = 0;
-            passwordFilled = false;
-            passwordWaitCount = 0;
-            repeatedLoginFingerprintCount = 0;
-            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-              await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
-            });
-            await delay(4000);
             continue;
           }
         }
@@ -1059,8 +1064,22 @@ async function runWarmup() {
               const r = el.getBoundingClientRect();
               return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
             };
+            const isSocialAuthButton = el => {
+              const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+              const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+              const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+              const href = (el.getAttribute('href') || '').trim().toLowerCase();
+              const combined = [text, aria, testId, href].join(' ');
+              return combined.includes('google') ||
+                combined.includes('apple') ||
+                combined.includes('microsoft') ||
+                combined.includes('continue with') ||
+                combined.includes('sign in with') ||
+                combined.includes('log in with') ||
+                combined.includes('oauth');
+            };
             const loginKeywords = ['log in', 'login', 'sign in', 'đăng nhập', 'anmelden', 'se connecter', 'iniciar sesión', 'accedi', 'entrar', 'войти'];
-            const els = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+            const els = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible).filter(el => !isSocialAuthButton(el));
             for (const el of els) {
               const text = (el.innerText || el.textContent || '').trim().toLowerCase();
               const href = (el.getAttribute('href') || '').toLowerCase();
@@ -1150,7 +1169,11 @@ async function runWarmup() {
                 const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
                   .find(el => {
                     const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-                    return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
+                    const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    const href = (el.getAttribute('href') || '').trim().toLowerCase();
+                    const combined = [t, aria, href].join(' ');
+                    const isSocial = combined.includes('google') || combined.includes('apple') || combined.includes('microsoft') || combined.includes('continue with') || combined.includes('sign in with') || combined.includes('log in with') || combined.includes('oauth');
+                    return !isSocial && (t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục');
                   });
                 if (btn) {
                   btn.click();
@@ -1236,7 +1259,11 @@ async function runWarmup() {
                 const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
                   .find(el => {
                     const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
-                    return t === 'continue' || t === 'next' || t === 'tiếp tục';
+                    const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    const href = (el.getAttribute('href') || '').trim().toLowerCase();
+                    const combined = [t, aria, href].join(' ');
+                    const isSocial = combined.includes('google') || combined.includes('apple') || combined.includes('microsoft') || combined.includes('continue with') || combined.includes('sign in with') || combined.includes('log in with') || combined.includes('oauth');
+                    return !isSocial && (t === 'continue' || t === 'next' || t === 'tiếp tục');
                   });
                 if (btn) {
                   btn.click();

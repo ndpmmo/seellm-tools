@@ -557,6 +557,20 @@ export async function fillEmail(tabId, userId, email) {
         el.dispatchEvent(new Event('input',  { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
+      const isSocialAuthButton = el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+        const href = (el.getAttribute('href') || '').trim().toLowerCase();
+        const combined = [text, aria, testId, href].join(' ');
+        return combined.includes('google') ||
+          combined.includes('apple') ||
+          combined.includes('microsoft') ||
+          combined.includes('continue with') ||
+          combined.includes('sign in with') ||
+          combined.includes('log in with') ||
+          combined.includes('oauth');
+      };
       const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};
       let input = null;
       for (const s of selectors) {
@@ -577,7 +591,7 @@ export async function fillEmail(tabId, userId, email) {
         .filter(isVisible)
         .filter(el => {
           const inPopup = el.closest('[id*="credential_picker"], [id*="g_id_"], [class*="nsm7Bb"], [data-credential_picker_id]');
-          return !inPopup;
+          return !inPopup && !isSocialAuthButton(el);
         })
         .find(el => {
           const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
@@ -775,8 +789,23 @@ export async function fillPassword(tabId, userId, password) {
             const r = el.getBoundingClientRect();
             return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
           };
+          const isSocialAuthButton = el => {
+            const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+            const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+            const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+            const href = (el.getAttribute('href') || '').trim().toLowerCase();
+            const combined = [text, aria, testId, href].join(' ');
+            return combined.includes('google') ||
+              combined.includes('apple') ||
+              combined.includes('microsoft') ||
+              combined.includes('continue with') ||
+              combined.includes('sign in with') ||
+              combined.includes('log in with') ||
+              combined.includes('oauth');
+          };
           const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
             .filter(isVisible)
+            .filter(el => !isSocialAuthButton(el))
             .find(el => {
               const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
               return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
@@ -831,6 +860,20 @@ export async function fillPassword(tabId, userId, password) {
         el.dispatchEvent(new Event('input',  { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       };
+      const isSocialAuthButton = el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+        const href = (el.getAttribute('href') || '').trim().toLowerCase();
+        const combined = [text, aria, testId, href].join(' ');
+        return combined.includes('google') ||
+          combined.includes('apple') ||
+          combined.includes('microsoft') ||
+          combined.includes('continue with') ||
+          combined.includes('sign in with') ||
+          combined.includes('log in with') ||
+          combined.includes('oauth');
+      };
       const selectors = [
         'input[autocomplete="current-password"]',
         'input[autocomplete="new-password"]',
@@ -853,6 +896,7 @@ export async function fillPassword(tabId, userId, password) {
 
       const btn = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .filter(isVisible)
+        .filter(el => !isSocialAuthButton(el))
         .find(el => {
           const t = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
           return t === 'continue' || t === 'sign in' || t === 'log in' || t === 'next' || t === 'tiếp tục';
@@ -1044,11 +1088,26 @@ export async function clickContinueWithPassword(tabId, userId) {
         const r = el.getBoundingClientRect();
         return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
       };
+      const isSocialAuthButton = el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+        const href = (el.getAttribute('href') || '').trim().toLowerCase();
+        const combined = [text, aria, testId, href].join(' ');
+        return combined.includes('google') ||
+          combined.includes('apple') ||
+          combined.includes('microsoft') ||
+          combined.includes('continue with google') ||
+          combined.includes('sign in with') ||
+          combined.includes('log in with') ||
+          combined.includes('oauth');
+      };
 
       // Strategy 1: Exact text match on button/[role="button"]
       const kwds = ['continue with password', 'enter your password', 'use password', 'use your password', 'with password'];
       let btn = Array.from(document.querySelectorAll('button, [role="button"]'))
         .filter(isVisible)
+        .filter(el => !isSocialAuthButton(el))
         .find(el => {
           const t = (el.innerText || el.textContent || '').trim().toLowerCase();
           return kwds.some(k => t === k || t.includes(k));
@@ -1076,6 +1135,7 @@ export async function clickContinueWithPassword(tabId, userId) {
       );
       if (orDivider) {
         const afterOr = allBtns.find(b => {
+          if (isSocialAuthButton(b)) return false;
           try {
             return orDivider.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
           } catch (_) { return false; }
@@ -1120,6 +1180,20 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       if (!hasWelcomeBack) return { ok: false, reason: 'no-welcome-back' };
 
       const clickables = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a, input[type="submit"]')).filter(isVisible);
+      const isSocialAuthButton = el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+        const href = (el.getAttribute('href') || '').trim().toLowerCase();
+        const combined = [text, aria, testId, href].join(' ');
+        return combined.includes('google') ||
+          combined.includes('apple') ||
+          combined.includes('microsoft') ||
+          combined.includes('continue with') ||
+          combined.includes('sign in with') ||
+          combined.includes('log in with') ||
+          combined.includes('oauth');
+      };
       const matchesAccount = el => {
         const text = ((el.innerText || el.textContent || el.value || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();
         return !!text && (
@@ -1139,14 +1213,14 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
         return true;
       };
 
-      const accountCandidates = clickables.filter(matchesAccount);
+      const accountCandidates = clickables.filter(el => !isSocialAuthButton(el)).filter(matchesAccount);
       for (const el of accountCandidates) {
         if (safeClick(el)) {
           return { ok: true, method: 'matched-account', text: (el.innerText || el.textContent || el.value || '').trim().slice(0, 80) };
         }
       }
 
-      const continueCandidates = clickables.filter(el => {
+      const continueCandidates = clickables.filter(el => !isSocialAuthButton(el)).filter(el => {
         const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
         const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
         return text === 'continue' ||
@@ -1169,7 +1243,7 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
 
       const forms = Array.from(document.querySelectorAll('form')).filter(isVisible);
       for (const form of forms) {
-        const submit = Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]')).find(isVisible);
+        const submit = Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]')).filter(isVisible).find(el => !isSocialAuthButton(el));
         if (submit && safeClick(submit)) {
           return { ok: true, method: 'form-submit', text: (submit.innerText || submit.textContent || submit.value || '').trim().slice(0, 80) };
         }
@@ -1182,6 +1256,7 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       }
 
       const rememberedAccount = clickables.find(el => {
+        if (isSocialAuthButton(el)) return false;
         const text = ((el.innerText || el.textContent || el.value || '') + ' ' + (el.getAttribute('aria-label') || '')).trim().toLowerCase();
         return text.includes(lowerEmail) || text.includes(lowerLocalPart);
       });
@@ -1219,6 +1294,20 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
         } catch (_) {}
         return false;
       };
+      const isSocialAuthButton = el => {
+        const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const testId = (el.getAttribute('data-testid') || '').trim().toLowerCase();
+        const href = (el.getAttribute('href') || '').trim().toLowerCase();
+        const combined = [text, aria, testId, href].join(' ');
+        return combined.includes('google') ||
+          combined.includes('apple') ||
+          combined.includes('microsoft') ||
+          combined.includes('continue with') ||
+          combined.includes('sign in with') ||
+          combined.includes('log in with') ||
+          combined.includes('oauth');
+      };
       const results = [];
 
       // 1. Đóng popup "Sign in with Google" — multi-language aria-label + iframe removal
@@ -1254,13 +1343,14 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       
       // Ưu tiên 1: data-testid chính xác (UI hiện tại)
       loginBtn = document.querySelector('button[data-testid="login-button"], a[data-testid="login-button"]');
-      if (loginBtn && isVisible(loginBtn)) results.push('found-by-data-testid');
+      if (loginBtn && isVisible(loginBtn) && !isSocialAuthButton(loginBtn)) results.push('found-by-data-testid');
+      else loginBtn = null;
       
       // Ưu tiên 2: Các vùng landing page (UI cũ/backup)
       if (!loginBtn) {
         const landingSelectors = ['[class*="login" i] button', '[class*="auth" i] button', 'header button', 'nav button', '[role="banner"] button'];
         for (const sel of landingSelectors) {
-          const candidates = Array.from(document.querySelectorAll(sel)).filter(isVisible);
+          const candidates = Array.from(document.querySelectorAll(sel)).filter(isVisible).filter(el => !isSocialAuthButton(el));
           loginBtn = candidates.find(el => {
             const t = (el.innerText || el.textContent || '').trim().toLowerCase();
             return t === 'log in' || t === 'login' || t === 'sign in' || t.includes('email') || t.includes('password');
@@ -1271,7 +1361,7 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       
       // Ưu tiên 3: href chứa /auth/login
       if (!loginBtn) {
-        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible).filter(el => !isSocialAuthButton(el));
         loginBtn = allClickable.find(el => {
           const href = (el.getAttribute('href') || '').toLowerCase();
           return href.includes('/auth/login') || href.includes('/login');
@@ -1281,7 +1371,7 @@ export async function dismissGooglePopupAndClickLogin(tabId, userId) {
       
       // Ưu tiên 4: text match
       if (!loginBtn) {
-        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+        const allClickable = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(isVisible).filter(el => !isSocialAuthButton(el));
         loginBtn = allClickable.find(el => {
           const t = (el.innerText || el.textContent || '').trim().toLowerCase();
           return t === 'log in' || t === 'login' || t === 'sign in' || t.includes('email') || t.includes('password');

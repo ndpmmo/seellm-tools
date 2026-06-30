@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.306] - 2026-06-30 23:15:35
+
+### 🛡️ Khôi phục cơ chế chống click nhầm Google OAuth triệt để hơn cho Warmup
+
+- **[openai-login-flow.js] Thêm social-auth denylist vào các fallback click quan trọng**: `fillEmail()`, `fillPassword()`, `clickContinueWithPassword()`, `clickWelcomeBackContinue()` và `dismissGooglePopupAndClickLogin()` nay bỏ qua button/link chứa `google`, `apple`, `microsoft`, `continue with`, `sign in with`, `log in with`, `oauth`. Điều này khôi phục tinh thần guard cũ từng dùng trong register/worker: không chọn nhầm `Continue with Google` ngay từ đầu.
+- **[warmup.js] Provider drift guard chạy sớm mỗi vòng login**: Nếu tab trôi sang `accounts.google.com`, `appleid.apple.com`, `login.live.com` hoặc `login.microsoftonline.com`, Warmup reset email/password state và quay lại `auth.openai.com/log-in` ngay, không đợi fingerprint lặp nhiều vòng.
+- **[warmup.js] Chặn social button trong các đoạn submit lại email/password và auth landing**: Các fallback `retrigger-email-submit`, `retrigger-password-submit` và click login trên auth landing đều loại social/OAuth provider trước khi click.
+- **Lý do bổ sung sau v0.3.305**: v0.3.305 đã sửa nhận diện URL và recovery khi đã lạc sang Google; v0.3.306 thêm lớp phòng ngừa trước click và guard nhiều provider để giảm khả năng tái phát từ các UI variant khác.
+
 ## [0.3.305] - 2026-06-30 22:55:46
 
 ### 🛡️ Fix triệt để thêm các lỗi Warmup mới sau fingerprint guard
