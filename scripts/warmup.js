@@ -750,6 +750,7 @@ async function runWarmup() {
   let preFlightResult = null;
   let questionsAsked = 0;
   let stepRecorder = null;
+  let lastLoginAction = 'not-started';
   
   try {
     // Clean up root screenshot folder once before attempts run
@@ -810,6 +811,14 @@ async function runWarmup() {
     tabId = opened.tabId;
     await delay(1000);
 
+    // Set up recorder as soon as a tab exists so early viewport/cookie/nav errors still leave evidence.
+    if (WARMUP_SCREENSHOTS) {
+      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`, `attempt_${attempt}`);
+      await fs.mkdir(runDir, { recursive: true });
+      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
+      console.log(`[Warmup] 📸 Chụp ảnh logs cho lượt thử ${attempt} đã bật! Thư mục ảnh: ${runDir}`);
+    }
+
     // Set fixed viewport to avoid narrow/mobile layout on headful macOS
     console.log(`[Warmup] 🌐 Thiết lập viewport size 1440x900...`);
     await camofoxPost(`/tabs/${tabId}/viewport`, {
@@ -821,16 +830,6 @@ async function runWarmup() {
     });
 
     await delay(2000);
-    
-    // Set up step recorder for screenshots if enabled
-    if (WARMUP_SCREENSHOTS) {
-      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`, `attempt_${attempt}`);
-      await fs.mkdir(runDir, { recursive: true });
-      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
-      console.log(`[Warmup] 📸 Chụp ảnh logs cho lượt thử ${attempt} đã bật! Thư mục ảnh: ${runDir}`);
-    }
-
-    
     // 4. Import cookies from database if present
     if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
       console.log(`[Warmup] 🍪 Nạp ${account.cookies.length} cookies từ database vào browser context...`);
@@ -877,7 +876,7 @@ async function runWarmup() {
       let mfaFilled = false;
       let consecutiveRedirectClicks = 0; // Đếm số lần click redirect mà URL không thay đổi
       let lastLoginState = null;
-      let lastLoginAction = 'start';
+      lastLoginAction = 'start';
       let loginWithStuckCount = 0;
       let lastLoginFingerprint = null;
       let repeatedLoginFingerprintCount = 0;

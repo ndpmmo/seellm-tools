@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.309] - 2026-07-01 00:00:00
+
+### 🛡️ Tăng khả năng quan sát lỗi Warmup và ảnh chụp màn hình
+
+- **[warmup.js] Khởi tạo screenshot recorder sớm hơn**: Recorder nay được tạo ngay sau khi có `tabId`, trước bước viewport/import cookies/navigate. Nếu lỗi xảy ra rất sớm, log vẫn có thư mục ảnh và error screenshot thay vì im lặng.
+- **[warmup.js] Giữ `lastLoginAction` ngoài login-loop scope**: Outer catch có thể lưu notes chính xác khi Warmup fail, tránh mất ngữ cảnh hành động cuối như `welcome-back:continue-button`.
+- **Chẩn đoán từ 10 log mới nhất**: Nhóm lỗi hiện tại tập trung ở `LOGIN_TIMEOUT_EMAIL_SCREEN` sau `welcome-back:continue-button`; vấn đề ảnh là một số run không khởi tạo recorder trước khi lỗi, không phải do `warmupScreenshots` bị tắt.
+
 ## [0.3.306] - 2026-06-30 23:15:35
 
 ### 🛡️ Khôi phục cơ chế chống click nhầm Google OAuth triệt để hơn cho Warmup

@@ -1,6 +1,6 @@
 {
   "name": "seellm-tools",
-  "version": "0.3.308",
+  "version": "0.3.309",
   "description": "SeeLLM Development Tools",
   "private": true,
   "type": "module",
