@@ -870,20 +870,36 @@ async function runWarmup() {
           repeatedLoginFingerprintCount = 1;
         }
 
+        const hrefLower = String(state.href || '').toLowerCase();
+        const hostLower = String(state.host || '').toLowerCase();
+
         if (repeatedLoginFingerprintCount >= 6 && !state.looksLoggedIn) {
           console.warn(`[Warmup] ⚠️ Login screen fingerprint lặp ${repeatedLoginFingerprintCount} vòng: ${currentLoginFingerprint}`);
           if (state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && state.onAuthDomain) {
-            lastLoginAction = 'fingerprint-stuck-email';
+            lastLoginAction = 'fingerprint-email-refill';
             emailFilled = false;
             emailWaitCount = 0;
-            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
-            await delay(3500);
-            continue;
+            repeatedLoginFingerprintCount = 0;
+            console.warn(`[Warmup] ⚠️ Email screen đứng yên -> reset cờ để điền lại email ở handler chính.`);
           }
           if (state.hasLoggedOutChatShell && !state.onAuthDomain) {
             lastLoginAction = 'fingerprint-stuck-loggedout-shell';
             await dismissGooglePopupAndClickLogin(tabId, USER_ID).catch(() => {});
             await delay(3500);
+            continue;
+          }
+          if (hostLower.endsWith('accounts.google.com')) {
+            console.warn(`[Warmup] ⚠️ Bị lạc sang Google OAuth full-page ${repeatedLoginFingerprintCount} vòng -> quay lại OpenAI password login.`);
+            lastLoginAction = 'recover-google-oauth-page';
+            emailFilled = false;
+            emailWaitCount = 0;
+            passwordFilled = false;
+            passwordWaitCount = 0;
+            repeatedLoginFingerprintCount = 0;
+            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+            });
+            await delay(4000);
             continue;
           }
         }
@@ -911,7 +927,6 @@ async function runWarmup() {
           consecutiveRedirectClicks = 0;
         }
 
-        const hrefLower = String(state.href || '').toLowerCase();
         if (hrefLower.includes('/auth/login_with') && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput) {
           loginWithStuckCount++;
           if (loginWithStuckCount >= 4) {
@@ -1844,6 +1859,9 @@ async function runWarmup() {
         }
         await delay(retryWaitMs);
         continue;
+      }
+      if (isNavigateTimeout) {
+        throw new Error(`NET_TIMEOUT_NAVIGATE: Proxy/browser không tải được ChatGPT sau ${maxAttempts} lượt thử (${err.message})`);
       }
       throw err;
     } finally {

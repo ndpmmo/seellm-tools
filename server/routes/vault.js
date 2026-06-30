@@ -132,6 +132,10 @@ function isReloginMsg(message) {
   const msg = String(message).toLowerCase();
   return msg.includes('relogin') ||
          msg.includes('login_timeout_') ||
+         msg.includes('net_timeout_') ||
+         msg.includes('browser_restarted') ||
+         msg.includes('browser was restarted') ||
+         msg.includes('page.goto: timeout') ||
          msg.includes('session_expired') ||
          msg.includes('password_reset_required') ||
          msg.includes('reset password') ||

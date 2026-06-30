@@ -186,7 +186,9 @@ export async function getState(tabId, userId) {
       };
 
       // ── Auth pages (auth.openai.com hoặc /auth/*) ──
-      const onAuthDomain    = host.includes('auth.openai.com') || href.includes('/auth/');
+      const isOpenAIAuthHost = host.includes('auth.openai.com');
+      const isChatgptAuthPath = isChatgptHost && lowerUrl.includes('/auth/');
+      const onAuthDomain    = isOpenAIAuthHost || isChatgptAuthPath;
       
       const hasEmailInput = (() => {
         const selectors = ${JSON.stringify(EMAIL_INPUT_SELECTORS)};

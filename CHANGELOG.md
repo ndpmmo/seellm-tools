@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.305] - 2026-06-30 22:55:46
+
+### 🛡️ Fix triệt để thêm các lỗi Warmup mới sau fingerprint guard
+
+- **[openai-login-flow.js] Không còn nhận nhầm `accounts.google.com/.../auth/...` là auth OpenAI**: Detector `onAuthDomain` nay chỉ đúng với `auth.openai.com` hoặc path `/auth/` trên `chatgpt.com`. Log mới cho thấy Google OAuth full-page có URL chứa `/auth/login`, làm state-machine tưởng vẫn ở auth domain và đứng chờ `LOGIN_TIMEOUT_AUTH_BLANK` đến hết 40 vòng.
+- **[warmup.js] Sửa fingerprint email guard tự chặn handler nhập email**: Khi màn email OpenAI lặp cùng fingerprint, script cũ reload `auth.openai.com/log-in` rồi `continue`, khiến handler `fillEmail()` không bao giờ chạy và kết thúc bằng `LOGIN_TIMEOUT_EMAIL_SCREEN`. Nay guard chỉ reset cờ và cho handler chính điền lại email ngay trong vòng hiện tại.
+- **[warmup.js] Thêm recovery cho Google OAuth full-page bị lạc flow**: Nếu Warmup bị kẹt nhiều vòng ở `accounts.google.com`, script reset email/password state và quay lại OpenAI password login thay vì click login trên chính trang Google.
+- **[warmup.js + vault.js] Phân loại navigate timeout/proxy rõ hơn**: Nếu cả 3 lượt đều `page.goto` timeout, lỗi cuối cùng được chuẩn hóa thành `NET_TIMEOUT_NAVIGATE`; Vault map nhóm `NET_TIMEOUT_*`, `browser_restarted`, `page.goto: timeout` vào trạng thái cần retry/relogin thay vì lỗi mơ hồ.
+- **Chẩn đoán từ log 15:45-15:47**: `ACCOUNT_DEACTIVATED` là lỗi terminal của account; `LOGIN_TIMEOUT_EMAIL_SCREEN` do guard email reload trước handler; `LOGIN_TIMEOUT_AUTH_BLANK` do nhầm Google OAuth thành auth OpenAI; navigate timeout 3 lượt là proxy/infra.
+
 ## [0.3.304] - 2026-06-30 15:50:00
 
 ### 🛡️ Thêm fingerprint guard cho Warmup login loop bị lặp trạng thái
