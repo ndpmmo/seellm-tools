@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.310] - 2026-07-01 16:09:27
+
+### 🛡️ Chặn triệt để vòng lặp Welcome Back không transition trong Warmup
+
+- **[warmup.js] Không còn coi `welcome-back:continue-button` là thành công mù**: Sau khi click Welcome Back, Warmup nay chờ state thật sự đổi bằng `waitStateTransition()`. Nếu URL/form không đổi, log ghi rõ `transitioned=false`, method và text của nút đã click.
+- **[warmup.js] Thêm counter riêng cho Welcome Back stuck**: Nếu click Continue không tạo transition 2 lần liên tiếp, script dừng click lặp và chuyển sang recovery sạch thay vì tiêu hết 40 vòng login rồi fail `LOGIN_TIMEOUT_EMAIL_SCREEN`.
+- **[warmup.js] Clear auth client state trước khi ép login password sạch**: Recovery mới xóa local/session storage và cookie auth/remembered có liên quan trên page hiện tại, rồi mở `https://auth.openai.com/log-in?prompt=login` để bỏ remembered-account loop và buộc quay về flow email/password.
+- **Chẩn đoán từ log mới nhất**: `2026-07-01T08-56-40____Warmup_harveywhitepiji_hotmail_com.log` lặp `Welcome Back -> continue-button` từ nhiều vòng, cùng fingerprint `auth|email|no-password|no-mfa|...`, chứng tỏ lỗi còn lại là Welcome Back không transition chứ không phải screenshot hoặc proxy ở case này.
+
 ## [0.3.309] - 2026-07-01 00:00:00
 
 ### 🛡️ Tăng khả năng quan sát lỗi Warmup và ảnh chụp màn hình

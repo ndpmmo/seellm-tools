@@ -150,6 +150,55 @@ function getLoginScreenFingerprint(state) {
   return bucket.join('|');
 }
 
+async function clearAuthClientState(tabId, userId) {
+  return evalJson(tabId, userId, `(() => {
+    const result = { localStorage: 0, sessionStorage: 0, cookies: 0 };
+    const shouldRemoveKey = key => {
+      const lower = String(key || '').toLowerCase();
+      return lower.includes('auth') ||
+        lower.includes('login') ||
+        lower.includes('account') ||
+        lower.includes('remember') ||
+        lower.includes('user');
+    };
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      try {
+        const keys = [];
+        for (let i = 0; i < storage.length; i++) keys.push(storage.key(i));
+        for (const key of keys) {
+          if (shouldRemoveKey(key)) {
+            storage.removeItem(key);
+            if (storage === window.localStorage) result.localStorage++;
+            else result.sessionStorage++;
+          }
+        }
+      } catch (_) {}
+    }
+    try {
+      const expires = 'Thu, 01 Jan 1970 00:00:00 GMT';
+      for (const rawCookie of document.cookie.split(';')) {
+        const name = rawCookie.split('=')[0]?.trim();
+        if (!name) continue;
+        const lower = name.toLowerCase();
+        if (!shouldRemoveKey(lower) && !lower.startsWith('__host-') && !lower.startsWith('__secure-')) continue;
+        document.cookie = name + '=; expires=' + expires + '; path=/';
+        document.cookie = name + '=; expires=' + expires + '; path=/; domain=.openai.com';
+        document.cookie = name + '=; expires=' + expires + '; path=/; domain=.chatgpt.com';
+        result.cookies++;
+      }
+    } catch (_) {}
+    return result;
+  })()`, 5000).catch(err => ({ error: err?.message || String(err) }));
+}
+
+async function recoverWelcomeBackStuck(tabId, userId, reason = 'stuck') {
+  const resetResult = await clearAuthClientState(tabId, userId);
+  console.warn(`[Warmup] ⚠️ Welcome Back ${reason} -> clear auth client state: ${JSON.stringify(resetResult)}`);
+  await navigate(tabId, userId, 'https://auth.openai.com/log-in?prompt=login', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+    await navigate(tabId, userId, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+  });
+}
+
 // Parse command line arguments
 function parseArgs() {
   const args = {};
@@ -880,6 +929,7 @@ async function runWarmup() {
       let loginWithStuckCount = 0;
       let lastLoginFingerprint = null;
       let repeatedLoginFingerprintCount = 0;
+      let welcomeBackNoTransitionCount = 0;
       
       for (let attempt = 1; attempt <= maxLoginAttempts; attempt++) {
         console.log(`[Warmup] 🔑 Loop đăng nhập - Lượt ${attempt}/${maxLoginAttempts}...`);
@@ -918,6 +968,7 @@ async function runWarmup() {
           passwordFilled = false;
           passwordWaitCount = 0;
           repeatedLoginFingerprintCount = 0;
+          welcomeBackNoTransitionCount = 0;
           await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
             await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
           });
@@ -975,6 +1026,7 @@ async function runWarmup() {
             emailWaitCount = 0;
             passwordFilled = false;
             passwordWaitCount = 0;
+            welcomeBackNoTransitionCount = 0;
             await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
               await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
             });
@@ -1006,6 +1058,7 @@ async function runWarmup() {
           passwordFilled = false;
           passwordWaitCount = 0;
           mfaFilled = false;
+          welcomeBackNoTransitionCount = 0;
 
           // Navigate thẳng về chatgpt.com thay vì click "Go back" (tránh vòng lặp redirect)
           // "Go back" sau workspace selection thường đưa về login page gây loop
@@ -1048,6 +1101,7 @@ async function runWarmup() {
             passwordFilled = false;
             passwordWaitCount = 0;
             consecutiveRedirectClicks = 0; // reset vì ta đã vào được auth domain trước đó
+            welcomeBackNoTransitionCount = 0;
             lastLoginAction = 'reset-after-left-input';
             await dismissGooglePopupAndClickLogin(tabId, USER_ID);
             await delay(4000);
@@ -1079,25 +1133,36 @@ async function runWarmup() {
         // 2. Handle Welcome Back dialog (Diane Mitchell dialog in Image 1)
         const chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
         if (chooseResult?.ok) {
-          console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason}`);
+          console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason} (transitioned=${chooseResult.transitioned})`);
           lastLoginAction = `welcome-back:${chooseResult.method || 'ok'}`;
           if (chooseResult.transitioned === false) {
-            repeatedLoginFingerprintCount = Math.max(repeatedLoginFingerprintCount + 1, 6);
-            if (repeatedLoginFingerprintCount >= 7) {
-              console.warn(`[Warmup] ⚠️ Welcome Back không chuyển trạng thái sau ${repeatedLoginFingerprintCount} lần -> recovery sạch.`);
-              lastLoginAction = 'welcome-back-stuck';
+            const transitionedState = await waitStateTransition(tabId, USER_ID, state, 5000, 1000);
+            if (transitionedState) {
+              console.log(`[Warmup] ✅ Welcome Back đã chuyển trạng thái sau khi chờ: ${summarizeLoginState(transitionedState)}`);
+              welcomeBackNoTransitionCount = 0;
+              repeatedLoginFingerprintCount = 0;
+              await delay(1000);
+              continue;
+            }
+
+            welcomeBackNoTransitionCount++;
+            repeatedLoginFingerprintCount = Math.max(repeatedLoginFingerprintCount, 6);
+            console.warn(`[Warmup] ⚠️ Welcome Back click không đổi trang/form (${welcomeBackNoTransitionCount}/2), method=${chooseResult.method || 'unknown'}, text="${chooseResult.text || ''}"`);
+            if (welcomeBackNoTransitionCount >= 2) {
+              console.warn(`[Warmup] ⚠️ Welcome Back đứng yên sau ${welcomeBackNoTransitionCount} lần -> bỏ remembered account và ép login password sạch.`);
+              lastLoginAction = `welcome-back-stuck:${chooseResult.method || 'unknown'}`;
               emailFilled = false;
               emailWaitCount = 0;
               passwordFilled = false;
               passwordWaitCount = 0;
               repeatedLoginFingerprintCount = 0;
-              await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-                await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
-              });
+              welcomeBackNoTransitionCount = 0;
+              await recoverWelcomeBackStuck(tabId, USER_ID, chooseResult.method || 'no-transition');
               await delay(4000);
               continue;
             }
           } else {
+            welcomeBackNoTransitionCount = 0;
             repeatedLoginFingerprintCount = 0;
           }
           await delay(4000);
@@ -1112,9 +1177,8 @@ async function runWarmup() {
           passwordFilled = false;
           passwordWaitCount = 0;
           repeatedLoginFingerprintCount = 0;
-          await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-            await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
-          });
+          welcomeBackNoTransitionCount = 0;
+          await recoverWelcomeBackStuck(tabId, USER_ID, chooseResult.reason);
           await delay(4000);
           continue;
         }
