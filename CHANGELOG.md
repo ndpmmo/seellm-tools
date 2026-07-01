@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.311] - 2026-07-01 16:48:23
+
+### 🛠️ Tích hợp chọn tên miền từ smtp.dev trong giao diện đăng ký hàng loạt
+
+- **[server/routes/vault.js] Thêm proxy API `/api/vault/smtp/domains`**: Hỗ trợ gọi API `https://api.smtp.dev/domains` bằng `X-API-KEY` truyền từ client, tránh lỗi CORS trên trình duyệt khi gọi trực tiếp.
+- **[VaultWorkshopView.tsx] Thiết kế giao diện tab Bulk Register**:
+  - Hỗ trợ 2 tùy chọn Nguồn Email: **Nhập thủ công** (manual) hoặc **smtp.dev (Email ảo)**.
+  - Khi chọn **smtp.dev**, cung cấp ô nhập API Key (X-API-KEY) và nút xác nhận để tải danh sách tên miền khả dụng.
+  - Hiển thị menu thả xuống (Dropdown Select) để chọn tên miền mong muốn sau khi tải thành công.
+  - Tự động lưu/khôi phục trạng thái lựa chọn nguồn email, API key và domain qua `localStorage`.
+
 ## [0.3.310] - 2026-07-01 16:09:27
 
 ### 🛡️ Chặn triệt để vòng lặp Welcome Back không transition trong Warmup

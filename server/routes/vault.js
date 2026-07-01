@@ -2014,6 +2014,30 @@ function smartParseProxy(inputStr) {
   };
 }
 
+// POST /api/vault/smtp/domains
+router.post('/smtp/domains', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ ok: false, error: 'Thiếu API Key' });
+    }
+    const response = await fetch('https://api.smtp.dev/domains', {
+      headers: {
+        'X-API-KEY': apiKey,
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return res.status(response.status).json({ ok: false, error: `smtp.dev API: ${response.status} - ${text}` });
+    }
+    const data = await response.json();
+    return res.json({ ok: true, domains: data.member || [] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/vault/accounts/bulk-register/validate-inputs
 router.post('/accounts/bulk-register/validate-inputs', async (req, res) => {
   try {

@@ -100,6 +100,13 @@ export function VaultWorkshopView() {
     const [bulkConcurrency, setBulkConcurrency] = useState(2);
     const [bulkEnableOAuth, setBulkEnableOAuth] = useState(false);
 
+    // smtp.dev integration states
+    const [emailSource, setEmailSource] = useState<'manual' | 'smtp'>('manual');
+    const [smtpApiKey, setSmtpApiKey] = useState('');
+    const [smtpDomains, setSmtpDomains] = useState<{ id: string; domain: string; isActive?: boolean }[]>([]);
+    const [selectedSmtpDomain, setSelectedSmtpDomain] = useState('');
+    const [loadingSmtpDomains, setLoadingSmtpDomains] = useState(false);
+
     // Validation & Check states
     const [validating, setValidating] = useState(false);
     const [checkingProxies, setCheckingProxies] = useState(false);
@@ -147,12 +154,18 @@ export function VaultWorkshopView() {
             const savedRatio = localStorage.getItem('seellm_bulk_ratio');
             const savedConcurrency = localStorage.getItem('seellm_bulk_concurrency');
             const savedEnableOAuth = localStorage.getItem('seellm_bulk_enable_oauth');
+            const savedEmailSource = localStorage.getItem('seellm_bulk_email_source');
+            const savedSmtpApiKey = localStorage.getItem('seellm_bulk_smtp_api_key');
+            const savedSelectedSmtpDomain = localStorage.getItem('seellm_bulk_selected_smtp_domain');
 
             if (savedEmails) setBulkEmailsText(savedEmails);
             if (savedProxies) setBulkProxiesText(savedProxies);
             if (savedRatio) setBulkRatio(parseInt(savedRatio, 10) || 1);
             if (savedConcurrency) setBulkConcurrency(parseInt(savedConcurrency, 10) || 2);
             if (savedEnableOAuth) setBulkEnableOAuth(savedEnableOAuth === 'true');
+            if (savedEmailSource === 'manual' || savedEmailSource === 'smtp') setEmailSource(savedEmailSource);
+            if (savedSmtpApiKey) setSmtpApiKey(savedSmtpApiKey);
+            if (savedSelectedSmtpDomain) setSelectedSmtpDomain(savedSelectedSmtpDomain);
             
             // Mark loading complete with a short delay to allow React state updates to cycle
             setTimeout(() => {
@@ -167,6 +180,24 @@ export function VaultWorkshopView() {
             localStorage.setItem('seellm_bulk_emails', bulkEmailsText);
         }
     }, [bulkEmailsText]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
+            localStorage.setItem('seellm_bulk_email_source', emailSource);
+        }
+    }, [emailSource]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
+            localStorage.setItem('seellm_bulk_smtp_api_key', smtpApiKey);
+        }
+    }, [smtpApiKey]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
+            localStorage.setItem('seellm_bulk_selected_smtp_domain', selectedSmtpDomain);
+        }
+    }, [selectedSmtpDomain]);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && !isFirstRender.current) {
@@ -394,7 +425,41 @@ export function VaultWorkshopView() {
             localStorage.setItem('seellm_bulk_ratio', String(bulkRatio));
             localStorage.setItem('seellm_bulk_concurrency', String(bulkConcurrency));
             localStorage.setItem('seellm_bulk_enable_oauth', String(bulkEnableOAuth));
+            localStorage.setItem('seellm_bulk_email_source', emailSource);
+            localStorage.setItem('seellm_bulk_smtp_api_key', smtpApiKey);
+            localStorage.setItem('seellm_bulk_selected_smtp_domain', selectedSmtpDomain);
             addToast('Đã lưu cấu hình thành công', 'success');
+        }
+    };
+
+    const handleFetchSmtpDomains = async () => {
+        if (!smtpApiKey.trim()) {
+            addToast('Vui lòng nhập API Key', 'warning');
+            return;
+        }
+        setLoadingSmtpDomains(true);
+        try {
+            const data = await safeFetchJson('/api/vault/smtp/domains', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: smtpApiKey })
+            });
+            if (data.ok && Array.isArray(data.domains)) {
+                setSmtpDomains(data.domains);
+                addToast(`Đã tải thành công ${data.domains.length} tên miền`, 'success');
+                if (data.domains.length > 0) {
+                    const exists = data.domains.some((d: any) => d.domain === selectedSmtpDomain);
+                    if (!exists) {
+                        setSelectedSmtpDomain(data.domains[0].domain);
+                    }
+                }
+            } else {
+                addToast(data.error || 'Lỗi tải tên miền', 'error');
+            }
+        } catch (err: any) {
+            addToast(err.message || 'Lỗi kết nối', 'error');
+        } finally {
+            setLoadingSmtpDomains(false);
         }
     };
 
@@ -2078,25 +2143,97 @@ export function VaultWorkshopView() {
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     {/* Emails text area */}
+                                    {/* Email Source Switcher */}
                                     <div className="space-y-1.5">
-                                        <div className="flex justify-between items-center">
-                                            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                Danh sách Email ({bulkEmailsText.split('\n').filter(Boolean).length})
-                                            </label>
-                                            <button 
-                                                onClick={() => { setBulkEmailsText(''); localStorage.removeItem('seellm_bulk_emails'); }} 
-                                                className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
+                                        <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                            Nguồn Email
+                                        </label>
+                                        <div className="flex gap-2 p-1 bg-black/25 border border-white/5 rounded-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() => setEmailSource('manual')}
+                                                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${emailSource === 'manual' ? 'bg-white/10 text-slate-200 border border-white/10' : 'text-slate-500 hover:text-slate-300'}`}
                                             >
-                                                <Trash2 size={10} /> Xóa trống
+                                                Nhập thủ công
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEmailSource('smtp')}
+                                                className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${emailSource === 'smtp' ? 'bg-white/10 text-slate-200 border border-white/10' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                smtp.dev (Email ảo)
                                             </button>
                                         </div>
-                                        <textarea
-                                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
-                                            value={bulkEmailsText}
-                                            onChange={e => setBulkEmailsText(e.target.value)}
-                                            placeholder="email|password&#10;email|password|auth_method|refresh_token|client_id"
-                                        />
                                     </div>
+
+                                    {/* Email Input Fields based on Source */}
+                                    {emailSource === 'manual' ? (
+                                        <div className="space-y-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                    Danh sách Email ({bulkEmailsText.split('\n').filter(Boolean).length})
+                                                </label>
+                                                <button 
+                                                    onClick={() => { setBulkEmailsText(''); localStorage.removeItem('seellm_bulk_emails'); }} 
+                                                    className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Trash2 size={10} /> Xóa trống
+                                                </button>
+                                            </div>
+                                            <textarea
+                                                className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
+                                                value={bulkEmailsText}
+                                                onChange={e => setBulkEmailsText(e.target.value)}
+                                                placeholder="email|password&#10;email|password|auth_method|refresh_token|client_id"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3 p-3 bg-white/[0.02] border border-white/5 rounded-lg">
+                                            <div className="space-y-1.5">
+                                                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                    smtp.dev API Key (X-API-KEY)
+                                                </label>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="password"
+                                                        className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50"
+                                                        value={smtpApiKey}
+                                                        onChange={e => setSmtpApiKey(e.target.value)}
+                                                        placeholder="smtplabs_..."
+                                                    />
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        onClick={handleFetchSmtpDomains}
+                                                        disabled={loadingSmtpDomains}
+                                                        className="text-xs font-semibold shrink-0"
+                                                    >
+                                                        {loadingSmtpDomains ? <RefreshCw size={12} className="animate-spin mr-1" /> : null}
+                                                        Xác nhận
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            {smtpDomains.length > 0 && (
+                                                <div className="space-y-1.5 animate-in fade-in duration-200">
+                                                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                        Chọn Tên miền (Domain)
+                                                    </label>
+                                                    <select
+                                                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50"
+                                                        value={selectedSmtpDomain}
+                                                        onChange={e => setSelectedSmtpDomain(e.target.value)}
+                                                    >
+                                                        {smtpDomains.map(d => (
+                                                            <option key={d.id} value={d.domain} className="bg-slate-900">
+                                                                {d.domain} ({d.isActive ? 'Active' : 'Inactive'})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Proxies text area */}
                                     <div className="space-y-1.5">
