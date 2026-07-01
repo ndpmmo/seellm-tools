@@ -2032,7 +2032,8 @@ router.post('/smtp/domains', async (req, res) => {
       return res.status(response.status).json({ ok: false, error: `smtp.dev API: ${response.status} - ${text}` });
     }
     const data = await response.json();
-    return res.json({ ok: true, domains: data.member || [] });
+    const domains = Array.isArray(data) ? data : (data.member || []);
+    return res.json({ ok: true, domains });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }

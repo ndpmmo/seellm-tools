@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.312] - 2026-07-01 17:06:10
+
+### 🐛 Sửa lỗi nhận diện danh sách tên miền từ smtp.dev API
+
+- **[server/routes/vault.js] Hỗ trợ phản hồi dạng Array**: Sửa lỗi do smtp.dev API thực tế trả về một mảng JSON thô (`[...]`) thay vì cấu trúc đối tượng bọc thuộc tính `member` như đặc tả tài liệu.
+
 ## [0.3.311] - 2026-07-01 16:48:23
 
 ### 🛠️ Tích hợp chọn tên miền từ smtp.dev trong giao diện đăng ký hàng loạt
