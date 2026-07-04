@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.323] - 2026-07-04 23:01:18
+
+### 🗑️ Thêm tính năng dọn dẹp hòm thư chủ động trên smtp.dev
+
+- **[server/routes/vault.js] Thêm 2 endpoints mới**:
+  - `POST /api/vault/smtp/cleanup-mailboxes`: Tìm và xóa các email cụ thể (được chỉ định trong danh sách chạy hiện tại) trên máy chủ `smtp.dev` để dọn dẹp các tài khoản thừa còn sót lại.
+  - `POST /api/vault/smtp/delete-all-mailboxes`: Xóa toàn bộ các hòm thư ảo hiện có trên máy chủ `smtp.dev` liên kết với API Key hiện tại để làm sạch hoàn toàn server.
+- **[VaultWorkshopView.tsx] Tích hợp bảng Quản trị Smtp.dev**:
+  - Bổ sung bảng điều khiển "Quản trị Smtp.dev Server" trực quan khi chọn nguồn email là `smtp.dev`.
+  - Cung cấp 2 nút chức năng kèm hộp thoại cảnh báo: **"Dọn hòm thư trong list"** và **"Xóa TOÀN BỘ hòm thư"**.
+
 ## [0.3.322] - 2026-07-04 17:33:33
 
 ### 🛡️ Nâng cấp cơ chế lọc & xác thực email nhận thông minh trên smtp.dev

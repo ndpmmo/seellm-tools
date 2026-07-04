@@ -2230,6 +2230,96 @@ router.post('/smtp/create-mailboxes', async (req, res) => {
   }
 });
 
+// POST /api/vault/smtp/cleanup-mailboxes
+router.post('/smtp/cleanup-mailboxes', async (req, res) => {
+  try {
+    const { apiKey, emails = [] } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ ok: false, error: 'Thiếu apiKey' });
+    }
+    if (!emails.length) {
+      return res.status(400).json({ ok: false, error: 'Danh sách email rỗng' });
+    }
+
+    const accountsRes = await fetch('https://api.smtp.dev/accounts', {
+      headers: { 'X-API-KEY': apiKey, 'Accept': 'application/json' }
+    });
+    if (!accountsRes.ok) {
+      return res.status(400).json({ ok: false, error: `Không thể kết nối smtp.dev: HTTP ${accountsRes.status}` });
+    }
+    const data = await accountsRes.json();
+    const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
+
+    const targetAddresses = new Set(emails.map(e => String(e).trim().toLowerCase()));
+    const matchedAccounts = accountsList.filter(acc => targetAddresses.has(String(acc.address).trim().toLowerCase()));
+
+    const deleted = [];
+    const errors = [];
+
+    await Promise.all(matchedAccounts.map(async (acc) => {
+      try {
+        const delRes = await fetch(`https://api.smtp.dev/accounts/${acc.id}`, {
+          method: 'DELETE',
+          headers: { 'X-API-KEY': apiKey }
+        });
+        if (delRes.status === 204) {
+          deleted.push(acc.address);
+        } else {
+          errors.push({ email: acc.address, error: `HTTP ${delRes.status}` });
+        }
+      } catch (err) {
+        errors.push({ email: acc.address, error: err.message });
+      }
+    }));
+
+    return res.json({ ok: true, deleted, errors });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/vault/smtp/delete-all-mailboxes
+router.post('/smtp/delete-all-mailboxes', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ ok: false, error: 'Thiếu apiKey' });
+    }
+
+    const accountsRes = await fetch('https://api.smtp.dev/accounts', {
+      headers: { 'X-API-KEY': apiKey, 'Accept': 'application/json' }
+    });
+    if (!accountsRes.ok) {
+      return res.status(400).json({ ok: false, error: `Không thể kết nối smtp.dev: HTTP ${accountsRes.status}` });
+    }
+    const data = await accountsRes.json();
+    const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
+
+    const deleted = [];
+    const errors = [];
+
+    await Promise.all(accountsList.map(async (acc) => {
+      try {
+        const delRes = await fetch(`https://api.smtp.dev/accounts/${acc.id}`, {
+          method: 'DELETE',
+          headers: { 'X-API-KEY': apiKey }
+        });
+        if (delRes.status === 204) {
+          deleted.push(acc.address);
+        } else {
+          errors.push({ email: acc.address, error: `HTTP ${delRes.status}` });
+        }
+      } catch (err) {
+        errors.push({ email: acc.address, error: err.message });
+      }
+    }));
+
+    return res.json({ ok: true, totalDeleted: deleted.length, errors });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/vault/accounts/bulk-register/validate-inputs
 router.post('/accounts/bulk-register/validate-inputs', async (req, res) => {
   try {

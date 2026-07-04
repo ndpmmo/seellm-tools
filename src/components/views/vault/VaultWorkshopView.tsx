@@ -542,6 +542,76 @@ export function VaultWorkshopView() {
         setGenPreviewList([]);
     };
 
+    const [cleaningSmtp, setCleaningSmtp] = useState(false);
+
+    const handleCleanupSmtpDevCurrent = async () => {
+        const emails = bulkEmailsText.split('\n')
+            .map(l => l.trim())
+            .filter(Boolean)
+            .map(l => l.includes('|') ? l.split('|')[0] : l);
+
+        if (emails.length === 0) {
+            addToast('Không có email nào trong danh sách để dọn dẹp', 'warning');
+            return;
+        }
+
+        if (!window.confirm(`Bạn có chắc chắn muốn xóa ${emails.length} hòm thư này khỏi smtp.dev server không?`)) {
+            return;
+        }
+
+        setCleaningSmtp(true);
+        try {
+            const res = await safeFetchJson('/api/vault/smtp/cleanup-mailboxes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    apiKey: smtpApiKey,
+                    emails
+                })
+            });
+            if (res.ok) {
+                const deleted = res.deleted || [];
+                const errors = res.errors || [];
+                addToast(`Đã xóa thành công ${deleted.length} hòm thư khỏi smtp.dev server.`, 'success');
+                if (errors.length > 0) {
+                    addToast(`Có ${errors.length} hòm thư gặp lỗi khi xóa.`, 'error');
+                }
+            } else {
+                addToast(res.error || 'Lỗi khi kết nối dọn dẹp hòm thư', 'error');
+            }
+        } catch (err: any) {
+            addToast(err.message || 'Lỗi hệ thống', 'error');
+        } finally {
+            setCleaningSmtp(false);
+        }
+    };
+
+    const handleCleanupSmtpDevAll = async () => {
+        if (!window.confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ hòm thư đang tồn tại trên smtp.dev server không? Hành động này không thể hoàn tác.')) {
+            return;
+        }
+
+        setCleaningSmtp(true);
+        try {
+            const res = await safeFetchJson('/api/vault/smtp/delete-all-mailboxes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    apiKey: smtpApiKey
+                })
+            });
+            if (res.ok) {
+                addToast(`Đã dọn dẹp sạch sẽ server! Thành công xóa ${res.totalDeleted} hòm thư.`, 'success');
+            } else {
+                addToast(res.error || 'Lỗi khi xóa toàn bộ hòm thư', 'error');
+            }
+        } catch (err: any) {
+            addToast(err.message || 'Lỗi hệ thống', 'error');
+        } finally {
+            setCleaningSmtp(false);
+        }
+    };
+
     const handleRetryFailed = async () => {
         try {
             const data = await safeFetchJson('/api/vault/accounts/bulk-register/retry-failed', {
@@ -2383,40 +2453,76 @@ export function VaultWorkshopView() {
 
                                                     {/* Preview Panel */}
                                                     {genPreviewList.length > 0 && (
-                                                        <div className="space-y-2 p-2 bg-black/35 rounded border border-white/5 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
-                                                            <div className="flex justify-between items-center text-[10px] border-b border-white/5 pb-1">
-                                                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Xem trước email</span>
-                                                                <span className="text-slate-500">({genPreviewList.filter(x => !x.exists).length} mới)</span>
-                                                            </div>
-                                                            <div className="space-y-1 text-xs font-mono">
-                                                                {genPreviewList.map((item, idx) => (
-                                                                    <div key={idx} className="flex justify-between items-center py-0.5">
-                                                                        <span className={item.exists ? 'text-slate-500 line-through' : 'text-slate-200'}>
-                                                                            {item.email}
-                                                                        </span>
-                                                                        {item.exists ? (
-                                                                            <span className="text-[9px] font-bold text-rose-400 uppercase">Trùng</span>
-                                                                        ) : (
-                                                                            <span className="text-[9px] font-bold text-emerald-400 uppercase">Mới</span>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                            <Button
-                                                                type="button"
-                                                                variant="primary"
-                                                                size="sm"
-                                                                onClick={handleApplyGeneratedEmails}
-                                                                className="w-full text-xs font-semibold mt-2"
-                                                            >
-                                                                Áp dụng vào Danh sách
-                                                            </Button>
-                                                        </div>
+                                                    <div className="space-y-2 p-2 bg-black/35 rounded border border-white/5 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
+                                                    <div className="flex justify-between items-center text-[10px] border-b border-white/5 pb-1">
+                                                    <span className="text-slate-400 font-semibold uppercase tracking-wider">Xem trước email</span>
+                                                    <span className="text-slate-500">({genPreviewList.filter(x => !x.exists).length} mới)</span>
+                                                    </div>
+                                                    <div className="space-y-1 text-xs font-mono">
+                                                    {genPreviewList.map((item, idx) => (
+                                                    <div key={idx} className="flex justify-between items-center py-0.5">
+                                                    <span className={item.exists ? 'text-slate-500 line-through' : 'text-slate-200'}>
+                                                    {item.email}
+                                                    </span>
+                                                    {item.exists ? (
+                                                    <span className="text-[9px] font-bold text-rose-400 uppercase">Trùng</span>
+                                                    ) : (
+                                                    <span className="text-[9px] font-bold text-emerald-400 uppercase">Mới</span>
                                                     )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                                    </div>
+                                                    ))}
+                                                    </div>
+                                                    <Button
+                                                    type="button"
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={handleApplyGeneratedEmails}
+                                                    className="w-full text-xs font-semibold mt-2"
+                                                    >
+                                                    Áp dụng vào Danh sách
+                                                    </Button>
+                                                    </div>
+                                                    )}
+                                                    </div>
+                                                    )}
+
+                                                            {/* Smtp.dev Server Cleanup Tools */}
+                                             {emailSource === 'smtp' && smtpApiKey && (
+                                                 <div className="mt-3 p-3 bg-rose-500/[0.02] border border-rose-500/10 rounded-lg space-y-2 animate-in fade-in duration-200">
+                                                     <div className="text-[11px] font-bold text-rose-300 uppercase tracking-wider border-b border-rose-500/10 pb-1">
+                                                         Quản trị Smtp.dev Server
+                                                     </div>
+                                                     <div className="text-[10px] text-slate-400">
+                                                         Dọn dẹp hoặc xóa tài khoản hòm thư ảo còn sót lại trên server smtp.dev.
+                                                     </div>
+                                                     <div className="grid grid-cols-2 gap-2 mt-1">
+                                                         <Button
+                                                         type="button"
+                                                         variant="secondary"
+                                                         size="sm"
+                                                         onClick={handleCleanupSmtpDevCurrent}
+                                                         disabled={cleaningSmtp || bulkEmailsText.trim() === ''}
+                                                         className="text-[10px] border border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300 text-slate-300 font-semibold h-7"
+                                                         >
+                                                         {cleaningSmtp ? <RefreshCw size={10} className="animate-spin mr-1" /> : <Trash2 size={10} className="mr-1" />}
+                                                         Dọn hòm thư trong list
+                                                         </Button>
+                                                         <Button
+                                                         type="button"
+                                                         variant="secondary"
+                                                         size="sm"
+                                                         onClick={handleCleanupSmtpDevAll}
+                                                         disabled={cleaningSmtp}
+                                                         className="text-[10px] border border-rose-500/20 hover:bg-rose-950/40 hover:text-rose-400 text-rose-300 font-semibold h-7"
+                                                         >
+                                                             {cleaningSmtp ? <RefreshCw size={10} className="animate-spin mr-1" /> : <AlertCircle size={10} className="mr-1" />}
+                                                             Xóa TOÀN BỘ hòm thư
+                                                         </Button>
+                                                     </div>
+                                                 </div>
+                                             )}
+                                         </div>
+                                     )}
 
                                     {/* Emails text area */}
                                     <div className="space-y-1.5">
