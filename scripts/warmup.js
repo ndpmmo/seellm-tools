@@ -1157,9 +1157,7 @@ async function runWarmup() {
               passwordWaitCount = 0;
               repeatedLoginFingerprintCount = 0;
               welcomeBackNoTransitionCount = 0;
-              await recoverWelcomeBackStuck(tabId, USER_ID, chooseResult.method || 'no-transition');
-              await delay(4000);
-              continue;
+              throw new Error(`Welcome Back bị kẹt/loop (no-transition): ${chooseResult.method || 'unknown'}`);
             }
           } else {
             welcomeBackNoTransitionCount = 0;
@@ -1178,9 +1176,7 @@ async function runWarmup() {
           passwordWaitCount = 0;
           repeatedLoginFingerprintCount = 0;
           welcomeBackNoTransitionCount = 0;
-          await recoverWelcomeBackStuck(tabId, USER_ID, chooseResult.reason);
-          await delay(4000);
-          continue;
+          throw new Error(`Welcome Back bị kẹt/loop: ${chooseResult.reason}`);
         }
 
         // 2.5. Handle auth.openai.com landing page: "Log in" button visible but no form yet
@@ -2001,7 +1997,10 @@ async function runWarmup() {
         msg.includes('blocked_by_openai_turnstile') ||
         msg.includes('không tìm thấy hộp thoại chat') ||
         msg.includes('không nhận được câu trả lời từ ai') ||
-        msg.includes('không nhận được phản hồi')
+        msg.includes('không nhận được phản hồi') ||
+        msg.includes('welcome back bị kẹt') ||
+        msg.includes('welcome-back-stuck') ||
+        msg.includes('welcome-back-loop')
       );
       
       if (isRetriable && attempt < maxAttempts) {
@@ -2015,6 +2014,8 @@ async function runWarmup() {
           await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
           tabId = null;
         }
+        console.log(`[Warmup] 🧹 Xoá session cũ để làm sạch cookies và bắt đầu lượt thử mới: ${USER_ID}`);
+        await camofoxDelete(`/sessions/${USER_ID}`).catch(() => {});
         await delay(retryWaitMs);
         continue;
       }
@@ -2064,8 +2065,10 @@ async function runWarmup() {
     // 8. Clean up Tab to prevent resource leak
     if (tabId) {
       console.log(`[Warmup] 🧹 Đóng tab Camofox để giải phóng tài nguyên...`);
-      await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`);
+      await camofoxDelete(`/tabs/${tabId}?userId=${USER_ID}`).catch(() => {});
     }
+    console.log(`[Warmup] 🧹 Xoá session Camofox để giải phóng bộ nhớ...`);
+    await camofoxDelete(`/sessions/${USER_ID}`).catch(() => {});
     console.log(`🔥 [Warmup] KẾT THÚC CHƯƠNG TRÌNH WARMUP.\n`);
   }
 }

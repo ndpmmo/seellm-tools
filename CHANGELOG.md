@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.326] - 2026-07-05 00:59:06
+
+### 🐛 Khắc phục lỗi kẹt/treo vòng lặp vô hạn Welcome Back khi chạy Warmup
+
+- **Khắc phục lỗi treo do cookie HttpOnly**: Khi gặp lỗi phiên hoặc lưu trữ, script JavaScript thông thường không thể xóa được các cookie mang cờ `HttpOnly` của OpenAI. Điều này khiến cho các lượt chạy thử lại (retry attempts) tiếp tục tải màn hình "Welcome Back", kích hoạt nút "Continue" nhưng liên tục bị server từ chối và redirect ngược lại tạo thành vòng lặp vô hạn gây treo trình duyệt.
+- **[scripts/warmup.js] Xử lý lỗi treo & làm sạch triệt để**:
+  - Khi phát hiện Welcome Back đứng yên hoặc không phản hồi chuyển trang sau 2 lần click, script sẽ chủ động **ném ra lỗi có tính phục hồi** (retriable error) `Welcome Back bị kẹt/loop` thay vì cố gắng reload bằng Javascript vô ích.
+  - Phân loại lỗi `welcome back bị kẹt` vào nhóm `isRetriable` để tự động kích hoạt tiến trình phục hồi.
+  - Trong block catch thử lại, bổ sung lệnh gọi API của Camofox: `await camofoxDelete('/sessions/' + USER_ID)` để **xóa hoàn toàn BrowserContext và toàn bộ HttpOnly cookies**, đảm bảo lượt thử lại tiếp theo được khởi động từ một phiên sạch hoàn toàn.
+  - Bổ sung lệnh dọn dẹp session ở khối `finally` cuối tệp để tránh rò rỉ tài nguyên BrowserContext trên Camofox server.
+
 ## [0.3.325] - 2026-07-05 00:47:18
 
 ### ⚙️ Thêm cấu hình Giới hạn luồng tạo SMTP (SMTP Concurrency Limit)
