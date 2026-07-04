@@ -15,7 +15,7 @@ import {
 } from '../services/codexMetadata.js';
 import { extractAccountMeta } from '../../scripts/lib/openai-auth.js';
 import { auditLog } from '../db/auditLog.js';
-import { emailExists, generateUniqueEmails } from '../services/emailStore.js';
+import { emailExists, generateUniqueEmails, addEmail } from '../services/emailStore.js';
 import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
@@ -2074,6 +2074,53 @@ router.post('/smtp/generate-unique', (req, res) => {
       startSeq
     });
     return res.json({ ok: true, results });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/vault/smtp/create-mailboxes
+router.post('/smtp/create-mailboxes', async (req, res) => {
+  try {
+    const { service, domain, apiKey, emails = [], password } = req.body;
+    if (!service || !domain || !apiKey) {
+      return res.status(400).json({ ok: false, error: 'Thiếu service, domain hoặc apiKey' });
+    }
+    if (!emails.length) {
+      return res.status(400).json({ ok: false, error: 'Danh sách email rỗng' });
+    }
+
+    const created = [];
+    const errors = [];
+
+    for (const email of emails) {
+      try {
+        const response = await fetch('https://api.smtp.dev/accounts', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/ld+json'
+          },
+          body: JSON.stringify({
+            address: email,
+            password: password || 'OpenAI123!'
+          })
+        });
+
+        if (response.status === 201) {
+          addEmail(service, domain, { email, password: password || 'OpenAI123!' });
+          created.push(email);
+        } else {
+          const text = await response.text();
+          errors.push({ email, error: `HTTP ${response.status}: ${text}` });
+        }
+      } catch (err) {
+        errors.push({ email, error: err.message });
+      }
+    }
+
+    return res.json({ ok: true, created, errors });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }

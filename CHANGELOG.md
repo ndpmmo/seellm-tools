@@ -2,6 +2,13 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.318] - 2026-07-04 14:29:16
+
+### 📧 Thực tế tạo tài khoản hộp thư trên server smtp.dev
+
+- **[server/routes/vault.js] Thêm API `/api/vault/smtp/create-mailboxes`**: Route POST gửi yêu cầu tạo hộp thư (`POST /accounts`) trực tiếp đến `https://api.smtp.dev/accounts` bằng API Key và cấu hình mật khẩu của từng email. Đồng thời tự động ghi nhận các email tạo thành công vào `emailStore` cục bộ.
+- **[VaultWorkshopView.tsx] Gửi yêu cầu khởi tạo tài khoản smtp.dev**: Cập nhật hàm `handleApplyGeneratedEmails` tiến hành gọi API `/api/vault/smtp/create-mailboxes` để thực sự đăng ký tài khoản trên máy chủ `smtp.dev` trước khi dán vào khung Danh sách Email, đảm bảo các hòm thư ảo thực sự tồn tại trên hệ thống để nhận thư xác thực của OpenAI.
+
 ## [0.3.317] - 2026-07-04 14:27:34
 
 ### 👁️ Hiển thị khung danh sách email trong mọi chế độ nguồn
