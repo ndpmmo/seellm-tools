@@ -2218,7 +2218,6 @@ export function VaultWorkshopView() {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
-                                    {/* Emails text area */}
                                     {/* Email Source Switcher */}
                                     <div className="space-y-1.5">
                                         <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -2243,27 +2242,7 @@ export function VaultWorkshopView() {
                                     </div>
 
                                     {/* Email Input Fields based on Source */}
-                                    {emailSource === 'manual' ? (
-                                        <div className="space-y-1.5">
-                                            <div className="flex justify-between items-center">
-                                                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                    Danh sách Email ({bulkEmailsText.split('\n').filter(Boolean).length})
-                                                </label>
-                                                <button 
-                                                    onClick={() => { setBulkEmailsText(''); localStorage.removeItem('seellm_bulk_emails'); }} 
-                                                    className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
-                                                >
-                                                    <Trash2 size={10} /> Xóa trống
-                                                </button>
-                                            </div>
-                                            <textarea
-                                                className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
-                                                value={bulkEmailsText}
-                                                onChange={e => setBulkEmailsText(e.target.value)}
-                                                placeholder="email|password&#10;email|password|auth_method|refresh_token|client_id"
-                                            />
-                                        </div>
-                                    ) : (
+                                    {emailSource === 'smtp' && (
                                         <div className="space-y-3 p-3 bg-white/[0.02] border border-white/5 rounded-lg">
                                             <div className="space-y-1.5">
                                                 <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -2435,6 +2414,27 @@ export function VaultWorkshopView() {
                                             )}
                                         </div>
                                     )}
+
+                                    {/* Emails text area */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between items-center">
+                                            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                Danh sách Email ({bulkEmailsText.split('\n').filter(Boolean).length})
+                                            </label>
+                                            <button 
+                                                onClick={() => { setBulkEmailsText(''); localStorage.removeItem('seellm_bulk_emails'); }} 
+                                                className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors flex items-center gap-1"
+                                            >
+                                                <Trash2 size={10} /> Xóa trống
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-[12px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500/50 resize-none"
+                                            value={bulkEmailsText}
+                                            onChange={e => setBulkEmailsText(e.target.value)}
+                                            placeholder="email|password&#10;email|password|auth_method|refresh_token|client_id"
+                                        />
+                                    </div>
 
                                     {/* Proxies text area */}
                                     <div className="space-y-1.5">

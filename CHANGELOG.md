@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.317] - 2026-07-04 14:27:34
+
+### 👁️ Hiển thị khung danh sách email trong mọi chế độ nguồn
+
+- **[VaultWorkshopView.tsx] Điều chỉnh layout input**: Đưa ô nhập "Danh sách Email" (`textarea`) ra ngoài nhánh điều kiện `emailSource === 'manual'`. Giờ đây khung danh sách email sẽ luôn hiển thị ở cả 2 chế độ "Nhập thủ công" và "smtp.dev" để người dùng dễ dàng nhìn thấy và biên tập các email đã được sinh tự động.
+
 ## [0.3.316] - 2026-07-04 14:22:38
 
 ### 🔒 Đảm bảo tự sinh email số lượng lớn không trùng lặp
