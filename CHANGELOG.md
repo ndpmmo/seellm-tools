@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.315] - 2026-07-04 14:18:21
+
+### 🛠️ Tích hợp tuỳ chọn tự sinh email cho smtp.dev
+
+- **[server/routes/vault.js] Thêm API `/api/vault/smtp/check-duplicates`**: Kiểm tra danh sách email xem có email nào đã tồn tại trong `emailStore` nhằm tránh trùng lặp.
+- **[VaultWorkshopView.tsx] Giao diện tự sinh email (Email Generator UI)**:
+  - Thêm panel cấu hình tự sinh email dưới phần chọn Domain.
+  - Hỗ trợ 3 chế độ: Ngẫu nhiên hoàn toàn (Full Random), Tiền tố cố định (Fixed Prefix) và Kết hợp tên tiếng Anh + Số (Name Combination).
+  - Tích hợp nút **Sinh email thử** để hiển thị bảng xem trước (Preview) trạng thái từng email (Trùng lặp / Mới).
+  - Tích hợp nút **Áp dụng** để điền các email không trùng vào danh sách đăng ký chính.
+
 ## [0.3.314] - 2026-07-04 14:16:38
 
 ### 📂 Khởi tạo dịch vụ lưu trữ email cấu trúc theo domain

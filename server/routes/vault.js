@@ -15,6 +15,7 @@ import {
 } from '../services/codexMetadata.js';
 import { extractAccountMeta } from '../../scripts/lib/openai-auth.js';
 import { auditLog } from '../db/auditLog.js';
+import { emailExists } from '../services/emailStore.js';
 import { broadcastAudit } from './auditLog.js';
 
 const router = express.Router();
@@ -2034,6 +2035,25 @@ router.post('/smtp/domains', async (req, res) => {
     const data = await response.json();
     const domains = Array.isArray(data) ? data : (data.member || []);
     return res.json({ ok: true, domains });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/vault/smtp/check-duplicates
+router.post('/smtp/check-duplicates', (req, res) => {
+  try {
+    const { service, domain, emails = [] } = req.body;
+    if (!service || !domain) {
+      return res.status(400).json({ ok: false, error: 'Thiếu service hoặc domain' });
+    }
+    const results = (emails || []).map(email => {
+      return {
+        email,
+        exists: emailExists(service, domain, email)
+      };
+    });
+    return res.json({ ok: true, results });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }

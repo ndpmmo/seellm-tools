@@ -107,6 +107,15 @@ export function VaultWorkshopView() {
     const [selectedSmtpDomain, setSelectedSmtpDomain] = useState('');
     const [loadingSmtpDomains, setLoadingSmtpDomains] = useState(false);
 
+    // smtp.dev generator states
+    const [genMethod, setGenMethod] = useState<'random' | 'prefix' | 'name'>('random');
+    const [genPrefixText, setGenPrefixText] = useState('user');
+    const [genSuffixType, setGenSuffixType] = useState<'seq' | 'rand'>('seq');
+    const [genStartSeq, setGenStartSeq] = useState(1);
+    const [genQty, setGenQty] = useState(10);
+    const [genPreviewList, setGenPreviewList] = useState<{ email: string; exists: boolean }[]>([]);
+    const [generating, setGenerating] = useState(false);
+
     // Validation & Check states
     const [validating, setValidating] = useState(false);
     const [checkingProxies, setCheckingProxies] = useState(false);
@@ -474,6 +483,73 @@ export function VaultWorkshopView() {
         } finally {
             setLoadingSmtpDomains(false);
         }
+    };
+
+    const FIRST_NAMES = ['john', 'jane', 'david', 'sarah', 'james', 'emily', 'michael', 'jessica', 'robert', 'mary', 'william', 'patricia', 'thomas', 'linda', 'richard', 'barbara', 'joseph', 'elizabeth', 'charles', 'susan'];
+    const LAST_NAMES = ['smith', 'johnson', 'williams', 'brown', 'jones', 'garcia', 'miller', 'davis', 'rodriguez', 'martinez', 'hernandez', 'lopez', 'gonzalez', 'wilson', 'anderson', 'thomas', 'taylor', 'moore', 'jackson', 'martin'];
+
+    const handleGeneratePreview = async () => {
+        if (!selectedSmtpDomain) {
+            addToast('Vui lòng chọn tên miền trước', 'warning');
+            return;
+        }
+        setGenerating(true);
+        try {
+            const list: string[] = [];
+            for (let i = 0; i < genQty; i++) {
+                let prefix = '';
+                if (genMethod === 'random') {
+                    prefix = Math.random().toString(36).substring(2, 10);
+                } else if (genMethod === 'prefix') {
+                    if (genSuffixType === 'seq') {
+                        prefix = `${genPrefixText}${genStartSeq + i}`;
+                    } else {
+                        const randVal = Math.floor(1000 + Math.random() * 9000);
+                        prefix = `${genPrefixText}${randVal}`;
+                    }
+                } else if (genMethod === 'name') {
+                    const fn = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+                    const ln = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+                    const randVal = Math.floor(10 + Math.random() * 990);
+                    prefix = `${fn}.${ln}${randVal}`;
+                }
+                list.push(`${prefix}@${selectedSmtpDomain}`);
+            }
+
+            const res = await safeFetchJson('/api/vault/smtp/check-duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service: 'smtpdev', domain: selectedSmtpDomain, emails: list })
+            });
+
+            if (res.ok && Array.isArray(res.results)) {
+                setGenPreviewList(res.results);
+                addToast(`Đã tạo bản xem trước cho ${list.length} email`, 'success');
+            } else {
+                addToast(res.error || 'Lỗi kiểm tra trùng', 'error');
+            }
+        } catch (err: any) {
+            addToast(err.message || 'Lỗi phát sinh khi sinh email', 'error');
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    const handleApplyGeneratedEmails = () => {
+        const available = genPreviewList.filter(item => !item.exists).map(item => item.email);
+        if (available.length === 0) {
+            addToast('Không có email mới nào để thêm (tất cả đều đã tồn tại)', 'warning');
+            return;
+        }
+        
+        const newLines = available.map(email => `${email}|OpenAI123!`).join('\n');
+        setBulkEmailsText(prev => {
+            const current = prev.trim();
+            return current ? `${current}\n${newLines}` : newLines;
+        });
+        
+        addToast(`Đã thêm ${available.length} email vào danh sách`, 'success');
+        setGenPreviewList([]);
     };
 
     const handleRetryFailed = async () => {
@@ -2215,6 +2291,7 @@ export function VaultWorkshopView() {
                                                         placeholder="smtplabs_..."
                                                     />
                                                     <Button
+                                                        type="button"
                                                         variant="secondary"
                                                         size="sm"
                                                         onClick={handleFetchSmtpDomains}
@@ -2243,6 +2320,130 @@ export function VaultWorkshopView() {
                                                             </option>
                                                         ))}
                                                     </select>
+                                                </div>
+                                            )}
+
+                                            {/* Email Generator Options */}
+                                            {selectedSmtpDomain && (
+                                                <div className="mt-3 p-3 bg-white/[0.01] border border-white/5 rounded-lg space-y-3">
+                                                    <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider border-b border-white/5 pb-1">
+                                                        Cấu hình Tự sinh Email
+                                                    </div>
+
+                                                    {/* Method Selector */}
+                                                    <div className="space-y-1">
+                                                        <label className="block text-[10px] font-semibold text-slate-400">
+                                                            Kiểu tạo tiền tố
+                                                        </label>
+                                                        <select
+                                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50"
+                                                            value={genMethod}
+                                                            onChange={e => setGenMethod(e.target.value as any)}
+                                                        >
+                                                            <option value="random" className="bg-slate-900">Ngẫu nhiên hoàn toàn</option>
+                                                            <option value="prefix" className="bg-slate-900">Theo tiền tố cố định</option>
+                                                            <option value="name" className="bg-slate-900">Kết hợp Tên + Số</option>
+                                                        </select>
+                                                    </div>
+
+                                                    {/* Conditional configurations */}
+                                                    {genMethod === 'prefix' && (
+                                                        <div className="space-y-2 p-2 bg-black/20 rounded border border-white/5 animate-in slide-in-from-top-1 duration-150">
+                                                            <div className="space-y-1">
+                                                                <label className="block text-[10px] font-semibold text-slate-400">Tiền tố (Prefix)</label>
+                                                                <input
+                                                                    type="text"
+                                                                    className="w-full bg-black/40 border border-white/10 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none"
+                                                                    value={genPrefixText}
+                                                                    onChange={e => setGenPrefixText(e.target.value)}
+                                                                    placeholder="Ví dụ: user"
+                                                                />
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div className="space-y-1">
+                                                                    <label className="block text-[10px] font-semibold text-slate-400">Hậu tố (Suffix)</label>
+                                                                    <select
+                                                                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none"
+                                                                        value={genSuffixType}
+                                                                        onChange={e => setGenSuffixType(e.target.value as any)}
+                                                                    >
+                                                                        <option value="seq" className="bg-slate-900">Số thứ tự</option>
+                                                                        <option value="rand" className="bg-slate-900">Số ngẫu nhiên</option>
+                                                                    </select>
+                                                                </div>
+                                                                {genSuffixType === 'seq' && (
+                                                                    <div className="space-y-1">
+                                                                        <label className="block text-[10px] font-semibold text-slate-400">Bắt đầu từ</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none"
+                                                                            value={genStartSeq}
+                                                                            onChange={e => setGenStartSeq(parseInt(e.target.value, 10) || 1)}
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Quantity & Actions */}
+                                                    <div className="grid grid-cols-2 gap-2 items-end">
+                                                        <div className="space-y-1">
+                                                            <label className="block text-[10px] font-semibold text-slate-400">Số lượng tạo</label>
+                                                            <input
+                                                                type="number"
+                                                                min={1}
+                                                                max={100}
+                                                                className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none"
+                                                                value={genQty}
+                                                                onChange={e => setGenQty(parseInt(e.target.value, 10) || 1)}
+                                                            />
+                                                        </div>
+                                                        <Button
+                                                            type="button"
+                                                            variant="secondary"
+                                                            size="sm"
+                                                            onClick={handleGeneratePreview}
+                                                            disabled={generating}
+                                                            className="w-full text-xs font-semibold h-[28px]"
+                                                        >
+                                                            {generating ? <RefreshCw size={12} className="animate-spin mr-1" /> : null}
+                                                            Sinh email thử
+                                                        </Button>
+                                                    </div>
+
+                                                    {/* Preview Panel */}
+                                                    {genPreviewList.length > 0 && (
+                                                        <div className="space-y-2 p-2 bg-black/35 rounded border border-white/5 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
+                                                            <div className="flex justify-between items-center text-[10px] border-b border-white/5 pb-1">
+                                                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Xem trước email</span>
+                                                                <span className="text-slate-500">({genPreviewList.filter(x => !x.exists).length} mới)</span>
+                                                            </div>
+                                                            <div className="space-y-1 text-xs font-mono">
+                                                                {genPreviewList.map((item, idx) => (
+                                                                    <div key={idx} className="flex justify-between items-center py-0.5">
+                                                                        <span className={item.exists ? 'text-slate-500 line-through' : 'text-slate-200'}>
+                                                                            {item.email}
+                                                                        </span>
+                                                                        {item.exists ? (
+                                                                            <span className="text-[9px] font-bold text-rose-400 uppercase">Trùng</span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] font-bold text-emerald-400 uppercase">Mới</span>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <Button
+                                                                type="button"
+                                                                variant="primary"
+                                                                size="sm"
+                                                                onClick={handleApplyGeneratedEmails}
+                                                                className="w-full text-xs font-semibold mt-2"
+                                                            >
+                                                                Áp dụng vào Danh sách
+                                                            </Button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
