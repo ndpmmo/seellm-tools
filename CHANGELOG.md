@@ -2,6 +2,17 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.327] - 2026-07-05 01:17:44
+
+### 📸 Tự động tải ảnh chụp màn hình cũ (saved screenshots) lên Timeline
+
+- **Khắc phục lỗi mất ảnh chụp khi tải lại trang**: Do UI trước đó chỉ hiển thị ảnh chụp màn hình nhận trực tiếp qua luồng sự kiện SSE (`liveShots`), khi người dùng tải lại trang (F5) hoặc đổi tab, timeline của các tiến trình đang chạy hoặc đã kết thúc hoàn toàn bị trống trơn dù ảnh vẫn được lưu trữ bình thường trên đĩa.
+- **[VaultWorkshopView.tsx] & [VaultAutoRegisterView.tsx] Tích hợp API của máy chủ**:
+  - Thêm state `savedShots` lưu trữ danh sách ảnh chụp lưu trên đĩa của tiến trình đang chọn.
+  - Sử dụng `useEffect` tự động gọi endpoint `GET /api/sessions/:id` bất cứ khi nào đổi sang tiến trình khác để lấy danh sách ảnh chụp đã lưu.
+  - Viết lại hàm gộp dữ liệu: Trộn đều danh sách ảnh đã lưu trên đĩa và danh sách ảnh live truyền qua SSE hiện tại (sử dụng `Set` để tự động loại bỏ trùng lặp và sắp xếp theo tên tệp), mang lại trải nghiệm xem timeline mượt mà và không bao giờ bị mất ảnh chụp cũ.
+  - Hỗ trợ phát hiện cả tiến trình Warmup (`🔥 Warmup`) khi đồng bộ danh sách task ở chạy ngầm.
+
 ## [0.3.326] - 2026-07-05 00:59:06
 
 ### 🐛 Khắc phục lỗi kẹt/treo vòng lặp vô hạn Welcome Back khi chạy Warmup

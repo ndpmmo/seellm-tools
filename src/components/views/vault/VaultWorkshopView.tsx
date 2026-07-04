@@ -739,6 +739,7 @@ export function VaultWorkshopView() {
     // Queue State
     const [tasks, setTasks] = useState<any[]>([]);
     const [selectedTaskEmail, setSelectedTaskEmail] = useState<string | null>(null);
+    const [savedShots, setSavedShots] = useState<any[]>([]);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
     // Inbox state
@@ -859,13 +860,34 @@ export function VaultWorkshopView() {
             }
         });
     }, [processes, tasks]);
+
+    // Fetch saved screenshots from server on selected task change
+    useEffect(() => {
+        const task = tasks.find(t => t.email === selectedTaskEmail);
+        if (task && task.userId) {
+            safeFetchJson(`/api/sessions/${task.userId}`).then(res => {
+                if (res && res.images) {
+                    setSavedShots(res.images);
+                } else {
+                    setSavedShots([]);
+                }
+            }).catch(() => setSavedShots([]));
+        } else {
+            setSavedShots([]);
+        }
+    }, [selectedTaskEmail, tasks]);
     
     // Sync missing tasks from global background processes (for persistence/refresh)
     useEffect(() => {
         Object.keys(processes).forEach(pid => {
             const proc = processes[pid];
             // Match relevant worker scripts
-            const isRelevant = proc.name === 'auto-register-worker.js' || proc.name === 'check-mail-worker.js';
+            const isRelevant = proc.name?.startsWith('Register_') || 
+                               proc.name?.startsWith('🔥 Warmup') || 
+                               proc.name === 'auto-register-worker.js' || 
+                               proc.name === 'check-mail-worker.js' || 
+                               proc.name === 'warmup.js' ||
+                               (proc.command && proc.command.includes('warmup.js'));
             if (isRelevant) {
                 setTasks(curr => {
                     if (curr.some(t => t.processId === pid)) return curr;
@@ -875,6 +897,8 @@ export function VaultWorkshopView() {
                     const regLog = proc.logs.find(l => l.text?.includes('Bắt đầu đăng ký:'));
                     if (regLog) {
                         email = regLog.text.split('Bắt đầu đăng ký:')[1]?.split(' ')[0]?.trim() || 'Unknown';
+                    } else if (proc.name?.startsWith('🔥 Warmup')) {
+                        email = proc.name.replace('🔥 Warmup ', '').trim();
                     } else if (proc.args && proc.args[0]) {
                         email = proc.args[0].split('|')[0] || 'Unknown';
                     }
@@ -1824,9 +1848,20 @@ export function VaultWorkshopView() {
                                                 {(() => {
                                                     const task = tasks.find(t => t.email === selectedTaskEmail);
                                                     if (!task) return null;
-                                                    const shots = Object.entries(liveShots)
+                                                    const live = Object.entries(liveShots)
                                                         .filter(([sid]) => sid.startsWith(task.userId || 'none'))
                                                         .map(([_, s]) => s);
+                                                    
+                                                    const merged = [...savedShots];
+                                                    const savedFilenames = new Set(savedShots.map(s => s.filename));
+                                                    live.forEach(l => {
+                                                        if (!savedFilenames.has(l.filename)) {
+                                                            merged.push(l);
+                                                        }
+                                                    });
+                                                    
+                                                    merged.sort((a, b) => a.filename.localeCompare(b.filename));
+                                                    const shots = merged;
                                                     
                                                     return shots.length > 0 ? shots.map((img: any, idx) => (
                                                         <div key={idx} className="relative group rounded-xl overflow-hidden border border-white/10 bg-black/50 aspect-video flex items-center justify-center">

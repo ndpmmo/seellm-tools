@@ -39,6 +39,7 @@ export function VaultAutoRegisterView() {
     const [successAccounts, setSuccessAccounts] = useState<any[]>([]);
     // tasks chỉ lưu metadata: { id, email, raw, processId, userId }
     const [tasks, setTasks] = useState<any[]>([]);
+    const [savedShots, setSavedShots] = useState<any[]>([]);
     const [isRunning, setIsRunning] = useState(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +66,23 @@ export function VaultAutoRegisterView() {
 
     const activeTask = tasks.find(t => t.email === selectedEmail) || tasks[0];
     const poolRecord = emailPool.find(e => e.email === selectedEmail);
+
+    // Fetch saved screenshots from server on active task change
+    useEffect(() => {
+        if (activeTask && activeTask.userId) {
+            fetch(`/api/sessions/${activeTask.userId}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && data.images) {
+                        setSavedShots(data.images);
+                    } else {
+                        setSavedShots([]);
+                    }
+                }).catch(() => setSavedShots([]));
+        } else {
+            setSavedShots([]);
+        }
+    }, [activeTask?.userId]);
 
     // Anim CSS
     const animStyle = `
@@ -267,12 +285,24 @@ export function VaultAutoRegisterView() {
 
     const getScreenshots = (task: any): any[] => {
         if (!task.userId) return [];
-        // Tìm tất cả sessions có userId trùng
-        const shots: any[] = [];
+        // Tìm tất cả sessions có userId trùng từ liveShots
+        const live: any[] = [];
         Object.entries(liveShots).forEach(([sid, shot]) => {
-            if (sid.startsWith(task.userId)) shots.push(shot);
+            if (sid.startsWith(task.userId)) live.push(shot);
         });
-        return shots;
+
+        // Kết hợp liveShots và savedShots (tránh trùng lặp tên file)
+        const merged = [...savedShots];
+        const savedFilenames = new Set(savedShots.map(s => s.filename));
+        live.forEach(l => {
+            if (!savedFilenames.has(l.filename)) {
+                merged.push(l);
+            }
+        });
+
+        // Sắp xếp theo thứ tự bảng chữ cái tên tệp
+        merged.sort((a, b) => a.filename.localeCompare(b.filename));
+        return merged;
     };
 
     const clearAll = () => {
