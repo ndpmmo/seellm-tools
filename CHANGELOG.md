@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.314] - 2026-07-04 14:16:38
+
+### 📂 Khởi tạo dịch vụ lưu trữ email cấu trúc theo domain
+
+- **[server/services/emailStore.js] Thiết kế Module EmailStore**:
+  - Tạo các thư mục lưu trữ tự động dạng: `data/bulkregistration/emailservice/<service>/<domain>/`.
+  - Hỗ trợ hàm `readEmails` và `writeEmails` để đọc/ghi file `emails.json` chứa danh sách email đã tạo kèm thông tin phụ trợ.
+  - Hỗ trợ hàm `emailExists` và `addEmail` để kiểm tra trùng lặp email khi tạo mới.
+
 ## [0.3.313] - 2026-07-04 14:12:59
 
 ### 💾 Duy trì danh sách tên miền smtp.dev sau khi xác nhận
