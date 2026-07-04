@@ -1637,8 +1637,14 @@ class BulkRegisterRunner {
               if (accountsRes.ok) {
                 const data = await accountsRes.json();
                 const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
-                const targetEmail = String(email).trim().toLowerCase();
-                const account = accountsList.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+                
+                const normalize = (em) => {
+                  const pts = String(em).trim().toLowerCase().split('@');
+                  return pts.length < 2 ? pts[0] : `${pts[0].replace(/\./g, '')}@${pts[1]}`;
+                };
+                
+                const targetNormalized = normalize(email);
+                const account = accountsList.find(a => normalize(a.address) === targetNormalized);
                 if (account) {
                   const delRes = await fetch(`https://api.smtp.dev/accounts/${account.id}`, {
                     method: 'DELETE',
@@ -2250,8 +2256,13 @@ router.post('/smtp/cleanup-mailboxes', async (req, res) => {
     const data = await accountsRes.json();
     const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
 
-    const targetAddresses = new Set(emails.map(e => String(e).trim().toLowerCase()));
-    const matchedAccounts = accountsList.filter(acc => targetAddresses.has(String(acc.address).trim().toLowerCase()));
+    const normalize = (em) => {
+      const pts = String(em).trim().toLowerCase().split('@');
+         return pts.length < 2 ? pts[0] : `${pts[0].replace(/\./g, '')}@${pts[1]}`;
+    };
+
+    const targetAddresses = new Set(emails.map(e => normalize(e)));
+    const matchedAccounts = accountsList.filter(acc => targetAddresses.has(normalize(acc.address)));
 
     const deleted = [];
     const errors = [];

@@ -445,8 +445,14 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
         }
         const data = await accountsRes.json();
         const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
-        const targetEmail = String(email).trim().toLowerCase();
-        const account = accountsList.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+        
+        const normalize = (em) => {
+            const pts = String(em).trim().toLowerCase().split('@');
+            return pts.length < 2 ? pts[0] : `${pts[0].replace(/\./g, '')}@${pts[1]}`;
+        };
+        
+        const targetNormalized = normalize(email);
+        const account = accountsList.find(a => normalize(a.address) === targetNormalized);
         if (!account) {
             throw new Error(`Không tìm thấy account trên smtp.dev: ${email}`);
         }
@@ -479,6 +485,12 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
                 console.log(`[SMTP-DEV-OTP] Poll #${pollCount}: Có ${messages.length} email trong INBOX`);
             }
 
+            const normalize = (em) => {
+                const pts = String(em).trim().toLowerCase().split('@');
+                return pts.length < 2 ? pts[0] : `${pts[0].replace(/\./g, '')}@${pts[1]}`;
+            };
+            const targetNormalized = normalize(email);
+
             for (const m of messages) {
             const sender = m.from?.address || '';
             const subject = m.subject || '';
@@ -490,7 +502,7 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
 
             // Kiểm tra người nhận khớp email đang đăng ký (Catch-all safety)
             const recipients = (m.to || []).map(r => (r.address || '').toLowerCase());
-            if (recipients.length > 0 && !recipients.includes(email.toLowerCase())) {
+            if (recipients.length > 0 && !recipients.map(normalize).includes(targetNormalized)) {
             console.log(`[SMTP-DEV-OTP] ⚠️ Skip: thư gửi cho ${recipients.join(', ')} (không phải ${email})`);
             continue;
             }

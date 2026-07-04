@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.324] - 2026-07-05 00:44:08
+
+### 🧽 Tự động chuẩn hóa dấu chấm (dots) trong phần tên email trên smtp.dev
+
+- **Khắc phục lỗi không tìm thấy tài khoản khi email chứa dấu chấm**: Giải quyết vấn đề máy chủ `smtp.dev` tự động loại bỏ dấu chấm (.) trong phần tên người dùng (username) khi tạo hòm thư ảo (ví dụ: `robert.smith123@domain.com` chuyển thành `robertsmith123@domain.com`), khiến tiến trình con bị crash do không khớp chuỗi email gốc khi truy vấn tài khoản.
+- **[scripts/lib/ms-graph-email.js] Cập nhật helper `waitForOTPCodeSmtpDev`**: Tích hợp hàm chuẩn hóa `normalize` loại bỏ toàn bộ dấu chấm trong phần tên trước khi so khớp tài khoản và kiểm tra danh sách người nhận thư xác thực.
+- **[server/routes/vault.js] Chuẩn hóa trong tiến trình xoá và dọn dẹp**: Áp dụng cơ chế loại bỏ dấu chấm tương tự khi tìm kiếm hòm thư để xóa tự động (khi worker hoàn thành) và khi chạy tính năng dọn dẹp chủ động.
+
 ## [0.3.323] - 2026-07-04 23:01:18
 
 ### 🗑️ Thêm tính năng dọn dẹp hòm thư chủ động trên smtp.dev
