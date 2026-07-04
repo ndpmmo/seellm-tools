@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.316] - 2026-07-04 14:22:38
+
+### 🔒 Đảm bảo tự sinh email số lượng lớn không trùng lặp
+
+- **[server/services/emailStore.js] Bổ sung hàm `generateUniqueEmails`**: Sử dụng vòng lặp kiểm tra tính duy nhất trực tiếp từ cơ sở dữ liệu `emailStore` để sinh ra đúng chính xác số lượng email được yêu cầu mà không có bất kỳ địa chỉ trùng lặp nào.
+- **[server/routes/vault.js] Thêm API `/api/vault/smtp/generate-unique`**: Expose hàm sinh email duy nhất ở backend cho frontend gọi.
+- **[VaultWorkshopView.tsx] Gọi API sinh email duy nhất**: Cập nhật hàm `handleGeneratePreview` gọi trực tiếp API `/api/vault/smtp/generate-unique` thay vì tự sinh ở client, giúp đảm bảo số lượng email trả về luôn đủ và không bị trùng lặp với lịch sử đã lưu.
+
 ## [0.3.315] - 2026-07-04 14:18:21
 
 ### 🛠️ Tích hợp tuỳ chọn tự sinh email cho smtp.dev

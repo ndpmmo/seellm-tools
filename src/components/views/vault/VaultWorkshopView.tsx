@@ -495,38 +495,25 @@ export function VaultWorkshopView() {
         }
         setGenerating(true);
         try {
-            const list: string[] = [];
-            for (let i = 0; i < genQty; i++) {
-                let prefix = '';
-                if (genMethod === 'random') {
-                    prefix = Math.random().toString(36).substring(2, 10);
-                } else if (genMethod === 'prefix') {
-                    if (genSuffixType === 'seq') {
-                        prefix = `${genPrefixText}${genStartSeq + i}`;
-                    } else {
-                        const randVal = Math.floor(1000 + Math.random() * 9000);
-                        prefix = `${genPrefixText}${randVal}`;
-                    }
-                } else if (genMethod === 'name') {
-                    const fn = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
-                    const ln = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
-                    const randVal = Math.floor(10 + Math.random() * 990);
-                    prefix = `${fn}.${ln}${randVal}`;
-                }
-                list.push(`${prefix}@${selectedSmtpDomain}`);
-            }
-
-            const res = await safeFetchJson('/api/vault/smtp/check-duplicates', {
+            const res = await safeFetchJson('/api/vault/smtp/generate-unique', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ service: 'smtpdev', domain: selectedSmtpDomain, emails: list })
+                body: JSON.stringify({
+                    service: 'smtpdev',
+                    domain: selectedSmtpDomain,
+                    qty: genQty,
+                    method: genMethod,
+                    prefixText: genPrefixText,
+                    suffixType: genSuffixType,
+                    startSeq: genStartSeq
+                })
             });
 
             if (res.ok && Array.isArray(res.results)) {
                 setGenPreviewList(res.results);
-                addToast(`Đã tạo bản xem trước cho ${list.length} email`, 'success');
+                addToast(`Đã sinh thành công ${res.results.length} email duy nhất`, 'success');
             } else {
-                addToast(res.error || 'Lỗi kiểm tra trùng', 'error');
+                addToast(res.error || 'Lỗi sinh email', 'error');
             }
         } catch (err: any) {
             addToast(err.message || 'Lỗi phát sinh khi sinh email', 'error');

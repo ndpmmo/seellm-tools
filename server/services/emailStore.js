@@ -108,3 +108,64 @@ export function addEmail(service, domain, emailData) {
   });
   return writeEmails(service, domain, list);
 }
+
+const FIRST_NAMES = ['john', 'jane', 'david', 'sarah', 'james', 'emily', 'michael', 'jessica', 'robert', 'mary', 'william', 'patricia', 'thomas', 'linda', 'richard', 'barbara', 'joseph', 'elizabeth', 'charles', 'susan'];
+const LAST_NAMES = ['smith', 'johnson', 'williams', 'brown', 'jones', 'garcia', 'miller', 'davis', 'rodriguez', 'martinez', 'hernandez', 'lopez', 'gonzalez', 'wilson', 'anderson', 'thomas', 'taylor', 'moore', 'jackson', 'martin'];
+
+/**
+ * Generate exactly `qty` of unique, non-existing email addresses for a service/domain.
+ * @param {string} service
+ * @param {string} domain
+ * @param {object} options
+ * @returns {Array<object>}
+ */
+export function generateUniqueEmails(service, domain, options = {}) {
+  const {
+    qty = 10,
+    method = 'random',
+    prefixText = 'user',
+    suffixType = 'seq',
+    startSeq = 1
+  } = options;
+
+  const existingList = readEmails(service, domain);
+  const existingSet = new Set(existingList.map(item => String(item.email).trim().toLowerCase()));
+  
+  const results = [];
+  const generatedSet = new Set();
+  
+  let currentSeq = parseInt(startSeq, 10) || 1;
+  let attempts = 0;
+  const maxAttempts = qty * 100; // Limit loop to prevent freeze
+
+  while (results.length < qty && attempts < maxAttempts) {
+    attempts++;
+    let prefix = '';
+    
+    if (method === 'random') {
+      prefix = Math.random().toString(36).substring(2, 10);
+    } else if (method === 'prefix') {
+      if (suffixType === 'seq') {
+        prefix = `${prefixText}${currentSeq}`;
+        currentSeq++;
+      } else {
+        const randVal = Math.floor(1000 + Math.random() * 9000);
+        prefix = `${prefixText}${randVal}`;
+      }
+    } else if (method === 'name') {
+      const fn = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+      const ln = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+      const randVal = Math.floor(10 + Math.random() * 990);
+      prefix = `${fn}.${ln}${randVal}`;
+    }
+
+    const email = `${prefix}@${domain}`.toLowerCase();
+    
+    if (!existingSet.has(email) && !generatedSet.has(email)) {
+      generatedSet.add(email);
+      results.push({ email, exists: false });
+    }
+  }
+
+  return results;
+}
