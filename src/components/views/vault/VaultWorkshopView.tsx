@@ -157,6 +157,7 @@ export function VaultWorkshopView() {
             const savedEmailSource = localStorage.getItem('seellm_bulk_email_source');
             const savedSmtpApiKey = localStorage.getItem('seellm_bulk_smtp_api_key');
             const savedSelectedSmtpDomain = localStorage.getItem('seellm_bulk_selected_smtp_domain');
+            const savedSmtpDomains = localStorage.getItem('seellm_bulk_smtp_domains');
 
             if (savedEmails) setBulkEmailsText(savedEmails);
             if (savedProxies) setBulkProxiesText(savedProxies);
@@ -166,6 +167,11 @@ export function VaultWorkshopView() {
             if (savedEmailSource === 'manual' || savedEmailSource === 'smtp') setEmailSource(savedEmailSource);
             if (savedSmtpApiKey) setSmtpApiKey(savedSmtpApiKey);
             if (savedSelectedSmtpDomain) setSelectedSmtpDomain(savedSelectedSmtpDomain);
+            if (savedSmtpDomains) {
+                try {
+                    setSmtpDomains(JSON.parse(savedSmtpDomains));
+                } catch (_) {}
+            }
             
             // Mark loading complete with a short delay to allow React state updates to cycle
             setTimeout(() => {
@@ -198,6 +204,12 @@ export function VaultWorkshopView() {
             localStorage.setItem('seellm_bulk_selected_smtp_domain', selectedSmtpDomain);
         }
     }, [selectedSmtpDomain]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
+            localStorage.setItem('seellm_bulk_smtp_domains', JSON.stringify(smtpDomains));
+        }
+    }, [smtpDomains]);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && !isFirstRender.current) {
@@ -428,6 +440,7 @@ export function VaultWorkshopView() {
             localStorage.setItem('seellm_bulk_email_source', emailSource);
             localStorage.setItem('seellm_bulk_smtp_api_key', smtpApiKey);
             localStorage.setItem('seellm_bulk_selected_smtp_domain', selectedSmtpDomain);
+            localStorage.setItem('seellm_bulk_smtp_domains', JSON.stringify(smtpDomains));
             addToast('Đã lưu cấu hình thành công', 'success');
         }
     };

@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.313] - 2026-07-04 14:12:59
+
+### 💾 Duy trì danh sách tên miền smtp.dev sau khi xác nhận
+
+- **[VaultWorkshopView.tsx] Lưu trữ `smtpDomains` vào `localStorage`**: Thêm logic lưu danh sách tên miền đã fetch được của `smtp.dev` và khôi phục lại khi người dùng truy cập lại tab Bulk Register, giúp bỏ qua việc phải bấm nút "Xác nhận" để tải lại danh sách.
+
 ## [0.3.312] - 2026-07-01 17:06:10
 
 ### 🐛 Sửa lỗi nhận diện danh sách tên miền từ smtp.dev API
