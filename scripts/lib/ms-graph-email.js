@@ -422,3 +422,86 @@ export async function markMailAsRead(messageId, tokenArg, email = null) {
         body: JSON.stringify(body)
     });
 }
+
+/**
+ * Poll for OTP from smtp.dev API.
+ */
+export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'openai.com', maxWaitSecs = 90, minTime = null }) {
+    console.log(`[SMTP-DEV-OTP] ⏳ Polling cho ${email} | sender: *${senderDomain} | timeout: ${maxWaitSecs}s`);
+
+    const filterAfter = minTime
+        ? new Date(minTime - 5000)
+        : new Date(Date.now() - 5 * 60 * 1000);
+    const startTime = Date.now();
+
+    let accountId = null;
+    let mailboxId = null;
+    try {
+        const accountsRes = await fetch('https://api.smtp.dev/accounts', {
+            headers: { 'X-API-KEY': apiKey, 'Accept': 'application/ld+json' }
+        });
+        if (!accountsRes.ok) {
+            throw new Error(`Lấy accounts thất bại: HTTP ${accountsRes.status}`);
+        }
+        const accounts = await accountsRes.json();
+        const targetEmail = String(email).trim().toLowerCase();
+        const account = accounts.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+        if (!account) {
+            throw new Error(`Không tìm thấy account trên smtp.dev: ${email}`);
+        }
+        accountId = account.id;
+        const inbox = account.mailboxes?.find(m => m.path === 'INBOX');
+        if (!inbox) {
+            throw new Error(`Không tìm thấy hộp thư INBOX cho ${email}`);
+        }
+        mailboxId = inbox.id;
+        console.log(`[SMTP-DEV-OTP] ✅ Found Account ID: ${accountId} | Mailbox ID: ${mailboxId}`);
+    } catch (err) {
+        console.error(`[SMTP-DEV-OTP] ❌ Lỗi kết nối: ${err.message}`);
+        return null;
+    }
+
+    let pollCount = 0;
+    while (Date.now() - startTime < maxWaitSecs * 1000) {
+        pollCount++;
+        try {
+            const messagesRes = await fetch(`https://api.smtp.dev/accounts/${accountId}/mailboxes/${mailboxId}/messages`, {
+                headers: { 'X-API-KEY': apiKey, 'Accept': 'application/ld+json' }
+            });
+            if (!messagesRes.ok) {
+                throw new Error(`Lấy messages thất bại: HTTP ${messagesRes.status}`);
+            }
+            const data = await messagesRes.json();
+            const messages = Array.isArray(data.member) ? data.member : [];
+
+            if (pollCount <= 3 || pollCount % 5 === 0) {
+                console.log(`[SMTP-DEV-OTP] Poll #${pollCount}: Có ${messages.length} email trong INBOX`);
+            }
+
+            for (const m of messages) {
+                const sender = m.from?.address || '';
+                const subject = m.subject || '';
+                const receivedStr = m.createdAt || m.date || '';
+                const receivedDate = receivedStr ? new Date(receivedStr) : new Date();
+
+                if (receivedDate < filterAfter) continue;
+                if (senderDomain && !sender.toLowerCase().includes(senderDomain.toLowerCase())) continue;
+
+                const textContent = `${subject} ${m.intro || ''} ${m.text || ''} ${m.html || ''}`;
+                const match = textContent.match(/\b(\d{6})\b/);
+                if (match) {
+                    const code = match[1];
+                    console.log(`[SMTP-DEV-OTP] ✅ MÃ OTP: ${code} | Subject: "${subject}" | From: ${sender}`);
+                    return code;
+                }
+            }
+
+            await new Promise(r => setTimeout(r, 3000));
+        } catch (err) {
+            console.error(`[SMTP-DEV-OTP] Poll error: ${err.message}`);
+            await new Promise(r => setTimeout(r, 3000));
+        }
+    }
+    console.log(`[SMTP-DEV-OTP] ❌ Hết giờ (${maxWaitSecs}s). Không nhận được OTP.`);
+    return null;
+}

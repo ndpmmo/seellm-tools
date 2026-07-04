@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.319] - 2026-07-04 15:12:56
+
+### 🔄 Luồng tạo & xóa hòm thư động trên smtp.dev theo phiên đăng ký
+
+- **[server/routes/vault.js] Nâng cấp `BulkRegisterRunner` và API bulk-register**:
+  - Hỗ trợ truyền cấu hình `smtpApiKey`, `smtpDomain` từ client khi gọi API đăng ký hàng loạt.
+  - Khi bắt đầu tiến trình đăng ký con (worker), hệ thống sẽ tự động gọi API `smtp.dev` để tạo hộp thư (thay vì phải tạo trước). Số lượng tạo đồng thời tuân thủ đúng giới hạn song song (`concurrency`) được chỉ định.
+  - Khi tiến trình đăng ký con kết thúc (thành công hoặc thất bại), runner sẽ tự động gửi yêu cầu `DELETE /accounts/{accountId}` để giải phóng tài nguyên trên máy chủ `smtp.dev`.
+- **[scripts/lib/ms-graph-email.js] Bổ sung helper `waitForOTPCodeSmtpDev`**: Trực tiếp kết nối và lấy mã OTP từ API `smtp.dev` thông qua key xác thực và ID hòm thư động.
+- **[scripts/auto-register-worker.js] Tích hợp bộ đọc OTP động**: Nhận tham số `smtpdev_key` từ dòng lệnh và sử dụng helper `waitForOTPCodeSmtpDev` để lấy OTP của OpenAI từ smtp.dev trong suốt quá trình đăng ký tự động.
+- **[VaultWorkshopView.tsx] Không tạo trước hòm thư ảo**: Cập nhật hàm `handleApplyGeneratedEmails` chỉ thêm email cục bộ vào giao diện, việc khởi tạo thực tế sẽ được uỷ quyền và xử lý tự động theo từng luồng chạy của `BulkRegisterRunner`.
+
 ## [0.3.318] - 2026-07-04 14:29:16
 
 ### 📧 Thực tế tạo tài khoản hộp thư trên server smtp.dev

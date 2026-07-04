@@ -391,7 +391,10 @@ export function VaultWorkshopView() {
                     proxies,
                     ratio: bulkRatio,
                     concurrency: bulkConcurrency,
-                    enableOAuth: bulkEnableOAuth
+                    enableOAuth: bulkEnableOAuth,
+                    emailSource,
+                    smtpApiKey: emailSource === 'smtp' ? smtpApiKey : null,
+                    smtpDomain: emailSource === 'smtp' ? selectedSmtpDomain : null
                 })
             });
             if (data.ok) {
@@ -522,51 +525,21 @@ export function VaultWorkshopView() {
         }
     };
 
-    const handleApplyGeneratedEmails = async () => {
+    const handleApplyGeneratedEmails = () => {
         const available = genPreviewList.filter(item => !item.exists).map(item => item.email);
         if (available.length === 0) {
             addToast('Không có email mới nào để thêm (tất cả đều đã tồn tại)', 'warning');
             return;
         }
 
-        addToast(`Đang tiến hành tạo ${available.length} hộp thư trên smtp.dev...`, 'info');
-        try {
-            const res = await safeFetchJson('/api/vault/smtp/create-mailboxes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    service: 'smtpdev',
-                    domain: selectedSmtpDomain,
-                    apiKey: smtpApiKey,
-                    emails: available,
-                    password: 'OpenAI123!'
-                })
-            });
-
-            if (res.ok) {
-                const created = res.created || [];
-                const errors = res.errors || [];
-                
-                if (created.length > 0) {
-                    const newLines = created.map((email: string) => `${email}|OpenAI123!`).join('\n');
-                    setBulkEmailsText(prev => {
-                        const current = prev.trim();
-                        return current ? `${current}\n${newLines}` : newLines;
-                    });
-                    addToast(`Đã tạo thành công và thêm ${created.length} email vào danh sách`, 'success');
-                }
-                
-                if (errors.length > 0) {
-                    addToast(`Có ${errors.length} email gặp lỗi khi tạo trên server`, 'error');
-                    console.error('[SmtpDev] Mailbox creation errors:', errors);
-                }
-                setGenPreviewList([]);
-            } else {
-                addToast(res.error || 'Lỗi khi tạo email trên server', 'error');
-            }
-        } catch (err: any) {
-            addToast(err.message || 'Lỗi kết nối khi tạo email trên server', 'error');
-        }
+        const newLines = available.map(email => `${email}|OpenAI123!`).join('\n');
+        setBulkEmailsText(prev => {
+            const current = prev.trim();
+            return current ? `${current}\n${newLines}` : newLines;
+        });
+        
+        addToast(`Đã thêm ${available.length} email vào danh sách (sẽ tự động tạo và xóa trên smtp.dev khi đăng ký)`, 'success');
+        setGenPreviewList([]);
     };
 
     const handleRetryFailed = async () => {

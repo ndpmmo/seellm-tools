@@ -18,7 +18,7 @@ import { camofoxPost, camofoxGet, camofoxDelete, evalJson, navigate, waitForSele
 import { getTOTP, getFreshTOTP } from './lib/totp.js';
 import { extractIpFromText, normalizeProxyUrl, getLocalPublicIp, probeProxyExitIp, assertProxyApplied, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { createStepRecorder } from './lib/screenshot.js';
-import { waitForOTPCode } from './lib/ms-graph-email.js';
+import { waitForOTPCode, waitForOTPCodeSmtpDev } from './lib/ms-graph-email.js';
 import { firstNames, lastNames } from './lib/names.js';
 import { setupMFA } from './lib/mfa-setup.js';
 import { generatePKCE, buildOAuthURL, exchangeCodeForTokens, CODEX_CONSENT_URL, decodeAuthSessionCookie, extractWorkspaceId, performWorkspaceConsentBypass } from './lib/openai-oauth.js';
@@ -894,6 +894,9 @@ export async function runAutoRegister(taskInput) {
   const parts = taskInput.split('|');
   let email, emailPassword, authMethod, refreshToken, clientId, proxyUrl, oauthFlag;
 
+  const smtpDevKeyPart = parts.find(p => p.startsWith('smtpdev_key='));
+  const smtpDevKey = smtpDevKeyPart ? smtpDevKeyPart.split('=')[1] : null;
+
   if (parts.length >= 5) {
     [email, emailPassword, authMethod, refreshToken, clientId, proxyUrl, oauthFlag] = parts;
   } else {
@@ -915,8 +918,8 @@ export async function runAutoRegister(taskInput) {
   const enableOAuth = oauthFlag && (oauthFlag.includes('oauth=1') || oauthFlag.includes('oauth=true'));
   console.log(`[Register] OAuth flow: ${enableOAuth ? 'ENABLED' : 'DISABLED'}`);
 
-  if (!email || !refreshToken || !clientId) {
-    throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id[|proxyUrl])");
+  if (!email || (!smtpDevKey && (!refreshToken || !clientId))) {
+    throw new Error("Input string is invalid (expected email|pass|method|refresh_token|client_id[|proxyUrl] or with smtpdev_key=...)");
   }
 
   // Update pool status to processing
@@ -943,6 +946,14 @@ export async function runAutoRegister(taskInput) {
     chatGptPassword = generatePassword(CONFIG.passwordLength);
     console.log(`[Auto-Register] 🔑 Sinh mật khẩu mới ngẫu nhiên: ${chatGptPassword}`);
   }
+
+  const getOTPCode = async (maxWaitSecs, minTime) => {
+    if (smtpDevKey) {
+      return waitForOTPCodeSmtpDev({ email, apiKey: smtpDevKey, senderDomain: 'openai.com', maxWaitSecs, minTime });
+    } else {
+      return waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs, minTime });
+    }
+  };
 
   console.log(`==========================================`);
   console.log(`🚀 [Auto-Register] Bắt đầu đăng ký: ${email}`);
@@ -1031,7 +1042,7 @@ export async function runAutoRegister(taskInput) {
       try {
         const emailServiceAdapter = {
           getVerificationCode: async ({ email: em, timeout }) => {
-            return waitForOTPCode({ email: em, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: timeout || 120 });
+            return getOTPCode(timeout || 120);
           }
         };
         protocolResult = await runProtocolRegistration({
@@ -2050,7 +2061,7 @@ export async function runAutoRegister(taskInput) {
       console.log(`[4.1] Đã nhận diện được giao diện nhập mã PIN!`);
       // Lần đầu chờ OTP trong 50 giây với heartbeat giữ tab hoạt động
       let otpCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
-        waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 50, minTime: otpCheckStartTime })
+        getOTPCode(50, otpCheckStartTime)
       );
       
       if (!otpCode) {
@@ -2083,7 +2094,7 @@ export async function runAutoRegister(taskInput) {
         
         // Chờ OTP thêm 60 giây (tổng cộng ~115s) với mốc thời gian đã set trước kèm heartbeat
         otpCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
-          waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: 60, minTime: newMinTime })
+          getOTPCode(60, newMinTime)
         );
       }
 
@@ -2262,8 +2273,8 @@ export async function runAutoRegister(taskInput) {
            // Use fresh timestamp for each retry to avoid receiving already-seen/expired codes
            const otpRetryMinTime = Date.now();
            const otpRetryCode = await withCamofoxHeartbeat(tabId, USER_ID, () =>
-              waitForOTPCode({ email, refreshToken, clientId, senderDomain: 'openai.com', maxWaitSecs: CONFIG.otpRetryTimeout, minTime: otpRetryMinTime })
-            );
+           getOTPCode(CONFIG.otpRetryTimeout, otpRetryMinTime)
+           );
            if (!otpRetryCode) {
              console.log(`[OTP] Retry ${retry} failed: Không lấy được mã OTP mới.`);
              continue;

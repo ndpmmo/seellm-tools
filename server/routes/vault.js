@@ -1548,7 +1548,7 @@ router.post('/accounts/result', async (req, res) => {
 let currentBulkRun = null;
 
 class BulkRegisterRunner {
-  constructor(id, queue, concurrency, enableOAuth, proxies = []) {
+  constructor(id, queue, concurrency, enableOAuth, proxies = [], smtpApiKey = null, smtpDomain = null) {
     this.id = id;
     this.queue = queue; // array of { emailRecord, proxy }
     this.allTasks = [...queue];
@@ -1556,7 +1556,9 @@ class BulkRegisterRunner {
     this.total = queue.length;
     this.concurrency = concurrency;
     this.enableOAuth = enableOAuth;
-    this.activeWorkers = new Map(); // email -> procId
+    this.smtpApiKey = smtpApiKey;
+    this.smtpDomain = smtpDomain;
+    this.activeWorkers = new Map(); // email -> procId / 'creating'
     this.autoRetryCounts = new Map(); // email -> retry count
     this.proxyHealth = new Map(); // proxy -> 'good' | 'bad'
     this.completed = [];
@@ -1614,12 +1616,47 @@ class BulkRegisterRunner {
     // 1. Check active workers
     const allProcs = processManager.getProcesses ? processManager.getProcesses() : {};
     for (const [email, procId] of this.activeWorkers.entries()) {
+      if (procId === 'creating') continue;
+
       const proc = allProcs[procId];
       if (!proc || proc.status !== 'running') {
         const exitCode = proc ? proc.exitCode : null;
         const status = proc ? proc.status : 'not_found';
         
         this.activeWorkers.delete(email);
+
+        // Delete email account from smtp.dev on completion if it's dynamic
+        const needsSmtpDevDeletion = this.smtpApiKey && this.smtpDomain && email.toLowerCase().endsWith(`@${this.smtpDomain.toLowerCase()}`);
+        if (needsSmtpDevDeletion) {
+          this.log(`🗑️ Đang tiến hành xóa hòm thư ảo ${email} khỏi smtp.dev...`);
+          (async () => {
+            try {
+              const accountsRes = await fetch('https://api.smtp.dev/accounts', {
+                headers: { 'X-API-KEY': this.smtpApiKey, 'Accept': 'application/ld+json' }
+              });
+              if (accountsRes.ok) {
+                const accounts = await accountsRes.json();
+                const targetEmail = String(email).trim().toLowerCase();
+                const account = accounts.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+                if (account) {
+                  const delRes = await fetch(`https://api.smtp.dev/accounts/${account.id}`, {
+                    method: 'DELETE',
+                    headers: { 'X-API-KEY': this.smtpApiKey }
+                  });
+                  if (delRes.status === 204) {
+                    this.log(`✅ Đã xóa hòm thư ${email} khỏi smtp.dev thành công.`);
+                  } else {
+                    this.log(`⚠️ Không thể xóa hòm thư ${email} trên smtp.dev: HTTP ${delRes.status}`);
+                  }
+                } else {
+                  this.log(`⚠️ Không tìm thấy hòm thư ${email} trên smtp.dev để xóa.`);
+                }
+              }
+            } catch (err) {
+              this.log(`⚠️ Gặp lỗi khi kết nối xóa hòm thư ${email} trên smtp.dev: ${err.message}`);
+            }
+          })();
+        }
 
         if (status === 'stopped' && exitCode === 0) {
           this.completed.push(email);
@@ -1708,39 +1745,105 @@ class BulkRegisterRunner {
     // 2. Spawn next workers up to concurrency
     let spawnIndex = 0;
     while (this.activeWorkers.size < this.concurrency && this.queue.length > 0) {
-      const task = this.queue.shift();
-      const { emailRecord, proxy } = task;
+    const task = this.queue.shift();
+    const { emailRecord, proxy } = task;
+         const email = emailRecord.email;
 
-      if (!processManager.spawnProcess) {
-        this.log('❌ Lỗi: Process manager chưa được đăng ký!');
-        this.status = 'stopped';
-        break;
-      }
+    if (!processManager.spawnProcess) {
+    this.log('❌ Lỗi: Process manager chưa được đăng ký!');
+    this.status = 'stopped';
+      break;
+         }
 
-      const delayMs = spawnIndex * 5000; // 5s đủ để tránh browser spawn race; RAM guard đã giới hạn concurrency
-      const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}`;
+    const needsSmtpDevCreation = this.smtpApiKey && this.smtpDomain && email.toLowerCase().endsWith(`@${this.smtpDomain.toLowerCase()}`);
+    if (needsSmtpDevCreation) {
+      this.activeWorkers.set(email, 'creating');
+      const delayMs = spawnIndex * 5000;
       spawnIndex++;
-      
-      const scriptName = 'auto-register-worker.js';
-      const procId = `script_${scriptName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
 
-      this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'} (Stagger: ${delayMs}ms)`);
-      
-      const cfg = loadConfig();
-      // Đặt tên process chứa email để ghi logs vào file riêng biệt hoàn toàn cho từng tài khoản
-      const procName = `Register_${emailRecord.email}`;
-      const r = processManager.spawnProcess(procId, procName, 'node', [scriptPath, raw], process.cwd(), {
-        WORKER_AUTH_TOKEN: cfg.workerAuthToken
-      });
+           this.log(`⏳ Đang tự động tạo hòm thư ảo ${email} trên smtp.dev...`);
+      (async () => {
+        try {
+          const createRes = await fetch('https://api.smtp.dev/accounts', {
+            method: 'POST',
+            headers: {
+              'X-API-KEY': this.smtpApiKey,
+            'Content-Type': 'application/json',
+              'Accept': 'application/ld+json'
+                 },
+            body: JSON.stringify({
+            address: email,
+            password: emailRecord.password || 'OpenAI123!'
+          })
+          });
 
-      if (r.error) {
-        this.log(`⚠️ Lỗi khởi chạy tiến trình cho ${emailRecord.email}: ${r.error}`);
-        this.failed.push({ email: emailRecord.email, error: r.error });
-        continue;
+          if (createRes.status === 201) {
+              this.log(`✅ Tạo hòm thư ${email} trên smtp.dev thành công.`);
+              addEmail('smtpdev', this.smtpDomain, { email, password: emailRecord.password || 'OpenAI123!' });
+
+              const raw = `${email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'smtpdev'}|||${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}|smtpdev_key=${this.smtpApiKey}`;
+              const scriptName = 'auto-register-worker.js';
+              const procId = `script_${scriptName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+              const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
+
+              this.log(`🚀 Khởi chạy trình duyệt cho ${email} (Stagger: ${delayMs}ms)`);
+              const cfg = loadConfig();
+              const procName = `Register_${email}`;
+              const r = processManager.spawnProcess(procId, procName, 'node', [scriptPath, raw], process.cwd(), {
+                WORKER_AUTH_TOKEN: cfg.workerAuthToken
+              });
+
+              if (r.error) {
+                this.log(`⚠️ Lỗi khởi chạy tiến trình cho ${email}: ${r.error}`);
+                this.failed.push({ email, error: r.error });
+                this.activeWorkers.delete(email);
+              } else {
+                this.activeWorkers.set(email, procId);
+              }
+            } else {
+              const text = await createRes.text();
+              const errMsg = `HTTP ${createRes.status}: ${text}`;
+              this.log(`❌ Không thể tạo hòm thư ảo ${email} trên smtp.dev: ${errMsg}`);
+              this.failed.push({ email, error: `SmtpDev creation failed: ${errMsg}` });
+              this.activeWorkers.delete(email);
+              if (emitSSE) {
+                emitSSE('bulk-register-item-complete', { email, success: false });
+              }
+            }
+          } catch (err) {
+            this.log(`❌ Lỗi kết nối tạo hòm thư ảo ${email} trên smtp.dev: ${err.message}`);
+            this.failed.push({ email, error: `SmtpDev connection failed: ${err.message}` });
+            this.activeWorkers.delete(email);
+            if (emitSSE) {
+              emitSSE('bulk-register-item-complete', { email, success: false });
+            }
+          }
+        })();
+      } else {
+        const delayMs = spawnIndex * 5000; // 5s stagger
+        const raw = `${emailRecord.email}|${emailRecord.password || ''}|${emailRecord.auth_method || 'graph'}|${emailRecord.refresh_token || ''}|${emailRecord.client_id || ''}|${proxy}${this.enableOAuth ? '|oauth=1' : ''}|stagger=${delayMs}`;
+        spawnIndex++;
+        
+        const scriptName = 'auto-register-worker.js';
+        const procId = `script_${scriptName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
+
+        this.log(`🚀 Khởi chạy trình duyệt cho ${emailRecord.email} qua proxy: ${proxy || 'Kết nối trực tiếp'} (Stagger: ${delayMs}ms)`);
+        
+        const cfg = loadConfig();
+        const procName = `Register_${emailRecord.email}`;
+        const r = processManager.spawnProcess(procId, procName, 'node', [scriptPath, raw], process.cwd(), {
+          WORKER_AUTH_TOKEN: cfg.workerAuthToken
+        });
+
+        if (r.error) {
+          this.log(`⚠️ Lỗi khởi chạy tiến trình cho ${emailRecord.email}: ${r.error}`);
+          this.failed.push({ email: emailRecord.email, error: r.error });
+          continue;
+        }
+
+        this.activeWorkers.set(emailRecord.email, procId);
       }
-
-      this.activeWorkers.set(emailRecord.email, procId);
     }
 
     // Notify status update
@@ -2295,7 +2398,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
       return res.status(400).json({ error: 'Có một tiến trình Bulk Registration đang chạy.' });
     }
 
-    const { emails = [], proxies = [], ratio = 1, concurrency = 2, enableOAuth = false } = req.body;
+    const { emails = [], proxies = [], ratio = 1, concurrency = 2, enableOAuth = false, smtpApiKey = null, smtpDomain = null } = req.body;
 
     if (!emails.length) {
       return res.status(400).json({ error: 'Danh sách email trống.' });
@@ -2309,7 +2412,12 @@ router.post('/accounts/bulk-register', async (req, res) => {
       if (trimmedInput.includes('|')) {
         const parts = trimmedInput.split('|');
         let email, password, refresh_token, client_id, auth_method;
-        if (parts.length === 3) {
+        if (parts.length === 2) {
+          [email, password] = parts;
+          refresh_token = '';
+          client_id = '';
+          auth_method = 'smtpdev';
+        } else if (parts.length === 3) {
           [email, refresh_token, client_id] = parts;
           password = '';
           auth_method = 'oauth2';
@@ -2317,7 +2425,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
           [email, password, refresh_token, client_id] = parts;
           auth_method = 'graph';
         }
-        if (email && refresh_token) {
+        if (email) {
           const record = vault.upsertEmailPool({ email, password, refresh_token, client_id, auth_method });
           resolvedEmails.push(record);
         }
@@ -2356,7 +2464,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
     });
 
     const bulkRunId = `bulk_${Date.now()}`;
-    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth, activeProxies);
+    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth, activeProxies, smtpApiKey, smtpDomain);
     currentBulkRun.start();
 
     res.json({
