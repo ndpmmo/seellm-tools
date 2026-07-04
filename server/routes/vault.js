@@ -1632,12 +1632,13 @@ class BulkRegisterRunner {
           (async () => {
             try {
               const accountsRes = await fetch('https://api.smtp.dev/accounts', {
-                headers: { 'X-API-KEY': this.smtpApiKey, 'Accept': 'application/ld+json' }
+                headers: { 'X-API-KEY': this.smtpApiKey, 'Accept': 'application/json' }
               });
               if (accountsRes.ok) {
-                const accounts = await accountsRes.json();
+                const data = await accountsRes.json();
+                const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
                 const targetEmail = String(email).trim().toLowerCase();
-                const account = accounts.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+                const account = accountsList.find(a => String(a.address).trim().toLowerCase() === targetEmail);
                 if (account) {
                   const delRes = await fetch(`https://api.smtp.dev/accounts/${account.id}`, {
                     method: 'DELETE',
@@ -1769,7 +1770,7 @@ class BulkRegisterRunner {
             headers: {
               'X-API-KEY': this.smtpApiKey,
             'Content-Type': 'application/json',
-              'Accept': 'application/ld+json'
+              'Accept': 'application/json'
                  },
             body: JSON.stringify({
             address: email,
@@ -2203,7 +2204,7 @@ router.post('/smtp/create-mailboxes', async (req, res) => {
           headers: {
             'X-API-KEY': apiKey,
             'Content-Type': 'application/json',
-            'Accept': 'application/ld+json'
+            'Accept': 'application/json'
           },
           body: JSON.stringify({
             address: email,

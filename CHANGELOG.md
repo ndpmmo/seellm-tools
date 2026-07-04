@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.321] - 2026-07-04 17:18:03
+
+### 🐛 Khắc phục lỗi phân tích mảng accounts khi truy vấn API smtp.dev
+
+- **[scripts/lib/ms-graph-email.js] Thay đổi header Accept và phân tích mảng**:
+  - Chuyển `Accept: application/ld+json` thành `Accept: application/json` khi fetch danh sách hòm thư từ `https://api.smtp.dev/accounts` và `messages` nhằm giải quyết lỗi `accounts.find is not a function`.
+  - Hỗ trợ phân tích cả dữ liệu dạng mảng thô (raw JSON array) và dữ liệu dạng JSON-LD hydra collection (`data.member` hoặc `data['hydra:member']`).
+- **[server/routes/vault.js] Đồng bộ hóa Accept header**: Áp dụng định dạng phản hồi `Accept: application/json` và sửa phương thức bóc tách dữ liệu mảng tương tự cho API xóa hòm thư của `BulkRegisterRunner`.
+
 ## [0.3.320] - 2026-07-04 15:21:42
 
 ### 🩹 Tự động nạp email chưa có trong pool khi sử dụng smtp.dev

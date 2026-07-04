@@ -438,14 +438,15 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
     let mailboxId = null;
     try {
         const accountsRes = await fetch('https://api.smtp.dev/accounts', {
-            headers: { 'X-API-KEY': apiKey, 'Accept': 'application/ld+json' }
+            headers: { 'X-API-KEY': apiKey, 'Accept': 'application/json' }
         });
         if (!accountsRes.ok) {
             throw new Error(`Lấy accounts thất bại: HTTP ${accountsRes.status}`);
         }
-        const accounts = await accountsRes.json();
+        const data = await accountsRes.json();
+        const accountsList = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
         const targetEmail = String(email).trim().toLowerCase();
-        const account = accounts.find(a => String(a.address).trim().toLowerCase() === targetEmail);
+        const account = accountsList.find(a => String(a.address).trim().toLowerCase() === targetEmail);
         if (!account) {
             throw new Error(`Không tìm thấy account trên smtp.dev: ${email}`);
         }
@@ -466,13 +467,13 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
         pollCount++;
         try {
             const messagesRes = await fetch(`https://api.smtp.dev/accounts/${accountId}/mailboxes/${mailboxId}/messages`, {
-                headers: { 'X-API-KEY': apiKey, 'Accept': 'application/ld+json' }
+                headers: { 'X-API-KEY': apiKey, 'Accept': 'application/json' }
             });
             if (!messagesRes.ok) {
                 throw new Error(`Lấy messages thất bại: HTTP ${messagesRes.status}`);
             }
             const data = await messagesRes.json();
-            const messages = Array.isArray(data.member) ? data.member : [];
+            const messages = Array.isArray(data) ? data : (data.member || data['hydra:member'] || []);
 
             if (pollCount <= 3 || pollCount % 5 === 0) {
                 console.log(`[SMTP-DEV-OTP] Poll #${pollCount}: Có ${messages.length} email trong INBOX`);
