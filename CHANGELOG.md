@@ -2,6 +2,12 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.320] - 2026-07-04 15:21:42
+
+### 🩹 Tự động nạp email chưa có trong pool khi sử dụng smtp.dev
+
+- **[server/routes/vault.js] Thêm fallback nạp email**: Sửa lỗi "Không tìm thấy thông tin email hợp lệ để đăng ký" khi danh sách email nhập vào chỉ chứa địa chỉ email chay (không đi kèm hậu tố `|password` hoặc chưa từng được lưu trong email pool từ trước). Khi tiến trình phát hiện `smtpApiKey` hoạt động, nó sẽ tự động khởi tạo bản ghi trong SQLite email pool với mật khẩu mặc định và phương thức xác thực `smtpdev` trước khi chạy.
+
 ## [0.3.319] - 2026-07-04 15:12:56
 
 ### 🔄 Luồng tạo & xóa hòm thư động trên smtp.dev theo phiên đăng ký

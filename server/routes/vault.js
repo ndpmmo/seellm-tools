@@ -2430,7 +2430,16 @@ router.post('/accounts/bulk-register', async (req, res) => {
           resolvedEmails.push(record);
         }
       } else {
-        const record = vault.getEmailPoolByEmail(trimmedInput);
+        let record = vault.getEmailPoolByEmail(trimmedInput);
+        if (!record && smtpApiKey) {
+          record = vault.upsertEmailPool({
+            email: trimmedInput,
+            password: 'OpenAI123!',
+            refresh_token: '',
+            client_id: '',
+            auth_method: 'smtpdev'
+          });
+        }
         if (record) {
           resolvedEmails.push(record);
         } else {
