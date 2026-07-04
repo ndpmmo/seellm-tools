@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.322] - 2026-07-04 17:33:33
+
+### 🛡️ Nâng cấp cơ chế lọc & xác thực email nhận thông minh trên smtp.dev
+
+- **[scripts/lib/ms-graph-email.js] Tích hợp bộ lọc đa luồng và trích xuất thông minh**:
+  - Tách và kiểm tra trường `to` (người nhận) trong thư trả về từ smtp.dev. Nếu không khớp với email đang được xử lý trong luồng hiện tại, hệ thống sẽ bỏ qua để tránh nhầm mã OTP giữa các luồng chạy song song (Catch-all safety).
+  - Tái sử dụng hàm `extractOTP` đã phát triển cho Microsoft Graph để quét và bóc tách OTP thông minh dựa trên các từ khóa của OpenAI (ví dụ: `code`, `verification`, `your code is`), thay vì sử dụng regex 6 số thô sơ, nâng cao độ chính xác và bảo mật.
+
 ## [0.3.321] - 2026-07-04 17:18:03
 
 ### 🐛 Khắc phục lỗi phân tích mảng accounts khi truy vấn API smtp.dev

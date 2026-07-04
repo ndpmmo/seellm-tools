@@ -480,20 +480,32 @@ export async function waitForOTPCodeSmtpDev({ email, apiKey, senderDomain = 'ope
             }
 
             for (const m of messages) {
-                const sender = m.from?.address || '';
-                const subject = m.subject || '';
-                const receivedStr = m.createdAt || m.date || '';
-                const receivedDate = receivedStr ? new Date(receivedStr) : new Date();
+            const sender = m.from?.address || '';
+            const subject = m.subject || '';
+            const receivedStr = m.createdAt || m.date || '';
+            const receivedDate = receivedStr ? new Date(receivedStr) : new Date();
 
-                if (receivedDate < filterAfter) continue;
-                if (senderDomain && !sender.toLowerCase().includes(senderDomain.toLowerCase())) continue;
+            if (receivedDate < filterAfter) continue;
+            if (senderDomain && !sender.toLowerCase().includes(senderDomain.toLowerCase())) continue;
 
-                const textContent = `${subject} ${m.intro || ''} ${m.text || ''} ${m.html || ''}`;
-                const match = textContent.match(/\b(\d{6})\b/);
-                if (match) {
-                    const code = match[1];
+            // Kiểm tra người nhận khớp email đang đăng ký (Catch-all safety)
+            const recipients = (m.to || []).map(r => (r.address || '').toLowerCase());
+            if (recipients.length > 0 && !recipients.includes(email.toLowerCase())) {
+            console.log(`[SMTP-DEV-OTP] ⚠️ Skip: thư gửi cho ${recipients.join(', ')} (không phải ${email})`);
+            continue;
+            }
+
+                const mailObj = {
+                    body: { content: `${m.text || ''} ${m.html || ''}` },
+                    bodyPreview: m.intro || '',
+                    subject: m.subject || ''
+                };
+                const code = extractOTP(mailObj);
+                if (code) {
                     console.log(`[SMTP-DEV-OTP] ✅ MÃ OTP: ${code} | Subject: "${subject}" | From: ${sender}`);
                     return code;
+                } else {
+                    console.log(`[SMTP-DEV-OTP] ⚠️ Email match nhưng không trích xuất được mã OTP: "${subject}"`);
                 }
             }
 
