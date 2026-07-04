@@ -283,9 +283,15 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
   
   while (Date.now() - startTime < timeoutMs) {
     const state = await evalJson(tabId, userId, `(() => {
+      const isVisible = (el) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        return !!(rect.width || rect.height || el.getClientRects().length);
+      };
+
       // 1. Check for visible "Stop generating" button
       const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-generating-button"], button[class*="composer-submit"] svg[use*="stop"]');
-      const isStopVisible = stopBtn && stopBtn.offsetParent !== null;
+      const isStopVisible = isVisible(stopBtn);
       
       // 2. Check for active streaming classes or selectors
       const streamingEl = document.querySelector('.result-streaming, .streaming, [class*="streaming"]');
@@ -294,7 +300,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       // 3. Check submit/voice button state. Keep this narrow: ChatGPT now reuses
       // composer-submit classes for idle controls, which previously caused hangs.
       const submitBtn = document.querySelector('button[data-testid="stop-button"], button[data-testid="stop-generating-button"], button[aria-label="Stop generating"]');
-      const isSubmitStop = !!(submitBtn && submitBtn.offsetParent !== null);
+      const isSubmitStop = isVisible(submitBtn);
       
       // Get text length of main conversation container to monitor typing progress
       const mainEl = document.querySelector('main');
@@ -311,7 +317,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
       ];
       for (const sel of errorSelectors) {
         const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null) {
+        if (isVisible(el)) {
           errorText = el.innerText || el.textContent || '';
           break;
         }
@@ -331,7 +337,7 @@ async function waitForGenerationComplete(tabId, userId, timeoutMs = 150000) {
           'please sign in again',
         ];
         const contextualErrors = Array.from(document.querySelectorAll('[role="alert"], [data-testid*="error"], [class*="error"], button'))
-          .filter(el => el && el.offsetParent !== null)
+          .filter(isVisible)
           .map(el => (el.innerText || el.textContent || '').trim())
           .filter(Boolean);
         const matchedError = contextualErrors.find(text => {
@@ -528,11 +534,16 @@ async function checkPageErrors(tabId, userId) {
 
 async function getComposerState(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
+    const isVisible = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return !!(rect.width || rect.height || el.getClientRects().length);
+    };
     const editor = document.querySelector('#prompt-textarea');
-    const visible = !!(editor && editor.offsetParent !== null);
+    const visible = isVisible(editor);
     const text = editor ? ((editor.value || editor.innerText || editor.textContent || '').trim()) : '';
     const sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label="Send prompt"], button[class*="composer-submit"]');
-    const sendVisible = !!(sendBtn && sendBtn.offsetParent !== null);
+    const sendVisible = isVisible(sendBtn);
     const sendDisabled = !!(sendBtn && (sendBtn.disabled || sendBtn.hasAttribute('disabled') || sendBtn.getAttribute('aria-disabled') === 'true'));
     return {
       visible,
@@ -547,8 +558,13 @@ async function getComposerState(tabId, userId) {
 
 async function clearComposerPrompt(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
+    const isVisible = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return !!(rect.width || rect.height || el.getClientRects().length);
+    };
     const editor = document.querySelector('#prompt-textarea');
-    if (!editor || editor.offsetParent === null) {
+    if (!isVisible(editor)) {
       return { ok: true, reason: 'composer-not-visible' };
     }
 
@@ -726,10 +742,15 @@ async function waitForPromptSubmitted(tabId, userId, promptText, timeoutMs = 150
  */
 async function dismissOnboardingModals(tabId, userId) {
   return await evalJson(tabId, userId, `(() => {
+    const isVisible = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return !!(rect.width || rect.height || el.getClientRects().length);
+    };
     let clickedAny = false;
     const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, [class*="button"], [class*="btn"]'));
     for (const btn of buttons) {
-      if (btn.offsetParent === null) continue;
+      if (!isVisible(btn)) continue;
       const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
       if (
         text.includes("let's go") ||
@@ -792,6 +813,7 @@ async function runWarmup() {
   }
   
   const USER_ID = `seellm_warmup_${account.id}`;
+  console.log(`SESSION_ID: ${USER_ID}`); // Quan trọng để frontend link ảnh chụp
   const SESSION_KEY = `warmup_${account.id}`;
   const effectiveProxy = normalizeProxyUrl(account.proxy_url || account.proxyUrl || account.proxy || null);
   
@@ -804,8 +826,8 @@ async function runWarmup() {
   try {
     // Clean up root screenshot folder once before attempts run
     if (WARMUP_SCREENSHOTS) {
-      const baseDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`);
-      await fs.rm(baseDir, { recursive: true, force: true }).catch(() => {});
+    const baseDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', USER_ID);
+    await fs.rm(baseDir, { recursive: true, force: true }).catch(() => {});
     }
 
     const maxAttempts = 3;
@@ -862,10 +884,10 @@ async function runWarmup() {
 
     // Set up recorder as soon as a tab exists so early viewport/cookie/nav errors still leave evidence.
     if (WARMUP_SCREENSHOTS) {
-      const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', `warmup_${account.id}`, `attempt_${attempt}`);
-      await fs.mkdir(runDir, { recursive: true });
-      stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
-      console.log(`[Warmup] 📸 Chụp ảnh logs cho lượt thử ${attempt} đã bật! Thư mục ảnh: ${runDir}`);
+    const runDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'screenshots', USER_ID, `attempt_${attempt}`);
+    await fs.mkdir(runDir, { recursive: true });
+    stepRecorder = createStepRecorder(runDir, { tabId, userId: USER_ID, ignoreGlobalDisable: true });
+    console.log(`[Warmup] 📸 Chụp ảnh logs cho lượt thử ${attempt} đã bật! Thư mục ảnh: ${runDir}`);
     }
 
     // Set fixed viewport to avoid narrow/mobile layout on headful macOS
@@ -1808,7 +1830,9 @@ async function runWarmup() {
       while (Date.now() - waitStart < waitTimeout) {
         isInputVisible = await evalJson(tabId, USER_ID, `(() => {
           const ta = document.querySelector('#prompt-textarea');
-          return ta && ta.offsetParent !== null;
+          if (!ta) return false;
+          const rect = ta.getBoundingClientRect();
+          return !!(rect.width || rect.height || ta.getClientRects().length);
         })()`).catch(() => false);
         
         if (isInputVisible) {

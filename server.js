@@ -319,11 +319,27 @@ async function listSessions() {
 
       let images = [];
       try {
-        const files = await readdir(dirPath);
-        images = files
-          .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
-          .sort()
-          .map(f => ({ filename: f, url: `/data/screenshots/${d}/${f}` }));
+        const files = await readdir(dirPath, { withFileTypes: true });
+        for (const file of files) {
+          if (file.isDirectory()) {
+            const subDirPath = path.join(dirPath, file.name);
+            const subFiles = await readdir(subDirPath).catch(() => []);
+            for (const sf of subFiles) {
+              if (/\.(png|jpg|jpeg|webp)$/i.test(sf)) {
+                images.push({
+                  filename: `${file.name}/${sf}`,
+                  url: `/data/screenshots/${d}/${file.name}/${sf}`
+                });
+              }
+            }
+          } else if (/\.(png|jpg|jpeg|webp)$/i.test(file.name)) {
+            images.push({
+              filename: file.name,
+              url: `/data/screenshots/${d}/${file.name}`
+            });
+          }
+        }
+        images.sort((a, b) => a.filename.localeCompare(b.filename));
       } catch { }
       sessions.push({
         id: d,
@@ -381,10 +397,11 @@ function watchScreenshots() {
               }
             } catch (e) { }
 
+            const webPath = relative.split(path.sep).join('/');
             broadcastRealtimeEvent('screenshot:new', {
               sessionId,
-              filename: imgFile,
-              url: `/data/screenshots/${sessionId}/${imgFile}`,
+              filename: webPath.replace(sessionId + '/', ''),
+              url: `/data/screenshots/${webPath}`,
               ts: new Date().toISOString(),
               email,
             });

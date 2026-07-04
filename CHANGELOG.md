@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.328] - 2026-07-05 03:45:47
+
+### 📸 Sửa đổi cơ chế chụp ảnh và tải ảnh tiến trình Warmup trên giao diện
+
+- **Đồng bộ hóa tên thư mục ảnh chụp**: Sửa đổi `scripts/warmup.js` sử dụng thư mục gốc `seellm_warmup_${account.id}` (trùng khớp hoàn hảo với `USER_ID` của session) thay vì `warmup_${account.id}` giúp máy chủ và giao diện người dùng ánh xạ chính xác và tránh bị lỗi 404 khi truy cập ảnh.
+- **Hỗ trợ ảnh chụp nằm trong thư mục con (attempt_*)**: Cập nhật hàm `listSessions()` và bộ theo dõi sự kiện file trong `server.js` để quét đệ quy các thư mục con cấp 1 (ví dụ `attempt_1`, `attempt_2`). Trả về đúng đường dẫn tương đối `/data/screenshots/seellm_warmup_acc_.../attempt_1/...` để trình duyệt tải ảnh chính xác.
+- **Đồng bộ mã hóa tiến trình**: Bổ sung in log `SESSION_ID: ${USER_ID}` vào stdout ở đầu tiến trình `warmup.js`, giúp giao diện liên kết và lấy dữ liệu ảnh trực tiếp.
+- **Sửa lỗi Firefox/Camofox offsetParent trên Warmup**: Thay thế toàn bộ các kiểm tra `offsetParent !== null` bằng cách đo kích thước bounding box `getBoundingClientRect()` để xác định độ hiển thị của phần tử DOM (như `#prompt-textarea`, stop/submit buttons, alerts). Khắc phục triệt để lỗi không tìm thấy ô chat khi chạy Warmup bằng trình duyệt Firefox/Camofox.
+
 ## [0.3.327] - 2026-07-05 01:17:44
 
 ### 📸 Tự động tải ảnh chụp màn hình cũ (saved screenshots) lên Timeline
