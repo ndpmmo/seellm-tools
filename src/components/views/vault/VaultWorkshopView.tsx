@@ -113,6 +113,7 @@ export function VaultWorkshopView() {
     const [genSuffixType, setGenSuffixType] = useState<'seq' | 'rand'>('seq');
     const [genStartSeq, setGenStartSeq] = useState(1);
     const [genQty, setGenQty] = useState(10);
+    const [bulkSmtpLimit, setBulkSmtpLimit] = useState(3);
     const [genPreviewList, setGenPreviewList] = useState<{ email: string; exists: boolean }[]>([]);
     const [generating, setGenerating] = useState(false);
 
@@ -167,6 +168,7 @@ export function VaultWorkshopView() {
             const savedSmtpApiKey = localStorage.getItem('seellm_bulk_smtp_api_key');
             const savedSelectedSmtpDomain = localStorage.getItem('seellm_bulk_selected_smtp_domain');
             const savedSmtpDomains = localStorage.getItem('seellm_bulk_smtp_domains');
+            const savedSmtpLimit = localStorage.getItem('seellm_bulk_smtp_limit');
 
             if (savedEmails) setBulkEmailsText(savedEmails);
             if (savedProxies) setBulkProxiesText(savedProxies);
@@ -176,6 +178,7 @@ export function VaultWorkshopView() {
             if (savedEmailSource === 'manual' || savedEmailSource === 'smtp') setEmailSource(savedEmailSource);
             if (savedSmtpApiKey) setSmtpApiKey(savedSmtpApiKey);
             if (savedSelectedSmtpDomain) setSelectedSmtpDomain(savedSelectedSmtpDomain);
+            if (savedSmtpLimit) setBulkSmtpLimit(parseInt(savedSmtpLimit, 10) || 3);
             if (savedSmtpDomains) {
                 try {
                     setSmtpDomains(JSON.parse(savedSmtpDomains));
@@ -231,6 +234,12 @@ export function VaultWorkshopView() {
             localStorage.setItem('seellm_bulk_ratio', String(bulkRatio));
         }
     }, [bulkRatio]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isFirstRender.current) {
+            localStorage.setItem('seellm_bulk_smtp_limit', String(bulkSmtpLimit));
+        }
+    }, [bulkSmtpLimit]);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && !isFirstRender.current) {
@@ -394,7 +403,8 @@ export function VaultWorkshopView() {
                     enableOAuth: bulkEnableOAuth,
                     emailSource,
                     smtpApiKey: emailSource === 'smtp' ? smtpApiKey : null,
-                    smtpDomain: emailSource === 'smtp' ? selectedSmtpDomain : null
+                    smtpDomain: emailSource === 'smtp' ? selectedSmtpDomain : null,
+                    smtpLimit: emailSource === 'smtp' ? bulkSmtpLimit : null
                 })
             });
             if (data.ok) {
@@ -2425,8 +2435,23 @@ export function VaultWorkshopView() {
                                                         </div>
                                                     )}
 
-                                                    {/* Quantity & Actions */}
-                                                    <div className="grid grid-cols-2 gap-2 items-end">
+                                                    {/* SMTP Limit Setting */}
+                                                    <div className="space-y-1">
+                                                        <label className="block text-[10px] font-semibold text-slate-400">
+                                                            Giới hạn luồng tạo SMTP (SMTP Limit)
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={20}
+                                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none"
+                                                            value={bulkSmtpLimit}
+                                                            onChange={e => setBulkSmtpLimit(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                                        />
+                                                    </div>
+
+                                                     {/* Quantity & Actions */}
+                                                     <div className="grid grid-cols-2 gap-2 items-end">
                                                         <div className="space-y-1">
                                                             <label className="block text-[10px] font-semibold text-slate-400">Số lượng tạo</label>
                                                             <input

@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.325] - 2026-07-05 00:47:18
+
+### ⚙️ Thêm cấu hình Giới hạn luồng tạo SMTP (SMTP Concurrency Limit)
+
+- **[VaultWorkshopView.tsx] Tích hợp cấu hình trên UI**:
+  - Khai báo state `bulkSmtpLimit` lưu trữ trong `localStorage`.
+  - Thêm ô nhập **"Giới hạn luồng tạo SMTP (SMTP Limit)"** trong bảng Cấu hình Tự sinh Email.
+  - Truyền tham số `smtpLimit` trong request body của endpoint `/api/vault/accounts/bulk-register`.
+- **[server/routes/vault.js] Ràng buộc luồng tạo động trong `BulkRegisterRunner`**:
+  - Nhận và khởi tạo `this.smtpLimit` trong constructor (mặc định là 3).
+  - Trước khi khởi tạo/đăng ký mỗi email ảo trên `smtp.dev`, kiểm tra số lượng hòm thư ảo đang hoạt động (ở trạng thái `creating` hoặc đang chạy trình duyệt). Nếu đạt ngưỡng giới hạn SMTP Limit, runner sẽ giữ email đó trong hàng đợi và tạm ngưng khởi tạo luồng mới cho đến khi có một luồng khác chạy xong và xóa hòm thư để giải phóng tài nguyên.
+
 ## [0.3.324] - 2026-07-05 00:44:08
 
 ### 🧽 Tự động chuẩn hóa dấu chấm (dots) trong phần tên email trên smtp.dev

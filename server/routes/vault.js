@@ -1548,7 +1548,7 @@ router.post('/accounts/result', async (req, res) => {
 let currentBulkRun = null;
 
 class BulkRegisterRunner {
-  constructor(id, queue, concurrency, enableOAuth, proxies = [], smtpApiKey = null, smtpDomain = null) {
+  constructor(id, queue, concurrency, enableOAuth, proxies = [], smtpApiKey = null, smtpDomain = null, smtpLimit = null) {
     this.id = id;
     this.queue = queue; // array of { emailRecord, proxy }
     this.allTasks = [...queue];
@@ -1558,6 +1558,7 @@ class BulkRegisterRunner {
     this.enableOAuth = enableOAuth;
     this.smtpApiKey = smtpApiKey;
     this.smtpDomain = smtpDomain;
+    this.smtpLimit = parseInt(smtpLimit, 10) || 3;
     this.activeWorkers = new Map(); // email -> procId / 'creating'
     this.autoRetryCounts = new Map(); // email -> retry count
     this.proxyHealth = new Map(); // proxy -> 'good' | 'bad'
@@ -1566,7 +1567,7 @@ class BulkRegisterRunner {
     this.status = 'running'; // 'running', 'stopped', 'completed'
     this.timer = null;
     this.logs = [];
-    this.log(`Khởi tạo tiến trình Bulk Registration với ${this.total} accounts, tối đa ${concurrency} luồng.`);
+    this.log(`Khởi tạo tiến trình Bulk Registration với ${this.total} accounts, tối đa ${concurrency} luồng (SMTP Limit: ${this.smtpLimit}).`);
   }
 
   updateConfig(config) {
@@ -1752,17 +1753,26 @@ class BulkRegisterRunner {
     // 2. Spawn next workers up to concurrency
     let spawnIndex = 0;
     while (this.activeWorkers.size < this.concurrency && this.queue.length > 0) {
-    const task = this.queue.shift();
+    const task = this.queue[0];
     const { emailRecord, proxy } = task;
-         const email = emailRecord.email;
+    const email = emailRecord.email;
 
     if (!processManager.spawnProcess) {
     this.log('❌ Lỗi: Process manager chưa được đăng ký!');
     this.status = 'stopped';
-      break;
-         }
+    break;
+    }
 
     const needsSmtpDevCreation = this.smtpApiKey && this.smtpDomain && email.toLowerCase().endsWith(`@${this.smtpDomain.toLowerCase()}`);
+      if (needsSmtpDevCreation) {
+        const activeSmtpCount = Array.from(this.activeWorkers.keys()).filter(em => em.toLowerCase().endsWith(`@${this.smtpDomain.toLowerCase()}`)).length;
+        if (activeSmtpCount >= this.smtpLimit) {
+          // SMTP Concurrency Limit reached. Stop spawning more workers for now.
+          break;
+        }
+      }
+
+      this.queue.shift();
     if (needsSmtpDevCreation) {
       this.activeWorkers.set(email, 'creating');
       const delayMs = spawnIndex * 5000;
@@ -2500,7 +2510,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
       return res.status(400).json({ error: 'Có một tiến trình Bulk Registration đang chạy.' });
     }
 
-    const { emails = [], proxies = [], ratio = 1, concurrency = 2, enableOAuth = false, smtpApiKey = null, smtpDomain = null } = req.body;
+    const { emails = [], proxies = [], ratio = 1, concurrency = 2, enableOAuth = false, smtpApiKey = null, smtpDomain = null, smtpLimit = null } = req.body;
 
     if (!emails.length) {
       return res.status(400).json({ error: 'Danh sách email trống.' });
@@ -2575,7 +2585,7 @@ router.post('/accounts/bulk-register', async (req, res) => {
     });
 
     const bulkRunId = `bulk_${Date.now()}`;
-    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth, activeProxies, smtpApiKey, smtpDomain);
+    currentBulkRun = new BulkRegisterRunner(bulkRunId, queue, parsedConcurrency, enableOAuth, activeProxies, smtpApiKey, smtpDomain, smtpLimit);
     currentBulkRun.start();
 
     res.json({
