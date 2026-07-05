@@ -1179,6 +1179,22 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
         bodyText.includes('chọn một tài khoản');
       if (!hasWelcomeBack) return { ok: false, reason: 'no-welcome-back' };
 
+      // Check if there is an email input. If there is, we only click Continue if it is prefilled with our email!
+      const emailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (
+        el.type === 'email' ||
+        (el.name || '').toLowerCase().includes('email') ||
+        (el.name || '').toLowerCase().includes('username') ||
+        (el.id || '').toLowerCase().includes('email') ||
+        (el.id || '').toLowerCase().includes('username')
+      ));
+      
+      if (emailInputs.length > 0) {
+        const hasCorrectEmail = emailInputs.some(input => input.value.trim().toLowerCase() === lowerEmail);
+        if (!hasCorrectEmail) {
+          return { ok: false, reason: 'email-input-not-matching-or-empty' };
+        }
+      }
+
       const clickables = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a, input[type="submit"]')).filter(isVisible);
       const beforeHref = location.href;
       const beforeEmailInputs = Array.from(document.querySelectorAll('input')).filter(el => isVisible(el) && (

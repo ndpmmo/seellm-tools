@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.329] - 2026-07-05 18:03:15
+
+### 🛡️ Khắc phục lỗi kẹt vòng lặp tại màn hình nhập Email (nhầm lẫn Welcome Back)
+
+- **[openai-login-flow.js] Sửa hàm clickWelcomeBackContinue**: 
+  - Khắc phục lỗi hàm nhận diện nhầm trang đăng nhập thông thường (chứa dòng chữ "Welcome back" phía trên ô nhập Email) là màn hình tài khoản đã lưu (Welcome Back / Remembered Account). Lỗi này khiến script click "Continue" liên tục trên một ô Email trống rỗng tạo ra vòng lặp vô hạn mà không nhập Email.
+  - Bổ sung kiểm tra đầu vào: Nếu trang chứa ô nhập Email (`type="email"`, `name="username"`, v.v.) và ô nhập này chưa được điền thông tin chính xác (khác với email của tài khoản đang chạy), hàm `clickWelcomeBackContinue` sẽ trả về `ok: false, reason: 'email-input-not-matching-or-empty'`.
+  - Điều này giúp tiến trình đi qua đúng luồng `hasEmailInput` chính để thực hiện điền email đầy đủ rồi mới bấm "Continue".
+
 ## [0.3.328] - 2026-07-05 03:45:47
 
 ### 📸 Sửa đổi cơ chế chụp ảnh và tải ảnh tiến trình Warmup trên giao diện
