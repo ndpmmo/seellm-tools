@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.330] - 2026-07-05 18:17:23
+
+### 📧 Tối ưu hóa quá trình gửi Email (Native Click & RequestSubmit Fallback)
+
+- **[openai-login-flow.js] Nâng cấp hàm fillEmail**:
+  - Tích hợp thêm cơ chế bấm nút **"Continue"** vật lý (Native Click) và dự phòng gửi form thông qua `form.requestSubmit()` tương tự như thiết kế của hàm nhập mật khẩu (`fillPassword`).
+  - **Khắc phục lỗi bỏ quên submit**: Trước đây, sau khi điền email thành công bằng bàn phím vật lý, script chỉ gửi phím Enter rồi trả về thành công ngay lập tức. Nếu Auth0 bỏ qua sự kiện phím Enter, trang sẽ không chuyển hướng. Khi đó ở vòng lặp kế tiếp, script thấy email đã điền nên hiểu lầm đó là màn hình Welcome Back và bấm Continue bằng JS (nhưng bị Auth0 chặn vì không tin cậy).
+  - Bản vá mới đảm bảo sau khi điền email, hòm thư sẽ được xác nhận gửi đi bằng Native Click thực của trình duyệt, giải quyết triệt để vấn đề kẹt ở màn hình nhập email.
+
 ## [0.3.329] - 2026-07-05 18:03:15
 
 ### 🛡️ Khắc phục lỗi kẹt vòng lặp tại màn hình nhập Email (nhầm lẫn Welcome Back)

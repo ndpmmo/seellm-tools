@@ -530,6 +530,56 @@ export async function fillEmail(tabId, userId, email) {
       `).catch(() => '');
       
       if (typedValue.trim().toLowerCase() === email.toLowerCase()) {
+        console.log(`[fillEmail] Keyboard type email matched. Attempting native click on Continue button...`);
+        try {
+          const nativeClickRes = await actClick(tabId, userId, {
+            selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
+            timeoutMs: 6000
+          }, { timeoutMs: 9000 });
+          if (nativeClickRes && nativeClickRes.ok) {
+            console.log(`[fillEmail] Native click succeeded:`, JSON.stringify(nativeClickRes));
+            
+            // Wait up to 3500ms to see if page transitions (i.e. email input disappears)
+            let stillOnEmailPage = true;
+            for (let check = 0; check < 7; check++) {
+              stillOnEmailPage = await evalJson(tabId, userId, `
+                (() => {
+                  const inp = document.querySelector(${JSON.stringify(selector)});
+                  return !!(inp && inp.getBoundingClientRect().width > 0);
+                })()
+              `).catch(() => false);
+              if (!stillOnEmailPage) break;
+              await new Promise(r => setTimeout(r, 500));
+            }
+
+            if (stillOnEmailPage) {
+              console.log('[fillEmail] Native click did not transition page. Trying form.requestSubmit()...');
+              const submitResult = await evalJson(tabId, userId, `
+                (() => {
+                  const submitBtn = document.querySelector('button[type="submit"]');
+                  const form = submitBtn?.closest('form') || document.querySelector('form');
+                  if (form) {
+                    try {
+                      if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit(submitBtn || undefined);
+                        return { method: 'requestSubmit', ok: true };
+                      } else {
+                        form.submit();
+                        return { method: 'submit', ok: true };
+                      }
+                    } catch (e) {
+                      return { method: 'error', ok: false, err: e.message };
+                    }
+                  }
+                  return { method: 'no-form', ok: false };
+                })()
+              `).catch(() => null);
+              console.log('[fillEmail] requestSubmit result:', JSON.stringify(submitResult));
+            }
+          }
+        } catch (clickErr) {
+          console.log(`⚠️ [fillEmail] Native click Continue button error: ${clickErr.message}`);
+        }
         return { ok: true, strategy: 'camofox-type', value: email };
       } else {
         console.log(`⚠️ [fillEmail] Camoufox Type gõ xong nhưng giá trị thực tế không khớp (mong muốn: "${email}", thực tế: "${typedValue}"). Chuyển sang DOM fallback...`);
