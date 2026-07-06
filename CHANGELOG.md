@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.331] - 2026-07-07 01:14:00
+
+### 🔑 Khắc phục triệt để lỗi Warmup bị kẹt tại màn hình "Welcome back" (email pre-filled)
+
+**Vấn đề gốc rễ**: OpenAI hiển thị màn hình **"Welcome back"** với email đã được pre-fill sẵn + nút "Continue". Nút này **không phản hồi với DOM events** (`.click()`, `dispatchEvent`, `requestSubmit`) — chỉ hoạt động với native browser click thực sự. Script cũ bị kẹt loop vô hạn do chỉ dùng DOM click.
+
+- **[openai-login-flow.js] Sửa hàm `clickWelcomeBackContinue`**:
+  - Khi phát hiện màn hình "Welcome back" với email pre-filled đúng: trả về flag `needsNativeClick: true` thay vì DOM click
+  - Dùng **Camoufox native `actClick`** trên selector `button[type="submit"]:has-text("Continue")` — click vật lý thật
+  - Fallback: dùng **`actPress(Enter)`** — nhấn phím Enter vật lý
+  - Sau mỗi native action: kiểm tra xem màn hình có chuyển sang password input không
+- **[warmup.js] Thêm check "Welcome Back pre-filled email" trong handler `hasEmailInput` (bước 6a)**:
+  - Trước khi gọi `fillEmail`, kiểm tra xem màn hình có phải "Welcome back" với email đúng không
+  - Nếu đúng: gọi `clickWelcomeBackContinue` với native click, bỏ qua bước clear+retype email không cần thiết
+  - Tracking `welcomeBackNoTransitionCount` để reset tự động sau 3 lần native click thất bại
+
 ## [0.3.330] - 2026-07-05 18:17:23
 
 ### 📧 Tối ưu hóa quá trình gửi Email (Native Click & RequestSubmit Fallback)

@@ -1441,6 +1441,30 @@ async function runWarmup() {
             }
           }
           if (!emailFilled) {
+            // 6a. Check if this is "Welcome back" screen with email pre-filled — use native click instead of fillEmail
+            const wbPrefilledCheck = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+            const isWelcomeBackNative = wbPrefilledCheck?.ok && (
+              wbPrefilledCheck?.method === 'native-actclick-continue' ||
+              wbPrefilledCheck?.method === 'native-press-enter' ||
+              wbPrefilledCheck?.method === 'welcome-back-prefilled-email-no-click'
+            );
+            if (isWelcomeBackNative) {
+              // clickWelcomeBackContinue already handled via native actClick/actPress
+              console.log(`[Warmup] 👤 Welcome Back (pre-filled email) - native click result: method=${wbPrefilledCheck.method}, transitioned=${wbPrefilledCheck.transitioned}`);
+              lastLoginAction = `welcome-back-native-click:${wbPrefilledCheck.method}`;
+              emailFilled = true;
+              emailWaitCount = 0;
+              welcomeBackNoTransitionCount = wbPrefilledCheck.transitioned ? 0 : (welcomeBackNoTransitionCount + 1);
+              if (!wbPrefilledCheck.transitioned && welcomeBackNoTransitionCount >= 3) {
+                console.warn(`[Warmup] ⚠️ Welcome Back native click kẹt ${welcomeBackNoTransitionCount} lần -> reset email để thử lại.`);
+                emailFilled = false;
+                emailWaitCount = 0;
+                welcomeBackNoTransitionCount = 0;
+              }
+              await delay(3000);
+              continue;
+            }
+            // 6b. Normal fillEmail flow
             console.log(`[Warmup] 📧 Điền email: ${account.email}`);
             const fillResult = await fillEmail(tabId, USER_ID, account.email);
             if (!fillResult?.ok) {

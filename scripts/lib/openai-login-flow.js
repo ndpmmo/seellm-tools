@@ -1212,7 +1212,7 @@ export async function clickContinueWithPassword(tabId, userId) {
  */
 export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '') {
   const escapedEmail = JSON.stringify(String(accountEmail || '').toLowerCase());
-  return evalJson(tabId, userId, `
+  const domResult = await evalJson(tabId, userId, `
     (() => {
       const isVisible = el => {
         if (!el) return false;
@@ -1243,6 +1243,8 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
         if (!hasCorrectEmail) {
           return { ok: false, reason: 'email-input-not-matching-or-empty' };
         }
+        // Email pre-filled correctly — signal caller to use native actClick/actPress
+        return { ok: true, method: 'welcome-back-prefilled-email', transitioned: false, needsNativeClick: true };
       }
 
       const clickables = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a, input[type="submit"]')).filter(isVisible);
@@ -1381,6 +1383,64 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       return { ok: false, reason: hasWelcomeBack ? 'welcome-back-loop' : 'welcome-back-unhandled', visible: clickables.slice(0, 10).map(el => (el.innerText || el.textContent || el.value || '').trim().slice(0, 80)) };
     })()
   `, 5000);
+
+  // If DOM result says this is the "Welcome back" screen with correct pre-filled email,
+  // use Camoufox native actClick (then actPress Enter as fallback) instead of DOM events.
+  // This is the ONLY reliable way to click the Continue button on this screen.
+  if (domResult?.ok && domResult?.needsNativeClick) {
+    console.log(`[clickWelcomeBackContinue] 🖱️ Welcome back + prefilled email detected → trying native Camoufox actClick on Continue button...`);
+    try {
+      const nativeRes = await actClick(tabId, userId, {
+        selector: 'button[type="submit"]:has-text("Continue"), button:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button:has-text("Tiếp tục")',
+        timeoutMs: 6000
+      }, { timeoutMs: 9000 });
+      if (nativeRes?.ok) {
+        console.log(`[clickWelcomeBackContinue] ✅ Native actClick succeeded: ${JSON.stringify(nativeRes)}`);
+        // Wait to detect transition
+        await new Promise(r => setTimeout(r, 1500));
+        const transitioned = await evalJson(tabId, userId, `
+          (() => {
+            const isVisible = el => {
+              if (!el) return false;
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
+            };
+            const hasPassword = !!document.querySelector('input[type="password"]');
+            const bodyText = (document.body?.innerText || '').toLowerCase();
+            const hasWelcomeBack = bodyText.includes('welcome back') || bodyText.includes('choose an account');
+            return hasPassword || !hasWelcomeBack;
+          })()
+        `, 3000).catch(() => false);
+        return { ok: true, method: 'native-actclick-continue', transitioned, needsNativeClick: false };
+      }
+    } catch (nativeErr) {
+      console.log(`[clickWelcomeBackContinue] ⚠️ Native actClick failed: ${nativeErr.message}. Trying actPress Enter...`);
+    }
+
+    // Fallback: press Enter on the email input or focused element
+    try {
+      console.log(`[clickWelcomeBackContinue] ⌨️ Trying actPress Enter as fallback...`);
+      await actPress(tabId, userId, { key: 'Enter' }, { timeoutMs: 5000 });
+      await new Promise(r => setTimeout(r, 1500));
+      const transitioned = await evalJson(tabId, userId, `
+        (() => {
+          const hasPassword = !!document.querySelector('input[type="password"]');
+          const bodyText = (document.body?.innerText || '').toLowerCase();
+          const hasWelcomeBack = bodyText.includes('welcome back') || bodyText.includes('choose an account');
+          return hasPassword || !hasWelcomeBack;
+        })()
+      `, 3000).catch(() => false);
+      return { ok: true, method: 'native-press-enter', transitioned, needsNativeClick: false };
+    } catch (pressErr) {
+      console.log(`[clickWelcomeBackContinue] ⚠️ actPress Enter failed: ${pressErr.message}`);
+    }
+
+    // If all native methods failed, still return ok=true with transitioned=false so caller handles retry
+    return { ok: true, method: 'welcome-back-prefilled-email-no-click', transitioned: false, needsNativeClick: false };
+  }
+
+  return domResult;
 }
 
 /**
