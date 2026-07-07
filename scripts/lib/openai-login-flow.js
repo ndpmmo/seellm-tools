@@ -531,17 +531,47 @@ export async function fillEmail(tabId, userId, email) {
       
       if (typedValue.trim().toLowerCase() === email.toLowerCase()) {
         console.log(`[fillEmail] Keyboard type email matched. Attempting native click on Continue button...`);
+        
+        // Wait for Cloudflare Turnstile token to be injected (or 8s timeout)
+        // Turnstile injects a hidden input[name="cf-turnstile-response"] when solved.
+        // Clicking Continue before this = server-side silent reject (no navigation).
+        let turnstileStatus = 'unknown';
+        for (let waitTick = 0; waitTick < 16; waitTick++) {
+          turnstileStatus = await evalJson(tabId, userId, `
+            (() => {
+              const btn = document.querySelector('button[value="email"][name="intent"], button[type="submit"][value="email"]');
+              const ariaDisabled = btn ? btn.getAttribute('aria-disabled') : 'no-btn';
+              // Turnstile injects this hidden input when solved
+              const tokenInput = document.querySelector('input[name="cf-turnstile-response"]');
+              const hasTurnstile = !!tokenInput;
+              const tokenValue = tokenInput ? tokenInput.value : '';
+              // If no Turnstile present: ready immediately
+              if (!hasTurnstile) return JSON.stringify({ ready: true, reason: 'no-turnstile', ariaDisabled });
+              // If Turnstile present but token filled: ready
+              if (tokenValue && tokenValue.length > 10) return JSON.stringify({ ready: true, reason: 'token-ready', tokenLen: tokenValue.length, ariaDisabled });
+              return JSON.stringify({ ready: false, reason: 'waiting-token', tokenLen: tokenValue.length, ariaDisabled });
+            })()
+          `).catch(() => JSON.stringify({ ready: true, reason: 'eval-error' }));
+          let parsed = {};
+          try { parsed = JSON.parse(turnstileStatus); } catch (_) { parsed = { ready: true }; }
+          if (parsed.ready) { turnstileStatus = parsed.reason || 'ready'; break; }
+          console.log(`[fillEmail] Waiting for Turnstile token... tick=${waitTick + 1} ariaDisabled=${parsed.ariaDisabled}`);
+          await new Promise(r => setTimeout(r, 500));
+        }
+        console.log(`[fillEmail] Turnstile status=${turnstileStatus}. Clicking Continue now...`);
+        
         try {
+          // Use precise selector to avoid strict mode violation (5+ elements with :has-text)
           const nativeClickRes = await actClick(tabId, userId, {
-            selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
+            selector: 'button[value="email"][name="intent"], button[type="submit"][value="email"], button[data-dd-action-name="Continue"]',
             timeoutMs: 6000
           }, { timeoutMs: 9000 });
           if (nativeClickRes && nativeClickRes.ok) {
             console.log(`[fillEmail] Native click succeeded:`, JSON.stringify(nativeClickRes));
             
-            // Wait up to 3500ms to see if page transitions (i.e. email input disappears)
+            // Wait up to 5s for page to transition (password screen appears)
             let stillOnEmailPage = true;
-            for (let check = 0; check < 7; check++) {
+            for (let check = 0; check < 10; check++) {
               stillOnEmailPage = await evalJson(tabId, userId, `
                 (() => {
                   const inp = document.querySelector(${JSON.stringify(selector)});
@@ -1390,6 +1420,31 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
   if (domResult?.ok && domResult?.needsNativeClick) {
     console.log(`[clickWelcomeBackContinue] 🖱️ Welcome back + prefilled email detected → trying native Camoufox actClick on Continue button...`);
     
+    // Wait for Cloudflare Turnstile token to be injected (or 8s timeout)
+    // Turnstile injects a hidden input[name="cf-turnstile-response"] when solved.
+    // Clicking Continue before this = server-side silent reject (no navigation).
+    let turnstileStatus = 'unknown';
+    for (let waitTick = 0; waitTick < 16; waitTick++) {
+      turnstileStatus = await evalJson(tabId, userId, `
+        (() => {
+          const btn = document.querySelector('button[value="email"][name="intent"], button[type="submit"][value="email"]');
+          const ariaDisabled = btn ? btn.getAttribute('aria-disabled') : 'no-btn';
+          const tokenInput = document.querySelector('input[name="cf-turnstile-response"]');
+          const hasTurnstile = !!tokenInput;
+          const tokenValue = tokenInput ? tokenInput.value : '';
+          if (!hasTurnstile) return JSON.stringify({ ready: true, reason: 'no-turnstile', ariaDisabled });
+          if (tokenValue && tokenValue.length > 10) return JSON.stringify({ ready: true, reason: 'token-ready', tokenLen: tokenValue.length, ariaDisabled });
+          return JSON.stringify({ ready: false, reason: 'waiting-token', tokenLen: tokenValue.length, ariaDisabled });
+        })()
+      `).catch(() => JSON.stringify({ ready: true, reason: 'eval-error' }));
+      let parsed = {};
+      try { parsed = JSON.parse(turnstileStatus); } catch (_) { parsed = { ready: true }; }
+      if (parsed.ready) { turnstileStatus = parsed.reason || 'ready'; break; }
+      console.log(`[clickWelcomeBackContinue] Waiting for Turnstile token... tick=${waitTick + 1} ariaDisabled=${parsed.ariaDisabled}`);
+      await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[clickWelcomeBackContinue] Turnstile status=${turnstileStatus}. Proceeding with click strategies...`);
+
     // Strategy 1: actClick with PRECISE selector (value="email" = the email-submit Continue button, not Google/Apple)
     // From actual HTML: <button type="submit" value="email" name="intent" data-dd-action-name="Continue">Continue</button>
     const preciseSelectors = [
@@ -1398,6 +1453,7 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       'button[data-dd-action-name="Continue"]',
       'button[type="submit"][aria-disabled="false"]:not([form])',
     ];
+
     
     for (const sel of preciseSelectors) {
       try {

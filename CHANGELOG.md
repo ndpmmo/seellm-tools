@@ -2,6 +2,21 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.333] - 2026-07-08 00:46:00
+
+### 🔑 Phát hiện & xử lý Cloudflare Turnstile hidden captcha trên màn hình login OpenAI
+
+**Root cause xác định từ phân tích log**: actClick đã thành công (`ok: true`) nhưng trang **không bao giờ chuyển** — vì OpenAI dùng **Cloudflare Turnstile ẩn** (invisible captcha). Token Turnstile phải được inject vào `input[name="cf-turnstile-response"]` trước khi form submit thành công. Click trước khi token có = server reject silently, không navigate.
+
+- **[openai-login-flow.js] Thêm Turnstile token wait vào `fillEmail` và `clickWelcomeBackContinue`**:
+  - Poll `input[name="cf-turnstile-response"]` mỗi 500ms tối đa 8 giây
+  - Nếu không có Turnstile → ready ngay (no-turnstile)
+  - Nếu token đã inject (length > 10) → ready (token-ready)
+  - Log diagnostic: `ariaDisabled`, `hasTurnstile`, `tokenLen` để debug
+- **[openai-login-flow.js] Fix `fillEmail` selector Continue button**:
+  - Đổi `:has-text("Continue")` → `button[value="email"][name="intent"]` (chính xác, không bị strict mode)
+- **Diagnostic logging**: In `turnstileStatus` trước mỗi lần click để truy vết trong log
+
 ## [0.3.332] - 2026-07-08 00:32:00
 
 ### 🔑 Fix triệt để lỗi actClick "strict mode violation" trên màn hình Welcome Back
