@@ -1389,38 +1389,87 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
   // This is the ONLY reliable way to click the Continue button on this screen.
   if (domResult?.ok && domResult?.needsNativeClick) {
     console.log(`[clickWelcomeBackContinue] 🖱️ Welcome back + prefilled email detected → trying native Camoufox actClick on Continue button...`);
+    
+    // Strategy 1: actClick with PRECISE selector (value="email" = the email-submit Continue button, not Google/Apple)
+    // From actual HTML: <button type="submit" value="email" name="intent" data-dd-action-name="Continue">Continue</button>
+    const preciseSelectors = [
+      'button[value="email"][name="intent"]',
+      'button[type="submit"][value="email"]',
+      'button[data-dd-action-name="Continue"]',
+      'button[type="submit"][aria-disabled="false"]:not([form])',
+    ];
+    
+    for (const sel of preciseSelectors) {
+      try {
+        const nativeRes = await actClick(tabId, userId, {
+          selector: sel,
+          timeoutMs: 4000
+        }, { timeoutMs: 6000 });
+        if (nativeRes?.ok) {
+          console.log(`[clickWelcomeBackContinue] ✅ Native actClick succeeded with selector "${sel}": ${JSON.stringify(nativeRes)}`);
+          await new Promise(r => setTimeout(r, 1500));
+          const transitioned = await evalJson(tabId, userId, `
+            (() => {
+              const hasPassword = !!document.querySelector('input[type="password"]');
+              const bodyText = (document.body?.innerText || '').toLowerCase();
+              const hasWelcomeBack = bodyText.includes('welcome back') || bodyText.includes('choose an account');
+              return hasPassword || !hasWelcomeBack;
+            })()
+          `, 3000).catch(() => false);
+          return { ok: true, method: `native-actclick-continue:${sel}`, transitioned, needsNativeClick: false };
+        }
+      } catch (nativeErr) {
+        console.log(`[clickWelcomeBackContinue] ⚠️ actClick selector "${sel}" failed: ${nativeErr.message}`);
+      }
+    }
+
+    // Strategy 2: Snapshot-based clickRef — get accessibility tree, find the "Continue" button ref (exact text match)
     try {
-      const nativeRes = await actClick(tabId, userId, {
-        selector: 'button[type="submit"]:has-text("Continue"), button:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button:has-text("Tiếp tục")',
-        timeoutMs: 6000
-      }, { timeoutMs: 9000 });
-      if (nativeRes?.ok) {
-        console.log(`[clickWelcomeBackContinue] ✅ Native actClick succeeded: ${JSON.stringify(nativeRes)}`);
-        // Wait to detect transition
+      console.log(`[clickWelcomeBackContinue] 📸 Trying snapshot-based clickRef...`);
+      const snapshot = await getSnapshot(tabId, userId, { timeoutMs: 8000 });
+      const snapshotText = typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot);
+      // Parse snapshot lines to find [button eN] Continue (exact, not "Continue with Google")
+      const lines = snapshotText.split('\n');
+      let continueRef = null;
+      for (const line of lines) {
+        // Match: [button e5] Continue  (exact, no "with" after it)
+        const m = line.match(/\[button\s+(e\d+)\]\s+Continue\s*$/i);
+        if (m) { continueRef = m[1]; break; }
+        // Also match: [button e5] Continue\r or end of line
+        const m2 = line.match(/\[button\s+(e\d+)\]\s+Continue[\s\r]*$/i);
+        if (m2) { continueRef = m2[1]; break; }
+      }
+      if (continueRef) {
+        console.log(`[clickWelcomeBackContinue] 📌 Found Continue button ref: ${continueRef}`);
+        const refRes = await clickRef(tabId, userId, continueRef, { timeoutMs: 6000 });
+        console.log(`[clickWelcomeBackContinue] ✅ clickRef result: ${JSON.stringify(refRes)}`);
         await new Promise(r => setTimeout(r, 1500));
         const transitioned = await evalJson(tabId, userId, `
           (() => {
-            const isVisible = el => {
-              if (!el) return false;
-              const s = window.getComputedStyle(el);
-              const r = el.getBoundingClientRect();
-              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width > 0 && r.height > 0;
-            };
             const hasPassword = !!document.querySelector('input[type="password"]');
             const bodyText = (document.body?.innerText || '').toLowerCase();
             const hasWelcomeBack = bodyText.includes('welcome back') || bodyText.includes('choose an account');
             return hasPassword || !hasWelcomeBack;
           })()
         `, 3000).catch(() => false);
-        return { ok: true, method: 'native-actclick-continue', transitioned, needsNativeClick: false };
+        return { ok: true, method: `snapshot-clickref:${continueRef}`, transitioned, needsNativeClick: false };
+      } else {
+        console.log(`[clickWelcomeBackContinue] ⚠️ No exact "Continue" button ref found in snapshot`);
       }
-    } catch (nativeErr) {
-      console.log(`[clickWelcomeBackContinue] ⚠️ Native actClick failed: ${nativeErr.message}. Trying actPress Enter...`);
+    } catch (snapErr) {
+      console.log(`[clickWelcomeBackContinue] ⚠️ Snapshot clickRef failed: ${snapErr.message}`);
     }
 
-    // Fallback: press Enter on the email input or focused element
+    // Strategy 3: Focus email input first, THEN press Enter (so focus is in the right place)
     try {
-      console.log(`[clickWelcomeBackContinue] ⌨️ Trying actPress Enter as fallback...`);
+      console.log(`[clickWelcomeBackContinue] ⌨️ Focusing email input then pressing Enter...`);
+      // Focus the email input first
+      await actClick(tabId, userId, {
+        selector: 'input[type="email"], input[autocomplete="email"], input[name="username"]',
+        timeoutMs: 3000
+      }, { timeoutMs: 5000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 300));
+      // Now press Enter
       await actPress(tabId, userId, { key: 'Enter' }, { timeoutMs: 5000 });
       await new Promise(r => setTimeout(r, 1500));
       const transitioned = await evalJson(tabId, userId, `
@@ -1431,9 +1480,9 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
           return hasPassword || !hasWelcomeBack;
         })()
       `, 3000).catch(() => false);
-      return { ok: true, method: 'native-press-enter', transitioned, needsNativeClick: false };
+      return { ok: true, method: 'focus-input-press-enter', transitioned, needsNativeClick: false };
     } catch (pressErr) {
-      console.log(`[clickWelcomeBackContinue] ⚠️ actPress Enter failed: ${pressErr.message}`);
+      console.log(`[clickWelcomeBackContinue] ⚠️ Focus+Enter failed: ${pressErr.message}`);
     }
 
     // If all native methods failed, still return ok=true with transitioned=false so caller handles retry

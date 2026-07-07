@@ -2,6 +2,24 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.332] - 2026-07-08 00:32:00
+
+### 🔑 Fix triệt để lỗi actClick "strict mode violation" trên màn hình Welcome Back
+
+**Nguyên nhân gốc rễ xác định từ logs**: Selector `button:has-text("Continue")` của actClick khớp **5 phần tử** (Continue, Continue with Google, Continue with Apple, Continue with Microsoft, Continue with phone) → Camoufox/Playwright báo "strict mode violation: resolved to 5 elements" → fallback actPress(Enter) cũng thất bại vì không có focus vào email input.
+
+- **[openai-login-flow.js] Nâng cấp triệt để hàm `clickWelcomeBackContinue` (3 chiến lược cascade)**:
+  - **Strategy 1 - actClick với selector chính xác**: Thử tuần tự 4 selectors chính xác từ HTML thực tế OpenAI:
+    - `button[value="email"][name="intent"]` — chính xác nhất, khớp đúng 1 nút
+    - `button[type="submit"][value="email"]` — fallback
+    - `button[data-dd-action-name="Continue"]` — dùng data attribute
+    - `button[type="submit"][aria-disabled="false"]:not([form])` — last resort
+  - **Strategy 2 - Snapshot-based clickRef**: Lấy accessibility tree → tìm ref `[button eN] Continue` (exact match, không phải "Continue with...") → dùng `clickRef`
+  - **Strategy 3 - Focus email input rồi press Enter**: Click vào email input để focus, RỒII mới `actPress(Enter)` — tránh Enter không biết focus đang ở đâu
+- **[warmup.js] Cập nhật điều kiện `isWelcomeBackNative`**:
+  - Dùng `startsWith` để match các method name động như `native-actclick-continue:button[value="email"]`
+  - Thêm match cho `snapshot-clickref`, `focus-input-press-enter`
+
 ## [0.3.331] - 2026-07-07 01:14:00
 
 ### 🔑 Khắc phục triệt để lỗi Warmup bị kẹt tại màn hình "Welcome back" (email pre-filled)

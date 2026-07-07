@@ -1443,10 +1443,13 @@ async function runWarmup() {
           if (!emailFilled) {
             // 6a. Check if this is "Welcome back" screen with email pre-filled — use native click instead of fillEmail
             const wbPrefilledCheck = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+            const wbMethod = wbPrefilledCheck?.method || '';
             const isWelcomeBackNative = wbPrefilledCheck?.ok && (
-              wbPrefilledCheck?.method === 'native-actclick-continue' ||
-              wbPrefilledCheck?.method === 'native-press-enter' ||
-              wbPrefilledCheck?.method === 'welcome-back-prefilled-email-no-click'
+              wbMethod.startsWith('native-actclick-continue') ||
+              wbMethod.startsWith('snapshot-clickref') ||
+              wbMethod === 'focus-input-press-enter' ||
+              wbMethod === 'native-press-enter' ||
+              wbMethod === 'welcome-back-prefilled-email-no-click'
             );
             if (isWelcomeBackNative) {
               // clickWelcomeBackContinue already handled via native actClick/actPress
