@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.339] - 2026-07-08 08:11:00
+
+### 🔄 Fix triệt để lỗi loop Welcome Back check ở Step 2
+
+- **[warmup.js] Wrap Step 2 Welcome Back check**:
+  - Phát hiện hàm `clickWelcomeBackContinue` còn được gọi ở Step 2 tại dòng 1171 (đầu mỗi loop tick).
+  - Đã wrap hàm gọi này bằng cờ `if (!hasTypedEmail)`.
+  - Đảm bảo một khi đã gõ email thủ công, toàn bộ các check "Welcome Back" ở cả Step 2 và Step 6 đều bị bỏ qua, chấm dứt hoàn toàn lỗi loop Welcome Back ảo.
+
 ## [0.3.338] - 2026-07-08 08:09:00
 
 ### 🔄 Fix lỗi loop nhận diện sai "Welcome Back" khi kẹt chuyển trang Email

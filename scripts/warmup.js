@@ -1168,7 +1168,10 @@ async function runWarmup() {
         }
         
         // 2. Handle Welcome Back dialog (Diane Mitchell dialog in Image 1)
-        const chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+        let chooseResult = null;
+        if (!hasTypedEmail) {
+          chooseResult = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+        }
         if (chooseResult?.ok) {
           console.log(`[Warmup] 👤 Phát hiện bảng Welcome Back -> Đã xử lý: ${chooseResult.method || chooseResult.reason} (transitioned=${chooseResult.transitioned})`);
           lastLoginAction = `welcome-back:${chooseResult.method || 'ok'}`;
