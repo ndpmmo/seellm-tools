@@ -740,8 +740,33 @@ export async function fillPassword(tabId, userId, password) {
     }, { timeoutMs: 10000 });
     
     if (typeRes && typeRes.ok) {
-      console.log(`[fillPassword] Keyboard type succeeded. Waiting 2500ms for validation/Turnstile...`);
-      await new Promise(r => setTimeout(r, 2500));
+      console.log(`[fillPassword] Keyboard type succeeded. Waiting for Turnstile to solve...`);
+      
+      // Wait for Cloudflare Turnstile token to be injected (or 8s timeout)
+      // Turnstile injects a hidden input[name="cf-turnstile-response"] when solved.
+      // Clicking Continue before this = server-side silent reject.
+      let turnstileStatus = 'unknown';
+      for (let waitTick = 0; waitTick < 16; waitTick++) {
+        turnstileStatus = await evalJson(tabId, userId, `
+          (() => {
+            const btn = document.querySelector('button[type="submit"]');
+            const ariaDisabled = btn ? btn.getAttribute('aria-disabled') : 'no-btn';
+            const tokenInput = document.querySelector('input[name="cf-turnstile-response"]');
+            const hasTurnstile = !!tokenInput;
+            const tokenValue = tokenInput ? tokenInput.value : '';
+            if (!hasTurnstile) return JSON.stringify({ ready: true, reason: 'no-turnstile', ariaDisabled });
+            if (tokenValue && tokenValue.length > 10) return JSON.stringify({ ready: true, reason: 'token-ready', tokenLen: tokenValue.length, ariaDisabled });
+            return JSON.stringify({ ready: false, reason: 'waiting-token', tokenLen: tokenValue.length, ariaDisabled });
+          })()
+        `).catch(() => JSON.stringify({ ready: true, reason: 'eval-error' }));
+        let parsed = {};
+        try { parsed = JSON.parse(turnstileStatus); } catch (_) { parsed = { ready: true }; }
+        if (parsed.ready) { turnstileStatus = parsed.reason || 'ready'; break; }
+        console.log(`[fillPassword] Waiting for Turnstile token... tick=${waitTick + 1} ariaDisabled=${parsed.ariaDisabled}`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+      console.log(`[fillPassword] Turnstile status=${turnstileStatus}. Proceeding to click Continue...`);
+
 
       // Debug: Take a screenshot to verify password value is typed
       try {
@@ -768,16 +793,21 @@ export async function fillPassword(tabId, userId, password) {
       // Try native click on Continue button first (trusted click for React 19 compatibility)
       console.log(`[fillPassword] Attempting native click on Continue button...`);
       try {
+        // Add human-like delay before clicking — OpenAI bot detection resets form if click is too fast
+        const humanDelay = 1500 + Math.floor(Math.random() * 1500); // 1.5s - 3s random
+        console.log(`[fillPassword] Human-like pause ${humanDelay}ms before click...`);
+        await new Promise(r => setTimeout(r, humanDelay));
+
         const nativeClickRes = await actClick(tabId, userId, {
-          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next")',
+          selector: 'button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Tiếp tục"), button[type="submit"]:has-text("Next"), button[type="submit"]',
           timeoutMs: 6000
         }, { timeoutMs: 9000 });
         if (nativeClickRes && nativeClickRes.ok) {
           console.log(`[fillPassword] Native click succeeded:`, JSON.stringify(nativeClickRes));
           
-          // Poll checking if still on password page (max 3500ms)
+          // Poll checking if still on password page (max 8s)
           let stillOnPwdPage = true;
-          for (let check = 0; check < 7; check++) {
+          for (let check = 0; check < 16; check++) {
             stillOnPwdPage = await evalJson(tabId, userId, `
               !!document.querySelector('input[type="password"]')
             `).catch(() => false);

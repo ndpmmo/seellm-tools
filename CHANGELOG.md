@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.336] - 2026-07-08 08:04:00
+
+### 🔑 Fix Turnstile & Bot Detection trên màn hình nhập Password của OpenAI
+
+**Vấn đề phát hiện khi chạy test**: Sau khi bypass được màn hình Email và chuyển sang password screen (`https://auth.openai.com/log-in/password`), việc submit password tiếp tục bị OpenAI Turnstile block (`BLOCKED_BY_OPENAI_TURNSTILE`). Nguyên nhân do password screen cũng sử dụng Cloudflare Turnstile ẩn và việc submit quá nhanh/thiếu token dẫn tới block.
+
+- **[openai-login-flow.js] Thêm Turnstile token check vào `fillPassword`**:
+  - Poll `input[name="cf-turnstile-response"]` tương tự màn hình email, tối đa 8s
+  - Đảm bảo token được solve và inject đầy đủ trước khi click submit form
+- **[openai-login-flow.js] Thêm random human delay trước click submit password**:
+  - Pause random 1.5s - 3s trước khi click Continue
+- **[openai-login-flow.js] Tăng transition wait của password page**:
+  - Check transition từ 7 checks (3.5s) lên 16 checks (8s)
+- **[openai-login-flow.js] Bổ sung selector `button[type="submit"]`**:
+  - Đảm bảo click trúng nút Continue trên password screen trong mọi trường hợp locale/ngôn ngữ
+
 ## [0.3.335] - 2026-07-08 07:58:00
 
 ### 🤖 Fix bot detection loop: thêm human-like delay trước khi click "Continue"
