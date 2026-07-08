@@ -2,6 +2,16 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.340] - 2026-07-08 08:15:00
+
+### ⚡ Tối ưu thời gian chờ khi bị kẹt ở màn hình Email (Attempt 1)
+
+- **[warmup.js] Thêm giới hạn `emailRefillCount`**:
+  - Khai báo biến `emailRefillCount = 0` tại login loop.
+  - Khi màn hình điền email bị đứng yên (stuck) và kích hoạt cơ chế gõ lại (refill), ta tăng `emailRefillCount`.
+  - Nếu điền lại đến lần thứ 3 (`emailRefillCount >= 3`) vẫn không thể chuyển trang, quăng lỗi `KẸT TRANG EMAIL` ngay lập tức để chuyển sang Attempt 2 nhanh hơn.
+  - Giảm thời gian chờ lãng phí từ 40 loop (khoảng 3 phút) xuống còn 18 loop (khoảng 1 phút) khi cookies cũ bị lỗi.
+
 ## [0.3.339] - 2026-07-08 08:11:00
 
 ### 🔄 Fix triệt để lỗi loop Welcome Back check ở Step 2

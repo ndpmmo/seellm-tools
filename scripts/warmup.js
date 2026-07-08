@@ -955,6 +955,7 @@ async function runWarmup() {
       const maxLoginAttempts = 40;
       let emailFilled = false;
       let emailWaitCount = 0;
+      let emailRefillCount = 0; // Count how many times we filled email on this page
       let hasTypedEmail = false; // Flag to prevent false Welcome Back detection after we manually type the email
       let passwordFilled = false;
       let passwordWaitCount = 0;
@@ -1016,11 +1017,15 @@ async function runWarmup() {
         if (repeatedLoginFingerprintCount >= 6 && !state.looksLoggedIn) {
           console.warn(`[Warmup] ⚠️ Login screen fingerprint lặp ${repeatedLoginFingerprintCount} vòng: ${currentLoginFingerprint}`);
           if (state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput && state.onAuthDomain) {
+            emailRefillCount++;
+            if (emailRefillCount >= 3) {
+              throw new Error(`KẸT TRANG EMAIL: Đã điền lại email ${emailRefillCount} lần nhưng trang không chuyển hướng. Đây có thể do Turnstile hoặc proxy block.`);
+            }
             lastLoginAction = 'fingerprint-email-refill';
             emailFilled = false;
             emailWaitCount = 0;
             repeatedLoginFingerprintCount = 0;
-            console.warn(`[Warmup] ⚠️ Email screen đứng yên -> reset cờ để điền lại email ở handler chính.`);
+            console.warn(`[Warmup] ⚠️ Email screen đứng yên -> reset cờ để điền lại email ở handler chính (lượt điền lại thứ ${emailRefillCount}/3).`);
           }
           if (state.hasLoggedOutChatShell && !state.onAuthDomain) {
             lastLoginAction = 'fingerprint-stuck-loggedout-shell';
