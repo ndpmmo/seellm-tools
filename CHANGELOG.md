@@ -2,6 +2,14 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.341] - 2026-07-08 08:22:00
+
+### 🔄 Cho phép Retry (Attempt 2) đối với các lỗi kẹt màn hình Email
+
+- **[warmup.js] Thêm các keyword lỗi email vào `isRetriable`**:
+  - Khi ném lỗi `KẸT TRANG EMAIL` hoặc `LOGIN_TIMEOUT_EMAIL_SCREEN`, ta cần bộ điều phối `runWarmup` hiểu đây là lỗi có thể retry được để chuyển sang Attempt 2 (làm sạch profile/cookies và đăng nhập mới).
+  - Thêm các chuỗi: `'kẹt trang email'`, `'KẸT TRANG EMAIL'`, `'login_timeout_email_screen'`, `'LOGIN_TIMEOUT_EMAIL_SCREEN'`, `'kẹt ở màn hình email'` vào danh sách `isRetriable`.
+
 ## [0.3.340] - 2026-07-08 08:15:00
 
 ### ⚡ Tối ưu thời gian chờ khi bị kẹt ở màn hình Email (Attempt 1)

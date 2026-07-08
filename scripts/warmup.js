@@ -2082,8 +2082,14 @@ async function runWarmup() {
         msg.includes('không nhận được phản hồi') ||
         msg.includes('welcome back bị kẹt') ||
         msg.includes('welcome-back-stuck') ||
-        msg.includes('welcome-back-loop')
+        msg.includes('welcome-back-loop') ||
+        msg.includes('kẹt trang email') ||
+        msg.includes('KẸT TRANG EMAIL') ||
+        msg.includes('login_timeout_email_screen') ||
+        msg.includes('LOGIN_TIMEOUT_EMAIL_SCREEN') ||
+        msg.includes('kẹt ở màn hình email')
       );
+      
       
       if (isRetriable && attempt < maxAttempts) {
         // Navigate timeouts need longer recovery: camofox destroys the session and
