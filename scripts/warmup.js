@@ -2126,6 +2126,7 @@ async function runWarmup() {
       console.error(`[Warmup] Lỗi khi cố gắng lưu trạng thái thất bại: ${saveErr.message}`);
     }
     
+    throw err; // Rethrow so the process exits with non-zero code on failure
   } finally {
     // 8. Clean up Tab to prevent resource leak
     if (tabId) {

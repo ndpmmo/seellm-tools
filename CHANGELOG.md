@@ -2,6 +2,15 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.337] - 2026-07-08 08:05:00
+
+### 🐛 Fix exit code của script warmup: trả về non-zero exit code khi gặp lỗi chạy
+
+- **[warmup.js] Rethrow lỗi trong hàm `runWarmup`**:
+  - Code cũ nuốt lỗi (catch block) dẫn đến script luôn exit code 0 kể cả khi thất bại.
+  - Thêm `throw err` ở cuối catch block để propagation ra ngoài, kích hoạt `process.exit(1)` khi chạy lỗi.
+  - Giúp các test runner/rotator phát hiện chính xác trạng thái chạy lỗi để chuyển đổi tài khoản.
+
 ## [0.3.336] - 2026-07-08 08:04:00
 
 ### 🔑 Fix Turnstile & Bot Detection trên màn hình nhập Password của OpenAI
