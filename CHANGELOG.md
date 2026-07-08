@@ -2,6 +2,22 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.343] - 2026-07-08 08:38:00
+
+### 🌐 Chuyển đổi điều hướng đăng nhập sang trang chatgpt.com đầu tiên (Modern Login Portal)
+
+- **[warmup.js] Thay thế auth.openai.com/log-in cũ bằng chatgpt.com/auth/login?next=%2F**:
+  - OpenAI đã chuyển hầu hết cơ chế xác thực sang cổng đăng nhập chính thức ở chatgpt.com đầu tiên nhằm bảo mật tốt hơn và xử lý mượt mà hơn. Việc gọi trực tiếp trang auth.openai.com cũ dễ bị Cloudflare block diện rộng hoặc kẹt ở ô email không thể chuyển trang.
+  - Cập nhật tất cả các logic điều hướng khẩn cấp và quay lui (recover/force navigate) hướng trực tiếp về trang `https://chatgpt.com/auth/login?next=%2F`.
+  - Tối ưu hóa điều hướng ban đầu: Với các attempt sau (khi cookies cũ đã được xác định là hỏng - `cookiesFailed` và `attempt > 1`), thay vì mở `https://chatgpt.com/` trống rồi đợi click, ta mở thẳng `https://chatgpt.com/auth/login?next=%2F` để điền email luôn, bỏ qua bước click nút "Log in" dễ bị lỗi hydration.
+
+## [0.3.342] - 2026-07-08 08:35:00
+
+### ⚙️ Hỗ trợ bỏ qua Proxy khi chạy Warmup
+
+- **[warmup.js] Thêm đối số `--ignoreProxy`**:
+  - Khi đối số này được chỉ định, biến `effectiveProxy` sẽ được gán giá trị `null`, giúp chạy quy trình warmup trực tiếp bằng IP gốc của máy (residential/clean IP) nhằm kiểm chứng và so sánh chất lượng đăng nhập khi nghi ngờ dải proxy Singapore (Vultr) bị Cloudflare chặn diện rộng.
+
 ## [0.3.341] - 2026-07-08 08:22:00
 
 ### 🔄 Cho phép Retry (Attempt 2) đối với các lỗi kẹt màn hình Email

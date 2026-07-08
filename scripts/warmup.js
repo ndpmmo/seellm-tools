@@ -194,8 +194,8 @@ async function clearAuthClientState(tabId, userId) {
 async function recoverWelcomeBackStuck(tabId, userId, reason = 'stuck') {
   const resetResult = await clearAuthClientState(tabId, userId);
   console.warn(`[Warmup] ⚠️ Welcome Back ${reason} -> clear auth client state: ${JSON.stringify(resetResult)}`);
-  await navigate(tabId, userId, 'https://auth.openai.com/log-in?prompt=login', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-    await navigate(tabId, userId, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+  await navigate(tabId, userId, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+    await navigate(tabId, userId, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
   });
 }
 
@@ -815,7 +815,7 @@ async function runWarmup() {
   const USER_ID = `seellm_warmup_${account.id}`;
   console.log(`SESSION_ID: ${USER_ID}`); // Quan trọng để frontend link ảnh chụp
   const SESSION_KEY = `warmup_${account.id}`;
-  const effectiveProxy = normalizeProxyUrl(account.proxy_url || account.proxyUrl || account.proxy || null);
+  const effectiveProxy = args.ignoreProxy ? null : normalizeProxyUrl(account.proxy_url || account.proxyUrl || account.proxy || null);
   
   let tabId = null;
   let preFlightResult = null;
@@ -931,9 +931,10 @@ async function runWarmup() {
       }
     }
     
-    // 5. Navigate to ChatGPT Chat interface
+    // 5. Navigate to ChatGPT Chat interface (go directly to login page on clean attempts to avoid homepage stuck)
     console.log(`[Warmup] 🌐 Mở trang ChatGPT...`);
-    await navigate(tabId, USER_ID, 'https://chatgpt.com/', { timeoutMs: 30000, waitUntil: 'commit' });
+    const initialUrl = (cookiesFailed && attempt > 1) ? 'https://chatgpt.com/auth/login?next=%2F' : 'https://chatgpt.com/';
+    await navigate(tabId, USER_ID, initialUrl, { timeoutMs: 30000, waitUntil: 'commit' });
     await delay(5000);
     
     if (WARMUP_SCREENSHOTS && stepRecorder) {
@@ -1007,8 +1008,8 @@ async function runWarmup() {
           passwordWaitCount = 0;
           repeatedLoginFingerprintCount = 0;
           welcomeBackNoTransitionCount = 0;
-          await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-            await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+          await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+            await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
           });
           await delay(4000);
           continue;
@@ -1061,7 +1062,7 @@ async function runWarmup() {
         if (hrefLower.includes('/auth/login_with') && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput) {
           loginWithStuckCount++;
           if (loginWithStuckCount >= 4) {
-            console.warn(`[Warmup] ⚠️ auth/login_with kẹt ${loginWithStuckCount} vòng không render form -> force reload auth.openai.com/log-in sạch...`);
+            console.warn(`[Warmup] ⚠️ auth/login_with kẹt ${loginWithStuckCount} vòng không render form -> force reload chatgpt.com/auth/login sạch...`);
             lastLoginAction = 'recover-login-with-stuck';
             loginWithStuckCount = 0;
             emailFilled = false;
@@ -1069,8 +1070,8 @@ async function runWarmup() {
             passwordFilled = false;
             passwordWaitCount = 0;
             welcomeBackNoTransitionCount = 0;
-            await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
-              await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+            await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 20000, waitUntil: 'commit' }).catch(async () => {
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
             });
             await delay(4000);
             continue;
@@ -1153,14 +1154,14 @@ async function runWarmup() {
           consecutiveRedirectClicks++;
           if (consecutiveRedirectClicks >= 3) {
             // Click DOM không hiệu quả → force navigate thẳng đến trang đăng nhập
-            console.log(`[Warmup] 🚨 Click redirect thất bại ${consecutiveRedirectClicks} lần liên tiếp -> Force navigate thẳng đến auth.openai.com/log-in...`);
+            console.log(`[Warmup] 🚨 Click redirect thất bại ${consecutiveRedirectClicks} lần liên tiếp -> Force navigate thẳng đến chatgpt.com login page...`);
             consecutiveRedirectClicks = 0;
             lastLoginAction = 'force-auth-log-in';
             try {
-              await navigate(tabId, USER_ID, 'https://auth.openai.com/log-in', { timeoutMs: 20000, waitUntil: 'commit' });
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 20000, waitUntil: 'commit' });
             } catch (navErr) {
               console.warn(`[Warmup] ⚠️ Force navigate thất bại: ${navErr.message}. Thử lại bằng chatgpt.com login page...`);
-              await navigate(tabId, USER_ID, 'https://chatgpt.com/?login', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
+              await navigate(tabId, USER_ID, 'https://chatgpt.com/auth/login?next=%2F', { timeoutMs: 15000, waitUntil: 'commit' }).catch(() => {});
             }
             await delay(3000);
           } else {
@@ -1224,8 +1225,8 @@ async function runWarmup() {
           throw new Error(`Welcome Back bị kẹt/loop: ${chooseResult.reason}`);
         }
 
-        // 2.5. Handle auth.openai.com landing page: "Log in" button visible but no form yet
-        // Xảy ra khi navigate thẳng đến auth.openai.com/log-in nhưng trang hiển thị
+        // 2.5. Handle login landing page: "Log in" button visible but no form yet
+        // Xảy ra khi navigate thẳng đến chatgpt.com/auth/login nhưng trang hiển thị
         // nút "Log in" + "Sign up" mà chưa render form email (React chưa hydrate xong).
         if (state.onAuthDomain && state.hasVisibleLoginAction && !state.hasEmailInput && !state.hasPasswordInput && !state.hasMfaInput) {
           console.log(`[Warmup] 🖱️ Ở auth domain nhưng chưa có form email -> Click nút "Log in" để mở form đăng nhập...`);
