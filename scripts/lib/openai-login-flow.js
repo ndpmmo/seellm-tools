@@ -561,6 +561,11 @@ export async function fillEmail(tabId, userId, email) {
         console.log(`[fillEmail] Turnstile status=${turnstileStatus}. Clicking Continue now...`);
         
         try {
+          // Add human-like delay before clicking — OpenAI bot detection resets form if click is too fast
+          const humanDelay = 1500 + Math.floor(Math.random() * 1500); // 1.5s - 3s random
+          console.log(`[fillEmail] Human-like pause ${humanDelay}ms before click...`);
+          await new Promise(r => setTimeout(r, humanDelay));
+          
           // Use precise selector to avoid strict mode violation (5+ elements with :has-text)
           const nativeClickRes = await actClick(tabId, userId, {
             selector: 'button[value="email"][name="intent"], button[type="submit"][value="email"], button[data-dd-action-name="Continue"]',
@@ -569,9 +574,10 @@ export async function fillEmail(tabId, userId, email) {
           if (nativeClickRes && nativeClickRes.ok) {
             console.log(`[fillEmail] Native click succeeded:`, JSON.stringify(nativeClickRes));
             
-            // Wait up to 5s for page to transition (password screen appears)
+            // Wait up to 8s for page to transition (password screen appears)
+            // SPA transition can take 2-4s; need enough time before falling back
             let stillOnEmailPage = true;
-            for (let check = 0; check < 10; check++) {
+            for (let check = 0; check < 16; check++) {
               stillOnEmailPage = await evalJson(tabId, userId, `
                 (() => {
                   const inp = document.querySelector(${JSON.stringify(selector)});
@@ -1444,6 +1450,11 @@ export async function clickWelcomeBackContinue(tabId, userId, accountEmail = '')
       await new Promise(r => setTimeout(r, 500));
     }
     console.log(`[clickWelcomeBackContinue] Turnstile status=${turnstileStatus}. Proceeding with click strategies...`);
+
+    // Human-like delay before clicking — OpenAI bot detection resets form if click is too fast
+    const humanDelay = 1500 + Math.floor(Math.random() * 1500); // 1.5s - 3s random
+    console.log(`[clickWelcomeBackContinue] Human-like pause ${humanDelay}ms before click...`);
+    await new Promise(r => setTimeout(r, humanDelay));
 
     // Strategy 1: actClick with PRECISE selector (value="email" = the email-submit Continue button, not Google/Apple)
     // From actual HTML: <button type="submit" value="email" name="intent" data-dd-action-name="Continue">Continue</button>

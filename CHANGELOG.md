@@ -2,6 +2,23 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.335] - 2026-07-08 07:58:00
+
+### 🤖 Fix bot detection loop: thêm human-like delay trước khi click "Continue"
+
+**Vấn đề phát hiện từ log & ảnh chụp**: Click "Continue" thành công (`ok: true`) nhưng trang quay về email screen (thay vì chuyển sang password screen). Nguyên nhân: OpenAI bot detection phát hiện click quá nhanh ngay sau khi email được fill → server redirect silent về email screen.
+
+**Bằng chứng từ log**: `hasEmailInput: false` (trang chuyển) → ngay sau đó `hasEmailInput: true` (bị redirect về).
+
+- **[openai-login-flow.js] Thêm random human delay trước click trong `fillEmail`**:
+  - Pause 1.5s - 3s random (`1500 + random(1500)`) trước khi gọi `actClick`
+  - Tránh pattern "type email → click ngay" bị detect là bot
+- **[openai-login-flow.js] Thêm random human delay trong `clickWelcomeBackContinue`**:
+  - Cùng logic 1.5s - 3s trước vòng lặp click strategies
+- **[openai-login-flow.js] Tăng transition wait trong `fillEmail`**:
+  - Từ 10 polls (5s) → 16 polls (8s) — SPA transition cần thêm thời gian
+- **Diagnostic**: Log "Human-like pause Xms before click..." để truy vết
+
 ## [0.3.334] - 2026-07-08 07:50:00
 
 ### 🔑 Fix logic retry Warmup: không nạp cookie cũ hết hạn + xóa profile disk sạch khi retry
