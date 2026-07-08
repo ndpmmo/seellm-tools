@@ -4,7 +4,7 @@
  */
 
 import { CAMOUFOX_API, TOOLS_API_URL, WARMUP_SCREENSHOTS } from './config.js';
-import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson, getSnapshot, clickRef } from './lib/camofox.js';
+import { camofoxPost, camofoxGet, camofoxDelete, navigate, pressKey, evalJson, getSnapshot, clickRef, deleteProfile } from './lib/camofox.js';
 import { normalizeProxyUrl, assertProxyApplied, probeProxyExitIp, getLocalPublicIp, isLocalRelayProxy } from './lib/proxy-diag.js';
 import { getFreshTOTP } from './lib/totp.js';
 import { generateWarmupPrompts } from './lib/warmup-prompts.js';
@@ -832,6 +832,7 @@ async function runWarmup() {
 
     const maxAttempts = 3;
     let runSuccess = false;
+    let cookiesFailed = false; // Track if cookies were expired so we skip on retry
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -865,6 +866,13 @@ async function runWarmup() {
     }
     
     // 3. Open Camofox Tab
+    // If cookies were expired in previous attempt, delete the disk profile so the browser
+    // starts completely fresh (no localStorage/session storage with stale OpenAI auth state)
+    if (cookiesFailed && attempt > 1) {
+      console.log(`[Warmup] 🗑️  Xóa browser profile cũ trên disk — đăng nhập sạch hoàn toàn...`);
+      await deleteProfile(USER_ID).catch(() => {});
+      await delay(500);
+    }
     console.log(`[Warmup] 🦊 Khởi động Camofox tab...`);
     const opened = await camofoxPost('/tabs', {
       userId: USER_ID,
@@ -902,7 +910,12 @@ async function runWarmup() {
 
     await delay(2000);
     // 4. Import cookies from database if present
-    if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
+    //    SKIP if previous attempt confirmed cookies are expired (cookiesFailed=true)
+    //    — Loading stale cookies causes OpenAI to pre-fill email AND block form submit
+    //      because the expired session confuses the server-side auth flow.
+    if (cookiesFailed) {
+      console.log(`[Warmup] 🚫 Bỏ qua cookies cũ (đã hết hạn từ lần thử trước) — đăng nhập sạch không cookie.`);
+    } else if (account.cookies && Array.isArray(account.cookies) && account.cookies.length > 0) {
       console.log(`[Warmup] 🍪 Nạp ${account.cookies.length} cookies từ database vào browser context...`);
       try {
         await fetch(`${CAMOUFOX_API}/sessions/${USER_ID}/cookies`, {
@@ -936,6 +949,7 @@ async function runWarmup() {
     let isLoggedIn = await checkLoginState();
     
     if (!isLoggedIn) {
+      cookiesFailed = true; // Mark so next attempt skips stale cookies entirely
       console.log(`[Warmup] 👤 Chưa đăng nhập hoặc cookie hết hạn! Tiến hành đăng nhập...`);
       
       const maxLoginAttempts = 40;

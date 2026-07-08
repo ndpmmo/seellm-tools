@@ -2,6 +2,25 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.334] - 2026-07-08 07:50:00
+
+### 🔑 Fix logic retry Warmup: không nạp cookie cũ hết hạn + xóa profile disk sạch khi retry
+
+**Vấn đề user phát hiện**: Lần thử 2 và 3 vẫn nạp lại đúng cookie cũ đã hết hạn từ database — gây ra "Welcome back" screen với email pre-filled và block form submit do server-side auth state bị confuse bởi expired session cookie.
+
+- **[warmup.js] Thêm biến `cookiesFailed` track trạng thái cookie**:
+  - Khởi tạo `cookiesFailed = false` trước vòng lặp attempt
+  - Set `cookiesFailed = true` ngay khi phát hiện `!isLoggedIn` (cookie hết hạn hoặc chưa đăng nhập)
+- **[warmup.js] Bỏ qua cookie cũ khi retry (`cookiesFailed = true`)**:
+  - Thay vì luôn nạp `account.cookies`, check `cookiesFailed` trước
+  - Nếu đã fail: log "Bỏ qua cookies cũ — đăng nhập sạch không cookie"
+  - Đảm bảo browser không bị nhiễu bởi expired session/auth token
+- **[warmup.js] Xóa Camoufox disk profile khi retry với cookie fail**:
+  - Import `deleteProfile` từ `./lib/camofox.js`
+  - Gọi `deleteProfile(USER_ID)` trước khi mở tab mới nếu `cookiesFailed && attempt > 1`
+  - Xóa cả localStorage, sessionStorage, IndexedDB trong profile → browser hoàn toàn virgin
+  - Đây là fix triệt để: `camofoxDelete('/sessions/...')` chỉ xóa runtime session, không xóa disk profile
+
 ## [0.3.333] - 2026-07-08 00:46:00
 
 ### 🔑 Phát hiện & xử lý Cloudflare Turnstile hidden captcha trên màn hình login OpenAI
