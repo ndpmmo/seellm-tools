@@ -2,6 +2,18 @@
 
 **Format:** Từ version 0.3.4 trở đi, entries sẽ sử dụng format timestamp chi tiết: `YYYY-MM-DD HH:MM:SS`
 
+## [0.3.338] - 2026-07-08 08:09:00
+
+### 🔄 Fix lỗi loop nhận diện sai "Welcome Back" khi kẹt chuyển trang Email
+
+**Vấn đề phát hiện**: Khi điền email thành công nhưng trang chuyển hướng chậm (hoặc bị block), ở các lượt kiểm tra tiếp theo, script phát hiện input vẫn chứa email vừa điền. Do đó, script tự động nhảy vào hàm `clickWelcomeBackContinue` (vì nhầm tưởng đây là màn hình Welcome Back chứa email điền sẵn). Điều này tạo ra một vòng lặp vô hạn `clickWelcomeBackContinue` thất bại.
+
+- **[warmup.js] Thêm cờ `hasTypedEmail` trong login loop**:
+  - Khai báo `hasTypedEmail = false` khi bắt đầu quá trình login của mỗi attempt.
+  - Set `hasTypedEmail = true` ngay khi gõ email thành công qua `fillEmail`.
+  - Chỉ cho phép chạy check `clickWelcomeBackContinue` nếu `!hasTypedEmail` (nghĩa là email chưa từng được gõ thủ công trong lượt này).
+  - Loại bỏ hoàn toàn khả năng nhận diện sai (false-positive) màn hình Welcome Back khi email thực chất là do script vừa tự gõ.
+
 ## [0.3.337] - 2026-07-08 08:05:00
 
 ### 🐛 Fix exit code của script warmup: trả về non-zero exit code khi gặp lỗi chạy

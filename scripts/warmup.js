@@ -955,6 +955,7 @@ async function runWarmup() {
       const maxLoginAttempts = 40;
       let emailFilled = false;
       let emailWaitCount = 0;
+      let hasTypedEmail = false; // Flag to prevent false Welcome Back detection after we manually type the email
       let passwordFilled = false;
       let passwordWaitCount = 0;
       let passwordBlockCount = 0;
@@ -1456,16 +1457,23 @@ async function runWarmup() {
           }
           if (!emailFilled) {
             // 6a. Check if this is "Welcome back" screen with email pre-filled — use native click instead of fillEmail
-            const wbPrefilledCheck = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
-            const wbMethod = wbPrefilledCheck?.method || '';
-            const isWelcomeBackNative = wbPrefilledCheck?.ok && (
-              wbMethod.startsWith('native-actclick-continue') ||
-              wbMethod.startsWith('snapshot-clickref') ||
-              wbMethod === 'focus-input-press-enter' ||
-              wbMethod === 'native-press-enter' ||
-              wbMethod === 'welcome-back-prefilled-email-no-click'
-            );
-            if (isWelcomeBackNative) {
+            // ONLY check if we have not typed the email ourselves in this run to avoid false positive loops
+            let isWelcomeBackNative = false;
+            let wbPrefilledCheck = null;
+            
+            if (!hasTypedEmail) {
+              wbPrefilledCheck = await clickWelcomeBackContinue(tabId, USER_ID, account.email);
+              const wbMethod = wbPrefilledCheck?.method || '';
+              isWelcomeBackNative = wbPrefilledCheck?.ok && (
+                wbMethod.startsWith('native-actclick-continue') ||
+                wbMethod.startsWith('snapshot-clickref') ||
+                wbMethod === 'focus-input-press-enter' ||
+                wbMethod === 'native-press-enter' ||
+                wbMethod === 'welcome-back-prefilled-email-no-click'
+              );
+            }
+            
+            if (isWelcomeBackNative && wbPrefilledCheck) {
               // clickWelcomeBackContinue already handled via native actClick/actPress
               console.log(`[Warmup] 👤 Welcome Back (pre-filled email) - native click result: method=${wbPrefilledCheck.method}, transitioned=${wbPrefilledCheck.transitioned}`);
               lastLoginAction = `welcome-back-native-click:${wbPrefilledCheck.method}`;
@@ -1493,6 +1501,7 @@ async function runWarmup() {
               continue;
             }
             emailFilled = true;
+            hasTypedEmail = true; // Mark that we typed the email in this run
             emailWaitCount = 0;
             lastLoginAction = `fill-email:${fillResult?.strategy || 'unknown'}`;
             if (WARMUP_SCREENSHOTS && stepRecorder) {
